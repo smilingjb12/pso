@@ -1,0 +1,340 @@
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #111;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  color: #e8f0ff;
+  user-select: none;
+}
+#app {
+  position: fixed;
+  inset: 0;
+}
+canvas {
+  display: block;
+}
+
+.hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ---- status (bottom-left) ---- */
+.bar {
+  position: relative;
+  height: 16px;
+  margin-top: 4px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.bar .fill {
+  height: 100%;
+  transition: width 0.12s;
+}
+.bar.hp .fill {
+  background: linear-gradient(#5fe07a, #2e9a48);
+}
+.bar.hp .fill.low {
+  background: linear-gradient(#ff7060, #b02a20);
+}
+.bar.tp .fill {
+  background: linear-gradient(#6cb8ff, #2a62c8);
+}
+.bar-text {
+  position: absolute;
+  inset: 0;
+  font-size: 11px;
+  line-height: 16px;
+  padding-left: 6px;
+  text-shadow: 0 1px 2px #000;
+}
+
+/* ---- action palette (bottom-center) ---- */
+.action {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.pips {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.pip {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(160, 200, 255, 0.5);
+  background: rgba(0, 0, 0, 0.4);
+  transition: background 0.05s, box-shadow 0.05s;
+}
+.pip.on {
+  background: #6cc8ff;
+  border-color: #bfe6ff;
+}
+.pip.next {
+  background: #e8ffff;
+  border-color: #fff;
+  box-shadow: 0 0 12px 4px #8ff4ff;
+}
+.pip.broken {
+  border-color: #ff4a3a;
+  background: rgba(255, 60, 40, 0.4);
+}
+.pip.perfect {
+  background: #ffd25a;
+  border-color: #fff1c0;
+  box-shadow: 0 0 10px 2px rgba(255, 200, 80, 0.7);
+}
+
+/* ---- target (top-center) ---- */
+.target {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 300px;
+  padding: 6px 10px;
+  background: rgba(40, 10, 10, 0.6);
+  border: 1px solid rgba(255, 140, 120, 0.35);
+  border-radius: 5px;
+  display: none;
+}
+.target-name {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+/* Status badges right of the attribute tag: each ring is a clock of the time left. */
+.target-status {
+  float: right;
+  display: flex;
+  gap: 6px;
+  margin-top: 3px;
+}
+.target-status:not(:empty) {
+  padding-bottom: 10px;
+}
+/* Champions (Hard): a gold frame. */
+.target.champion {
+  border-color: rgba(255, 200, 80, 0.7);
+  box-shadow: 0 0 10px rgba(255, 190, 60, 0.35);
+}
+/* Elite affix chips under the name, in each affix's aura colour. */
+.target-affixes {
+  clear: both;
+}
+.affix-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.affix-chip {
+  padding: 1px 7px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c);
+  border: 1px solid var(--c);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.45);
+  text-shadow: 0 1px 2px #000;
+}
+.st {
+  --k: 1;
+  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  /* Empty wedge grows clockwise from 12 o'clock as the status runs out. */
+  background: conic-gradient(rgba(255, 255, 255, 0.1) calc((1 - var(--k)) * 1turn), var(--c) 0);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--c) 60%, transparent);
+}
+.st-glyph {
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: #120a0e;
+  display: grid;
+  place-items: center;
+}
+.st-glyph svg {
+  width: 15px;
+  height: 15px;
+}
+.st-sec {
+  position: absolute;
+  left: 50%;
+  bottom: -11px;
+  transform: translateX(-50%);
+  font-size: 9px;
+  line-height: 1;
+  color: var(--c);
+  text-shadow: 0 1px 2px #000;
+  font-variant-numeric: tabular-nums;
+}
+.st.ending {
+  animation: st-blink 0.16s steps(2) infinite;
+}
+@keyframes st-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+.st-stun {
+  --c: #ffe040;
+}
+.st-freeze {
+  --c: #8fd8ff;
+}
+.st-burn {
+  --c: #ff8a2a;
+}
+.st-poison {
+  --c: #6ad84a;
+}
+
+.reticle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 46px;
+  height: 46px;
+  border: 2px solid #ff5050;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #ff3030;
+  display: none;
+}
+.reticle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px;
+  background: #ff5050;
+  border-radius: 50%;
+}
+
+.kills {
+  position: absolute;
+  top: 18px;
+  left: 24px;
+  font-size: 14px;
+  color: #9cc8ff;
+}
+
+
+/* ---- combat log ---- */
+.log {
+  position: absolute;
+  left: 24px;
+  bottom: 120px;
+  width: 360px;
+  font-size: 12px;
+  font-family: Consolas, monospace;
+  text-shadow: 0 1px 2px #000;
+}
+.log-line {
+  opacity: 0.85;
+}
+.l-dim {
+  color: #8a8a8a;
+}
+.l-bad {
+  color: #ff7a6a;
+}
+.l-kill {
+  color: #ffd75a;
+}
+.l-proc {
+  color: #ff9a40;
+}
+.l-wave {
+  color: #8affd0;
+}
+
+/* ---- floating numbers ---- */
+.float {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-weight: 800;
+  font-size: 20px;
+  white-space: nowrap;
+  text-shadow:
+    0 0 3px #000,
+    0 2px 2px #000;
+  will-change: transform, opacity;
+}
+.float.dmg {
+  color: #fff;
+}
+.float.dmg.heavy {
+  color: #fff27a;
+  font-size: 26px;
+}
+.float.dmg.special {
+  color: #ffb070;
+}
+.float.burn {
+  color: #ff8a30;
+  font-size: 15px;
+}
+.float.proc {
+  color: #ff6a20;
+  font-size: 15px;
+  font-style: italic;
+}
+.float.miss {
+  color: #a0a0a0;
+  font-size: 16px;
+}
+.float.hurt {
+  color: #ff4a4a;
+  font-size: 24px;
+}
+.float.heal {
+  color: #6aff8a;
+}
+.float.poison {
+  color: #9aff50;
+  font-size: 15px;
+}
+.float.para {
+  color: #ffe040;
+  font-size: 18px;
+  letter-spacing: 0.08em;
+}
+.float.early {
+  color: #ff7060;
+  font-size: 13px;
+  font-style: italic;
+}
+.float.spell {
+  color: #ffe9c0;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+.float.perfect {
+  color: #ffd25a;
+  font-size: 14px;
+  font-style: italic;
+  letter-spacing: 0.06em;
+}
+
+.lil-gui.root {
+  z-index: 10;
+}

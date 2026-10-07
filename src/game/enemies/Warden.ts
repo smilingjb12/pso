@@ -1,0 +1,1124 @@
+import * as THREE from 'three';
+import { sfx, type SfxId } from '../../audio';
+import { warden as cfg, type HardBossScale, type Race } from '../config';
+import { separateCircles } from '../collision';
+import type { Hittable, StatusEffect } from '../combat/types';
+import { WARDEN_HAND_REST, WardenModel } from '../models/mines';
+import { Pillar, Ring } from '../world/Effects';
+import { glowTexture } from '../world/glow';
+import type { Level, Rect } from '../world/Level';
+import { inShape, type TelegraphShape } from '../world/Telegraph';
+import type { Boss, BossContext } from './Boss';
+import type { Enemy, TelegraphHandle } from './Enemy';
+import { RepairDrone, SparkMite } from './mineEnemies';
+
+// The Warden: the Mines boss. A colossus built into the north end of its hall; it
+// never moves. The deck in front of it is a grid of cells (`cell` m) and every
+// attack is about where to stand:
+//  - Floor patterns: waves of lit cells (checkerboard, stripes, bands, rings and,
+//    in phase 2, diagonals). Each wave's warning shows as the previous one fires,
+//    and every wave leaves a safe cell next to the last one. Afterwards its core
+//    vents: the damage window.
+//  - Laser wall: its starting line (with one gap) is shown, then it rips down the
+//    hall from the Warden in a moment: be in line with the gap (phase 2: a
+//    second wall follows with its gap elsewhere).
+//  - Lockdown: the cell you stand on (phase 2: and one more) turns into burning
+//    floor for good. Once `lockMax` zones are down it holds them a few seconds,
+//    then they all reset, so the deck never runs out of room.
+//  - Intake: it draws everyone toward its core while the rows nearest it fill up,
+//    then they blast. Walk (or dash) out against the pull.
+//  - Summon: Spark Mites (chase you and arm a small burning blast) and Repair
+//    Drones (park by the alcove and beam repairs into the core until shot down).
+//  - Hand slam: on anyone within `slamRange` of its alcove (phase 2: a pair, and
+//    a dash check).
+// Phase 2 at 50% HP (faster, longer patterns); enraged below 25% (shorter windups).
+
+type WState =
+  | 'dormant' | 'intro' | 'idle' | 'slamPrep' | 'slam' | 'pattern' | 'vent' | 'wallPrep' | 'wall' | 'lockPrep'
+  | 'intakePrep' | 'intake' | 'summon' | 'overclock' | 'dead';
+type Attack = 'slam' | 'pattern' | 'wall' | 'lockdown' | 'intake' | 'summon';
+type Pattern = (c: number, r: number, wave: number, cols: number, rows: number) => boolean;
+
+const BOSS_DOT_CAP = 8;
+const CELL_INSET = 0.15;
+const INTAKE_MOTES = 110;
+
+/** Is cell (c, r) lit on this wave? Row 0 is the one against the alcove. */
+const PATTERNS: Record<string, Pattern> = {
+  checker: (c, r, w) => (c + r + w) % 2 === 0,
+  stripes: (c, _r, w) => (c + w) % 2 === 0,
+  bands: (_c, r, w) => (r + w) % 2 === 0,
+  rings: (c, r, w, cols, rows) => (Math.min(c, r, cols - 1 - c, rows - 1 - r) + w) % 2 === 0,
+  // Two of every three diagonals: the safe one steps a cell toward the Warden each wave.
+  diagonals: (c, r, w) => (c + r + w) % 3 !== 0,
+};
+const PHASE1_PATTERNS = ['checker', 'stripes', 'bands', 'rings'];
+const PHASE2_PATTERNS = ['checker', 'stripes', 'bands', 'rings', 'diagonals', 'diagonals'];
+
+/** The core: the one part you can hit. */
+class WardenBody implements Hittable {
+  readonly pos = new THREE.Vector3();
+  readonly race: Race = 'machine';
+  readonly radius = cfg.bodyRadius;
+
+  constructor(private boss: Warden) {}
+
+  get name(): string {
+    return 'Warden';
+  }
+  get hp(): number {
+    return this.boss.hp;
+  }
+  set hp(_v: number) {
+    // Only damage() changes the boss HP.
+  }
+  get maxHp(): number {
+    return this.boss.maxHp;
+  }
+  get evp(): number {
+    return this.boss.evp;
+  }
+  get dfp(): number {
+    return this.boss.dfp;
+  }
+  get aimHeight(): number {
+    return 3.6;
+  }
+  get alive(): boolean {
+    return this.boss.alive;
+  }
+  get invulnerable(): boolean {
+    return this.boss.untouchable;
+  }
+  damage(amount: number): boolean {
+    return this.boss.damageBody(amount);
+  }
+  applyStatus(effect: StatusEffect, power: number, duration: number): void {
+    this.boss.applyStatus(effect, power, duration);
+  }
+  damageMult(): number {
+    return this.boss.bodyMult();
+  }
+}
+
+/** A locked-down cell: burning floor until the zones reset. */
+interface Zone {
+  group: THREE.Group;
+  decal: THREE.MeshBasicMaterial;
+  flames: THREE.Points;
+  pos: Float32Array;
+}
+
+export class Warden implements Boss {
+  readonly name = 'Warden';
+  readonly race: Race = 'machine';
+  readonly objects: THREE.Object3D[] = [];
+  readonly maxHp: number;
+  readonly injectorCharge = cfg.charge;
+  hp: number;
+  state: WState = 'dormant';
+  stateT = 0;
+  deadT = 0;
+  phase: 1 | 2 = 1;
+  onDot: ((target: Hittable, damage: number) => void) | null = null;
+
+  private model = new WardenModel();
+  private body: WardenBody;
+  // The hall: deck from `front` (the alcove's edge) to `back`, `cols` x `rows` cells.
+  private cx: number;
+  private rootZ: number;
+  private x0: number;
+  private x1: number;
+  private front: number;
+  private back: number;
+  private cols: number;
+  private rows: number;
+  private cw: number;
+  private ch: number;
+
+  private time = 0;
+  private flashT = 0;
+  private gap = cfg.attackGap;
+  private lastAttack: Attack | null = null;
+  private announcedEnrage = false;
+  private taughtVent = false;
+  private pending: TelegraphHandle[] = [];
+  private dotT = 0;
+  private dotLeft = 0;
+  private dotDps = 0;
+  // Pose state (hands in model space).
+  private charge = 0;
+  private cast = 0;
+  private coreOpen = 0;
+  private handL = new THREE.Vector3(-WARDEN_HAND_REST.x, WARDEN_HAND_REST.y, WARDEN_HAND_REST.z);
+  private handR = WARDEN_HAND_REST.clone();
+  private goalL = this.handL.clone();
+  private goalR = this.handR.clone();
+  // Slam.
+  private slamSide = 1;
+  private slamX = 0;
+  private slamZ = 0;
+  private slamsLeft = 0;
+  // Floor patterns.
+  private pattern: Pattern = PATTERNS.checker;
+  private patternName = '';
+  private patternShift = 0;
+  private wave = 0;
+  private waves = 0;
+  private waveW = 1;
+  private waveT = 0;
+  private lit: number[] = [];
+  private flashes: { mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>; t: number }[] = [];
+  // Laser wall.
+  private wallGroup = new THREE.Group();
+  private wallSegs: THREE.Mesh<THREE.BoxGeometry, THREE.MeshBasicMaterial>[] = [];
+  private wallFrom = 0;
+  private wallTo = 0;
+  private wallGap = 0;
+  private wallPrevZ = 0;
+  private wallHit = false;
+  private wallsLeft = 0;
+  // Intake.
+  private intakeShape: TelegraphShape | null = null;
+  private intakeK = 0;
+  private motes: THREE.Points;
+  private motePos = new Float32Array(INTAKE_MOTES * 3);
+  // Adds.
+  private adds: Enemy[] = [];
+  private summons = 0;
+  private summoned = false;
+  private taughtRepair = false;
+  private beams: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial>[] = [];
+  // Lockdown.
+  private zones = new Map<number, Zone>();
+  private lockCells: number[] = [];
+  private lockW = 1;
+  /** Hard pairs: a hand slam riding on a laser wall, and a lockdown called during a pattern. */
+  private pairSlam: { x: number; z: number; side: number; downT: number } | null = null;
+  private pairLock = false;
+  private holdT = 0;
+  private zoneTickT = 0;
+  private zoneTicks = 0;
+  private fx = new THREE.Group();
+
+  constructor(
+    arena: Rect,
+    /** Hard mode scaling (null on Normal). */
+    readonly hard: HardBossScale | null = null,
+  ) {
+    this.maxHp = Math.round(cfg.hp * (hard?.hp ?? 1));
+    this.hp = this.maxHp;
+    this.x0 = arena.minX;
+    this.x1 = arena.maxX;
+    this.cx = (arena.minX + arena.maxX) / 2;
+    this.front = arena.minZ + cfg.alcove;
+    this.back = arena.maxZ;
+    this.rootZ = arena.minZ + cfg.alcove / 2;
+    this.cols = Math.max(1, Math.round((this.x1 - this.x0) / cfg.cell));
+    this.rows = Math.max(1, Math.round((this.back - this.front) / cfg.cell));
+    this.cw = (this.x1 - this.x0) / this.cols;
+    this.ch = (this.back - this.front) / this.rows;
+    this.body = new WardenBody(this);
+    this.body.pos.set(this.cx, 0, this.front - 1.4);
+    this.objects.push(this.model.root, this.fx);
+
+    // One flash plate per cell for the pattern discharges.
+    for (let i = 0; i < this.cols * this.rows; i++) {
+      const [x, z] = this.cellCentre(i);
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(this.cw - CELL_INSET * 2, this.ch - CELL_INSET * 2).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: 0xffb070, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }),
+      );
+      mesh.position.set(x, 0.06, z);
+      mesh.visible = false;
+      this.fx.add(mesh);
+      this.flashes.push({ mesh, t: 0 });
+    }
+    // The laser wall: two tall panels either side of the gap.
+    for (let i = 0; i < 2; i++) {
+      const seg = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 3.2, 0.3),
+        new THREE.MeshBasicMaterial({ color: 0xff3a30, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }),
+      );
+      seg.position.y = 1.6;
+      this.wallSegs.push(seg);
+      this.wallGroup.add(seg);
+    }
+    this.wallGroup.visible = false;
+    this.fx.add(this.wallGroup);
+    // Intake: motes streaming across the deck into the core.
+    for (let i = 0; i < INTAKE_MOTES; i++) this.respawnMote(i, Math.random);
+    const moteGeo = new THREE.BufferGeometry();
+    moteGeo.setAttribute('position', new THREE.BufferAttribute(this.motePos, 3));
+    this.motes = new THREE.Points(
+      moteGeo,
+      new THREE.PointsMaterial({ map: glowTexture(), color: 0xbfe8ff, size: 0.3, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }),
+    );
+    this.motes.frustumCulled = false;
+    this.motes.visible = false;
+    this.fx.add(this.motes);
+    // Repair beams from drones to the core.
+    for (let i = 0; i < cfg.maxDrones; i++) {
+      const beam = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.08, 1, 6, 1, true),
+        new THREE.MeshBasicMaterial({ color: 0x60ffb0, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending }),
+      );
+      beam.visible = false;
+      this.fx.add(beam);
+      this.beams.push(beam);
+    }
+    this.place();
+  }
+
+  // ---------------------------------------------------------------- Boss
+
+  get atp(): number {
+    return cfg.atp + (this.hard?.atp ?? 0);
+  }
+  get ata(): number {
+    return cfg.ata + (this.hard?.ata ?? 0);
+  }
+  get dfp(): number {
+    return cfg.dfp + (this.hard?.dfp ?? 0);
+  }
+  get evp(): number {
+    return cfg.evp + (this.hard?.evp ?? 0);
+  }
+  /** Flat (non-ATP) damage: laser wall, lockdown zones. One place to scale it. */
+  private flat(damage: number): number {
+    return Math.round(damage * (this.hard?.flat ?? 1));
+  }
+  get alive(): boolean {
+    return this.state !== 'dead';
+  }
+  get engaged(): boolean {
+    return this.state !== 'dormant';
+  }
+  get weakPointOpen(): boolean {
+    return this.state === 'vent';
+  }
+  get enraged(): boolean {
+    return this.hp / this.maxHp <= cfg.enrageAt;
+  }
+  /** Shown after the name on the boss bar. */
+  get hudNote(): string {
+    let note = '';
+    if (this.adds.some((e) => e instanceof RepairDrone && e.alive && e.repairing)) note += '  — REPAIRING';
+    const n = this.zones.size;
+    if (n) note += `  — LOCKDOWN ${n}/${cfg.lockMax}${n >= cfg.lockMax ? ` (reset in ${Math.ceil(this.holdT)})` : ''}`;
+    return note;
+  }
+  /** Nothing can be hurt (asleep, booting, dead). */
+  get untouchable(): boolean {
+    return this.state === 'dormant' || this.state === 'intro' || this.state === 'dead';
+  }
+  parts(): Hittable[] {
+    return [this.body];
+  }
+  owns(h: Hittable): boolean {
+    return h === this.body;
+  }
+
+  collide(playerPos: THREE.Vector3, playerRadius: number, level: Level): void {
+    separateCircles(playerPos, playerRadius, 1, this.body.pos, cfg.bodyRadius, 1e6);
+    // The alcove is the Warden's: the deck ends at its edge.
+    if (playerPos.z < this.front + playerRadius) playerPos.z = this.front + playerRadius;
+    level.resolveCircle(playerPos, playerRadius);
+  }
+
+  // -------------------------------------------------------------- damage
+
+  bodyMult(): number {
+    return this.state === 'vent' ? cfg.ventMult : 1;
+  }
+
+  damageBody(amount: number): boolean {
+    if (!this.alive || this.untouchable) return false;
+    this.flashT = 0.08;
+    this.hp -= amount;
+    if (this.hp <= 0) {
+      this.hp = 0;
+      this.enter('dead');
+      this.sound('boss.die');
+      for (const h of this.pending) h.cancel();
+      this.pending = [];
+      this.wallGroup.visible = false;
+      this.motes.visible = false;
+      this.clearZones();
+      // Its adds shut down with it.
+      for (const e of this.adds) if (e.alive) e.vanish();
+      this.adds = [];
+      for (const b of this.beams) b.visible = false;
+      return true;
+    }
+    return false;
+  }
+
+  applyStatus(effect: StatusEffect, power: number, duration: number): void {
+    if (effect !== 'burn' && effect !== 'poison') return;
+    const dps = effect === 'poison' ? Math.min(BOSS_DOT_CAP, this.maxHp * power) : Math.min(BOSS_DOT_CAP * 1.5, power);
+    this.dotDps = Math.max(this.dotDps, dps);
+    this.dotLeft = Math.max(this.dotLeft, duration);
+  }
+
+  // --------------------------------------------------------------- cells
+
+  private cellCentre(i: number): [number, number] {
+    const c = i % this.cols;
+    const r = Math.floor(i / this.cols);
+    return [this.x0 + (c + 0.5) * this.cw, this.front + (r + 0.5) * this.ch];
+  }
+
+  /** A cell as a telegraph shape, inset a little so neighbours read apart. */
+  private cellShape(i: number, inset = CELL_INSET): TelegraphShape {
+    const [x] = this.cellCentre(i);
+    const r = Math.floor(i / this.cols);
+    return { kind: 'line', x, z: this.front + r * this.ch + inset, yaw: 0, length: this.ch - inset * 2, width: this.cw - inset * 2 };
+  }
+
+  /** The cell under a point (clamped onto the deck). */
+  private cellAt(x: number, z: number): number {
+    const c = THREE.MathUtils.clamp(Math.floor((x - this.x0) / this.cw), 0, this.cols - 1);
+    const r = THREE.MathUtils.clamp(Math.floor((z - this.front) / this.ch), 0, this.rows - 1);
+    return r * this.cols + c;
+  }
+
+  // -------------------------------------------------------------- update
+
+  private enter(s: WState): void {
+    this.state = s;
+    this.stateT = 0;
+  }
+
+  private sound(id: SfxId, x = this.body.pos.x, z = this.body.pos.z, arg?: number): void {
+    sfx(id, { x, z, arg });
+  }
+
+  /** Windup multiplier: shorter when enraged. */
+  private sm(): number {
+    return this.enraged ? cfg.enrageSpeed : 1;
+  }
+
+  private warn(ctx: BossContext, shape: TelegraphShape, dur: number, color: number, onFire: () => void = () => {}, dash = false): void {
+    this.pending.push(ctx.telegraph(shape, dur, onFire, color, dash));
+  }
+
+  /** World point to the model's space (for the hands). */
+  private local(out: THREE.Vector3, x: number, y: number, z: number): THREE.Vector3 {
+    return out.set(x - this.cx, y, z - this.rootZ);
+  }
+
+  private restHands(lift = 0): void {
+    const bob = Math.sin(this.time * 0.9) * 0.12;
+    this.goalL.set(-WARDEN_HAND_REST.x, WARDEN_HAND_REST.y + lift + bob, WARDEN_HAND_REST.z);
+    this.goalR.set(WARDEN_HAND_REST.x, WARDEN_HAND_REST.y + lift - bob, WARDEN_HAND_REST.z);
+  }
+
+  update(dt: number, ctx: BossContext): void {
+    this.time += dt;
+    this.stateT += dt;
+    this.flashT = Math.max(0, this.flashT - dt);
+    this.updateFlashes(dt);
+
+    if (this.state === 'dead') {
+      this.deadT += dt;
+      this.restHands(-0.3);
+      this.smooth(dt, 0, 0, 0, 2);
+      this.place();
+      return;
+    }
+
+    // Damage over time.
+    if (this.dotLeft > 0) {
+      this.dotLeft -= dt;
+      this.dotT += dt;
+      if (this.dotT >= 0.5) {
+        this.dotT -= 0.5;
+        if (!this.untouchable) this.onDot?.(this.body, Math.max(1, Math.round(this.dotDps * 0.5)));
+      }
+    }
+    if (!this.alive) return;
+    this.updateZones(dt, ctx);
+    this.updateAdds(dt, ctx);
+    this.updateMotes(dt);
+
+    if (this.phase === 1 && this.hp <= this.maxHp * cfg.phase2At && this.state === 'idle') this.startOverclock(ctx);
+    if (this.enraged && !this.announcedEnrage && this.phase === 2) {
+      this.announcedEnrage = true;
+      ctx.announce('The Warden is enraged!');
+      this.sound('warden.boot');
+    }
+
+    let charge = 0;
+    let cast = 0;
+    let coreOpen = 0;
+    let handRate = 3;
+    this.restHands();
+
+    switch (this.state) {
+      case 'dormant':
+        if (ctx.playerAlive && this.stateT > 1.2) {
+          this.enter('intro');
+          ctx.announce('THE WARDEN');
+          ctx.shake(0.4);
+          this.sound('warden.boot');
+        }
+        break;
+
+      case 'intro':
+        charge = Math.min(1, this.stateT / 2);
+        this.restHands(Math.sin(Math.min(1, this.stateT / 3) * Math.PI) * 2.5);
+        if (this.stateT > 3) {
+          this.gap = 1;
+          this.enter('idle');
+        }
+        break;
+
+      case 'idle':
+        if (this.stateT >= this.gap) this.chooseAttack(ctx);
+        break;
+
+      // ---------------------------------------------------------- hand slam
+      case 'slamPrep':
+        charge = 1;
+        handRate = 4;
+        this.local(this.slamSide < 0 ? this.goalL : this.goalR, this.slamX, 6.5, this.slamZ);
+        break; // the telegraph moves us on
+      case 'slam':
+        handRate = 20;
+        this.local(this.slamSide < 0 ? this.goalL : this.goalR, this.slamX, WARDEN_HAND_REST.y, this.slamZ);
+        if (this.stateT >= 0.6) {
+          if (this.slamsLeft > 0) {
+            this.slamsLeft--;
+            this.startSlam(ctx);
+          } else this.endAttack();
+        }
+        break;
+
+      // ------------------------------------------------------ floor pattern
+      case 'pattern':
+        cast = 1;
+        charge = 0.5;
+        this.goalL.set(-7.5, 6.5 + Math.sin(this.time * 3) * 0.3, 4.5);
+        this.goalR.set(7.5, 6.5 - Math.sin(this.time * 3) * 0.3, 4.5);
+        this.waveT += dt;
+        if (this.waveT >= this.waveW) {
+          this.fireWave(ctx);
+          this.wave++;
+          if (this.wave < this.waves) {
+            this.startWave(ctx);
+            if (this.pairLock && this.wave === 1) this.pairLockdown(ctx);
+          } else this.startVent(ctx);
+        }
+        break;
+      case 'vent':
+        coreOpen = 1;
+        this.restHands(-0.2);
+        if (this.stateT >= cfg.ventTime) {
+          this.sound('warden.boot', this.body.pos.x, this.body.pos.z, 0.6);
+          this.endAttack();
+        }
+        break;
+
+      // --------------------------------------------------------- laser wall
+      case 'wallPrep':
+        charge = 1;
+        this.posePairSlam(dt, (h) => (handRate = h));
+        break; // the telegraph moves us on
+      case 'wall': {
+        charge = 0.6;
+        this.posePairSlam(dt, (h) => (handRate = h));
+        const k = Math.min(1, this.stateT / cfg.wallTime);
+        const z = this.wallFrom + (this.wallTo - this.wallFrom) * k;
+        this.showWall(z, this.wallGap);
+        // It moves several metres a frame: test the whole stretch it swept.
+        const lo = Math.min(this.wallPrevZ, z) - 0.5;
+        const hi = Math.max(this.wallPrevZ, z) + 0.5;
+        this.wallPrevZ = z;
+        if (!this.wallHit && ctx.playerAlive && ctx.playerZ >= lo && ctx.playerZ <= hi && Math.abs(ctx.playerX - this.wallGap) > cfg.wallGap / 2 - 0.3) {
+          this.wallHit = true;
+          // Shoved along the way the wall travels.
+          ctx.hazardHit(this.flat(cfg.wallDamage), ctx.playerX, ctx.playerZ - 1, 9, 'Laser wall');
+          ctx.burnPlayer(cfg.wallBurn);
+        }
+        if (k >= 1) {
+          this.wallGroup.visible = false;
+          ctx.shake(0.2);
+          if (this.wallsLeft > 0) {
+            this.wallsLeft--;
+            this.startWall(ctx, true);
+          } else this.endAttack();
+        }
+        break;
+      }
+
+      // ------------------------------------------------------------- intake
+      case 'intakePrep':
+        charge = Math.min(1, this.stateT / cfg.intakeWindup);
+        this.intakeK = charge * 0.3;
+        if (this.stateT >= cfg.intakeWindup * this.sm()) {
+          this.enter('intake');
+          this.sound('warden.reroute', this.body.pos.x, this.body.pos.z, 0.7);
+        }
+        break;
+      case 'intake': {
+        charge = 1;
+        coreOpen = 0.35;
+        this.intakeK = 1;
+        this.restHands(2);
+        const pl = ctx.body();
+        if (pl.alive) {
+          // Drawn toward the core; walking out is slow, dashing helps.
+          const dx = this.cx - pl.pos.x;
+          const dz = this.front - pl.pos.z;
+          const d = Math.hypot(dx, dz) || 1;
+          const step = (this.phase === 2 ? cfg.intakePull2 : cfg.intakePull) * dt;
+          pl.pos.x += (dx / d) * step;
+          pl.pos.z += (dz / d) * step;
+        }
+        if (this.stateT >= cfg.intakeTime) this.fireIntake(ctx);
+        break;
+      }
+
+      // ------------------------------------------------------------- summon
+      case 'summon':
+        charge = 0.8;
+        this.goalL.set(-6, WARDEN_HAND_REST.y, 4.2);
+        this.goalR.set(6, WARDEN_HAND_REST.y, 4.2);
+        handRate = 6;
+        if (!this.summoned && this.stateT >= 0.6) this.summon(ctx);
+        if (this.stateT >= 1.3) this.endAttack();
+        break;
+
+      // ----------------------------------------------------------- lockdown
+      case 'lockPrep': {
+        charge = 0.8;
+        const [x, z] = this.cellCentre(this.lockCells[0]);
+        const side = x < this.cx ? -1 : 1;
+        this.local(side < 0 ? this.goalL : this.goalR, x, 4.5, z);
+        if (this.stateT >= this.lockW) {
+          for (const c of this.lockCells) this.ignite(c, ctx);
+          this.endAttack();
+        }
+        break;
+      }
+
+      case 'overclock':
+        charge = 0.5 + Math.sin(this.time * 20) * 0.5;
+        this.restHands(1.2);
+        if (this.stateT >= 2.4) {
+          this.endAttack();
+          this.gap = 1.2;
+        }
+        break;
+    }
+
+    this.smooth(dt, charge, cast, coreOpen, handRate);
+    this.place();
+  }
+
+  private smooth(dt: number, charge: number, cast: number, coreOpen: number, handRate: number): void {
+    this.charge += (charge - this.charge) * Math.min(1, dt * 5);
+    this.cast += (cast - this.cast) * Math.min(1, dt * 4);
+    this.coreOpen += (coreOpen - this.coreOpen) * Math.min(1, dt * 6);
+    const k = Math.min(1, dt * handRate);
+    this.handL.lerp(this.goalL, k);
+    this.handR.lerp(this.goalR, k);
+  }
+
+  private endAttack(): void {
+    this.gap = (this.phase === 2 ? cfg.attackGap2 : cfg.attackGap) * this.sm();
+    this.pending = [];
+    this.pairSlam = null;
+    this.enter('idle');
+  }
+
+  private chooseAttack(ctx: BossContext): void {
+    let pick: Attack;
+    // Too close to its alcove: it swats you away.
+    if (ctx.playerZ - this.front < cfg.slamRange && this.lastAttack !== 'slam' && ctx.rng() < 0.6) {
+      pick = 'slam';
+    } else {
+      // Patterns (and their vent) come up twice as often as the rest.
+      const pool = (['pattern', 'pattern', 'wall', 'lockdown', 'intake', 'summon'] as Attack[]).filter(
+        (a) =>
+          a !== this.lastAttack &&
+          !(a === 'lockdown' && this.zones.size >= cfg.lockMax) &&
+          !(a === 'summon' && this.miteRoom() <= 0 && this.droneRoom() <= 0),
+      );
+      pick = pool[Math.floor(ctx.rng() * pool.length)];
+    }
+    this.lastAttack = pick;
+    switch (pick) {
+      case 'slam':
+        this.slamsLeft = this.phase === 2 ? 1 : 0;
+        this.startSlam(ctx);
+        break;
+      case 'pattern':
+        this.startPattern(ctx);
+        this.pairLock = this.hardPair && this.zones.size < cfg.lockMax;
+        break;
+      case 'wall':
+        this.wallsLeft = this.phase === 2 ? 1 : 0;
+        this.startWall(ctx, false);
+        if (this.hardPair) this.startPairSlam(ctx);
+        break;
+      case 'lockdown':
+        this.startLock(ctx);
+        break;
+      case 'intake':
+        this.startIntake(ctx);
+        break;
+      case 'summon':
+        this.enter('summon');
+        this.summoned = false;
+        this.sound('warden.charge', this.cx, this.front, 1.2);
+        break;
+    }
+  }
+
+  // ------------------------------------------------------------ attacks
+
+  private startSlam(ctx: BossContext): void {
+    this.enter('slamPrep');
+    this.slamSide = ctx.playerX < this.cx ? -1 : 1;
+    // Each hand covers its own half of the deck near the alcove.
+    const lo = this.slamSide < 0 ? this.x0 + 2 : this.cx + 1;
+    const hi = this.slamSide < 0 ? this.cx - 1 : this.x1 - 2;
+    this.slamX = THREE.MathUtils.clamp(ctx.playerX, lo, hi);
+    this.slamZ = THREE.MathUtils.clamp(ctx.playerZ, this.front + 1.5, this.front + cfg.slamRange);
+    const shape: TelegraphShape = { kind: 'circle', x: this.slamX, z: this.slamZ, radius: cfg.slamRadius };
+    const p2 = this.phase === 2;
+    this.sound('warden.charge', this.slamX, this.slamZ);
+    this.warn(ctx, shape, (p2 ? cfg.slamWindup2 : cfg.slamWindup) * this.sm(), 0xff3a20, () => {
+      if (this.state !== 'slamPrep') return;
+      this.enter('slam');
+      (this.slamSide < 0 ? this.handL : this.handR).y = 2;
+      ctx.hitPlayer(shape, cfg.slamAtpMult, this.slamX, this.slamZ, 12);
+      ctx.effect(new Ring(this.slamX, this.slamZ, 0xffa040, cfg.slamRadius, 0.4));
+      ctx.shake(0.45);
+      this.sound('boss.slam', this.slamX, this.slamZ);
+    }, p2);
+  }
+
+  private startPattern(ctx: BossContext): void {
+    const names = (this.phase === 2 ? PHASE2_PATTERNS : PHASE1_PATTERNS).filter((n) => n !== this.patternName);
+    this.patternName = names[Math.floor(ctx.rng() * names.length)];
+    this.pattern = PATTERNS[this.patternName];
+    this.patternShift = ctx.rng() < 0.5 ? 0 : 1;
+    this.waves = this.phase === 2 ? cfg.patternWaves2 : cfg.patternWaves;
+    this.waveW = (this.phase === 2 ? cfg.patternWindup2 : cfg.patternWindup) * this.sm();
+    this.wave = 0;
+    this.enter('pattern');
+    this.sound('warden.charge', this.cx, this.front + 6, 0.8);
+    this.startWave(ctx);
+  }
+
+  /** Light up the next wave's cells; they fire after waveW. */
+  private startWave(ctx: BossContext): void {
+    this.waveT = 0;
+    this.lit = [];
+    for (let i = 0; i < this.cols * this.rows; i++) {
+      const c = i % this.cols;
+      const r = Math.floor(i / this.cols);
+      if (!this.pattern(c, r, this.wave + this.patternShift, this.cols, this.rows)) continue;
+      this.lit.push(i);
+      this.warn(ctx, this.cellShape(i), this.waveW, 0xff4020);
+    }
+  }
+
+  private fireWave(ctx: BossContext): void {
+    const centre = this.front + (this.back - this.front) / 2;
+    this.sound('warden.zap', this.cx, centre);
+    ctx.shake(0.12);
+    let hitShape: TelegraphShape | null = null;
+    let hx = 0;
+    let hz = 0;
+    for (const i of this.lit) {
+      const f = this.flashes[i];
+      f.t = 0.35;
+      f.mesh.visible = true;
+      const [x, z] = this.cellCentre(i);
+      if ((i + this.wave) % 2 === 0) ctx.effect(new Pillar(x, z, 0xff8a50, 0.3, 0.25, 5));
+      const shape = this.cellShape(i);
+      if (!hitShape && ctx.playerAlive && inShape(shape, ctx.playerX, ctx.playerZ, 0.25)) {
+        hitShape = shape;
+        hx = x;
+        hz = z;
+      }
+    }
+    if (hitShape) ctx.hitPlayer(hitShape, cfg.patternAtpMult, hx, hz, 5);
+  }
+
+  private startVent(ctx: BossContext): void {
+    this.enter('vent');
+    this.sound('warden.vent');
+    if (!this.taughtVent) {
+      this.taughtVent = true;
+      ctx.announce('Its core is venting: strike now!');
+    }
+  }
+
+  private updateFlashes(dt: number): void {
+    for (const f of this.flashes) {
+      if (!f.mesh.visible) continue;
+      f.t -= dt;
+      if (f.t <= 0) f.mesh.visible = false;
+      else f.mesh.material.opacity = (f.t / 0.35) * 0.85;
+    }
+  }
+
+  /** A wall from the Warden's side; `follow`: phase 2's second one, its gap 5-8 m from the first. */
+  private startWall(ctx: BossContext, follow: boolean): void {
+    this.enter('wallPrep');
+    this.wallHit = false;
+    this.wallFrom = this.front + 0.5;
+    this.wallTo = this.back - 0.5;
+    this.wallPrevZ = this.wallFrom;
+    const half = (this.x1 - this.x0) / 2 - cfg.wallGap / 2 - 0.5;
+    const lo = this.cx - half;
+    const hi = this.cx + half;
+    if (follow) {
+      const shift = 5 + ctx.rng() * 3;
+      const left = this.wallGap - shift;
+      const right = this.wallGap + shift;
+      this.wallGap = left < lo ? right : right > hi ? left : ctx.rng() < 0.5 ? left : right;
+      this.wallGap = THREE.MathUtils.clamp(this.wallGap, lo, hi);
+    } else {
+      this.wallGap = lo + ctx.rng() * (hi - lo);
+    }
+    this.showWall(this.wallFrom, this.wallGap);
+    for (const seg of this.wallSegs) seg.material.opacity = 0.25;
+    // Warning: the wall's starting line, with the gap marked by its absence.
+    const ga = this.wallGap - cfg.wallGap / 2;
+    const gb = this.wallGap + cfg.wallGap / 2;
+    const dur = (follow ? cfg.wallWindup2 : cfg.wallWindup) * this.sm();
+    const zLine = this.wallFrom;
+    this.warn(ctx, { kind: 'line', x: this.x0, z: zLine, yaw: Math.PI / 2, length: ga - this.x0, width: 1.2 }, dur, 0xff3020);
+    this.warn(ctx, { kind: 'line', x: gb, z: zLine, yaw: Math.PI / 2, length: this.x1 - gb, width: 1.2 }, dur, 0xff3020, () => {
+      if (this.state !== 'wallPrep') return;
+      this.enter('wall');
+    });
+    this.sound('warden.grid', this.cx, zLine);
+  }
+
+  /** Hard, phase 2: attacks come in pairs. */
+  private get hardPair(): boolean {
+    return !!this.hard && this.phase === 2;
+  }
+
+  /**
+   * Hard pair: a hand slams down on you while the first wall's warning is up. It lands before the
+   * wall sets off, and never on the gap's lane: stepping toward the gap clears both.
+   */
+  private startPairSlam(ctx: BossContext): void {
+    const keep = cfg.wallGap / 2 + cfg.slamRadius + 0.5;
+    let x = ctx.playerX;
+    if (Math.abs(x - this.wallGap) < keep) x = this.wallGap + (x < this.wallGap ? -keep : keep);
+    if (x < this.x0 + 1.5 || x > this.x1 - 1.5) return; // no room beside the lane: the wall comes alone
+    const z = THREE.MathUtils.clamp(ctx.playerZ, this.front + 2, this.back - 2);
+    const side = x < this.cx ? -1 : 1;
+    this.pairSlam = { x, z, side, downT: -1 };
+    const shape: TelegraphShape = { kind: 'circle', x, z, radius: cfg.slamRadius };
+    this.sound('warden.charge', x, z);
+    this.warn(ctx, shape, cfg.slamWindup * this.sm(), 0xff3a20, () => {
+      if (!this.pairSlam) return;
+      this.pairSlam.downT = 0;
+      (side < 0 ? this.handL : this.handR).y = 2;
+      ctx.hitPlayer(shape, cfg.slamAtpMult, x, z, 12);
+      ctx.effect(new Ring(x, z, 0xffa040, cfg.slamRadius, 0.4));
+      ctx.shake(0.45);
+      this.sound('boss.slam', x, z);
+    });
+  }
+
+  /** The paired slam's hand: raised over its target, then down for a moment after it lands. */
+  private posePairSlam(dt: number, setRate: (r: number) => void): void {
+    const s = this.pairSlam;
+    if (!s) return;
+    if (s.downT >= 0) {
+      s.downT += dt;
+      if (s.downT > 0.6) {
+        this.pairSlam = null;
+        return;
+      }
+    }
+    setRate(s.downT >= 0 ? 20 : 4);
+    this.local(s.side < 0 ? this.goalL : this.goalR, s.x, s.downT >= 0 ? WARDEN_HAND_REST.y : 6.5, s.z);
+  }
+
+  /** Hard pair: early in a pattern, the cell you stand on is locked down too (it ignites on its own). */
+  private pairLockdown(ctx: BossContext): void {
+    this.pairLock = false;
+    const cell = this.cellAt(ctx.playerX, ctx.playerZ);
+    if (this.zones.has(cell) || this.zones.size >= cfg.lockMax) return;
+    const [x, z] = this.cellCentre(cell);
+    this.sound('warden.charge', x, z, 0.8);
+    this.warn(ctx, this.cellShape(cell), cfg.lockWindup * this.sm(), 0xff8a20, () => {
+      if (this.alive) this.ignite(cell, ctx);
+    });
+  }
+
+  /** Place the laser wall at depth `z` with its gap centred on `g`. */
+  private showWall(z: number, g: number): void {
+    const half = cfg.wallGap / 2;
+    this.wallGroup.visible = true;
+    this.wallGroup.position.set(0, 0, z);
+    const spans: [number, number][] = [[this.x0, g - half], [g + half, this.x1]];
+    this.wallSegs.forEach((seg, i) => {
+      const [a, b] = spans[i];
+      seg.scale.x = Math.max(0.05, b - a);
+      seg.position.x = (a + b) / 2;
+      if (this.state === 'wall') seg.material.opacity = 0.5 + Math.sin(this.time * 30 + i) * 0.1;
+    });
+  }
+
+  private startLock(ctx: BossContext): void {
+    const free = (i: number) => !this.zones.has(i);
+    const here = this.cellAt(ctx.playerX, ctx.playerZ);
+    let first = here;
+    if (!free(first)) {
+      // Already burning under you: the nearest free cell instead.
+      let best = Infinity;
+      for (let i = 0; i < this.cols * this.rows; i++) {
+        if (!free(i)) continue;
+        const [x, z] = this.cellCentre(i);
+        const d = Math.hypot(x - ctx.playerX, z - ctx.playerZ);
+        if (d < best) {
+          best = d;
+          first = i;
+        }
+      }
+    }
+    this.lockCells = [first];
+    if (this.phase === 2 && this.zones.size + 2 <= cfg.lockMax) {
+      const others: number[] = [];
+      for (let i = 0; i < this.cols * this.rows; i++) if (free(i) && i !== first) others.push(i);
+      if (others.length) this.lockCells.push(others[Math.floor(ctx.rng() * others.length)]);
+    }
+    this.lockW = cfg.lockWindup * this.sm();
+    for (const c of this.lockCells) this.warn(ctx, this.cellShape(c), this.lockW, 0xff8a20);
+    const [x, z] = this.cellCentre(first);
+    this.sound('warden.charge', x, z, 0.8);
+    this.enter('lockPrep');
+  }
+
+  /** Turn a cell into burning floor. */
+  private ignite(cell: number, ctx: BossContext): void {
+    if (this.zones.has(cell)) return;
+    const [x, z] = this.cellCentre(cell);
+    const w = this.cw - CELL_INSET * 2;
+    const d = this.ch - CELL_INSET * 2;
+    const group = new THREE.Group();
+    group.position.set(x, 0, z);
+    const decal = new THREE.MeshBasicMaterial({ color: 0xff5a18, transparent: true, opacity: 0.4, depthWrite: false, blending: THREE.AdditiveBlending });
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2), decal);
+    plate.position.y = 0.04;
+    group.add(plate);
+    // A bright frame so the zone's edge is easy to read.
+    const frameMat = new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending });
+    for (const [fw, fd, fx, fz] of [[w, 0.12, 0, -d / 2], [w, 0.12, 0, d / 2], [0.12, d, -w / 2, 0], [0.12, d, w / 2, 0]]) {
+      const bar = new THREE.Mesh(new THREE.PlaneGeometry(fw, fd).rotateX(-Math.PI / 2), frameMat);
+      bar.position.set(fx, 0.045, fz);
+      group.add(bar);
+    }
+    const n = 46;
+    const pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) pos.set([(Math.random() - 0.5) * w, Math.random() * 1.4, (Math.random() - 0.5) * d], i * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const flames = new THREE.Points(geo, new THREE.PointsMaterial({ map: glowTexture(), color: 0xff8a30, size: 0.45, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    group.add(flames);
+    this.fx.add(group);
+    this.zones.set(cell, { group, decal, flames, pos });
+    this.sound('warden.ignite', x, z, 0.6);
+    ctx.effect(new Ring(x, z, 0xff8a30, Math.max(w, d) * 0.6, 0.35));
+    if (this.zones.size >= cfg.lockMax) this.holdT = cfg.lockHold;
+  }
+
+  private updateZones(dt: number, ctx: BossContext): void {
+    if (!this.zones.size) return;
+    for (const z of this.zones.values()) {
+      z.decal.opacity = 0.34 + Math.sin(this.time * 7 + z.group.position.x) * 0.08;
+      for (let i = 0; i < z.pos.length; i += 3) {
+        let y = z.pos[i + 1] + dt * 1.8;
+        if (y > 1.5) y -= 1.5;
+        z.pos[i + 1] = y;
+      }
+      z.flames.geometry.attributes.position.needsUpdate = true;
+    }
+    // Standing in a zone: damage every half second, Burn every second.
+    this.zoneTickT += dt;
+    if (this.zoneTickT >= 0.5) {
+      this.zoneTickT -= 0.5;
+      const cell = this.cellAt(ctx.playerX, ctx.playerZ);
+      const shape = this.cellShape(cell, 0);
+      if (ctx.playerAlive && this.zones.has(cell) && inShape(shape, ctx.playerX, ctx.playerZ, 0)) {
+        const [x, z] = this.cellCentre(cell);
+        ctx.tickPlayer(shape, this.flat(cfg.lockTick), x, z);
+        if (++this.zoneTicks % 2 === 1) ctx.burnPlayer(1);
+      } else this.zoneTicks = 0;
+    }
+    // At the cap the zones hold a while, then all reset.
+    if (this.zones.size >= cfg.lockMax) {
+      this.holdT -= dt;
+      if (this.holdT <= 0) {
+        for (const z of this.zones.values()) ctx.effect(new Ring(z.group.position.x, z.group.position.z, 0x80d8ff, 2.6, 0.5));
+        this.clearZones();
+        this.sound('warden.purge', this.cx, this.front + 8);
+        ctx.announce('The lockdown zones reset');
+      }
+    }
+  }
+
+  private clearZones(): void {
+    for (const z of this.zones.values()) {
+      this.fx.remove(z.group);
+      z.group.traverse((o) => {
+        if (o instanceof THREE.Mesh || o instanceof THREE.Points) {
+          o.geometry.dispose();
+          (o.material as THREE.Material).dispose();
+        }
+      });
+    }
+    this.zones.clear();
+  }
+
+  // ------------------------------------------------------------- intake
+
+  private startIntake(ctx: BossContext): void {
+    this.enter('intakePrep');
+    const depth = this.ch * Math.min(cfg.intakeRows, this.rows);
+    this.intakeShape = { kind: 'line', x: this.cx, z: this.front, yaw: 0, length: depth, width: this.x1 - this.x0 };
+    // One warning for the whole draw: it fills as the blast gets closer.
+    this.warn(ctx, this.intakeShape, cfg.intakeWindup * this.sm() + cfg.intakeTime, 0xff3020);
+    this.sound('warden.charge', this.body.pos.x, this.body.pos.z, 1.4);
+  }
+
+  private fireIntake(ctx: BossContext): void {
+    const shape = this.intakeShape;
+    this.intakeK = 0;
+    if (shape) {
+      ctx.hitPlayer(shape, cfg.intakeAtpMult, this.cx, this.front - 2, 14);
+      const depth = shape.kind === 'line' ? shape.length : 0;
+      for (let x = this.x0 + 2; x < this.x1; x += 4) ctx.effect(new Pillar(x, this.front + depth / 2, 0xffa060, 0.35, 0.3, 6));
+    }
+    this.sound('warden.zap', this.cx, this.front + 4);
+    ctx.shake(0.45);
+    this.endAttack();
+  }
+
+  private respawnMote(i: number, rng: () => number): void {
+    this.motePos[i * 3] = this.x0 + rng() * (this.x1 - this.x0);
+    this.motePos[i * 3 + 1] = 0.3 + rng() * 2.5;
+    this.motePos[i * 3 + 2] = this.front + 2 + rng() * (this.back - this.front - 2);
+  }
+
+  /** Motes rush into the core while it draws. */
+  private updateMotes(dt: number): void {
+    if (this.state !== 'intakePrep' && this.state !== 'intake') this.intakeK = Math.max(0, this.intakeK - dt * 3);
+    const m = this.motes.material as THREE.PointsMaterial;
+    m.opacity = this.intakeK * 0.9;
+    this.motes.visible = this.intakeK > 0.01;
+    if (!this.motes.visible) return;
+    const tx = this.cx;
+    const ty = 3.6;
+    const tz = this.front - 0.9;
+    for (let i = 0; i < INTAKE_MOTES; i++) {
+      const o = i * 3;
+      const dx = tx - this.motePos[o];
+      const dy = ty - this.motePos[o + 1];
+      const dz = tz - this.motePos[o + 2];
+      const d = Math.hypot(dx, dy, dz);
+      if (d < 1.2) {
+        this.respawnMote(i, Math.random);
+        continue;
+      }
+      const sp = (4 + 14 / Math.max(1, d * 0.3)) * dt * (0.4 + this.intakeK);
+      this.motePos[o] += (dx / d) * sp;
+      this.motePos[o + 1] += (dy / d) * sp;
+      this.motePos[o + 2] += (dz / d) * sp;
+    }
+    this.motes.geometry.attributes.position.needsUpdate = true;
+  }
+
+  // --------------------------------------------------------------- adds
+
+  private miteRoom(): number {
+    return Math.min(cfg.summonMites, cfg.maxMites - this.adds.filter((e) => e instanceof SparkMite && e.alive).length);
+  }
+
+  private droneRoom(): number {
+    return cfg.maxDrones - this.adds.filter((e) => e instanceof RepairDrone && e.alive).length;
+  }
+
+  /** Mites climb out along the alcove's edge; a drone (every other summon, every one in phase 2) heads for a corner post. */
+  private summon(ctx: BossContext): void {
+    this.summoned = true;
+    this.summons++;
+    this.adds = this.adds.filter((e) => e.alive);
+    const mites = this.miteRoom();
+    for (let i = 0; i < mites; i++) {
+      const x = this.cx + (i - (mites - 1) / 2) * 7 + (ctx.rng() - 0.5) * 2;
+      this.adds.push(ctx.spawnAdd('SparkMite', x, this.front + 1.2));
+    }
+    const wantDrone = this.phase === 2 || this.summons % 2 === 0;
+    if (wantDrone && this.droneRoom() > 0) {
+      const taken = this.adds.filter((e): e is RepairDrone => e instanceof RepairDrone && e.alive).map((d) => Math.sign(d.post.x - this.cx));
+      const side = !taken.includes(-1) ? (taken.includes(1) || ctx.rng() < 0.5 ? -1 : 1) : 1;
+      const drone = ctx.spawnAdd('RepairDrone', this.cx + side * 5, this.front + 0.8);
+      if (drone instanceof RepairDrone) drone.post.set(side < 0 ? this.x0 + 2.5 : this.x1 - 2.5, 0, this.front + 2.5);
+      this.adds.push(drone);
+    }
+    ctx.shake(0.25);
+    this.sound('boss.slam', this.cx, this.front + 1);
+  }
+
+  /** Repairing drones heal the core and show their beams. */
+  private updateAdds(dt: number, ctx: BossContext): void {
+    let b = 0;
+    for (const e of this.adds) {
+      if (!(e instanceof RepairDrone) || !e.alive || !e.repairing || b >= this.beams.length) continue;
+      // On Hard the repair follows the Normal pool (scaled like flat damage), not the bigger HP bar.
+      this.hp = Math.min(this.maxHp, this.hp + cfg.hp * cfg.droneHealPct * (this.hard?.flat ?? 1) * dt);
+      if (!this.taughtRepair) {
+        this.taughtRepair = true;
+        ctx.announce('A Repair Drone is mending the Warden!');
+      }
+      const beam = this.beams[b++];
+      const from = new THREE.Vector3(e.pos.x, 1.8, e.pos.z);
+      const to = new THREE.Vector3(this.cx, 3.6, this.front - 0.9);
+      beam.visible = true;
+      beam.position.copy(from).add(to).multiplyScalar(0.5);
+      beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.sub(from).normalize());
+      beam.scale.set(1, from.distanceTo(new THREE.Vector3(this.cx, 3.6, this.front - 0.9)), 1);
+      beam.material.opacity = 0.45 + Math.sin(this.time * 18 + b) * 0.15;
+    }
+    for (; b < this.beams.length; b++) this.beams[b].visible = false;
+  }
+
+  private startOverclock(ctx: BossContext): void {
+    this.phase = 2;
+    ctx.announce('The Warden overclocks!');
+    ctx.shake(0.5);
+    this.sound('warden.reroute');
+    this.enter('overclock');
+  }
+
+  // ------------------------------------------------------------- posing
+
+  private place(): void {
+    this.model.root.position.set(this.cx, 0, this.rootZ);
+    this.model.pose({
+      charge: this.charge,
+      cast: this.cast,
+      coreOpen: this.coreOpen,
+      handL: this.handL,
+      handR: this.handR,
+      dead: this.state === 'dead' ? Math.min(1, this.deadT / 1.5) : 0,
+      flash: this.flashT > 0,
+      enraged: this.enraged && this.phase === 2,
+      time: this.time,
+    });
+  }
+}

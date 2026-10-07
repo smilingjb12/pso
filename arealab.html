@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Area Lab</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #0b1020;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        color: #e8f0ff;
+      }
+      #panel {
+        position: absolute;
+        left: 10px;
+        top: 10px;
+        width: 300px;
+        max-height: calc(100% - 20px);
+        overflow-y: auto;
+        background: rgba(8, 12, 26, 0.82);
+        border: 1px solid rgba(120, 160, 230, 0.35);
+        border-radius: 8px;
+        padding: 10px 14px;
+        font-size: 13px;
+      }
+      h1 {
+        font-size: 17px;
+        margin: 0 0 8px;
+        color: #ffd75a;
+      }
+      h2 {
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #8ab0e8;
+        margin: 14px 0 6px;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-bottom: 4px;
+      }
+      button {
+        background: #1c2a48;
+        color: #e8f0ff;
+        border: 1px solid #3a5288;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #2a3e66;
+      }
+      .tab.on {
+        background: #ffd75a;
+        color: #1a1400;
+        border-color: #ffd75a;
+      }
+      .tab.small {
+        padding: 2px 6px;
+        font-size: 11px;
+      }
+      .var {
+        border: 1px solid rgba(120, 160, 230, 0.25);
+        border-radius: 6px;
+        padding: 6px 8px;
+        margin-bottom: 6px;
+        cursor: pointer;
+      }
+      .var.on {
+        border-color: #ffd75a;
+        box-shadow: inset 0 0 18px rgba(255, 215, 90, 0.15);
+      }
+      .var b {
+        color: #ffd75a;
+        margin-right: 4px;
+      }
+      .var button {
+        margin-top: 6px;
+      }
+      .used {
+        color: #7dffa8;
+        font-size: 11px;
+      }
+      .desc {
+        color: #a8bce0;
+        font-size: 12px;
+        margin: 3px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="panel"></div>
+    <script type="module" src="/src/arealab.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mag Lab</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #141c2a;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        color: #e8f0ff;
+      }
+      .cell-label {
+        position: absolute;
+        pointer-events: none;
+        padding: 8px 12px;
+      }
+      .cell-label b {
+        font-size: 16px;
+      }
+      .cell-label div {
+        font-size: 12px;
+        color: #a8bce0;
+        margin-top: 2px;
+      }
+      .cell-border {
+        position: absolute;
+        pointer-events: none;
+        border: 1px solid rgba(120, 160, 230, 0.25);
+        box-sizing: border-box;
+      }
+      #note {
+        position: absolute;
+        left: 50%;
+        bottom: 10px;
+        transform: translateX(-50%);
+        max-width: 70vw;
+        background: rgba(10, 16, 28, 0.82);
+        border: 1px solid rgba(120, 160, 230, 0.4);
+        border-radius: 6px;
+        padding: 6px 14px;
+        font-size: 13px;
+        pointer-events: none;
+        text-align: center;
+      }
+      #note b {
+        color: #ffd75a;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="note"></div>
+    <script type="module" src="/src/maglab.ts"></script>
+  </body>
+</html>

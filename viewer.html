@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Model Viewer</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #1a2232;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        color: #e8f0ff;
+      }
+      #info {
+        position: absolute;
+        left: 16px;
+        bottom: 14px;
+        font-size: 12px;
+        color: #9cb8e8;
+        line-height: 1.6;
+        pointer-events: none;
+      }
+      #info b {
+        color: #e8f0ff;
+      }
+      #back {
+        position: absolute;
+        left: 16px;
+        top: 14px;
+        color: #9cb8e8;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <a id="back" href="/">← back to the game</a>
+    <div id="info"></div>
+    <script type="module" src="/src/viewer.ts"></script>
+  </body>
+</html>

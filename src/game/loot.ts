@@ -1,0 +1,289 @@
+import { makeItem, type ItemInstance } from './character';
+import { drops, type EnemyArchetype } from './config';
+import {
+  armorLines, ATTRS, INJECTOR_MODS, itemDefs, specials, weaponKinds, type ArmorLine, type Attr, type ClassId, type InjectorMod, type ItemDef, type SpecialId,
+} from './data/items';
+
+export type Rng = () => number;
+
+export type Drop = { kind: 'item'; item: ItemInstance } | { kind: 'meseta'; amount: number };
+
+const pick = <T>(arr: readonly T[], rng: Rng): T => arr[Math.floor(rng() * arr.length)];
+
+function weighted<T>(entries: [T, number][], rng: Rng): T {
+  const total = entries.reduce((a, [, w]) => a + w, 0);
+  let r = rng() * total;
+  for (const [v, w] of entries) {
+    r -= w;
+    if (r <= 0) return v;
+  }
+  return entries[entries.length - 1][0];
+}
+
+const RARE_POOL = ['red_saber', 'flowens_sword', 'varista', 'club_of_laconium'];
+const SPECIAL_POOL: SpecialId[] = ['heat', 'ice', 'shock', 'draw', 'dim'];
+
+/** Roll a normal (non-rare) weapon of a given tier with random grind/attributes/special. */
+export function rollWeapon(tier: number, rng: Rng, classBias?: ClassId): ItemInstance {
+  let candidates = Object.values(itemDefs).filter((d) => d.type === 'weapon' && !d.rare && d.tier === tier);
+  if (classBias && rng() < 0.6) {
+    const biased = candidates.filter((d) => d.type === 'weapon' && weaponKinds[d.kind].classes.includes(classBias));
+    if (biased.length) candidates = biased;
+  }
+  const def = pick(candidates, rng);
+  return decorateWeapon(def, tier, rng);
+}
+
+function decorateWeapon(def: ItemDef, tier: number, rng: Rng): ItemInstance {
+  const inst = makeItem(def.id);
+  if (def.type !== 'weapon') return inst;
+  // Attributes: 0-2 races plus an occasional Hit%. Race % boosts weapon hits and techs alike, so it
+  // stays modest: 10% at tier 1 up to 45% at tier 8.
+  const attrs: Partial<Record<Attr, number>> = {};
+  const races = ATTRS.filter((a) => a !== 'hit');
+  const nAttr = rng() < 0.5 ? 0 : rng() < 0.7 ? 1 : 2;
+  const maxPct = 5 + tier * 5;
+  for (let i = 0; i < nAttr; i++) {
+    const a = pick(races, rng);
+    attrs[a] = Math.max(attrs[a] ?? 0, 5 * (1 + Math.floor(rng() * (maxPct / 5))));
+  }
+  if (rng() < 0.12) attrs.hit = 5 * (1 + Math.floor(rng() * 3));
+  if (Object.keys(attrs).length) inst.attrs = attrs;
+  if (!def.special && rng() < 0.18) inst.special = pick(SPECIAL_POOL, rng);
+  if (rng() < 0.2) inst.grind = 1 + Math.floor(rng() * Math.min(3, def.maxGrind));
+  return inst;
+}
+
+export function rollRare(rng: Rng, pool = RARE_POOL): ItemInstance {
+  const def = itemDefs[pick(pool, rng)];
+  const inst = decorateWeapon(def, def.type === 'weapon' ? def.tier : 1, rng);
+  delete inst.special; // rares keep their fixed special
+  return inst;
+}
+
+function rollTier(maxTier: number, rng: Rng): number {
+  if (maxTier <= 1) return 1;
+  if (maxTier <= 3) return rng() < 0.7 ? 1 : Math.min(maxTier, 2 + (rng() < 0.15 ? 1 : 0));
+  // Caves: the top three tiers, weighted toward the low end (T5 is the prize).
+  const r = rng();
+  return r < 0.5 ? maxTier - 2 : r < 0.85 ? maxTier - 1 : maxTier;
+}
+
+const ARMOR_LINES = ['guard', 'combat', 'psy'] as const;
+
+/** A frame or barrier of `tier`; 60% of the time from a line the class can wear (like weapon drops). */
+export function rollArmor(tier: number, rng: Rng, classBias?: ClassId): ItemInstance {
+  const slot = rng() < 0.5 ? 'frame' : 'barrier';
+  let lines: readonly ArmorLine[] = ARMOR_LINES;
+  if (classBias && rng() < 0.6) lines = ARMOR_LINES.filter((l) => armorLines[l].classes.includes(classBias));
+  return makeItem(`${slot}_${pick(lines, rng)}_${tier}`);
+}
+
+export function rollConsumable(rng: Rng): ItemInstance {
+  return makeItem(weighted<string>([['telepipe', 40], ['trimate', 32], ['trifluid', 28]], rng));
+}
+
+const INJECTOR_MOD_POOL = Object.keys(INJECTOR_MODS) as InjectorMod[];
+
+/** An injector of `tier`: Forces lean Fluid, the others Mate; about half roll a mod. */
+export function rollInjector(tier: number, rng: Rng, classBias?: ClassId, modChance = 0.5, maxTier = 5): ItemInstance {
+  const mateOdds = classBias === 'force' ? 0.35 : classBias ? 0.65 : 0.5;
+  // Normal drops stop at tier 5; tier 6 only comes from Hard bosses and champions (maxTier 6).
+  const inst = makeItem(`${rng() < mateOdds ? 'mate' : 'fluid'}_${Math.min(maxTier, tier)}`);
+  if (rng() < modChance) inst.mod = pick(INJECTOR_MOD_POOL, rng);
+  return inst;
+}
+
+/** A grinder (the misc drop since technique disks were removed). */
+export function rollMisc(rng: Rng): ItemInstance {
+  return makeItem(weighted<string>([['monogrinder', 70], ['digrinder', 25], ['trigrinder', 5]], rng));
+}
+
+/** Generic drop roll used by enemies and boxes. */
+export function rollDrop(
+  tier: number, rareRate: number, rng: Rng, classBias?: ClassId, mesetaRange: [number, number] = [10, 30], rarePool = RARE_POOL,
+): Drop {
+  if (rng() < rareRate * drops.rareMult) return { kind: 'item', item: rollRare(rng, rarePool) };
+  // Healing comes from injectors now, so consumables are rare and gear shows up more often.
+  const cat = weighted<'meseta' | 'consumable' | 'injector' | 'weapon' | 'armor' | 'misc'>(
+    [
+      ['meseta', 55],
+      ['consumable', 8],
+      ['injector', 5],
+      // Misc was grinders 45% / technique disks 55%; the disk share went to weapons and armor.
+      ['weapon', 18],
+      ['armor', 11],
+      ['misc', 3],
+    ],
+    rng,
+  );
+  const t = rollTier(tier, rng);
+  switch (cat) {
+    case 'meseta': {
+      const [lo, hi] = mesetaRange;
+      return { kind: 'meseta', amount: Math.round(lo + rng() * (hi - lo)) };
+    }
+    case 'consumable':
+      return { kind: 'item', item: rollConsumable(rng) };
+    case 'injector':
+      return { kind: 'item', item: rollInjector(t, rng, classBias) };
+    case 'weapon':
+      return { kind: 'item', item: rollWeapon(t, rng, classBias) };
+    case 'armor':
+      return { kind: 'item', item: rollArmor(t, rng, classBias) };
+    case 'misc':
+      return { kind: 'item', item: rollMisc(rng) };
+  }
+}
+
+export function rollEnemyDrop(arch: EnemyArchetype, rng: Rng, classBias?: ClassId): Drop | null {
+  if (rng() >= arch.dropRate * drops.rateMult) return null;
+  return rollDrop(arch.dropTier, arch.rareRate, rng, classBias, arch.meseta, arch.rarePool);
+}
+
+/**
+ * Elites roll an extra drop that always lands, one tier richer and with doubled rare odds (tier 6
+ * stays in the Mines, and Hard enemies already drop up to their expedition's top tier).
+ */
+export function rollEliteBonus(arch: EnemyArchetype, rng: Rng, classBias?: ClassId, rareMult = 2): Drop {
+  const [lo, hi] = arch.meseta;
+  const cap = arch.dropTier >= 6 ? arch.dropTier : 5;
+  return rollDrop(Math.min(cap, arch.dropTier + 1), arch.rareRate * rareMult, rng, classBias, [lo * 2, hi * 2], arch.rarePool);
+}
+
+/** Hard champions: two bonus drops with tripled rare odds, and a chance at a tier 6 injector. */
+export function rollChampionBonus(arch: EnemyArchetype, rng: Rng, classBias?: ClassId): Drop[] {
+  const out = [rollEliteBonus(arch, rng, classBias, 3), rollEliteBonus(arch, rng, classBias, 3)];
+  if (rng() < 0.25) out.push({ kind: 'item', item: rollInjector(6, rng, classBias, 1, 6) });
+  return out;
+}
+
+export function rollBoxDrop(rng: Rng, classBias?: ClassId): Drop | null {
+  if (rng() >= drops.boxDropRate * drops.rateMult) return null;
+  return rollDrop(1, 0.004, rng, classBias, [10, 40]);
+}
+
+export function rollDragonDrops(rng: Rng, classBias?: ClassId): Drop[] {
+  const out: Drop[] = [{ kind: 'meseta', amount: 600 + Math.round(rng() * 400) }];
+  if (rng() < 0.3 * drops.rareMult) out.push({ kind: 'item', item: rollRare(rng, ['dragon_slayer', 'dragon_scale']) });
+  if (rng() < 0.15 * drops.rareMult) out.push({ kind: 'item', item: rollRare(rng) });
+  out.push({ kind: 'item', item: rollWeapon(2 + (rng() < 0.4 ? 1 : 0), rng, classBias) });
+  out.push({ kind: 'item', item: rollArmor(2, rng, classBias) });
+  out.push({ kind: 'item', item: makeItem('trimate') });
+  out.push({ kind: 'item', item: rollMisc(rng) });
+  return out;
+}
+
+export function rollDeRolLeDrops(rng: Rng, classBias?: ClassId): Drop[] {
+  const out: Drop[] = [{ kind: 'meseta', amount: 1800 + Math.round(rng() * 1200) }];
+  if (rng() < 0.35 * drops.rareMult) out.push({ kind: 'item', item: rollRare(rng, ['rol_lance', 'rol_shell']) });
+  if (rng() < 0.2 * drops.rareMult) out.push({ kind: 'item', item: rollRare(rng, ['lily_sting', 'spread_needle', 'coral_rod']) });
+  out.push({ kind: 'item', item: rollWeapon(4 + (rng() < 0.45 ? 1 : 0), rng, classBias) });
+  out.push({ kind: 'item', item: rollArmor(4 + (rng() < 0.3 ? 1 : 0), rng, classBias) });
+  out.push({ kind: 'item', item: makeItem('trimate') });
+  out.push({ kind: 'item', item: makeItem('trifluid') });
+  out.push({ kind: 'item', item: rollInjector(4 + (rng() < 0.3 ? 1 : 0), rng, classBias, 1) });
+  out.push({ kind: 'item', item: rollMisc(rng) });
+  return out;
+}
+
+/** The Warden: its signature drops (Warden Core, Arc Welder), tier 5-6 gear and a full refill. */
+export function rollWardenDrops(rng: Rng, classBias?: ClassId): Drop[] {
+  const out: Drop[] = [{ kind: 'meseta', amount: 3000 + Math.round(rng() * 1500) }];
+  if (rng() < 0.4 * drops.rareMult) out.push({ kind: 'item', item: rollRare(rng, ['warden_core', 'arc_welder']) });
+  if (rng() < 0.15 * drops.rareMult) out.push({ kind: 'item', item: rollRare(rng, ['rol_lance', 'lily_sting', 'spread_needle', 'coral_rod']) });
+  out.push({ kind: 'item', item: rollWeapon(rng() < 0.55 ? 6 : 5, rng, classBias) });
+  out.push({ kind: 'item', item: rng() < 0.3 ? makeItem('barrier_6') : rollArmor(rng() < 0.5 ? 6 : 5, rng, classBias) });
+  out.push({ kind: 'item', item: makeItem('trimate') });
+  out.push({ kind: 'item', item: makeItem('trifluid') });
+  out.push({ kind: 'item', item: rollInjector(5, rng, classBias, 1) });
+  out.push({ kind: 'item', item: rollMisc(rng) });
+  return out;
+}
+
+/** Hard bosses: their expedition's top tier, a signature drop, Hard rares and a modded tier 6 injector. */
+export function rollHardBossDrops(boss: 'dragon' | 'derolle' | 'warden', rng: Rng, classBias?: ClassId): Drop[] {
+  const top = boss === 'dragon' ? 7 : boss === 'derolle' ? 8 : 9;
+  const sig = boss === 'dragon' ? 'elder_scale' : boss === 'derolle' ? 'abyssal_carapace' : 'overseer_cannon';
+  const rares = boss === 'dragon' ? ['verdant_edge', 'thornshot'] : boss === 'derolle' ? ['magma_blade', 'glacier_wand'] : ['overcharge_gatling', 'reactor_rod'];
+  const base = boss === 'dragon' ? 6000 : boss === 'derolle' ? 9000 : 13000;
+  const out: Drop[] = [{ kind: 'meseta', amount: base + Math.round(rng() * base * 0.5) }];
+  if (rng() < 0.4 * drops.rareMult) out.push({ kind: 'item', item: rollRare(rng, [sig]) });
+  if (rng() < 0.25 * drops.rareMult) out.push({ kind: 'item', item: rollRare(rng, rares) });
+  out.push({ kind: 'item', item: rollWeapon(rng() < 0.55 ? top : top - 1, rng, classBias) });
+  out.push({ kind: 'item', item: rollArmor(rng() < 0.5 ? top : top - 1, rng, classBias) });
+  out.push({ kind: 'item', item: makeItem('trimate') });
+  out.push({ kind: 'item', item: makeItem('trifluid') });
+  out.push({ kind: 'item', item: rollInjector(6, rng, classBias, 1, 6) });
+  out.push({ kind: 'item', item: rollMisc(rng) });
+  return out;
+}
+
+// ------------------------------------------------------------------ shops
+
+export type ShopKind = 'weapon' | 'armor' | 'item';
+
+/** Hard bosses this character has beaten (each opens a shop tier: 7 / 8 / 9). */
+export interface HardShop {
+  dragon?: boolean;
+  derolle?: boolean;
+  warden?: boolean;
+}
+
+/**
+ * Highest tier a shop stocks for a given character level (tier 5 after De Rol Le, tier 6 after the
+ * Warden; on Hard, tier 7 / 8 / 9 after the Hard Dragon / De Rol Le / Warden from Lv 42 / 52 / 62).
+ */
+export function shopTier(level: number, tier5 = false, tier6 = false, hard: HardShop = {}): number {
+  if (hard.warden && level >= 62) return 9;
+  if (hard.derolle && level >= 52) return 8;
+  if (hard.dragon && level >= 42) return 7;
+  if (tier6 && level >= 32) return 6;
+  if (tier5 && level >= 24) return 5;
+  return level >= 20 ? 4 : level >= 12 ? 3 : level >= 5 ? 2 : 1;
+}
+
+export function shopStock(kind: ShopKind, level: number, classId: ClassId, rng: Rng, tier5 = false, tier6 = false, hard: HardShop = {}): ItemInstance[] {
+  const maxTier = shopTier(level, tier5, tier6, hard);
+  const out: ItemInstance[] = [];
+  if (kind === 'weapon') {
+    // Guarantee a few weapons for the player's class, then random fill.
+    for (let i = 0; i < 9; i++) {
+      const tier = Math.max(1, maxTier - (rng() < 0.5 ? 1 : 0));
+      const w = rollWeapon(tier, rng, i < 5 ? classId : undefined);
+      delete w.grind; // shops sell clean weapons... mostly
+      if (rng() < 0.6) delete w.attrs;
+      out.push(w);
+    }
+  } else if (kind === 'armor') {
+    // Standard starters, then every line at the two best tiers on sale.
+    out.push(makeItem('frame_1'), makeItem('barrier_1'));
+    if (maxTier >= 6) out.push(makeItem('barrier_6'));
+    for (let t = Math.max(1, maxTier - 1); t <= maxTier; t++) {
+      for (const slot of ['frame', 'barrier'] as const) {
+        for (const line of ARMOR_LINES) out.push(makeItem(`${slot}_${line}_${t}`));
+      }
+    }
+  } else {
+    // Clean injectors: tier 1 and the two best tiers on sale, plus a couple with a mod.
+    out.push(makeItem('telepipe'));
+    const injTop = Math.min(5, maxTier);
+    for (const t of new Set([1, Math.max(1, injTop - 1), injTop])) out.push(makeItem(`mate_${t}`), makeItem(`fluid_${t}`));
+    for (let i = 0; i < 2; i++) out.push(rollInjector(Math.max(1, injTop - 1), rng, classId, 1));
+  }
+  return out;
+}
+
+/** Price including attribute/grind premiums. */
+export function buyPrice(inst: ItemInstance): number {
+  const def = itemDefs[inst.id];
+  let p = def.price;
+  if (def.type === 'weapon') {
+    p += (inst.grind ?? 0) * 250;
+    const attrSum = Object.values(inst.attrs ?? {}).reduce((a, b) => a + (b ?? 0), 0);
+    p += attrSum * 30;
+    if (inst.special && !def.special) p += 600 + 100 * Object.keys(specials).indexOf(inst.special);
+  }
+  if (inst.mod) p *= 1.4;
+  return Math.round(p);
+}

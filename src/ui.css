@@ -1,0 +1,588 @@
+/* Progression HUD, world UI and menus. */
+
+.status-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.status-meseta {
+  font-size: 12px;
+  color: #ffd75a;
+}
+.bar.xp {
+  height: 4px;
+  margin-top: 5px;
+}
+.bar.xp .fill {
+  background: #c8a8ff;
+}
+.buffs {
+  font-size: 11px;
+  color: #ff9a8a;
+  margin-top: 4px;
+}
+.castbar {
+  width: 200px;
+  height: 6px;
+  margin-bottom: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 3px;
+  overflow: hidden;
+  visibility: hidden;
+}
+.castbar .fill {
+  height: 100%;
+  background: linear-gradient(90deg, #a070ff, #ffffff);
+}
+
+.bossbar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(640px, 70vw);
+  display: none;
+  text-align: center;
+}
+.boss-name {
+  font-size: 15px;
+  letter-spacing: 0.25em;
+  color: #ffb0a0;
+  text-shadow: 0 1px 3px #000;
+  margin-bottom: 4px;
+}
+.bossbar.weak .boss-name {
+  color: #ffff70;
+}
+
+/* Enemy attribute tag under the target / boss name (matches weapon Native%, A.Beast%, ...). */
+.attr-tag {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  background: rgba(0, 0, 0, 0.45);
+  text-shadow: 0 1px 2px #000;
+}
+.attr-native {
+  color: #8fe07a;
+}
+.attr-abeast {
+  color: #ffb05a;
+}
+.attr-machine {
+  color: #7ac8ff;
+}
+.attr-dark {
+  color: #c890ff;
+}
+
+.areabox {
+  position: absolute;
+  top: 16px;
+  left: 24px;
+  text-shadow: 0 1px 2px #000;
+}
+.area-name {
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  color: #cfe4ff;
+}
+.room-info {
+  font-size: 12px;
+  color: #ffb070;
+}
+
+.banner {
+  position: absolute;
+  top: 28%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 34px;
+  font-weight: 300;
+  letter-spacing: 0.3em;
+  color: #e8f4ff;
+  text-shadow: 0 0 18px rgba(80, 160, 255, 0.8), 0 2px 4px #000;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.banner.show {
+  opacity: 1;
+}
+.banner.good {
+  color: #d8ffe0;
+  text-shadow: 0 0 18px rgba(80, 255, 140, 0.8), 0 2px 4px #000;
+}
+.banner.boss {
+  color: #ffd0c0;
+  text-shadow: 0 0 22px rgba(255, 80, 40, 0.9), 0 2px 4px #000;
+}
+
+.float.crit {
+  font-size: 28px;
+}
+.float.dmg.crit {
+  color: #ffe040;
+}
+.float.dmg.tech {
+  color: #e0b0ff;
+}
+.float.tp {
+  color: #6cb8ff;
+}
+.float.meseta {
+  color: #ffd75a;
+  font-size: 15px;
+}
+
+.loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8aa8d8;
+  letter-spacing: 0.2em;
+}
+
+/* ---------------- PSO-style hexagon action palette ---------------- */
+.hexpal {
+  position: absolute;
+  right: 22px;
+  bottom: 18px;
+  width: 270px;
+  height: 150px;
+  --hex-clip: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+}
+.hex {
+  position: absolute;
+  width: 80px;
+  height: 70px;
+  clip-path: var(--hex-clip);
+  background: #2a62d8; /* outer blue frame */
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+}
+.hex-far { left: 0; top: 0; }
+.hex-left { left: 63px; top: 37px; }
+.hex-top { left: 126px; top: 0; }
+.hex-right { left: 189px; top: 37px; }
+.hex-bottom { left: 126px; top: 74px; }
+.hex-purple { --hc: #b070ff; }
+.hex-yellow { --hc: #e8cc30; }
+.hex-green { --hc: #34d060; }
+.hex-blue { --hc: #3a8aff; }
+.hex-red { --hc: #ff4a3a; }
+.hex-ring {
+  position: absolute;
+  inset: 3px;
+  clip-path: var(--hex-clip);
+  background: var(--hc);
+}
+.hex-face {
+  position: absolute;
+  inset: 4px;
+  clip-path: var(--hex-clip);
+  background:
+    repeating-linear-gradient(0deg, rgba(160, 190, 255, 0.07) 0 1px, transparent 1px 3px),
+    linear-gradient(#0c1838, #070e24);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.hex-icon {
+  width: 34px;
+  height: 34px;
+  margin-top: 2px;
+}
+.hex-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.hex-key {
+  position: absolute;
+  top: 3px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  color: rgba(200, 220, 255, 0.55);
+}
+.hex-count {
+  position: absolute;
+  right: 15px;
+  bottom: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px #000, 0 0 3px #000;
+}
+.hex.dim .hex-icon {
+  opacity: 0.3;
+}
+.hex.dim .hex-count {
+  color: #ff8070;
+}
+.hex.pressed {
+  animation: hex-press 0.18s ease-out;
+}
+@keyframes hex-press {
+  0% { filter: brightness(2.2) drop-shadow(0 0 6px var(--hc)); transform: scale(0.92); }
+  100% { filter: brightness(1) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6)); transform: scale(1); }
+}
+/* Between fights with a gauge low: the slot that refills it breathes. */
+.hex.nudge .hex-ring {
+  animation: hex-nudge 1.2s ease-in-out infinite;
+}
+.hex.nudge .hex-face {
+  animation: face-nudge 1.2s ease-in-out infinite;
+}
+@keyframes hex-nudge {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.9) saturate(1.3); }
+}
+@keyframes face-nudge {
+  0%, 100% { box-shadow: inset 0 0 0 transparent; }
+  50% { box-shadow: inset 0 0 20px var(--hc); }
+}
+.shift-tile {
+  position: absolute;
+  left: 213px;
+  top: 118px;
+  width: 52px;
+  height: 22px;
+  line-height: 22px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #c8a040;
+  background: linear-gradient(#2a1450, #1a0c34);
+  border: 2px solid #7a3ad8;
+  transform: skewX(-18deg);
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.6);
+}
+/* Selected attack technique (mouse wheel), under the Q hex. */
+.spell-chip {
+  position: absolute;
+  left: 0;
+  top: 84px;
+  height: 22px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px 0 3px;
+  font-size: 11px;
+  color: #ffe9c0;
+  background: rgba(10, 16, 40, 0.75);
+  border: 1px solid rgba(255, 200, 120, 0.5);
+  border-radius: 11px;
+  white-space: nowrap;
+}
+.spell-chip svg {
+  width: 18px;
+  height: 18px;
+}
+.shift-tile.on {
+  color: #fff6c0;
+  border-color: #c890ff;
+  background: linear-gradient(#5a2aa0, #3a1a70);
+  box-shadow: 0 0 10px #a060ff;
+}
+
+/* ---------------- HP / TP (centre bottom) ---------------- */
+.action {
+  transition: opacity 0.6s;
+}
+/* Topped up between fights: fade back. Any damage, TP use or status brings it forward. */
+.action.rest {
+  opacity: 0.35;
+}
+.vitals {
+  position: relative;
+  padding: 7px 26px 8px;
+  font-family: 'Trebuchet MS', 'Segoe UI', sans-serif;
+  font-weight: 700;
+  color: #f4f8ff;
+  text-shadow: 0 1px 0 #000, 0 0 3px #000;
+  --vclip: polygon(16px 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 16px 100%, 0 50%);
+}
+/* Angled scanline frame echoing the hex palette: blue edge, navy face. */
+.vitals::before,
+.vitals::after {
+  content: '';
+  position: absolute;
+  clip-path: var(--vclip);
+  z-index: -1;
+}
+.vitals::before {
+  inset: 0;
+  background: #3f86f0;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6));
+}
+.vitals::after {
+  inset: 2px;
+  background:
+    repeating-linear-gradient(0deg, #14244e 0 1px, transparent 1px 3px),
+    rgba(10, 22, 54, 0.92);
+}
+/* Level tab overlapping the frame's bottom-right edge, same blue edge / navy face. */
+.vlevel {
+  position: absolute;
+  right: 6px;
+  bottom: -11px;
+  padding: 0 8px 0 7px;
+  font-size: 12px;
+  line-height: 15px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: #fff6c0;
+  background: linear-gradient(#1c3570, #0a1636);
+  border: 2px solid #3f86f0;
+  border-radius: 3px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+.vlevel span {
+  margin-right: 2px;
+  font-size: 10px;
+  color: #9cc4ff;
+}
+.vrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.vrow + .vrow {
+  margin-top: 4px;
+}
+.vlabel {
+  width: 20px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+.vbar {
+  position: relative;
+  width: min(240px, 30vw);
+  height: 12px;
+  background: #050b1c;
+  border: 1px solid #0f1c3c;
+  overflow: hidden;
+}
+.v-tp .vbar {
+  height: 7px;
+}
+.vbar .fill,
+.vbar .trail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+}
+.vbar .fill {
+  transition: width 0.1s;
+  box-shadow: 1px 0 0 rgba(0, 0, 0, 0.7); /* crisp edge against the trail */
+}
+/* The chunk a hit just took: lingers, then drains. */
+.vbar .trail {
+  background: #ffffff;
+}
+/* Quarter ticks (75 / 50 / 25 %). */
+.vbar .ticks {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 calc(25% - 2px), rgba(4, 10, 28, 0.8) calc(25% - 2px) 25%);
+}
+.vbar[data-band='ok'] .fill {
+  background: linear-gradient(#5aff5a, #10b020);
+}
+.vbar[data-band='mid'] .fill {
+  background: linear-gradient(#ffe25a, #e08a10);
+}
+.vbar[data-band='low'] .fill {
+  background: linear-gradient(#ff7a5a, #c41010);
+}
+.v-tp .fill {
+  background: linear-gradient(#5ac8ff, #1478e0);
+}
+.vtext {
+  min-width: 64px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+.v-tp .vtext {
+  font-size: 11px;
+  opacity: 0.85;
+}
+.vitals.danger .v-hp .vtext,
+.vitals.danger .v-hp .vlabel {
+  color: #ff6a50;
+  animation: ps-blink 0.6s steps(2) infinite;
+}
+@keyframes ps-blink {
+  50% { opacity: 0.35; }
+}
+
+/* Dash charges: a tab on the frame's bottom-left edge mirroring the level tab; each chevron
+   fills left to right as it recharges and glows when ready. */
+.vdash {
+  position: absolute;
+  left: 6px;
+  bottom: -11px;
+  display: flex;
+  gap: 3px;
+  padding: 3px 6px;
+  background: linear-gradient(#1c3570, #0a1636);
+  border: 2px solid #3f86f0;
+  border-radius: 3px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+.vdash .dc {
+  --k: 0;
+  width: 16px;
+  height: 9px;
+  clip-path: polygon(0 0, 60% 0, 100% 50%, 60% 100%, 0 100%, 40% 50%);
+  background: linear-gradient(90deg, #7fe8ff calc(var(--k) * 100%), #24345c calc(var(--k) * 100%));
+}
+.vdash .dc.full {
+  background: #b8f4ff;
+  filter: drop-shadow(0 0 3px #7fe8ff);
+}
+.vdash.empty-flash {
+  animation: dash-empty 0.4s;
+}
+@keyframes dash-empty {
+  0%, 50% { border-color: #ff5a40; box-shadow: 0 0 8px #ff5a40; }
+}
+
+/* Injector doses (keys 1 / 2): a column per injector to the left of the gauges, doses stacked
+   bottom-up. A dose comes off the top; the cell above the full ones fills from below as you fight. */
+.vinj {
+  position: absolute;
+  right: calc(100% + 8px);
+  bottom: 2px;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+.inj {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 3px;
+  background: rgba(10, 22, 54, 0.85);
+  border: 1px solid #3f86f0;
+  border-radius: 3px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+.inj-key {
+  order: 2;
+  font-size: 10px;
+  line-height: 12px;
+  padding: 0 3px;
+  border: 1px solid #5a7ab8;
+  border-radius: 2px;
+  color: #cfe0ff;
+}
+.inj-cells {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+}
+.inj-cells i {
+  --k: 0;
+  width: 14px;
+  height: 8px;
+  background: linear-gradient(0deg, var(--inj) calc(var(--k) * 100%), #050b1c calc(var(--k) * 100%));
+  border: 1px solid #2a4478;
+  opacity: 0.8;
+}
+.inj-cells i.full {
+  opacity: 1;
+  box-shadow: 0 0 4px var(--inj);
+}
+.inj-mate {
+  --inj: #5aff7a;
+}
+.inj-fluid {
+  --inj: #5ac8ff;
+}
+.inj.empty .inj-key {
+  color: #ff8a70;
+  border-color: #a04030;
+}
+
+/* Status ailments and buffs, hanging off the right of the gauges. */
+.vside {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  white-space: nowrap;
+}
+.vbuffs {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ff9a8a;
+}
+.vchips {
+  display: flex;
+  gap: 6px;
+}
+.vchips .chip {
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border: 1px solid currentColor;
+  background: rgba(6, 12, 30, 0.75);
+}
+.vchips .chip.poison {
+  color: #9aff50;
+}
+.vchips .chip.burn {
+  color: #ff9a40;
+  animation: chip-blink 0.7s steps(2) infinite;
+}
+.vchips .chip.para {
+  color: #ffe040;
+  animation: chip-blink 0.4s steps(2) infinite;
+}
+.vchips .chip.ward {
+  color: #8ad8ff;
+}
+@keyframes chip-blink {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* Low-HP warning: pulsing red glow around the screen edges, stronger as HP drops (--sev 0..1). */
+.lowhp {
+  --sev: 0;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s;
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(190, 0, 0, calc(0.25 + 0.35 * var(--sev))) 100%);
+  box-shadow: inset 0 0 calc(50px + 70px * var(--sev)) rgba(255, 20, 10, calc(0.45 + 0.35 * var(--sev)));
+}
+.lowhp.on {
+  opacity: 1;
+  animation: lowhp-pulse 1.1s ease-in-out infinite;
+}
+@keyframes lowhp-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}

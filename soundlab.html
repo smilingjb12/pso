@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sound Lab</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #141c2a;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        color: #e8f0ff;
+      }
+      main {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 16px 16px 120px;
+      }
+      h1 {
+        font-size: 22px;
+        margin: 8px 0 2px;
+      }
+      h2 {
+        font-size: 16px;
+        color: #ffd75a;
+        margin: 26px 0 8px;
+        border-bottom: 1px solid rgba(120, 160, 230, 0.25);
+        padding-bottom: 4px;
+      }
+      .hint {
+        color: #a8bce0;
+        font-size: 13px;
+      }
+      .tracks {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 10px;
+      }
+      .track {
+        background: rgba(30, 44, 70, 0.7);
+        border: 1px solid rgba(120, 160, 230, 0.3);
+        border-radius: 6px;
+        padding: 10px 12px;
+      }
+      .track.playing {
+        border-color: #ffd75a;
+      }
+      .track b {
+        font-size: 15px;
+      }
+      .mvar {
+        background: rgba(30, 44, 70, 0.7);
+        border: 1px solid rgba(120, 160, 230, 0.3);
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 12px;
+        max-width: 360px;
+      }
+      .mvar.on {
+        border-color: #ffd75a;
+      }
+      .mvar audio {
+        display: block;
+        width: 100%;
+        margin-top: 6px;
+      }
+      .track p {
+        margin: 4px 0 8px;
+        font-size: 12px;
+        color: #a8bce0;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: minmax(180px, 280px) 1fr;
+        gap: 10px;
+        align-items: start;
+        padding: 6px 0;
+        border-bottom: 1px solid rgba(120, 160, 230, 0.1);
+      }
+      .row .name {
+        font-size: 14px;
+      }
+      .row .id {
+        font-family: Consolas, monospace;
+        font-size: 11px;
+        color: #7f93b8;
+      }
+      .vars {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      button {
+        font: inherit;
+        font-size: 13px;
+        color: #e8f0ff;
+        background: rgba(40, 60, 96, 0.9);
+        border: 1px solid rgba(120, 160, 230, 0.4);
+        border-radius: 5px;
+        padding: 5px 10px;
+        cursor: pointer;
+        text-align: left;
+      }
+      button:hover {
+        background: rgba(60, 90, 140, 0.95);
+      }
+      button.on {
+        border-color: #ffd75a;
+        box-shadow: inset 0 0 0 1px #ffd75a;
+      }
+      .var b {
+        color: #ffd75a;
+        margin-right: 4px;
+      }
+      .var small {
+        display: block;
+        color: #a8bce0;
+        font-size: 11px;
+      }
+      .var .lvl {
+        color: #8fd28f;
+        font-family: Consolas, monospace;
+        font-size: 10px;
+      }
+      .pick {
+        font-size: 11px;
+        padding: 2px 6px;
+        margin-top: 4px;
+      }
+      #bar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(10, 16, 28, 0.95);
+        border-top: 1px solid rgba(120, 160, 230, 0.4);
+        padding: 8px 16px;
+        font-size: 13px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      #bar code {
+        color: #ffd75a;
+        font-size: 12px;
+        word-break: break-all;
+      }
+      #gate {
+        position: fixed;
+        inset: 0;
+        background: rgba(8, 12, 20, 0.85);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        cursor: pointer;
+        z-index: 5;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="gate">Click to enable audio</div>
+    <main id="app"></main>
+    <div id="bar"></div>
+    <script type="module" src="/src/soundlab.ts"></script>
+  </body>
+</html>

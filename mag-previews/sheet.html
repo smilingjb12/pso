@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Mag forms</title>
+<style>
+  body { margin: 0; padding: 28px 32px 36px; background: #121826; color: #dfe6f2; font: 15px/1.35 system-ui, sans-serif; width: 1536px; }
+  h1 { margin: 0 0 4px; font-size: 26px; }
+  .sub { color: #8d9ab0; margin-bottom: 22px; }
+  .row { display: grid; grid-template-columns: 170px repeat(4, 1fr); gap: 14px; margin-bottom: 18px; align-items: stretch; }
+  .stage { display: flex; flex-direction: column; justify-content: center; border-left: 3px solid #3cb4c4; padding-left: 12px; }
+  .stage b { font-size: 18px; }
+  .stage span { color: #8d9ab0; font-size: 13px; }
+  .card { background: #1b2232; border-radius: 10px; overflow: hidden; }
+  .card img { display: block; width: 100%; aspect-ratio: 480 / 400; object-fit: cover; }
+  .twins .card { grid-column: span 2; }
+  .twins .card img { aspect-ratio: 960 / 400; }
+  .cap { padding: 8px 12px 10px; }
+  .cap b { font-size: 17px; }
+  .cap span { display: block; color: #8d9ab0; font-size: 13px; }
+  .def { color: #ffc040; } .pow { color: #ff6a50; } .dex { color: #50e080; } .mind { color: #7aaaff; }
+  .hu { color: #6a9aff; } .ra { color: #ff7a6a; } .fo { color: #b88aff; } .base { color: #c8d4e8; }
+</style>
+</head>
+<body>
+<h1>Mag forms</h1>
+<div class="sub">Stage = squares learned on the Mag grid (1 point per character level). Stage 1 is picked by class; stages 2–4 by the arm with the most squares (hybrids count ½ to each; ties go to your class's arm).</div>
+
+<div class="row">
+  <div class="stage"><b>Stage 0 / 1</b><span>0–4 squares / 5+ squares</span></div>
+  <div class="card"><img src="form-00.png"><div class="cap"><b class="base">Mag</b><span>Starting form (stripes lit = unspent points)</span></div></div>
+  <div class="card"><img src="form-01.png"><div class="cap"><b class="hu">Varuna</b><span>Hunter, 5+ squares</span></div></div>
+  <div class="card"><img src="form-02.png"><div class="cap"><b class="ra">Kalki</b><span>Ranger, 5+ squares</span></div></div>
+  <div class="card"><img src="form-03.png"><div class="cap"><b class="fo">Vritra</b><span>Force, 5+ squares</span></div></div>
+</div>
+
+<div class="row">
+  <div class="stage"><b>Stage 2</b><span>15+ squares</span></div>
+  <div class="card"><img src="form-04.png"><div class="cap"><b class="def">Namuci</b><span>DEF lead</span></div></div>
+  <div class="card"><img src="form-05.png"><div class="cap"><b class="pow">Rudra</b><span>POW lead</span></div></div>
+  <div class="card"><img src="form-06.png"><div class="cap"><b class="dex">Marutah</b><span>DEX lead</span></div></div>
+  <div class="card"><img src="form-07.png"><div class="cap"><b class="mind">Vayu</b><span>MIND lead</span></div></div>
+</div>
+
+<div class="row">
+  <div class="stage"><b>Stage 3</b><span>25+ squares</span></div>
+  <div class="card"><img src="form-08.png"><div class="cap"><b class="def">Soma</b><span>DEF lead</span></div></div>
+  <div class="card"><img src="form-09.png"><div class="cap"><b class="pow">Sumba</b><span>POW lead</span></div></div>
+  <div class="card"><img src="form-10.png"><div class="cap"><b class="dex">Ila</b><span>DEX lead</span></div></div>
+  <div class="card"><img src="form-11.png"><div class="cap"><b class="mind">Mitra</b><span>MIND lead</span></div></div>
+</div>
+
+<div class="row twins">
+  <div class="stage" style="grid-row: span 2"><b>Stage 4</b><span>40+ squares (twin pair)</span></div>
+  <div class="card"><img src="form-12.png"><div class="cap"><b class="def">Ashvinau</b><span>DEF lead</span></div></div>
+  <div class="card"><img src="form-13.png"><div class="cap"><b class="pow">Ashvinau</b><span>POW lead</span></div></div>
+  <div class="card"><img src="form-14.png"><div class="cap"><b class="dex">Ashvinau</b><span>DEX lead</span></div></div>
+  <div class="card"><img src="form-15.png"><div class="cap"><b class="mind">Ashvinau</b><span>MIND lead</span></div></div>
+</div>
+</body>
+</html>
