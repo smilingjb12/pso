@@ -119,6 +119,36 @@ export class Telegraph {
   }
 }
 
+/** Something that can be called off (a Telegraph, or the handle a context hands back for one). */
+export interface Cancellable {
+  cancel(): void;
+  /** Finished (fired or called off); a Telegraph has it. */
+  readonly done?: boolean;
+}
+
+/** The telegraphs one caster has running, so it can call them all off (interrupted, killed, changing form). */
+export class TelegraphGroup {
+  private list: Cancellable[] = [];
+
+  add<T extends Cancellable>(h: T): T {
+    // Drop the ones that already finished, so a long-lived caster's list stays short.
+    this.list = this.list.filter((t) => !t.done);
+    this.list.push(h);
+    return h;
+  }
+
+  /** Call every tracked telegraph off. */
+  cancelAll(): void {
+    for (const h of this.list) h.cancel();
+    this.list = [];
+  }
+
+  /** Stop tracking them without calling them off: any still running play out. */
+  forget(): void {
+    this.list = [];
+  }
+}
+
 /** Geometry tests used to resolve telegraphed attacks. */
 export function inShape(shape: TelegraphShape, px: number, pz: number, pr: number): boolean {
   const dx = px - shape.x;

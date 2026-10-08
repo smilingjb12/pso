@@ -1,9 +1,12 @@
+import type { ItemDef, WeaponKind } from '../game/data/items';
+import type { ItemDefOf, ItemType } from '../game/itemTypes';
+
 // Small flat SVG icons for the action palette, in the spirit of PSO's palette
 // glyphs. All drawn in a 48x48 box.
 
 const svg = (body: string) => `<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
 
-const WEAPON: Record<string, (c: string) => string> = {
+const WEAPON: Record<WeaponKind | 'none', (c: string) => string> = {
   saber: (c) => `<rect x="21" y="4" width="6" height="28" rx="3" fill="${c}"/><rect x="15" y="31" width="18" height="4" fill="#9aa"/><rect x="21" y="35" width="6" height="9" fill="#556"/>`,
   sword: (c) => `<path d="M24 2 L32 10 L30 32 L18 32 L16 10 Z" fill="${c}"/><rect x="12" y="31" width="24" height="5" fill="#9aa"/><rect x="21" y="36" width="6" height="9" fill="#556"/>`,
   dagger: (c) => `<path d="M24 10 L28 16 L27 32 L21 32 L20 16 Z" fill="${c}"/><rect x="16" y="31" width="16" height="4" fill="#9aa"/><rect x="21" y="35" width="6" height="8" fill="#556"/>`,
@@ -29,7 +32,7 @@ const FORM_MARK = {
 };
 
 export function weaponIcon(kind: string, type?: 'light' | 'heavy'): string {
-  const draw = WEAPON[kind] ?? WEAPON.none;
+  const draw = WEAPON[kind as WeaponKind] ?? WEAPON.none;
   return svg(draw(TYPE_COLOR[type ?? 'light']) + (type ? FORM_MARK[type] : ''));
 }
 
@@ -106,19 +109,20 @@ export function contextIcon(kind: ContextIcon): string {
   }
 }
 
-/** Glyph for non-weapon items in menus. */
-export function typeIcon(type: string, id: string): string {
-  switch (type) {
-    case 'consumable':
-    case 'injector':
-      return itemIcon(id);
-    case 'armor':
-      return svg(`<path d="M24 4 L40 10 V24 C40 34 32 41 24 44 C16 41 8 34 8 24 V10 Z" fill="#7aa8e8" stroke="#dfeaff" stroke-width="2.5"/><path d="M24 12 V36" stroke="#dfeaff" stroke-width="2.5"/>`);
-    case 'grinder':
-      return svg(`<circle cx="24" cy="24" r="16" fill="#c8c8d8"/><circle cx="24" cy="24" r="6" fill="#606878"/><g stroke="#606878" stroke-width="3">${[0, 60, 120, 180, 240, 300].map((a) => `<line x1="24" y1="24" x2="${24 + Math.cos((a * Math.PI) / 180) * 16}" y2="${24 + Math.sin((a * Math.PI) / 180) * 16}"/>`).join('')}</g>`);
-    default:
-      return itemIcon(id);
-  }
+/** Menu glyph for each item type. */
+const ITEM_GLYPH: { [T in ItemType]: (def: ItemDefOf<T>) => string } = {
+  weapon: (d) => weaponIcon(d.kind),
+  armor: () =>
+    svg(`<path d="M24 4 L40 10 V24 C40 34 32 41 24 44 C16 41 8 34 8 24 V10 Z" fill="#7aa8e8" stroke="#dfeaff" stroke-width="2.5"/><path d="M24 12 V36" stroke="#dfeaff" stroke-width="2.5"/>`),
+  injector: (d) => itemIcon(d.id),
+  consumable: (d) => itemIcon(d.id),
+  grinder: () =>
+    svg(`<circle cx="24" cy="24" r="16" fill="#c8c8d8"/><circle cx="24" cy="24" r="6" fill="#606878"/><g stroke="#606878" stroke-width="3">${[0, 60, 120, 180, 240, 300].map((a) => `<line x1="24" y1="24" x2="${24 + Math.cos((a * Math.PI) / 180) * 16}" y2="${24 + Math.sin((a * Math.PI) / 180) * 16}"/>`).join('')}</g>`),
+};
+
+/** Glyph for an item row in menus. */
+export function itemGlyph(def: ItemDef): string {
+  return (ITEM_GLYPH[def.type] as (d: ItemDef) => string)(def);
 }
 
 /** Status glyphs for the target frame (enemy stunned / frozen / burning / poisoned). */

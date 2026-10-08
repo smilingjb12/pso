@@ -5,7 +5,7 @@ import { angleDelta, turnToward, yawTo } from '../collision';
 import type { Hittable, StatusEffect, StatusTimer } from '../combat/types';
 import { boomaPoses } from '../models/booma';
 import type { Pose, Rig } from '../models/Rig';
-import type { TelegraphShape } from '../world/Telegraph';
+import { TelegraphGroup, type TelegraphShape } from '../world/Telegraph';
 import { glowDecal } from '../world/glow';
 import { AffixFx } from './affixFx';
 
@@ -160,6 +160,10 @@ export abstract class Enemy implements Hittable {
   mergeTarget: Enemy | null = null;
   /** Sound cues raised this frame (drained by AudioCues, so enemies stay audio-free). */
   readonly cues: string[] = [];
+  /** Telegraphs it has running that a flinch, or its death, calls off (see warn). */
+  protected readonly tele = new TelegraphGroup();
+  /** Which way it strafes while it circles the player (+1 / -1). */
+  protected strafeDir = 1;
 
   protected time = Math.random() * 10;
   protected flashT = 0;
@@ -182,6 +186,9 @@ export abstract class Enemy implements Hittable {
   protected meleeStrikes = false;
   /** Overclocked: the attack running now is the extra one (it doesn't get another). */
   protected followingUp = false;
+  /** The windup running now (see beginWindup): its state, and its length in base seconds. */
+  private windupState: EnemyState | null = null;
+  private windupBase = 0;
   /** The context of the current tick, for reactions that start outside think() (the Overclocked follow-up). */
   private ctxRef: EnemyContext | null = null;
   /** Seconds since it last took a hit (Regenerating waits a moment). */
@@ -641,9 +648,63 @@ export abstract class Enemy implements Hittable {
   protected abstract think(dt: number, ctx: EnemyContext, dist: number, toPlayer: number): void;
   protected abstract targetPose(dt: number): { pose: Pose; rate: number };
 
-  /** 0..1 attack telegraph progress: the body heats up toward orange-red. */
+  /** 0..1 attack telegraph progress: the body heats up toward orange-red. By default, the windup's progress. */
   protected telegraphHeat(): number {
-    return 0;
+    return this.windupK();
+  }
+
+  /**
+   * Enter an attack's windup state, `secs` base seconds long (before tempo). The windup's progress
+   * (windupK) heats the body, and windupDone() says when it is over.
+   */
+  protected beginWindup(state: EnemyState, secs: number): void {
+    this.enter(state);
+    this.windupState = state;
+    this.windupBase = secs;
+  }
+
+  /** The running windup's length in state time (what stateT counts). */
+  protected get windupSecs(): number {
+    // stateT already runs on tempo, except for the machines that apply it themselves.
+    return this.selfTempo ? this.windupBase / this.tempo : this.windupBase;
+  }
+
+  /** 0..1 through the windup begun with beginWindup (0 once it has left that state). */
+  protected windupK(): number {
+    return this.state === this.windupState ? Math.min(1, this.stateT / this.windupSecs) : 0;
+  }
+
+  protected windupDone(): boolean {
+    return this.stateT >= this.windupSecs;
+  }
+
+  /**
+   * Show a telegraph `secs` base seconds long (it runs in world time, so tempo shortens it like the
+   * enemy's own timers). A flinch or its death calls it off.
+   */
+  protected warn(ctx: EnemyContext, shape: TelegraphShape, secs: number, onFire: () => void, color?: number): TelegraphHandle {
+    return this.tele.add(ctx.telegraph(shape, secs / this.tempo, onFire, color));
+  }
+
+  /** Re-roll the melee attack cooldown: attackCooldown x (lo .. lo + span). */
+  protected rollCooldown(ctx: EnemyContext, lo = 0.7, span = 0.6): void {
+    this.cooldown = this.arch.attackCooldown * (lo + ctx.rng() * span);
+  }
+
+  /** A fresh shot cooldown: its shotCooldown (or `fallback`) x 0.85 .. 1.15. */
+  protected rollShotCd(ctx: EnemyContext, fallback: number): number {
+    return (this.arch.shotCooldown ?? fallback) * (0.85 + ctx.rng() * 0.3);
+  }
+
+  /**
+   * Circle the player: move `radial` toward her (negative: away) and `lateral` to the side it strafes
+   * to, at `speed`; every so often (`flipRate` per second) it switches sides.
+   */
+  protected strafe(ctx: EnemyContext, dt: number, toPlayer: number, radial: number, lateral: number, speed: number, flipRate: number): void {
+    const side = toPlayer + (Math.PI / 2) * this.strafeDir;
+    this.pos.x += (Math.sin(toPlayer) * radial + Math.sin(side) * lateral) * speed * dt;
+    this.pos.z += (Math.cos(toPlayer) * radial + Math.cos(side) * lateral) * speed * dt;
+    if (ctx.rng() < dt * flipRate) this.strafeDir *= -1;
   }
 
   /** Does the attack being telegraphed corrupt? Its body heats up violet instead of orange. */
@@ -656,6 +717,8 @@ export abstract class Enemy implements Hittable {
   }
 
   protected enter(s: EnemyState): void {
+    // Interrupted or dead: its pending attacks are called off.
+    if (s === 'hitstun' || s === 'dead') this.tele.cancelAll();
     // Overclocked: an attack ending goes straight into one more (only one: the extra doesn't chain).
     if (s === 'recover' && !this.followingUp && this.alive && this.threat > 0 && this.ctxRef && this.hasAffix('overclocked')) {
       this.followingUp = true;
@@ -670,6 +733,7 @@ export abstract class Enemy implements Hittable {
     }
     this.state = s;
     this.stateT = 0;
+    this.windupState = null;
   }
 
   /** Keep the threat share for `seconds` more, whatever the state (a glob or missile still in flight). */
@@ -813,7 +877,6 @@ export class Brawler extends Enemy {
   private lastX: number;
   private lastZ: number;
   private strikeConnected = false;
-  private strafeDir: number;
 
   constructor(
     type: EnemyId,
@@ -882,12 +945,8 @@ export class Brawler extends Enemy {
         if (this.state === 'hover' || (dist <= hoverDist && this.cooldown > 0)) {
           this.state = 'hover';
           const radial = dist > hoverDist + 0.5 ? 1 : dist < hoverDist - 0.5 ? -0.6 : 0;
-          const side = toPlayer + (Math.PI / 2) * this.strafeDir;
-          const sp = a.moveSpeed * 0.45;
-          this.pos.x += (Math.sin(toPlayer) * radial + Math.sin(side) * 0.6) * sp * dt;
-          this.pos.z += (Math.cos(toPlayer) * radial + Math.cos(side) * 0.6) * sp * dt;
+          this.strafe(ctx, dt, toPlayer, radial, 0.6, a.moveSpeed * 0.45, 0.4);
           if (this.cooldown <= 0) this.state = 'chase';
-          if (ctx.rng() < dt * 0.4) this.strafeDir *= -1;
         } else if (dist > a.attackRange * 0.85) {
           this.pos.x += Math.sin(this.yaw) * a.moveSpeed * dt;
           this.pos.z += Math.cos(this.yaw) * a.moveSpeed * dt;
@@ -924,7 +983,7 @@ export class Brawler extends Enemy {
 
       case 'recover':
         if (this.stateT >= a.recovery) {
-          this.cooldown = a.attackCooldown * (0.6 + ctx.rng() * 0.8);
+          this.rollCooldown(ctx, 0.6, 0.8);
           this.enter('chase');
         }
         break;

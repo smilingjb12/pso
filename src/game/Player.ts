@@ -230,9 +230,9 @@ export class Player {
   get trueMaxHp(): number {
     return this.char.maxHp;
   }
-  /** The Seal of Light and the Falz Halo halve what Corruption takes. */
+  /** The Seal of Light and the Falz Halo (corruptionWard) halve what Corruption takes. */
   get corruptMult(): number {
-    return this.char.hasEquipped('seal_of_light') || this.char.hasEquipped('falz_halo') ? pylonCfg.sealCorruptMult : 1;
+    return this.char.hasGearPassive('corruptionWard') ? pylonCfg.sealCorruptMult : 1;
   }
   /** Add Corruption stacks (current HP drops with the lowered max). Returns stacks actually added. */
   corrupt(stacks: number): number {

@@ -1,12 +1,12 @@
 import * as THREE from 'three';
-import { sfx, type SfxId } from '../../audio';
-import { dragon as cfg, type HardBossScale, type Race } from '../config';
+import { dragon as cfg, type HardBossScale } from '../config';
 import { angleDelta, separateCircles, turnToward, yawTo } from '../collision';
-import type { Hittable, StatusEffect } from '../combat/types';
+import type { Hittable } from '../combat/types';
 import type { Level } from '../world/Level';
 import type { TelegraphShape } from '../world/Telegraph';
 import { DragonModel } from '../models/dragon';
-import type { Boss, BossContext } from './Boss';
+import type { BossContext } from './Boss';
+import { BossBase } from './BossBase';
 
 /** Breath cone apex, metres ahead of the body centre. */
 const BREATH_OFFSET = 3;
@@ -32,22 +32,12 @@ const HARD_PAIR_AT = 0.5;
 /** The quake lands this long after the breath starts. */
 const HARD_QUAKE_DELAY = 0.5;
 
-/** Boss DoT damage is capped so poison can't melt a big HP pool. */
-const BOSS_POISON_CAP = 8;
-
-export class Dragon implements Hittable, Boss {
+export class Dragon extends BossBase<DragonState> implements Hittable {
+  readonly id = 'dragon' as const;
   readonly group = new THREE.Group();
   readonly pos = this.group.position;
-  readonly name = 'Dragon';
   readonly radius = cfg.radius;
-  readonly race: Race = 'native';
-  readonly injectorCharge = cfg.charge;
-  readonly maxHp: number;
-  hp: number;
   yaw = Math.PI;
-  state: DragonState = 'dormant';
-  stateT = 0;
-  deadT = 0;
 
   private model: DragonModel;
   private mound: THREE.Mesh;
@@ -56,29 +46,17 @@ export class Dragon implements Hittable, Boss {
   private lastX = 0;
   private lastZ = 0;
   private walkPhase = NaN;
-  private time = 0;
-  private flashT = 0;
   private cooldown = 2;
   private burrowTimer = 0;
   private thresholdsHit = new Set<number>();
   private chargeLeft = 0;
   private chargeHit = false;
   private breathTick = 0;
-  private burnT = 0;
-  private burnDps = 0;
-  private burnTickT = 0;
   private eruptAt: [number, number] = [0, 0];
-  private announcedEnrage = false;
-  onDot: ((target: Hittable, d: number) => void) | null = null;
 
-  constructor(
-    x: number,
-    z: number,
-    /** Hard mode scaling (null on Normal). */
-    readonly hard: HardBossScale | null = null,
-  ) {
-    this.maxHp = Math.round(cfg.hp * (hard?.hp ?? 1));
-    this.hp = this.maxHp;
+  constructor(x: number, z: number, hard: HardBossScale | null = null) {
+    // It takes Burn uncapped (Poison is capped like every boss's).
+    super(cfg, hard, Infinity);
     this.pos.set(x, 0, z);
     this.model = new DragonModel(cfg.breathRange, cfg.breathArcDeg);
     this.group.add(this.model.group);
@@ -113,23 +91,11 @@ export class Dragon implements Hittable, Boss {
 
   // ---------------------------------------------------------------- Boss
 
-  get atp(): number {
-    return cfg.atp + (this.hard?.atp ?? 0);
-  }
-  get ata(): number {
-    return cfg.ata + (this.hard?.ata ?? 0);
-  }
-  get engaged(): boolean {
-    return this.state !== 'dormant';
-  }
   get objects(): THREE.Object3D[] {
     return [this.group, this.mound];
   }
   parts(): Hittable[] {
     return [this];
-  }
-  owns(h: Hittable): boolean {
-    return h === this;
   }
   collide(playerPos: THREE.Vector3, playerRadius: number, level: Level): void {
     if (!this.alive || !this.group.visible) return;
@@ -139,23 +105,11 @@ export class Dragon implements Hittable, Boss {
 
   // ------------------------------------------------------------ Hittable
 
-  get evp(): number {
-    return cfg.evp + (this.hard?.evp ?? 0);
-  }
-  get dfp(): number {
-    return cfg.dfp + (this.hard?.dfp ?? 0);
-  }
   get aimHeight(): number {
     return 3.2;
   }
-  get alive(): boolean {
-    return this.state !== 'dead';
-  }
   get invulnerable(): boolean {
     return this.state === 'underground' || this.state === 'eruptWindup' || this.state === 'dormant' || this.state === 'intro';
-  }
-  get enraged(): boolean {
-    return this.hp / this.maxHp <= cfg.enrageAt;
   }
   get weakPointOpen(): boolean {
     return this.state === 'stunned';
@@ -167,76 +121,29 @@ export class Dragon implements Hittable, Boss {
 
   damage(amount: number): boolean {
     if (!this.alive || this.invulnerable) return false;
-    this.hp -= amount;
-    this.flashT = 0.08;
-    if (this.hp <= 0) {
-      this.hp = 0;
-      this.enter('dead');
-      this.sound('boss.die');
-      return true;
-    }
-    return false;
-  }
-
-  applyStatus(effect: StatusEffect, power: number, duration: number): void {
-    // Bosses shrug off freeze and stun; burn and (capped) poison still tick.
-    if (effect === 'poison') power = Math.min(BOSS_POISON_CAP, this.maxHp * power);
-    else if (effect !== 'burn') return;
-    this.burnDps = Math.max(this.burnDps, power);
-    this.burnT = Math.max(this.burnT, duration);
+    return this.loseHp(amount);
   }
 
   // ------------------------------------------------------------- update
 
-  private enter(s: DragonState): void {
-    this.state = s;
-    this.stateT = 0;
+  protected get anchor(): THREE.Vector3 {
+    return this.pos;
   }
 
-  private sound(id: SfxId, arg?: number, x = this.pos.x, z = this.pos.z): void {
-    sfx(id, { x, z, arg });
+  protected whileDead(dt: number): void {
+    this.animate(dt);
   }
 
-  private speedMult(): number {
-    return this.enraged ? cfg.enrageSpeed : 1;
-  }
-
-  update(dt: number, ctx: BossContext): void {
-    this.stateT += dt;
-    this.flashT = Math.max(0, this.flashT - dt);
-    if (this.state === 'dead') {
-      this.deadT += dt;
-      this.animate(dt);
-      return;
-    }
-
-    if (this.burnT > 0) {
-      this.burnT -= dt;
-      this.burnTickT += dt;
-      if (this.burnTickT >= 0.5) {
-        this.burnTickT -= 0.5;
-        this.onDot?.(this, Math.max(1, Math.round(this.burnDps * 0.5)));
-      }
-    }
-
+  protected think(dt: number, ctx: BossContext): void {
     const dist = Math.hypot(ctx.playerX - this.pos.x, ctx.playerZ - this.pos.z);
     const toPlayer = yawTo(this.pos.x, this.pos.z, ctx.playerX, ctx.playerZ);
-    const sm = this.speedMult();
+    const sm = this.sm();
 
-    if (this.enraged && !this.announcedEnrage) {
-      this.announcedEnrage = true;
-      ctx.announce('The Dragon is enraged!');
-      this.sound('dragon.roar');
-    }
+    this.announceEnrage(ctx, true, 'The Dragon is enraged!', 'dragon.roar');
 
     switch (this.state) {
       case 'dormant':
-        if (ctx.playerAlive && dist < 22) {
-          this.enter('intro');
-          ctx.announce('DRAGON');
-          ctx.shake(0.4);
-          this.sound('dragon.roar');
-        }
+        if (ctx.playerAlive && dist < 22) this.awaken(ctx, 'DRAGON', 0.4, 'dragon.roar');
         break;
 
       case 'intro':
@@ -285,7 +192,7 @@ export class Dragon implements Hittable, Boss {
         if (this.stateT >= cfg.breathWindup * sm) {
           this.enter('breathing');
           this.breathTick = 0;
-          this.sound('dragon.breath', cfg.breathDuration);
+          this.sound('dragon.breath', undefined, undefined, cfg.breathDuration);
         }
         break;
 
@@ -299,7 +206,7 @@ export class Dragon implements Hittable, Boss {
           const hz = this.pos.z + Math.cos(this.yaw) * BREATH_OFFSET;
           ctx.tickPlayer(
             { kind: 'cone', x: hx, z: hz, yaw: this.yaw, range: cfg.breathRange, arcDeg: cfg.breathArcDeg },
-            Math.round(cfg.breathTickDamage * (this.hard?.flat ?? 1)),
+            this.flat(cfg.breathTickDamage),
             hx,
             hz,
           );
@@ -362,7 +269,7 @@ export class Dragon implements Hittable, Boss {
           this.eruptAt = [ctx.playerX, ctx.playerZ];
           m.set(ctx.playerX, 0, ctx.playerZ);
           this.enter('eruptWindup');
-          this.sound('dragon.burrow', undefined, ctx.playerX, ctx.playerZ);
+          this.sound('dragon.burrow', ctx.playerX, ctx.playerZ);
           // A dash check: centred on her and too wide to walk out of before it bursts.
           const shape: TelegraphShape = { kind: 'circle', x: ctx.playerX, z: ctx.playerZ, radius: cfg.eruptRadius };
           ctx.telegraph(shape, cfg.eruptWindup * sm, () => {
@@ -402,13 +309,13 @@ export class Dragon implements Hittable, Boss {
 
   private endAttack(recover: number): void {
     this.recoverFor = recover;
-    this.cooldown = cfg.attackGap * this.speedMult();
+    this.cooldown = cfg.attackGap * this.sm();
     this.enter('recover');
   }
 
   private chooseAttack(dist: number, ctx: BossContext): void {
     const r = ctx.rng();
-    const sm = this.speedMult();
+    const sm = this.sm();
     let pick: 'stomp' | 'breath' | 'charge';
     if (dist < 7) pick = r < 0.7 ? 'stomp' : 'breath';
     else if (dist < 13) pick = r < 0.6 ? 'breath' : 'charge';
@@ -458,7 +365,6 @@ export class Dragon implements Hittable, Boss {
   // ---------------------------------------------------------- animation
 
   private animate(dt: number): void {
-    this.time += dt;
     const t = this.time;
     let neckPitch = 0;
     let bodyLift = 0;
@@ -468,7 +374,7 @@ export class Dragon implements Hittable, Boss {
     let wingFlap = 0.25 + Math.sin(t * 2) * 0.12;
     let headColor = 0x9a2c1c;
     let weak = 0;
-    const sm = this.speedMult();
+    const sm = this.sm();
 
     // Legs cycle while the body actually moves.
     const moved = Math.hypot(this.pos.x - this.lastX, this.pos.z - this.lastZ);

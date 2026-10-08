@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import { sfx, type SfxId } from '../../audio';
-import { warden as cfg, type HardBossScale, type Race } from '../config';
+import { warden as cfg, type HardBossScale } from '../config';
 import { separateCircles } from '../collision';
-import type { Hittable, StatusEffect } from '../combat/types';
+import type { Hittable } from '../combat/types';
 import { WARDEN_HAND_REST, WardenModel } from '../models/mines';
 import { Pillar, Ring } from '../world/Effects';
 import { glowTexture } from '../world/glow';
 import type { Level, Rect } from '../world/Level';
 import { inShape, type TelegraphShape } from '../world/Telegraph';
-import type { Boss, BossContext } from './Boss';
-import type { Enemy, TelegraphHandle } from './Enemy';
+import type { BossContext } from './Boss';
+import { BossBase, BossPart } from './BossBase';
+import type { Enemy } from './Enemy';
 import { RepairDrone, SparkMite } from './mineEnemies';
 
 // The Warden: the Mines boss. A colossus built into the north end of its hall; it
@@ -39,7 +39,6 @@ type WState =
 type Attack = 'slam' | 'pattern' | 'wall' | 'lockdown' | 'intake' | 'summon';
 type Pattern = (c: number, r: number, wave: number, cols: number, rows: number) => boolean;
 
-const BOSS_DOT_CAP = 8;
 const CELL_INSET = 0.15;
 const INTAKE_MOTES = 110;
 
@@ -55,52 +54,6 @@ const PATTERNS: Record<string, Pattern> = {
 const PHASE1_PATTERNS = ['checker', 'stripes', 'bands', 'rings'];
 const PHASE2_PATTERNS = ['checker', 'stripes', 'bands', 'rings', 'diagonals', 'diagonals'];
 
-/** The core: the one part you can hit. */
-class WardenBody implements Hittable {
-  readonly pos = new THREE.Vector3();
-  readonly race: Race = 'machine';
-  readonly radius = cfg.bodyRadius;
-
-  constructor(private boss: Warden) {}
-
-  get name(): string {
-    return 'Warden';
-  }
-  get hp(): number {
-    return this.boss.hp;
-  }
-  set hp(_v: number) {
-    // Only damage() changes the boss HP.
-  }
-  get maxHp(): number {
-    return this.boss.maxHp;
-  }
-  get evp(): number {
-    return this.boss.evp;
-  }
-  get dfp(): number {
-    return this.boss.dfp;
-  }
-  get aimHeight(): number {
-    return 3.6;
-  }
-  get alive(): boolean {
-    return this.boss.alive;
-  }
-  get invulnerable(): boolean {
-    return this.boss.untouchable;
-  }
-  damage(amount: number): boolean {
-    return this.boss.damageBody(amount);
-  }
-  applyStatus(effect: StatusEffect, power: number, duration: number): void {
-    this.boss.applyStatus(effect, power, duration);
-  }
-  damageMult(): number {
-    return this.boss.bodyMult();
-  }
-}
-
 /** A locked-down cell: burning floor until the zones reset. */
 interface Zone {
   group: THREE.Group;
@@ -109,21 +62,14 @@ interface Zone {
   pos: Float32Array;
 }
 
-export class Warden implements Boss {
-  readonly name = 'Warden';
-  readonly race: Race = 'machine';
+export class Warden extends BossBase<WState, Attack> {
+  readonly id = 'warden' as const;
   readonly objects: THREE.Object3D[] = [];
-  readonly maxHp: number;
-  readonly injectorCharge = cfg.charge;
-  hp: number;
-  state: WState = 'dormant';
-  stateT = 0;
-  deadT = 0;
   phase: 1 | 2 = 1;
-  onDot: ((target: Hittable, damage: number) => void) | null = null;
 
   private model = new WardenModel();
-  private body: WardenBody;
+  /** The core: the one part you can hit. */
+  private body: BossPart;
   // The hall: deck from `front` (the alcove's edge) to `back`, `cols` x `rows` cells.
   private cx: number;
   private rootZ: number;
@@ -136,16 +82,7 @@ export class Warden implements Boss {
   private cw: number;
   private ch: number;
 
-  private time = 0;
-  private flashT = 0;
-  private gap = cfg.attackGap;
-  private lastAttack: Attack | null = null;
-  private announcedEnrage = false;
   private taughtVent = false;
-  private pending: TelegraphHandle[] = [];
-  private dotT = 0;
-  private dotLeft = 0;
-  private dotDps = 0;
   // Pose state (hands in model space).
   private charge = 0;
   private cast = 0;
@@ -201,13 +138,8 @@ export class Warden implements Boss {
   private zoneTicks = 0;
   private fx = new THREE.Group();
 
-  constructor(
-    arena: Rect,
-    /** Hard mode scaling (null on Normal). */
-    readonly hard: HardBossScale | null = null,
-  ) {
-    this.maxHp = Math.round(cfg.hp * (hard?.hp ?? 1));
-    this.hp = this.maxHp;
+  constructor(arena: Rect, hard: HardBossScale | null = null) {
+    super(cfg, hard);
     this.x0 = arena.minX;
     this.x1 = arena.maxX;
     this.cx = (arena.minX + arena.maxX) / 2;
@@ -218,7 +150,7 @@ export class Warden implements Boss {
     this.rows = Math.max(1, Math.round((this.back - this.front) / cfg.cell));
     this.cw = (this.x1 - this.x0) / this.cols;
     this.ch = (this.back - this.front) / this.rows;
-    this.body = new WardenBody(this);
+    this.body = new BossPart(this, cfg.bodyRadius, () => 3.6);
     this.body.pos.set(this.cx, 0, this.front - 1.4);
     this.objects.push(this.model.root, this.fx);
 
@@ -272,33 +204,8 @@ export class Warden implements Boss {
 
   // ---------------------------------------------------------------- Boss
 
-  get atp(): number {
-    return cfg.atp + (this.hard?.atp ?? 0);
-  }
-  get ata(): number {
-    return cfg.ata + (this.hard?.ata ?? 0);
-  }
-  get dfp(): number {
-    return cfg.dfp + (this.hard?.dfp ?? 0);
-  }
-  get evp(): number {
-    return cfg.evp + (this.hard?.evp ?? 0);
-  }
-  /** Flat (non-ATP) damage: laser wall, lockdown zones. One place to scale it. */
-  private flat(damage: number): number {
-    return Math.round(damage * (this.hard?.flat ?? 1));
-  }
-  get alive(): boolean {
-    return this.state !== 'dead';
-  }
-  get engaged(): boolean {
-    return this.state !== 'dormant';
-  }
   get weakPointOpen(): boolean {
     return this.state === 'vent';
-  }
-  get enraged(): boolean {
-    return this.hp / this.maxHp <= cfg.enrageAt;
   }
   /** Shown after the name on the boss bar. */
   get hudNote(): string {
@@ -308,15 +215,8 @@ export class Warden implements Boss {
     if (n) note += `  — LOCKDOWN ${n}/${cfg.lockMax}${n >= cfg.lockMax ? ` (reset in ${Math.ceil(this.holdT)})` : ''}`;
     return note;
   }
-  /** Nothing can be hurt (asleep, booting, dead). */
-  get untouchable(): boolean {
-    return this.state === 'dormant' || this.state === 'intro' || this.state === 'dead';
-  }
   parts(): Hittable[] {
     return [this.body];
-  }
-  owns(h: Hittable): boolean {
-    return h === this.body;
   }
 
   collide(playerPos: THREE.Vector3, playerRadius: number, level: Level): void {
@@ -328,37 +228,18 @@ export class Warden implements Boss {
 
   // -------------------------------------------------------------- damage
 
-  bodyMult(): number {
+  partMult(): number {
     return this.state === 'vent' ? cfg.ventMult : 1;
   }
 
-  damageBody(amount: number): boolean {
-    if (!this.alive || this.untouchable) return false;
-    this.flashT = 0.08;
-    this.hp -= amount;
-    if (this.hp <= 0) {
-      this.hp = 0;
-      this.enter('dead');
-      this.sound('boss.die');
-      for (const h of this.pending) h.cancel();
-      this.pending = [];
-      this.wallGroup.visible = false;
-      this.motes.visible = false;
-      this.clearZones();
-      // Its adds shut down with it.
-      for (const e of this.adds) if (e.alive) e.vanish();
-      this.adds = [];
-      for (const b of this.beams) b.visible = false;
-      return true;
-    }
-    return false;
-  }
-
-  applyStatus(effect: StatusEffect, power: number, duration: number): void {
-    if (effect !== 'burn' && effect !== 'poison') return;
-    const dps = effect === 'poison' ? Math.min(BOSS_DOT_CAP, this.maxHp * power) : Math.min(BOSS_DOT_CAP * 1.5, power);
-    this.dotDps = Math.max(this.dotDps, dps);
-    this.dotLeft = Math.max(this.dotLeft, duration);
+  protected onDeath(): void {
+    this.wallGroup.visible = false;
+    this.motes.visible = false;
+    this.clearZones();
+    // Its adds shut down with it.
+    for (const e of this.adds) if (e.alive) e.vanish();
+    this.adds = [];
+    for (const b of this.beams) b.visible = false;
   }
 
   // --------------------------------------------------------------- cells
@@ -385,22 +266,8 @@ export class Warden implements Boss {
 
   // -------------------------------------------------------------- update
 
-  private enter(s: WState): void {
-    this.state = s;
-    this.stateT = 0;
-  }
-
-  private sound(id: SfxId, x = this.body.pos.x, z = this.body.pos.z, arg?: number): void {
-    sfx(id, { x, z, arg });
-  }
-
-  /** Windup multiplier: shorter when enraged. */
-  private sm(): number {
-    return this.enraged ? cfg.enrageSpeed : 1;
-  }
-
-  private warn(ctx: BossContext, shape: TelegraphShape, dur: number, color: number, onFire: () => void = () => {}, dash = false): void {
-    this.pending.push(ctx.telegraph(shape, dur, onFire, color, dash));
+  protected get anchor(): THREE.Vector3 {
+    return this.body.pos;
   }
 
   /** World point to the model's space (for the hands). */
@@ -414,40 +281,23 @@ export class Warden implements Boss {
     this.goalR.set(WARDEN_HAND_REST.x, WARDEN_HAND_REST.y + lift - bob, WARDEN_HAND_REST.z);
   }
 
-  update(dt: number, ctx: BossContext): void {
-    this.time += dt;
-    this.stateT += dt;
-    this.flashT = Math.max(0, this.flashT - dt);
+  protected always(dt: number): void {
     this.updateFlashes(dt);
+  }
 
-    if (this.state === 'dead') {
-      this.deadT += dt;
-      this.restHands(-0.3);
-      this.smooth(dt, 0, 0, 0, 2);
-      this.place();
-      return;
-    }
+  protected whileDead(dt: number): void {
+    this.restHands(-0.3);
+    this.smooth(dt, 0, 0, 0, 2);
+    this.place();
+  }
 
-    // Damage over time.
-    if (this.dotLeft > 0) {
-      this.dotLeft -= dt;
-      this.dotT += dt;
-      if (this.dotT >= 0.5) {
-        this.dotT -= 0.5;
-        if (!this.untouchable) this.onDot?.(this.body, Math.max(1, Math.round(this.dotDps * 0.5)));
-      }
-    }
-    if (!this.alive) return;
+  protected think(dt: number, ctx: BossContext): void {
     this.updateZones(dt, ctx);
     this.updateAdds(dt, ctx);
     this.updateMotes(dt);
 
     if (this.phase === 1 && this.hp <= this.maxHp * cfg.phase2At && this.state === 'idle') this.startOverclock(ctx);
-    if (this.enraged && !this.announcedEnrage && this.phase === 2) {
-      this.announcedEnrage = true;
-      ctx.announce('The Warden is enraged!');
-      this.sound('warden.boot');
-    }
+    this.announceEnrage(ctx, this.phase === 2, 'The Warden is enraged!', 'warden.boot');
 
     let charge = 0;
     let cast = 0;
@@ -457,12 +307,7 @@ export class Warden implements Boss {
 
     switch (this.state) {
       case 'dormant':
-        if (ctx.playerAlive && this.stateT > 1.2) {
-          this.enter('intro');
-          ctx.announce('THE WARDEN');
-          ctx.shake(0.4);
-          this.sound('warden.boot');
-        }
+        if (ctx.playerAlive && this.stateT > 1.2) this.awaken(ctx, 'THE WARDEN', 0.4, 'warden.boot');
         break;
 
       case 'intro':
@@ -628,7 +473,7 @@ export class Warden implements Boss {
 
   private endAttack(): void {
     this.gap = (this.phase === 2 ? cfg.attackGap2 : cfg.attackGap) * this.sm();
-    this.pending = [];
+    this.tele.forget();
     this.pairSlam = null;
     this.enter('idle');
   }
@@ -637,18 +482,15 @@ export class Warden implements Boss {
     let pick: Attack;
     // Too close to its alcove: it swats you away.
     if (ctx.playerZ - this.front < cfg.slamRange && this.lastAttack !== 'slam' && ctx.rng() < 0.6) {
-      pick = 'slam';
+      pick = this.lastAttack = 'slam';
     } else {
       // Patterns (and their vent) come up twice as often as the rest.
-      const pool = (['pattern', 'pattern', 'wall', 'lockdown', 'intake', 'summon'] as Attack[]).filter(
-        (a) =>
-          a !== this.lastAttack &&
-          !(a === 'lockdown' && this.zones.size >= cfg.lockMax) &&
-          !(a === 'summon' && this.miteRoom() <= 0 && this.droneRoom() <= 0),
+      pick = this.pickAttack(
+        ctx,
+        ['pattern', 'pattern', 'wall', 'lockdown', 'intake', 'summon'],
+        (a) => !(a === 'lockdown' && this.zones.size >= cfg.lockMax) && !(a === 'summon' && this.miteRoom() <= 0 && this.droneRoom() <= 0),
       );
-      pick = pool[Math.floor(ctx.rng() * pool.length)];
     }
-    this.lastAttack = pick;
     switch (pick) {
       case 'slam':
         this.slamsLeft = this.phase === 2 ? 1 : 0;
@@ -1099,7 +941,7 @@ export class Warden implements Boss {
 
   private startOverclock(ctx: BossContext): void {
     this.phase = 2;
-    ctx.announce('The Warden overclocks!');
+    this.escalate(ctx, 'The Warden overclocks!');
     ctx.shake(0.5);
     this.sound('warden.reroute');
     this.enter('overclock');

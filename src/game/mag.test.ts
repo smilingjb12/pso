@@ -114,7 +114,7 @@ describe('Mag grid', () => {
     expect(ch.canEquip(rod).ok).toBe(false);
     ch.mag.cells = statCells('mind').slice(0, 7).map((c) => c.id); // +21 MST
     expect(ch.canEquip(rod).ok).toBe(true);
-    expect(ch.stats().mst).toBe(ch.baseStats().mst + 21 + (ch.weaponDef().mst ?? 0));
+    expect(ch.stats().mst).toBe(ch.baseStats().mst + 21 + (ch.weaponDef().bonus?.mst ?? 0));
   });
 
   it('reads stored Mags, dropping anything that is not a square', () => {

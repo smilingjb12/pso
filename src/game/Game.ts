@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type GUI from 'lil-gui';
-import { initAudio, music, setListener, setMuffled, setSpace, sfx, type SfxId, type Space, type TrackId } from '../audio';
+import { initAudio, music, setListener, setMuffled, setSpace, sfx, type SfxId } from '../audio';
 import { Input } from '../engine/Input';
 import { Hud, type ContextView, type HudState, type PaletteSlotView } from '../ui/Hud';
 import { itemIcon, techIcon, weaponIcon } from '../ui/icons';
@@ -25,20 +25,18 @@ import { Combat } from './combat/Combat';
 import type { Hittable } from './combat/types';
 import type { ComboEvent } from './combo';
 import { expeditionFoe, type Foe } from './dps';
-import { affixes as affixCfg, hard as hardCfg, camera as camCfg, comboDamage, darkFalz as falzCfg, dash as dashCfg, debug, formulas, injectorCfg, lockOn, magCfg, player as playerCfg, pylonCfg, telepipeCfg, warden as wardenCfg, type AttackType } from './config';
+import { affixes as affixCfg, hard as hardCfg, camera as camCfg, comboDamage, dash as dashCfg, debug, formulas, injectorCfg, lockOn, magCfg, player as playerCfg, pylonCfg, telepipeCfg, type AttackType } from './config';
 import { AFFIXES } from './data/affixes';
-import { areas, DEFAULT_LIGHT, expeditionOf, expeditions, isCounter, type AreaId, type ExpeditionId } from './data/areas';
+import { areas, DEFAULT_LIGHT, expeditionOf, expeditionOfBoss, expeditionOpenedBy, expeditions, isCounter, type AreaId, type ExpeditionId } from './data/areas';
+import { BOSS_IDS, BOSSES, type BossDef } from './data/bosses';
 import { areaDef } from './data/looks';
 import { type AttributeId, type KitId, type PaletteEdit, type PaletteRow, type QuickAction } from './data/stats';
 import { ATTR_LABEL, getDef, INJECTOR_MODS, specials, type WeaponKind } from './data/items';
 import { isAttackTech, techniques } from './data/techniques';
-import { DarkFalz } from './enemies/DarkFalz';
-import { DeRolLe } from './enemies/DeRolLe';
 import { Enemy, type EnemyContext } from './enemies/Enemy';
-import { Warden } from './enemies/Warden';
 import {
-  buyPrice, rollBoxDrop, rollChampionBonus, rollDeRolLeDrops, rollDragonDrops, rollEliteBonus, rollEnemyDrop, rollFalzDrops, rollHardBossDrops, rollRare, rollWardenDrops, rollWeapon,
-  shopStock, type Drop, type HardBossId, type ShopKind, type ShopUnlocks,
+  buyPrice, rollBoxDrop, rollBossDrops, rollChampionBonus, rollEliteBonus, rollEnemyDrop, rollRare, rollWeapon,
+  shopStock, type Drop, type ShopKind, type ShopUnlocks,
 } from './loot';
 import { addCharge, chargeOf, doseAmount, fillInjector, injectorDef, injectorStats, spendDose } from './injectors';
 import { learnCells, magForm } from './mag';
@@ -63,26 +61,12 @@ type SpawnAt = 'start' | { x: number; z: number };
 /** Stand-in when there is no world to show a telegraph in. */
 const noTelegraph = { cancel: () => {} };
 
-/** Music, reverb and footsteps per area. Boss arenas start their music when the boss wakes. */
-const AREA_AUDIO: Record<AreaId, { track: TrackId | null; after?: TrackId; space: Space; step: SfxId }> = {
-  city: { track: 'pioneer2', space: 'room', step: 'step.metal' },
-  forest1: { track: 'forest', space: 'open', step: 'step.grass' },
-  dragon: { track: null, after: 'forest', space: 'open', step: 'step.grass' },
-  cave1: { track: 'caves', space: 'cave', step: 'step.stone' },
-  cave2: { track: 'caves', space: 'cave', step: 'step.stone' },
-  derolle: { track: null, after: 'caves', space: 'cave', step: 'step.wood' },
-  mine1: { track: 'mines', space: 'cave', step: 'step.metal' },
-  mine2: { track: 'mines', space: 'cave', step: 'step.metal' },
-  warden: { track: null, after: 'mines', space: 'cave', step: 'step.metal' },
-  ruin1: { track: 'ruins', space: 'cave', step: 'step.stone' },
-  ruin2: { track: 'ruins', space: 'cave', step: 'step.stone' },
-  falz: { track: null, after: 'ruins', space: 'open', step: 'step.stone' },
-};
-
-const SHOT_SFX: Partial<Record<WeaponKind, SfxId>> = {
+/** Each weapon kind's attack sound: a shot for guns, a whoosh for blades, a heavier one for staves. */
+const ATTACK_SFX: Record<WeaponKind, SfxId> = {
+  saber: 'swing.blade', sword: 'swing.blade', dagger: 'swing.blade', partisan: 'swing.blade',
+  cane: 'swing.blunt', rod: 'swing.blunt', wand: 'swing.blunt',
   handgun: 'shot.handgun', rifle: 'shot.rifle', mechgun: 'shot.mechgun', shot: 'shot.shot', slicer: 'shot.slicer',
 };
-const STAFF_KINDS = new Set<string>(['cane', 'rod', 'wand']);
 
 /** Seconds of field play between periodic autosaves. */
 const AUTOSAVE_PERIOD = 60;
@@ -301,30 +285,20 @@ export class Game implements GameApi {
       },
       killAll: () => this.debugKillAll(),
       goto: (a) => this.enterArea(a, 'start'),
-      unlockCaves: () => {
-        this.char.data.stats.dragonKills = Math.max(1, this.char.data.stats.dragonKills);
-        this.hud.toast('The Caves are unlocked for this character.', 'good');
-      },
-      unlockMines: () => {
-        const st = this.char.data.stats;
-        st.dragonKills = Math.max(1, st.dragonKills);
-        st.deRolLeKills = Math.max(1, st.deRolLeKills ?? 0);
-        this.hud.toast('The Mines are unlocked for this character.', 'good');
-      },
-      unlockRuins: () => {
-        const st = this.char.data.stats;
-        st.dragonKills = Math.max(1, st.dragonKills);
-        st.deRolLeKills = Math.max(1, st.deRolLeKills ?? 0);
-        st.wardenKills = Math.max(1, st.wardenKills ?? 0);
-        this.hud.toast('The Ruins are unlocked for this character.', 'good');
+      unlock: (exp) => {
+        // Every boss on the way there counts as beaten.
+        for (let need = expeditions[exp].needs; need; need = expeditions[expeditionOfBoss(need)].needs) {
+          this.char.data.stats.bossKills[need] = Math.max(1, this.char.bossKills(need, false));
+        }
+        this.hud.toast(`The ${expeditions[exp].name} are unlocked for this character.`, 'good');
       },
       unlockHard: () => {
         const st = this.char.data.stats;
-        st.dragonKills = Math.max(1, st.dragonKills);
-        st.deRolLeKills = Math.max(1, st.deRolLeKills ?? 0);
-        st.wardenKills = Math.max(1, st.wardenKills ?? 0);
-        st.falzKills = Math.max(1, st.falzKills ?? 0);
-        st.hardKills = { dragon: 1, derolle: 1, warden: 1, falz: 1, ...st.hardKills };
+        st.hardKills ??= {};
+        for (const id of BOSS_IDS) {
+          st.bossKills[id] = Math.max(1, this.char.bossKills(id, false));
+          st.hardKills[id] = Math.max(1, this.char.bossKills(id, true));
+        }
         this.hud.toast('Nightmare is unlocked for this character (every expedition): pick it at login.', 'good');
       },
     });
@@ -524,11 +498,9 @@ export class Game implements GameApi {
         spawnAdd: (type, x, z) => this.world!.spawnEnemy(type, x, z, null, { noReward: true }),
         effect: (e) => this.world?.addEffect(e),
         shake: (m) => this.rig.shake(m),
-        announce: (t) => {
-          this.hud.banner(t, 'boss');
-          // Enraged / shattered / overclocked phases (and the Angel) bring in the boss track's battle layer.
-          if (/enraged|shatters|overclocks|ascends/.test(t)) music.setBattle(true);
-        },
+        announce: (t) => this.hud.banner(t, 'boss'),
+        // Enraged / shattered / overclocked phases (and the Angel) bring in the boss track's battle layer.
+        escalate: () => music.setBattle(true),
         isSolid: (x, z) => this.world?.level.isSolidAt(x, z) ?? true,
       },
       hazards: {
@@ -598,19 +570,15 @@ export class Game implements GameApi {
     this.hud.clearFloats();
     this.hud.banner(run.hard ? `${def.name} (Nightmare)` : def.name);
     this.playAreaMusic();
-    setSpace(AREA_AUDIO[id].space);
+    setSpace(areas[id].audio.space);
 
     if (def.kind === 'city') {
-      // Tier 5 joins the shops once De Rol Le has fallen, 6 once the Warden has, 7 once Dark Falz has;
-      // the Nightmare bosses open 8 / 9 / 10 / 11.
-      const st = this.char.data.stats;
-      const hk = st.hardKills ?? {};
-      const u: ShopUnlocks = {
-        derolle: (st.deRolLeKills ?? 0) > 0,
-        warden: (st.wardenKills ?? 0) > 0,
-        falz: (st.falzKills ?? 0) > 0,
-        hard: { dragon: (hk.dragon ?? 0) > 0, derolle: (hk.derolle ?? 0) > 0, warden: (hk.warden ?? 0) > 0, falz: (hk.falz ?? 0) > 0 },
-      };
+      // Bosses beaten open shop tiers (BOSSES[id].shop / hardShop).
+      const u: ShopUnlocks = { hard: {} };
+      for (const id of BOSS_IDS) {
+        u[id] = this.char.bossKills(id, false) > 0;
+        u.hard![id] = this.char.bossKills(id, true) > 0;
+      }
       this.stock = {
         weapon: shopStock('weapon', this.char.level, this.char.lootBias(), this.rng, u),
         armor: shopStock('armor', this.char.level, this.char.lootBias(), this.rng, u),
@@ -625,7 +593,7 @@ export class Game implements GameApi {
   private playAreaMusic(): void {
     const world = this.world;
     if (!world) return;
-    const au = AREA_AUDIO[world.areaId];
+    const au = areas[world.areaId].audio;
     this.bossMusic = false;
     this.victoryT = -1;
     music.play(au.track ?? (this.run.bossDefeated && au.after ? au.after : null), { battle: world.roomActive });
@@ -900,14 +868,14 @@ export class Game implements GameApi {
     world.update(dt, p);
     this.tickInjectors(world, dt);
     this.cues.update(world);
-    if (p.stepped) sfx(AREA_AUDIO[world.areaId].step);
+    if (p.stepped) sfx(areas[world.areaId].audio.step);
     const inWindow = p.combo.inWindow || p.castChain.inWindow;
     if (inWindow && !this.wasInWindow) sfx('combo.window');
     this.wasInWindow = inWindow;
     const boss = world.boss;
     if (boss && boss.engaged && boss.alive && !this.bossMusic) {
       this.bossMusic = true;
-      music.play(boss instanceof DeRolLe ? 'derolle' : boss instanceof Warden ? 'warden' : boss instanceof DarkFalz ? 'falz' : 'dragon', { battle: false, fade: 0.3 });
+      music.play(BOSSES[boss.id].music, { battle: false, fade: 0.3 });
     }
     if (this.victoryT >= 0) {
       this.victoryT -= dt;
@@ -1133,7 +1101,7 @@ export class Game implements GameApi {
   private attackSound(type: AttackType, hitIndex: number): void {
     const kind = this.char.weaponInstance() ? this.char.weaponKind().kind : null;
     const strong = type === 'heavy' || hitIndex === 2;
-    const id: SfxId = (kind && SHOT_SFX[kind]) || (kind && !STAFF_KINDS.has(kind) ? 'swing.blade' : 'swing.blunt');
+    const id: SfxId = kind ? ATTACK_SFX[kind] : 'swing.blunt';
     sfx(id, { pitch: strong ? 0.85 : 1, vol: strong ? 1.2 : 1 });
   }
 
@@ -1341,8 +1309,8 @@ export class Game implements GameApi {
       case 'pylon': {
         const pylon = this.world?.pylonOf(it);
         if (!pylon) return;
-        // The Seal of Light and the Falz Halo keep pylons you light burning longer.
-        const seal = this.char.hasEquipped('seal_of_light') || this.char.hasEquipped('falz_halo');
+        // The Seal of Light and the Falz Halo (pylonKeeper) keep pylons you light burning longer.
+        const seal = this.char.hasGearPassive('pylonKeeper');
         if (!pylon.light(pylonCfg.litTime * (seal ? pylonCfg.sealLitMult : 1))) return;
         sfx('ruins.pylon', { x: pylon.pos.x, z: pylon.pos.z });
         this.world?.addEffect(new Ring(pylon.pos.x, pylon.pos.z, 0xffe8a0, pylonCfg.radius, 0.5));
@@ -1357,8 +1325,8 @@ export class Game implements GameApi {
         sfx('world.switch', { pitch: 0.9 });
         this.rig.shake(0.08);
         this.hud.toast(it.label, 'good');
-        // Warden Core: working the machinery braces you.
-        if (this.char.hasEquipped('warden_core')) {
+        // Warden Core (switchBrace): working the machinery braces you.
+        if (this.char.hasGearPassive('switchBrace')) {
           this.player.brace = injectorCfg.braceTime;
           this.hud.float(this.tmpA.copy(this.player.pos).setY(2.6), 'BRACED', 'proc');
         }
@@ -1412,21 +1380,17 @@ export class Game implements GameApi {
   private teleporterMenu(): void {
     const hard = this.hard;
     const cancel: ChoiceOption = { label: 'Cancel', run: () => this.closeMenu() };
-    const st = this.char.data.stats;
-    const hk = st.hardKills ?? {};
     const opts: ChoiceOption[] = [];
     const tag = hard ? ' (Nightmare)' : '';
     for (const exp of Object.values(expeditions)) {
       // Normal: the previous expedition's boss. Nightmare: Dark Falz on Normal for the Forest, then the previous Nightmare boss.
       let locked: boolean;
-      const needName = exp.needs === 'derolle' ? 'De Rol Le' : exp.needs === 'warden' ? 'the Warden' : 'the Dragon';
-      const normalKills = { dragon: st.dragonKills, derolle: st.deRolLeKills ?? 0, warden: st.wardenKills ?? 0 };
-      let why = `Defeat ${needName}${hard ? ' on Nightmare' : ''} to unlock`;
-      if (!hard) locked = exp.needs ? normalKills[exp.needs] <= 0 : false;
-      else if (exp.needs) locked = (hk[exp.needs] ?? 0) <= 0;
+      let why = exp.needs ? `Defeat ${BOSSES[exp.needs].title}${hard ? ' on Nightmare' : ''} to unlock` : '';
+      if (exp.needs) locked = this.char.bossKills(exp.needs, hard) <= 0;
+      else if (!hard) locked = false;
       else {
         locked = !nightmareOpen(this.char.data);
-        why = 'Defeat Dark Falz to unlock';
+        why = `Defeat ${BOSS_IDS.map((b) => BOSSES[b]).find((b) => b.opensNightmare)!.title} to unlock`;
       }
       if (locked) {
         opts.push({ label: exp.name + tag, disabled: true, sub: why, run: () => {} });
@@ -1478,20 +1442,10 @@ export class Game implements GameApi {
     if (boss && boss.owns(t)) {
       // Boss parts share its HP: only the whole boss going down counts.
       if (boss.alive) return;
-      const drl = boss instanceof DeRolLe;
-      const wdn = boss instanceof Warden;
-      const flz = boss instanceof DarkFalz;
-      const stats = this.char.data.stats;
+      const def = BOSSES[boss.id];
       const hard = this.run.hard;
-      const bossId: HardBossId = drl ? 'derolle' : wdn ? 'warden' : flz ? 'falz' : 'dragon';
-      stats.kills++;
-      if (hard) {
-        const hk = (stats.hardKills ??= {});
-        hk[bossId] = (hk[bossId] ?? 0) + 1;
-      } else if (drl) stats.deRolLeKills = (stats.deRolLeKills ?? 0) + 1;
-      else if (wdn) stats.wardenKills = (stats.wardenKills ?? 0) + 1;
-      else if (flz) stats.falzKills = (stats.falzKills ?? 0) + 1;
-      else stats.dragonKills++;
+      this.char.data.stats.kills++;
+      const first = this.char.addBossKill(def.id, hard) === 1;
       this.cleanse();
       this.run.bossDefeated = true;
       this.lockTarget = null;
@@ -1501,41 +1455,27 @@ export class Game implements GameApi {
       this.hud.banner(`${boss.name.toUpperCase()} DEFEATED`, 'boss');
       this.autosave();
       this.hud.toast('Quest complete! A teleporter to Pioneer 2 has appeared.', 'good');
-      if (hard) {
-        const first = stats.hardKills?.[bossId] === 1;
-        const shop = { dragon: [8, 52], derolle: [9, 62], warden: [10, 72], falz: [11, 82] }[bossId];
-        if (first) this.hud.toast(`Pioneer 2 shops will now stock tier ${shop[0]} gear (from Lv ${shop[1]}).`, 'rare');
-        const next = { dragon: 'Caves', derolle: 'Mines', warden: 'Ruins', falz: '' }[bossId];
-        if (first && next) this.hud.toast(`A new Nightmare expedition is open: the ${next}.`, 'rare');
-      } else {
-        if (!drl && !wdn && !flz && stats.dragonKills === 1) this.hud.toast('A new expedition is open: the Caves.', 'rare');
-        if (drl && stats.deRolLeKills === 1) {
-          this.hud.toast('Pioneer 2 shops will now stock tier 5 gear (from Lv 24).', 'rare');
-          this.hud.toast('A new expedition is open: the Mines.', 'rare');
-        }
-        if (wdn && stats.wardenKills === 1) {
-          this.hud.toast('Pioneer 2 shops will now stock tier 6 gear (from Lv 32).', 'rare');
-          this.hud.toast('A new expedition is open: the Ruins.', 'rare');
-        }
-        if (flz && stats.falzKills === 1) {
-          this.hud.toast('Pioneer 2 shops will now stock tier 7 gear (from Lv 42).', 'rare');
-          if (!stats.nightmareKept) this.hud.toast('Nightmare is open: Save &amp; quit (menu, I) and pick it when you start again.', 'rare');
-        }
-      }
-      this.gainXp(hard ? hardCfg.bosses[bossId].xp : drl ? 900 : wdn ? wardenCfg.xp : flz ? falzCfg.xp : 250);
-      // Loot lands on the deck / arena floor around the centre.
-      const c = world.level.center();
-      const at = drl || wdn || flz ? c : t.pos;
-      const cls = this.char.lootBias();
-      const drops = hard
-        ? rollHardBossDrops(bossId, this.rng, cls)
-        : drl ? rollDeRolLeDrops(this.rng, cls) : wdn ? rollWardenDrops(this.rng, cls) : flz ? rollFalzDrops(this.rng, cls) : rollDragonDrops(this.rng, cls);
+      if (first) this.announceUnlocks(def, hard);
+      this.gainXp(hard ? hardCfg.bosses[def.id].xp : def.xp());
+      // Loot lands on the deck / arena floor around the centre, or where it fell.
+      const at = def.dropsAt === 'center' ? world.level.center() : t.pos;
+      const drops = rollBossDrops(def.id, hard, this.rng, this.char.lootBias());
       drops.forEach((d, i) => {
         const a = (i / drops.length) * Math.PI * 2;
-        const r = drl ? 2.6 : 3;
-        this.spawnDrop(d, at.x + Math.sin(a) * r, at.z + Math.cos(a) * r * (drl ? 2 : 1));
+        this.spawnDrop(d, at.x + Math.sin(a) * def.dropRing, at.z + Math.cos(a) * def.dropRing * (def.dropStretch ?? 1));
       });
       world.spawnReturnTeleporter();
+    }
+  }
+
+  /** Toasts for what a boss's first kill opened: shop tiers, the next expedition, Nightmare. */
+  private announceUnlocks(def: BossDef, hard: boolean): void {
+    const shop = (hard ? def.hardShop : def.shop)[0];
+    if (shop) this.hud.toast(`Pioneer 2 shops will now stock tier ${shop.tier} gear (from Lv ${shop.level}).`, 'rare');
+    const next = expeditionOpenedBy(def.id);
+    if (next) this.hud.toast(`A new ${hard ? 'Nightmare ' : ''}expedition is open: the ${next.name}.`, 'rare');
+    if (!hard && def.opensNightmare && !this.char.data.stats.nightmareKept) {
+      this.hud.toast('Nightmare is open: Save &amp; quit (menu, I) and pick it when you start again.', 'rare');
     }
   }
 

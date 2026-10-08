@@ -107,7 +107,7 @@ of anything).
   Partisan line ahead, 4; Slicer piercing disc, 3; Handgun 3-shot fan, 2; Rifle piercing beam, 3; Mechgun
   5-round spray, 3 (heavy: a 3-round burst); Shot 5-pellet fan, 5; Cane 110°, 3; Rod 150°, 4; Wand 100°, 2.
   The weapon info panel shows each weapon's light / heavy line.
-- **Melee weight classes** (agreed 2026-10-07, `config.ts` `weaponWeights`, `weaponKinds[].weight`). The user found
+- **Melee weight classes** (agreed 2026-10-07, `config/` `weaponWeights`, `weaponKinds[].weight`). The user found
   the Sword unusable next to the Saber: it swung twice as slow for ~1.3x the damage per hit, missed more, staggered
   exactly like a Saber and lost its wind-up to every enemy hit (bot: Forest 220 s / 2.3 bars vs the Saber's 153 s /
   1.2). Speed was pure cost, so the slow kinds now get a payoff:
@@ -136,7 +136,7 @@ of anything).
   not a choice (the shop restocked all six at about Lv/5 and the right move was always "learn the highest"), and
   ranks double-scaled with MST. Support techs barely scaled with MST before (Shifta / Deband not at all), so
   without class caps a Hunter would have got a stronger Resta and Shifta than she has now; they now scale too.
-  Each tech lists its power and TP at MST 100 (`techScaling.mstRef`; constants in `config.ts` `techScaling`):
+  Each tech lists its power and TP at MST 100 (`techScaling.mstRef`; constants in `config/` `techScaling`):
   - Attack damage = power × (MST / 100)^1.2 × weapon technique boost (Foie 40, Zonde 52, Barta 36). The exponent
     makes a Force pull ahead: ~10× a pure-ATP Hunter's Foie at Lv 42.
   - TP cost = tp × (0.4 + 0.6 × MST / 100) (Foie 4.5, Zonde 5.5, Barta 6.5, Resta 5, Shifta / Deband 6). High MST
@@ -489,10 +489,10 @@ Agreed 2026-10-05: everything **synthesized in code with the Web Audio API**, wi
 
 ## Expedition 2 — Caves → De Rol Le
 Agreed in the second design interview (2026-10-05) and built the same day. Numbers below are the tuned values
-in `config.ts` (the tuning panel's **De Rol Le** and **Caves** folders edit them live).
+in `config/` (the tuning panel's **De Rol Le** and **Caves** folders edit them live).
 
 ### Structure
-- **Unlock:** the city teleporter offers the Caves once this character has killed the Dragon (`stats.dragonKills`).
+- **Unlock:** the city teleporter offers the Caves once this character has killed the Dragon (`stats.bossKills.dragon`).
   Expeditions are data (`expeditions` in `data/areas.ts`): their floors in order, the boss arena last. Each
   floor reached is a checkpoint (see Death & Saves).
 - **Cave 1** (volcanic, 7 rooms) → teleporter → **Cave 2** (flooded marsh, 8 rooms incl. a switch side room;
@@ -584,7 +584,7 @@ in `config.ts` (the tuning panel's **De Rol Le** and **Caves** folders edit them
 
 ## Expedition 3 — Mines → Warden
 Agreed in the third design interview (2026-10-07) and built the same day. Numbers are the tuned values in
-`config.ts` (the tuning panel's **Mines** and **Warden** folders edit them live).
+`config/` (the tuning panel's **Mines** and **Warden** folders edit them live).
 
 ### Structure
 - **Unlock:** the city teleporter offers the Mines once this character has killed De Rol Le (`needs: 'derolle'`).
@@ -686,7 +686,7 @@ Chaos Sorcerer, Dark Belra, Chaos Bringer), and **Nightmare moved up one expedit
 carries on from here. My defaults, offered for veto: only violet-telegraphed attacks corrupt, Sol clears Corruption,
 characters who already had Nightmare keep it, the T7 frame shows armour stage 3, injectors unchanged. Same day they
 asked for the environment to be **darker and more ominous** than the first, bright temple looks. Numbers live in
-`config.ts` (`enemies`, `pylonCfg`, `ruinsCfg`, `statuses.corrupt*`, `darkFalz`; tuning panel **Ruins** and **Dark Falz**).
+`config/` (`enemies`, `pylonCfg`, `ruinsCfg`, `statuses.corrupt*`, `darkFalz`; tuning panel **Ruins** and **Dark Falz**).
 
 ### Structure
 - **Unlock:** the city teleporter offers the Ruins once the Warden is dead (`needs: 'warden'`).
@@ -794,7 +794,7 @@ Agreed in a design question round on 2026-10-07 and built the same day, after a 
 the Mines (tuned for Lv 22–32) easy: a Lv 37 heavy Zonde (~435) kills a Gillchic or a Sinow in one cast. Normal
 had no content past Lv 32, so replaying the Mines ~6–7 times was enough to outlevel it. Hard takes the same three
 expeditions on up the level curve, PSO style, and gets harder through mechanics as well as stats. Numbers live in
-`config.ts` (`hard`, plus the affix fields of `affixes`); scaling helpers in `hard.ts`, affixes in `data/affixes.ts`.
+`config/` (`hard`, plus the affix fields of `affixes`); scaling helpers in `hard.ts`, affixes in `data/affixes.ts`.
 
 ### Structure
 - **One new difficulty, Hard**, for Forest, Caves, Mines and (since 2026-10-08) the Ruins. Very Hard can follow later the same way.

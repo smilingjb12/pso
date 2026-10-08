@@ -14,13 +14,10 @@ import type { AreaDef, AreaId } from '../data/areas';
 import { areaDef } from '../data/looks';
 import type { Boss, BossContext } from '../enemies/Boss';
 import { PanArms } from '../enemies/caveEnemies';
-import { DeRolLe } from '../enemies/DeRolLe';
-import { Dragon } from '../enemies/Dragon';
+import { createBoss } from '../enemies/createBoss';
 import type { Enemy, EnemyContext, EnemyOptions } from '../enemies/Enemy';
 import { ControlNode, Gunbot } from '../enemies/mineEnemies';
 import { createEnemy } from '../enemies/spawn';
-import { Warden } from '../enemies/Warden';
-import { DarkFalz } from '../enemies/DarkFalz';
 import type { Player } from '../Player';
 import { Breakable } from './Breakable';
 import { Pillar, Ring, type Effect } from './Effects';
@@ -230,14 +227,8 @@ export class World {
     }
 
     if (def.kind === 'boss' && !run.bossDefeated) {
-      const c = this.level.center();
-      const rect = this.level.rooms[0].rect;
-      const hs = run.hard ? hardBoss(def.boss ?? 'dragon') : null;
-      this.boss =
-        def.boss === 'derolle' ? new DeRolLe(rect, hs)
-        : def.boss === 'warden' ? new Warden(rect, hs)
-        : def.boss === 'falz' ? new DarkFalz(rect, hs)
-        : new Dragon(c.x, c.z - 6, hs);
+      const id = def.boss ?? 'dragon';
+      this.boss = createBoss(id, this.level, run.hard ? hardBoss(id) : null);
       this.group.add(...this.boss.objects);
     }
     if (def.kind === 'boss' && run.bossDefeated) this.spawnReturnTeleporter();

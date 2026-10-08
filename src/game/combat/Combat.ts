@@ -693,8 +693,8 @@ export class Combat {
       return true;
     }
     if (kind === 'burn') {
-      // The Warden Core barrier halves Burn from facility hazards and machines alike.
-      const stacks = Math.max(1, Math.round((amount ?? 2) * (this.c.hasEquipped('warden_core') ? 0.5 : 1)));
+      // The Warden Core barrier (hazardWard) halves Burn from facility hazards and machines alike.
+      const stacks = Math.max(1, Math.round((amount ?? 2) * (this.c.hasGearPassive('hazardWard') ? 0.5 : 1)));
       const before = p.burnStacks;
       p.burnStacks = Math.min(statuses.burnMaxStacks, p.burnStacks + stacks);
       if (before === 0) p.burnDecay = 0;
@@ -781,8 +781,8 @@ export class Combat {
   hazardHurt(damage: number, fromX: number, fromZ: number, knockback = 9, source = 'Lava vent'): void {
     const p = this.p;
     if (!p.alive || p.iframes > 0) return;
-    // The Warden Core barrier: facility hazards deal half damage.
-    const core = this.c.hasEquipped('warden_core') ? 0.5 : 1;
+    // The Warden Core barrier (hazardWard): facility hazards deal half damage.
+    const core = this.c.hasGearPassive('hazardWard') ? 0.5 : 1;
     const dmg = debug.invincible ? 0 : Math.max(1, Math.round(damage * (1 - Math.min(0.6, this.playerDfp() / 300)) * this.bulwark() * core));
     this.hurtPlayer(dmg, fromX, fromZ, knockback, source);
   }

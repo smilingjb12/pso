@@ -1,3 +1,4 @@
+import { BOSS_IDS, BOSSES } from '../game/data/bosses';
 import type { CharacterData } from '../game/character';
 import { itemDefs, type WeaponKind } from '../game/data/items';
 import { buildTitle, leadAttribute, type KitId } from '../game/data/stats';
@@ -19,9 +20,9 @@ const DIFFS: { id: Difficulty; name: string; sub: string }[] = [
   { id: 'nightmare', name: 'Nightmare', sub: 'Lv 42-82' },
 ];
 
-/** Nightmare opens once Dark Falz has fallen on Normal (characters who opened it with the Warden, before the Ruins, keep it). */
+/** Nightmare opens once the last boss (Dark Falz) has fallen on Normal (characters who opened it with the Warden, before the Ruins, keep it). */
 export function nightmareOpen(c: CharacterData): boolean {
-  return (c.stats.falzKills ?? 0) > 0 || !!c.stats.nightmareKept;
+  return BOSS_IDS.some((b) => BOSSES[b].opensNightmare && (c.stats.bossKills[b] ?? 0) > 0) || !!c.stats.nightmareKept;
 }
 
 export interface TitleApi {
@@ -91,7 +92,7 @@ export class TitleMenu implements Menu {
       ? `<div class="win nameplate"><div class="np-name">${esc(cur.name)}</div>
           <div class="np-sub">${buildTitle(cur.kit, cur.attributes)}</div>
           <div class="np-grid"><span>Level</span><b>${cur.level}</b><span>Meseta</span><b>${cur.meseta.toLocaleString()}</b>
-          <span>Play time</span><b>${formatTime(cur.stats.playSeconds)}</b><span>Dragons</span><b>${cur.stats.dragonKills}</b></div></div>`
+          <span>Play time</span><b>${formatTime(cur.stats.playSeconds)}</b><span>Dragons</span><b>${cur.stats.bossKills.dragon ?? 0}</b></div></div>`
       : `<div class="win nameplate empty"><div class="np-name dim">No data</div><div class="np-sub">Create a character in this slot.</div></div>`;
     if (this.picking && cur) {
       return `${logo()}${this.renderDifficulty(cur)}${plate}

@@ -1,5 +1,6 @@
 import type * as THREE from 'three';
 import type { EnemyId, Race } from '../config';
+import type { BossId } from '../data/bosses';
 import type { Hittable } from '../combat/types';
 import type { Level } from '../world/Level';
 import type { TelegraphShape } from '../world/Telegraph';
@@ -34,12 +35,16 @@ export interface BossContext {
   spawnAdd(type: EnemyId, x: number, z: number): Enemy;
   effect(e: Effect): void;
   shake(mag: number): void;
+  /** A banner across the screen. */
   announce(text: string): void;
+  /** The fight steps up (a new phase, or enraged): the boss track's battle layer comes in. */
+  escalate(): void;
   isSolid(x: number, z: number): boolean;
 }
 
 /** An area boss: one or more hittable parts plus its own state machine. */
 export interface Boss {
+  readonly id: BossId;
   readonly name: string;
   readonly race: Race;
   readonly atp: number;

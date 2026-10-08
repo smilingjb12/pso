@@ -1,5 +1,9 @@
 import type { EnemyId } from '../config';
+import type { SfxId, Space, TrackId } from '../../audio';
 import { RUINS_AFFIXES, type Affix } from './affixes';
+import type { BossId } from './bosses';
+
+export type { BossId };
 
 // Areas are authored as rectangular rooms (in 2m tiles) joined by straight
 // corridors. The level builder carves corridors through the overlap of two
@@ -130,12 +134,19 @@ export interface AreaLight {
 
 export const DEFAULT_LIGHT: AreaLight = { hemiSky: 0xcfe4ff, hemiGround: 0x2a3a20, hemi: 1.1, sunColor: 0xffffff, sun: 1.6 };
 
-export type BossId = 'dragon' | 'derolle' | 'warden' | 'falz';
+/** Music, reverb and footsteps. Boss arenas have no track: theirs starts when the boss wakes, and `after` plays once it is beaten. */
+export interface AreaAudio {
+  track: TrackId | null;
+  after?: TrackId;
+  space: Space;
+  step: SfxId;
+}
 
 export interface AreaDef {
   id: AreaId;
   name: string;
   kind: 'city' | 'field' | 'boss';
+  audio: AreaAudio;
   /** Boss areas: who lives here. */
   boss?: BossId;
   /** Field areas: elite and rare (Nar Lily) spawns can appear. */
@@ -164,7 +175,7 @@ export interface ExpeditionDef {
    */
   floors: AreaId[];
   /** Unlocked by killing this boss on this character. */
-  needs?: 'dragon' | 'derolle' | 'warden';
+  needs?: BossId;
 }
 
 export const expeditions: Record<ExpeditionId, ExpeditionDef> = {
@@ -176,11 +187,24 @@ export const expeditions: Record<ExpeditionId, ExpeditionDef> = {
 
 /** Which expedition an area belongs to (null for the city). */
 export function expeditionOf(area: AreaId): ExpeditionId | null {
-  if (area === 'forest1' || area === 'dragon') return 'forest';
-  if (area === 'cave1' || area === 'cave2' || area === 'derolle') return 'caves';
-  if (area === 'mine1' || area === 'mine2' || area === 'warden') return 'mines';
-  if (area === 'ruin1' || area === 'ruin2' || area === 'falz') return 'ruins';
-  return null;
+  return Object.values(expeditions).find((e) => e.floors.includes(area))?.id ?? null;
+}
+
+/** The boss at the end of an expedition. */
+export function bossOf(exp: ExpeditionId): BossId {
+  const boss = areas[expeditions[exp].floors[expeditions[exp].floors.length - 1]].boss;
+  if (!boss) throw new Error(`expedition ${exp} has no boss arena`);
+  return boss;
+}
+
+/** The expedition a boss guards. */
+export function expeditionOfBoss(boss: BossId): ExpeditionId {
+  return Object.values(expeditions).find((e) => bossOf(e.id) === boss)!.id;
+}
+
+/** The expedition that beating this boss opens (none for the last one). */
+export function expeditionOpenedBy(boss: BossId): ExpeditionDef | undefined {
+  return Object.values(expeditions).find((e) => e.needs === boss);
 }
 
 const B: EnemyId = 'Booma';
@@ -210,6 +234,7 @@ export const areas: Record<AreaId, AreaDef> = {
     id: 'city',
     name: 'Pioneer 2',
     kind: 'city',
+    audio: { track: 'pioneer2', space: 'room', step: 'step.metal' },
     theme: {
       floor: 0x6d7690, floorAlt: 0x646d86, wall: 0x9aa4c0, wallHeight: 5,
       sky: 0x1a2236, fogNear: 40, fogFar: 90, trees: false,
@@ -235,6 +260,7 @@ export const areas: Record<AreaId, AreaDef> = {
     id: 'forest1',
     name: 'Forest 1',
     kind: 'field',
+    audio: { track: 'forest', space: 'open', step: 'step.grass' },
     theme: {
       floor: 0x5a8a46, floorAlt: 0x54833f, wall: 0x2f4a26, wallHeight: 4,
       sky: 0x86b4dc, fogNear: 35, fogFar: 95, trees: true,
@@ -269,6 +295,7 @@ export const areas: Record<AreaId, AreaDef> = {
     id: 'dragon',
     name: "Dragon's Lair",
     kind: 'boss',
+    audio: { track: null, after: 'forest', space: 'open', step: 'step.grass' },
     boss: 'dragon',
     theme: {
       floor: 0x4c4238, floorAlt: 0x3a322b, wall: 0x2e2822, wallHeight: 6,
@@ -287,6 +314,7 @@ export const areas: Record<AreaId, AreaDef> = {
     id: 'cave1',
     name: 'Cave 1',
     kind: 'field',
+    audio: { track: 'caves', space: 'cave', step: 'step.stone' },
     elites: true,
     theme: {
       floor: 0x4a3a33, floorAlt: 0x42332d, wall: 0x2c2220, wallHeight: 5,
@@ -325,6 +353,7 @@ export const areas: Record<AreaId, AreaDef> = {
     id: 'cave2',
     name: 'Cave 2',
     kind: 'field',
+    audio: { track: 'caves', space: 'cave', step: 'step.stone' },
     elites: true,
     startYaw: Math.PI / 2,
     theme: {
@@ -368,6 +397,7 @@ export const areas: Record<AreaId, AreaDef> = {
     id: 'derolle',
     name: 'Underground River',
     kind: 'boss',
+    audio: { track: null, after: 'caves', space: 'cave', step: 'step.wood' },
     boss: 'derolle',
     theme: {
       floor: 0x6c727a, floorAlt: 0x646a72, wall: 0x1a2a30, wallHeight: 1,
@@ -386,6 +416,7 @@ export const areas: Record<AreaId, AreaDef> = {
     id: 'mine1',
     name: 'Mine 1',
     kind: 'field',
+    audio: { track: 'mines', space: 'cave', step: 'step.metal' },
     elites: true,
     affixes: true,
     startYaw: Math.PI / 2,
@@ -440,6 +471,7 @@ export const areas: Record<AreaId, AreaDef> = {
     id: 'mine2',
     name: 'Mine 2',
     kind: 'field',
+    audio: { track: 'mines', space: 'cave', step: 'step.metal' },
     elites: true,
     affixes: true,
     theme: {
@@ -496,6 +528,7 @@ export const areas: Record<AreaId, AreaDef> = {
     id: 'warden',
     name: 'Control Core',
     kind: 'boss',
+    audio: { track: null, after: 'mines', space: 'cave', step: 'step.metal' },
     boss: 'warden',
     theme: {
       floor: 0x515861, floorAlt: 0x474d55, wall: 0x262a30, wallHeight: 6,
@@ -515,6 +548,7 @@ export const areas: Record<AreaId, AreaDef> = {
     id: 'ruin1',
     name: 'Ruin 1',
     kind: 'field',
+    audio: { track: 'ruins', space: 'cave', step: 'step.stone' },
     elites: true,
     affixes: true,
     affixPool: RUINS_AFFIXES,
@@ -562,6 +596,7 @@ export const areas: Record<AreaId, AreaDef> = {
     id: 'ruin2',
     name: 'Ruin 2',
     kind: 'field',
+    audio: { track: 'ruins', space: 'cave', step: 'step.stone' },
     elites: true,
     affixes: true,
     affixPool: RUINS_AFFIXES,
@@ -605,6 +640,7 @@ export const areas: Record<AreaId, AreaDef> = {
     id: 'falz',
     name: 'The Altar',
     kind: 'boss',
+    audio: { track: null, after: 'ruins', space: 'open', step: 'step.stone' },
     boss: 'falz',
     theme: {
       floor: 0x5a5470, floorAlt: 0x524c68, wall: 0x2a2440, wallHeight: 1,

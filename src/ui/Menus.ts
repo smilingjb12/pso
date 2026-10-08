@@ -1,11 +1,11 @@
 import {
-  armorStatText, compareEquip, describeItem, edgeLevels, fitsSlot, GEAR_SLOTS, gearSlot, gearVerdict, grindBonus, grindPreview, itemName, itemSpecial,
-  sellPrice, simulateEquip, weaponRace, type Character, type GearSlot, type GrindTrack, type ItemInstance,
+  compareEquip, describeItem, edgeLevels, fitsSlot, GEAR_SLOTS, gearSlot, gearVerdict, grindBonus, grindPreview, itemHeadline, itemName, itemSpecial,
+  sellPrice, simulateEquip, weaponBonus, weaponRace, type Character, type GearSlot, type GrindTrack, type ItemInstance,
 } from '../game/character';
 import { estimateDamage, RACES, type Foe } from '../game/dps';
-import { chargeOf, injectorStats } from '../game/injectors';
+import { isGear, itemRequirement } from '../game/itemTypes';
 import {
-  ATTRIBUTE_INFO, ATTRIBUTES, STAT_INFO, STAT_KEYS, STAT_LABEL, type AttributeId, type PaletteEdit, type PaletteRow, type QuickAction, type StatKey,
+  ATTRIBUTE_INFO, ATTRIBUTES, bonusEntries, STAT_INFO, STAT_KEYS, STAT_LABEL, type AttributeId, type PaletteEdit, type PaletteRow, type QuickAction, type StatKey,
 } from '../game/data/stats';
 import { ATTR_LABEL, getDef, grindCap, INVENTORY_SIZE, raceCap, specials, weaponKinds } from '../game/data/items';
 import { buffPct, isAttackTech, restaHeal, TECH_IDS, techniques } from '../game/data/techniques';
@@ -16,7 +16,7 @@ import {
   PASSIVE_INFO, reqText, type MagCell,
 } from '../game/mag';
 import { sfx, type SfxId } from '../audio';
-import { typeIcon, weaponIcon } from './icons';
+import { itemGlyph } from './icons';
 
 // DOM menus. All menus pause the game; the Game owns open/close.
 
@@ -46,7 +46,7 @@ export interface GameApi {
 /** Small type glyph for an item row. */
 function glyph(it: ItemInstance): string {
   const def = getDef(it.id);
-  return `<span class="ico">${def.type === 'weapon' ? weaponIcon(def.kind) : typeIcon(def.type, it.id)}</span>`;
+  return `<span class="ico">${itemGlyph(def)}</span>`;
 }
 
 /** Menu clicks: the game plays its own sound for these (buy, equip...), or an error. */
@@ -252,12 +252,13 @@ function weaponCardHtml(ch: Character, inst: ItemInstance, foe: Foe): string {
   const def = getDef(inst.id);
   if (def.type !== 'weapon') return '';
   const kind = weaponKinds[def.kind];
-  const g = grindBonus(def, edgeLevels(inst));
+  const edge = edgeLevels(inst);
+  const g = grindBonus(def, edge);
   const stat = (label: string, value: string) => `<div class="wc-stat"><span>${label}</span><b>${value}</b></div>`;
   const stats = [
     stat('ATP', `${def.atpMin + g.atp}-${def.atpMax + g.atp}`),
     stat('ATA', `${def.ata + g.ata}`),
-    def.mst ? stat('MST', `+${def.mst + g.mst}`) : '',
+    ...bonusEntries(weaponBonus(def, edge)).map(([k, v]) => stat(STAT_LABEL[k], `+${v}`)),
     stat('Grind', `${inst.grind ?? 0}/${grindCap(def)}`),
   ].join('');
   // Where the grind levels went: Edge is already in the tiles above, race levels in the damage table's % column.
@@ -265,12 +266,13 @@ function weaponCardHtml(ch: Character, inst: ItemInstance, foe: Foe): string {
     ? [edgeLevels(inst) ? `Edge ${edgeLevels(inst)}` : '', ...RACES.map((r) => (inst.bane?.[r] ? `${ATTR_LABEL[r]} ${inst.bane[r]}` : ''))].filter(Boolean).join(' · ')
     : '';
   const check = ch.canEquip(inst);
+  const need = itemRequirement(def);
   const sp = itemSpecial(inst);
   const tags = [
     sp ? `<span class="wc-tag special">${specials[sp].name}</span>` : '',
     inst.attrs?.hit ? `<span class="wc-tag">Hit +${inst.attrs.hit}%</span>` : '',
     ground ? `<span class="wc-tag" title="Where the grind levels went">Ground: ${ground}</span>` : '',
-    def.req ? `<span class="wc-tag${check.need ? ' bad' : ''}">Req ${kind.reqStat.toUpperCase()} ${def.req}</span>` : '',
+    need ? `<span class="wc-tag${check.need ? ' bad' : ''}">Req ${need.stat.toUpperCase()} ${need.req}</span>` : '',
   ].join('');
   let html = `<div class="wc-kind">${kind.label}${def.rare ? ' · ★ Rare' : ''}</div><div class="wc-stats">${stats}</div>`;
   if (tags) html += `<div class="wc-tags">${tags}</div>`;
@@ -295,18 +297,6 @@ function verdictMark(ch: Character, inst: ItemInstance): string {
   if (!check.ok) return `<span class="verdict no" title="${esc(check.reason ?? "Can't equip")}">✖</span>`;
   const v = gearVerdict(ch, inst);
   return v > 0 ? '<span class="verdict up" title="Better than equipped">▲</span>' : v < 0 ? '<span class="verdict down" title="Worse than equipped">▼</span>' : '<span class="verdict same">=</span>';
-}
-
-/** Headline stats of a gear item. */
-function gearStat(inst: ItemInstance, ch?: Character): string {
-  const def = getDef(inst.id);
-  if (def.type === 'weapon') return describeItem(inst)[1] ?? ''; // "ATP a-b  ATA c", grind included
-  if (def.type === 'armor') return armorStatText(def);
-  if (def.type === 'injector') {
-    const s = injectorStats(inst, ch);
-    return `${def.kind === 'mate' ? 'HP' : 'TP'} ${Math.round(s.potency * 100)}% · ${Math.floor(chargeOf(inst, ch))}/${s.doses} doses`;
-  }
-  return '';
 }
 
 const ITEM_GROUPS: [string, string[]][] = [
@@ -389,7 +379,7 @@ export class InventoryMenu implements Menu {
         return `<div class="gear-slot${this.slot === slot ? ' on' : ''}" data-act="slot" data-arg="${slot}">
           <span class="gs-label">${SLOT_LABEL[slot]}</span>${icon}
           <span class="gs-name${it && getDef(it.id).rare ? ' rare' : ''}">${it ? esc(itemName(it)) : '<span class="dim">— empty —</span>'}</span>
-          <span class="gs-stat">${it ? esc(gearStat(it, ch)) : ''}</span></div>`;
+          <span class="gs-stat">${it ? esc(itemHeadline(it, ch)) : ''}</span></div>`;
       })
       .join('');
     const bag = ch.data.inventory.filter((it) => fitsSlot(it, this.slot));
@@ -517,7 +507,7 @@ export class InventoryMenu implements Menu {
       if (t === 'edge') {
         const g1 = grindBonus(wdef, edgeLevels(p.after));
         const parts = [`ATP +${g1.atp - g0.atp}`, `ATA +${g1.ata - g0.ata}`];
-        if (wdef.mst) parts.push(`MST +${g1.mst - g0.mst}`);
+        if (wdef.bonus?.mst) parts.push(`MST +${g1.mst - g0.mst}`);
         if (p.levels) what = parts.join(' · ');
       } else {
         const was = weaponRace(weapon, t);
@@ -587,7 +577,7 @@ export class InventoryMenu implements Menu {
       <div class="detail">${this.attributesHtml()}<div class="detail-title">Equipment</div><table class="stats">${eq}</table>
         ${w ? itemInfoHtml(ch, w, this.api.damageFoe()) : ''}
         <div class="detail-title" style="margin-top:12px">Record</div>
-        <div class="dim">Kills ${st.kills} · Deaths ${st.deaths} · Dragons slain ${st.dragonKills}</div></div></div>${this.foot()}`;
+        <div class="dim">Kills ${st.kills} · Deaths ${st.deaths} · Dragons slain ${st.bossKills.dragon ?? 0}</div></div></div>${this.foot()}`;
   }
 
   /**
@@ -936,7 +926,7 @@ export class ShopMenu implements Menu {
         if (err) this.api.notify(err, 'warn');
         // Equipment is unique stock; consumables stay available.
         const def = getDef(proto.id);
-        if ((def.type === 'weapon' || def.type === 'armor' || def.type === 'injector') && bought) {
+        if (isGear(def) && bought) {
           this.stock.splice(this.sel, 1);
           this.sel = null;
         }

@@ -9,6 +9,27 @@ export const STAT_LABEL: Record<StatKey, string> = {
   hp: 'HP', tp: 'TP', atp: 'ATP', dfp: 'DFP', mst: 'MST', ata: 'ATA', evp: 'EVP', lck: 'LCK',
 };
 
+/** Flat stats a piece of gear adds while worn (`bonus` on weapons and armour). */
+export type StatBonus = Partial<Record<StatKey, number>>;
+
+/** The order gear bonuses are listed and compared in. */
+export const BONUS_ORDER: StatKey[] = ['atp', 'ata', 'mst', 'tp', 'hp', 'dfp', 'evp', 'lck'];
+
+/** A bonus's non-zero stats, in BONUS_ORDER. */
+export function bonusEntries(bonus: StatBonus | undefined): [StatKey, number][] {
+  return BONUS_ORDER.filter((k) => bonus?.[k]).map((k) => [k, bonus![k]!]);
+}
+
+/** ["ATP +2", "MST +6"]: a bonus as item text. */
+export function bonusText(bonus: StatBonus | undefined): string[] {
+  return bonusEntries(bonus).map(([k, v]) => `${STAT_LABEL[k]} +${v}`);
+}
+
+/** Add a bonus onto `s` in place. */
+export function addBonus(s: Stats, bonus: StatBonus | undefined): void {
+  for (const [k, v] of bonusEntries(bonus)) s[k] += v;
+}
+
 /** What each stat does: a one-liner for the status screen and a longer hover tooltip. */
 export const STAT_INFO: Record<StatKey, { short: string; detail: string }> = {
   hp: {

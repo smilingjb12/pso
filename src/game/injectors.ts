@@ -1,6 +1,6 @@
 import { injectorCfg, magCfg } from './config';
 import type { Character, ItemInstance } from './character';
-import { getDef, INJECTOR_MODS, INJECTOR_REQ_STAT, type InjectorItemDef, type InjectorKind, type InjectorMod } from './data/items';
+import { getDef, INJECTOR_MODS, type InjectorItemDef, type InjectorKind, type InjectorMod } from './data/items';
 
 // Injector rules (Mate = HP, Fluid = TP). Pure data, no rendering. The charge lives on the item
 // instance (in doses, fractional); undefined means full, so new and bought injectors start topped up.
@@ -73,7 +73,7 @@ export function doseAmount(s: InjectorStats, max: number, current: number): numb
   return Math.max(1, Math.round(max * k));
 }
 
-/** Info lines for menus. */
+/** Info lines for menus (describeItem adds the requirement after them). */
 export function describeInjector(inst: ItemInstance, ch?: Character): string[] {
   const def = injectorDef(inst)!;
   const s = injectorStats(inst, ch);
@@ -84,6 +84,5 @@ export function describeInjector(inst: ItemInstance, ch?: Character): string[] {
   const rate = s.chargeMult === 1 ? '' : ` (${s.chargeMult < 1 ? 'slower' : 'faster'}: ×${+s.chargeMult.toFixed(2)})`;
   lines.push(`Refills as you damage enemies${rate}, slowly between fights, and fully in Pioneer 2.`);
   if (ch?.hasMagPassive(INJECTOR_NOTABLE[def.kind])) lines.push(`Mag ${def.kind === 'mate' ? 'Bulwark' : 'Efficiency'}: +${Math.round(magCfg.injectorBoost * 100)}% per dose (included)`);
-  if (def.req) lines.push(`Req: ${INJECTOR_REQ_STAT[def.kind].toUpperCase()} ${def.req}`);
   return lines;
 }

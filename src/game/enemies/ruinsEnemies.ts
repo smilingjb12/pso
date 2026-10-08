@@ -6,7 +6,7 @@ import {
 } from '../models/ruins';
 import type { Pose } from '../models/Rig';
 import { inShape, type TelegraphShape } from '../world/Telegraph';
-import { Brawler, CORRUPT_COLOR, Enemy, type EnemyContext, type EnemyOptions, type EnemyState, type TelegraphHandle } from './Enemy';
+import { Brawler, CORRUPT_COLOR, Enemy, type EnemyContext, type EnemyOptions, type EnemyState } from './Enemy';
 
 // Ruins enemies (all Dark). Their own cues name their sounds (see AudioCues). Telegraphs that
 // corrupt are violet (CORRUPT_COLOR), the rest red. Timings run on `tempo` (Overclocked and
@@ -62,8 +62,6 @@ export class Delsaber extends Enemy {
   private from = new THREE.Vector3();
   private to = new THREE.Vector3();
   private hop = 0;
-  private landing: TelegraphHandle | null = null;
-  private strafeDir: number;
   private walkPhase = 0;
   private lastX: number;
   private lastZ: number;
@@ -127,9 +125,8 @@ export class Delsaber extends Enemy {
     return killed;
   }
 
+  /** Off the ground and out of its attack (entering hitstun also calls its landing marker off). */
   private release(): void {
-    this.landing?.cancel();
-    this.landing = null;
     this.hop = 0;
   }
 
@@ -139,8 +136,7 @@ export class Delsaber extends Enemy {
   }
 
   protected telegraphHeat(): number {
-    if (this.state === 'windup') return Math.min(1, this.stateT / this.arch.windup);
-    return this.state === 'strike' && this.phase === 'combo' ? 1 : 0;
+    return this.state === 'strike' && this.phase === 'combo' ? 1 : this.windupK();
   }
 
   /** Overclocked: one more overhead cut before it recovers. */
@@ -178,18 +174,14 @@ export class Delsaber extends Enemy {
         }
         // Shield up, it closes to about 4.5 m and circles there.
         const radial = dist > 5 ? 1 : dist < 3.5 ? -0.6 : 0;
-        const side = toPlayer + (Math.PI / 2) * this.strafeDir;
-        const sp = a.moveSpeed * (radial > 0 ? 1 : 0.6);
-        this.pos.x += (Math.sin(toPlayer) * radial + Math.sin(side) * 0.45) * sp * dt;
-        this.pos.z += (Math.cos(toPlayer) * radial + Math.cos(side) * 0.45) * sp * dt;
-        if (ctx.rng() < dt * 0.4) this.strafeDir *= -1;
+        this.strafe(ctx, dt, toPlayer, radial, 0.45, a.moveSpeed * (radial > 0 ? 1 : 0.6), 0.4);
         break;
       }
 
       case 'windup':
         if (!this.close) this.yaw = turnToward(this.yaw, yawTo(this.pos.x, this.pos.z, this.to.x, this.to.z), a.turnSpeed * dt);
         else this.yaw = turnToward(this.yaw, toPlayer, a.turnSpeed * 0.4 * dt);
-        if (this.stateT >= a.windup * this.windupScale) {
+        if (this.windupDone()) {
           if (this.close) {
             this.startCombo();
             break;
@@ -236,7 +228,7 @@ export class Delsaber extends Enemy {
       case 'recover':
         // Guard down while it recovers: the punish window.
         if (this.stateT >= a.recovery) {
-          this.cooldown = a.attackCooldown * (0.7 + ctx.rng() * 0.6);
+          this.rollCooldown(ctx);
           this.enter('chase');
         }
         break;
@@ -247,17 +239,17 @@ export class Delsaber extends Enemy {
     const a = this.arch;
     this.phase = 'crouch';
     this.close = dist < 3.2;
-    this.enter('windup');
+    const windup = a.windup * this.windupScale;
+    this.beginWindup('windup', windup);
     this.cue('ruins.growl');
-    const dur = (a.windup * this.windupScale) / this.tempo;
     if (this.close) {
       this.to.copy(this.pos);
-      this.landing = ctx.telegraph({ kind: 'cone', x: this.pos.x, z: this.pos.z, yaw: this.yaw, range: a.strikeRange, arcDeg: a.strikeArcDeg }, dur, () => {}, RED);
+      this.warn(ctx, { kind: 'cone', x: this.pos.x, z: this.pos.z, yaw: this.yaw, range: a.strikeRange, arcDeg: a.strikeArcDeg }, windup, () => {}, RED);
     } else {
       // Land just short of where you stand now.
       const k = Math.max(0, dist - 1.4) / dist;
       this.to.set(this.pos.x + (ctx.playerX - this.pos.x) * k, 0, this.pos.z + (ctx.playerZ - this.pos.z) * k);
-      this.landing = ctx.telegraph({ kind: 'circle', x: this.to.x, z: this.to.z, radius: 1.9 }, dur + ruinsCfg.leapTime / this.tempo, () => {}, RED);
+      this.warn(ctx, { kind: 'circle', x: this.to.x, z: this.to.z, radius: 1.9 }, windup + ruinsCfg.leapTime, () => {}, RED);
     }
   }
 
@@ -266,7 +258,7 @@ export class Delsaber extends Enemy {
     this.hitIndex = 0;
     this.hitT = 0;
     this.struck = false;
-    this.landing = null;
+    this.tele.forget(); // the landing marker plays out
     if (this.state !== 'strike') this.enter('strike');
     else this.stateT = 0;
   }
@@ -281,7 +273,7 @@ export class Delsaber extends Enemy {
       case 'spawning':
         return { pose: delsaberPoses.crouch(1), rate: 6 };
       case 'windup':
-        return { pose: delsaberPoses.crouch(Math.min(1, this.stateT / this.arch.windup)), rate: 14 };
+        return { pose: delsaberPoses.crouch(this.windupK()), rate: 14 };
       case 'strike':
         if (this.phase === 'leap') return { pose: delsaberPoses.leap(), rate: 20 };
         return { pose: delsaberPoses.slash(this.hitIndex, Math.min(1, this.hitT / DEL_CONTACT)), rate: 30 };
@@ -328,11 +320,9 @@ export class Sorcerer extends Enemy {
   private snuffCd: number;
   private spell: Spell = 'ring';
   private lastSpell: Spell | null = null;
-  private pending: TelegraphHandle[] = [];
   /** Blink: where it reappears, and what it does there (fight on, or drain a pylon). */
   private blinkTo: [number, number] | null = null;
   private drain: { id: number; x: number; z: number } | null = null;
-  private strafeDir: number;
   private lastX: number;
   private lastZ: number;
   private released = 0;
@@ -362,11 +352,6 @@ export class Sorcerer extends Enemy {
     return true;
   }
 
-  private cancelAll(): void {
-    for (const p of this.pending) p.cancel();
-    this.pending = [];
-  }
-
   private stopDrain(ctx: EnemyContext | null): void {
     if (this.drain && ctx) ctx.snuffPylon(this.drain.id, -1);
     this.drain = null;
@@ -386,21 +371,18 @@ export class Sorcerer extends Enemy {
   }
 
   protected flinch(): void {
-    this.cancelAll();
     this.blinkTo = null;
     if (this.drain) {
       this.cue('sorcerer.interrupt');
       this.pendingStop = true;
     }
-    this.enter('hitstun');
+    this.enter('hitstun'); // (calls its spell off)
   }
   /** A drain broken outside think() (no ctx there): it is called off on the next tick. */
   private pendingStop = false;
 
   protected telegraphHeat(): number {
-    if (this.state === 'cast') return Math.min(1, this.stateT / (this.arch.shotWindup ?? 1.3));
-    if (this.state === 'aim') return 0.6;
-    return 0;
+    return this.state === 'aim' ? 0.6 : this.windupK();
   }
 
   /** Overclocked: another spell right away. */
@@ -460,17 +442,12 @@ export class Sorcerer extends Enemy {
           break;
         }
         // Keep 8-12 m away, gliding sideways.
-        const radial = dist > 12 ? 1 : dist < 8 ? -1 : 0;
-        const side = toPlayer + (Math.PI / 2) * this.strafeDir;
-        const sp = a.moveSpeed;
-        this.pos.x += (Math.sin(toPlayer) * radial + Math.sin(side) * 0.55) * sp * dt;
-        this.pos.z += (Math.cos(toPlayer) * radial + Math.cos(side) * 0.55) * sp * dt;
-        if (ctx.rng() < dt * 0.35) this.strafeDir *= -1;
+        this.strafe(ctx, dt, toPlayer, dist > 12 ? 1 : dist < 8 ? -1 : 0, 0.55, a.moveSpeed, 0.35);
         break;
       }
 
       case 'cast':
-        this.cast = Math.min(1, this.stateT / (a.shotWindup ?? 1.3));
+        this.cast = this.windupK();
         // The telegraph fires the spell; this is the fallback if it was lost.
         if (this.stateT > (a.shotWindup ?? 1.3) + 0.3) this.enter('recover');
         break;
@@ -530,7 +507,7 @@ export class Sorcerer extends Enemy {
   }
 
   private startBlink(ctx: EnemyContext, spot: [number, number], drain: { id: number; x: number; z: number } | null): void {
-    this.cancelAll();
+    this.tele.cancelAll();
     this.blinkTo = spot;
     this.drain = drain;
     this.enter('burst');
@@ -542,25 +519,24 @@ export class Sorcerer extends Enemy {
     const options: Spell[] = (['ring', 'field', 'line'] as Spell[]).filter((s) => s !== this.lastSpell);
     this.spell = options[Math.floor(ctx.rng() * options.length)];
     this.lastSpell = this.spell;
-    this.enter('cast');
+    this.beginWindup('cast', a.shotWindup ?? 1.3);
     this.cue('sorcerer.cast');
-    const dur = ((a.shotWindup ?? 1.3) * this.windupScale) / this.tempo;
+    // (An Overclocked follow-up's telegraphs are quicker than the cast pose.)
+    const secs = (a.shotWindup ?? 1.3) * this.windupScale;
     const px = ctx.playerX;
     const pz = ctx.playerZ;
     const fire = (shape: TelegraphShape, mult: number, fx: () => void, last: boolean) => {
-      this.pending.push(
-        ctx.telegraph(shape, dur, () => {
-          if (!this.alive || this.state !== 'cast') return;
-          fx();
-          ctx.areaStrike(this, shape, mult, 3, a.shotStatus, a.shotStatusChance);
-          if (last) {
-            this.pending = [];
-            this.released = 0.35;
-            this.enter('recover');
-            this.shotCd = (a.shotCooldown ?? 3.8) * (0.85 + ctx.rng() * 0.3);
-          }
-        }, CORRUPT_COLOR),
-      );
+      this.warn(ctx, shape, secs, () => {
+        if (!this.alive || this.state !== 'cast') return;
+        fx();
+        ctx.areaStrike(this, shape, mult, 3, a.shotStatus, a.shotStatusChance);
+        if (last) {
+          this.tele.forget();
+          this.released = 0.35;
+          this.enter('recover');
+          this.shotCd = this.rollShotCd(ctx, 3.8);
+        }
+      }, CORRUPT_COLOR);
     };
     switch (this.spell) {
       case 'ring': {
@@ -649,7 +625,6 @@ export class DarkBelra extends Enemy {
   protected topplesOnDeath = false;
   private model: BelraModel;
   private shotCd: number;
-  private pending: TelegraphHandle | null = null;
   private lane: TelegraphShape | null = null;
   private punching = false;
   private reach = 0;
@@ -675,16 +650,8 @@ export class DarkBelra extends Enemy {
     return this.state === 'burst';
   }
 
-  protected flinch(): void {
-    this.pending?.cancel();
-    this.pending = null;
-    this.enter('hitstun');
-  }
-
   protected telegraphHeat(): number {
-    if (this.state === 'aim') return Math.min(1, this.stateT / (this.arch.shotWindup ?? 1.3));
-    if (this.state === 'burst') return Math.min(1, this.stateT / this.arch.windup);
-    return this.state === 'strike' ? 1 : 0;
+    return this.state === 'strike' ? 1 : this.windupK();
   }
 
   /** Overclocked: a second punch down a fresh lane. */
@@ -745,7 +712,7 @@ export class DarkBelra extends Enemy {
         if (this.stateT >= a.recovery) {
           this.punching = false;
           this.shotCd = Math.max(this.shotCd, (a.shotCooldown ?? 4.2) * (0.8 + ctx.rng() * 0.4));
-          this.cooldown = a.attackCooldown * (0.7 + ctx.rng() * 0.6);
+          this.rollCooldown(ctx);
           this.enter('chase');
         }
         break;
@@ -759,10 +726,9 @@ export class DarkBelra extends Enemy {
     // From its right shoulder, down a lane.
     const lane: TelegraphShape = { kind: 'line', x: this.pos.x, z: this.pos.z, yaw, length: a.shotRange ?? 11, width: (a.shotRadius ?? 0.95) * 2 };
     this.lane = lane;
-    this.enter('aim');
+    this.beginWindup('aim', a.shotWindup ?? 1.3);
     this.cue('belra.windup');
-    this.pending = ctx.telegraph(lane, ((a.shotWindup ?? 1.3) * this.windupScale) / this.tempo, () => {
-      this.pending = null;
+    this.warn(ctx, lane, (a.shotWindup ?? 1.3) * this.windupScale, () => {
       if (!this.alive || this.state !== 'aim') return;
       this.enter('strike');
       this.cue('belra.punch');
@@ -774,10 +740,9 @@ export class DarkBelra extends Enemy {
     const a = this.arch;
     this.punching = false;
     const shape: TelegraphShape = { kind: 'circle', x: this.pos.x, z: this.pos.z, radius: a.strikeRange };
-    this.enter('burst');
+    this.beginWindup('burst', a.windup);
     this.cue('ruins.growl');
-    this.pending = ctx.telegraph(shape, (a.windup * this.windupScale) / this.tempo, () => {
-      this.pending = null;
+    this.warn(ctx, shape, a.windup * this.windupScale, () => {
       if (!this.alive || this.state !== 'burst') return;
       this.enter('strike');
       this.cue('belra.slam');
@@ -794,9 +759,9 @@ export class DarkBelra extends Enemy {
     this.walkPhase += (moved / 2.2) * Math.PI * 2;
     switch (this.state) {
       case 'aim':
-        return { pose: belraPoses.punchWindup(Math.min(1, this.stateT / (this.arch.shotWindup ?? 1.3))), rate: 10 };
+        return { pose: belraPoses.punchWindup(this.windupK()), rate: 10 };
       case 'burst':
-        return { pose: belraPoses.slamWindup(Math.min(1, this.stateT / this.arch.windup)), rate: 10 };
+        return { pose: belraPoses.slamWindup(this.windupK()), rate: 10 };
       case 'strike':
         return { pose: this.punching ? belraPoses.punch() : belraPoses.slam(), rate: 30 };
       case 'recover':
@@ -837,7 +802,6 @@ export class ChaosBringer extends Enemy {
   private move: BringerMove = 'stomp';
   private shotCd: number;
   private chargeCd: number;
-  private pending: TelegraphHandle[] = [];
   private lane: { yaw: number; length: number; x: number; z: number } | null = null;
   private charged = 0;
   private chargeHit = false;
@@ -864,23 +828,10 @@ export class ChaosBringer extends Enemy {
     return this.move === 'laser';
   }
 
-  private cancelAll(): void {
-    for (const p of this.pending) p.cancel();
-    this.pending = [];
-  }
-
   protected flinch(): void {
     // Mid-charge it can't be stopped.
     if (this.state === 'strike' && this.move === 'charge') return;
-    this.cancelAll();
     this.enter('hitstun');
-  }
-
-  protected telegraphHeat(): number {
-    if (this.state === 'aim') return Math.min(1, this.stateT / ruinsCfg.chargeWindup);
-    if (this.state === 'cast') return Math.min(1, this.stateT / (this.arch.shotWindup ?? 1.2));
-    if (this.state === 'burst') return Math.min(1, this.stateT / this.arch.windup);
-    return 0;
   }
 
   protected think(dt: number, ctx: EnemyContext, dist: number, toPlayer: number): void {
@@ -956,7 +907,7 @@ export class ChaosBringer extends Enemy {
       case 'recover': {
         const hold = this.move === 'charge' ? a.recovery * 1.3 : a.recovery;
         if (this.stateT >= hold) {
-          this.cooldown = a.attackCooldown * (0.7 + ctx.rng() * 0.6);
+          this.rollCooldown(ctx);
           this.enter('chase');
         }
         break;
@@ -971,23 +922,23 @@ export class ChaosBringer extends Enemy {
     this.lane = { yaw, length, x: this.pos.x, z: this.pos.z };
     this.charged = 0;
     this.chargeHit = false;
-    this.enter('aim');
+    this.beginWindup('aim', ruinsCfg.chargeWindup);
     this.cue('bringer.roar');
     const shape: TelegraphShape = { kind: 'line', x: this.pos.x, z: this.pos.z, yaw, length: length + this.radius, width: ruinsCfg.chargeWidth };
-    this.pending.push(ctx.telegraph(shape, (ruinsCfg.chargeWindup * this.windupScale) / this.tempo, () => {
+    this.warn(ctx, shape, ruinsCfg.chargeWindup * this.windupScale, () => {
       if (!this.alive || this.state !== 'aim') return;
-      this.pending = [];
+      this.tele.forget();
       this.enter('strike');
       this.cue('bringer.charge');
       this.chargeCd = ruinsCfg.chargeCooldown * (0.85 + ctx.rng() * 0.3);
-    }, RED));
+    }, RED);
   }
 
   private startLaser(ctx: EnemyContext, yaw: number): void {
     const a = this.arch;
     this.move = 'laser';
     this.yaw = yaw;
-    this.enter('cast');
+    this.beginWindup('cast', a.shotWindup ?? 1.2);
     this.cue('bringer.laserCharge');
     const n = ruinsCfg.laserLanes;
     const lanes: TelegraphShape[] = [];
@@ -995,20 +946,20 @@ export class ChaosBringer extends Enemy {
       const off = THREE.MathUtils.degToRad((i - (n - 1) / 2) * ruinsCfg.laserSpreadDeg);
       lanes.push({ kind: 'line', x: this.pos.x, z: this.pos.z, yaw: yaw + off, length: a.shotRange ?? 14, width: (a.shotRadius ?? 0.8) * 2 });
     }
-    const dur = ((a.shotWindup ?? 1.2) * this.windupScale) / this.tempo;
+    const secs = (a.shotWindup ?? 1.2) * this.windupScale;
     lanes.forEach((lane, i) => {
-      this.pending.push(ctx.telegraph(lane, dur, () => {
+      this.warn(ctx, lane, secs, () => {
         if (!this.alive || this.state !== 'cast') return;
         if (lane.kind === 'line') ctx.tracer(lane.x, lane.z, lane.yaw, lane.length, 0xff60c0);
         if (i !== n - 1) return;
         // One hit at most, whichever lanes she stood in.
-        this.pending = [];
+        this.tele.forget();
         const hit = lanes.find((l) => inShape(l, ctx.playerX, ctx.playerZ, 0.45));
         if (hit) ctx.areaStrike(this, hit, ruinsCfg.laserAtpMult, 5, a.shotStatus, a.shotStatusChance);
         this.cue('bringer.laser');
-        this.shotCd = (a.shotCooldown ?? 5) * (0.85 + ctx.rng() * 0.3);
+        this.shotCd = this.rollShotCd(ctx, 5);
         this.enter('strike');
-      }, CORRUPT_COLOR));
+      }, CORRUPT_COLOR);
     });
   }
 
@@ -1016,15 +967,15 @@ export class ChaosBringer extends Enemy {
     const a = this.arch;
     this.move = 'stomp';
     const shape: TelegraphShape = { kind: 'circle', x: this.pos.x, z: this.pos.z, radius: a.strikeRange };
-    this.enter('burst');
+    this.beginWindup('burst', a.windup);
     this.cue('bringer.roar');
-    this.pending.push(ctx.telegraph(shape, (a.windup * this.windupScale) / this.tempo, () => {
+    this.warn(ctx, shape, a.windup * this.windupScale, () => {
       if (!this.alive || this.state !== 'burst') return;
-      this.pending = [];
+      this.tele.forget();
       this.enter('strike');
       this.cue('garanz.stomp');
       ctx.areaStrike(this, shape, 1.0, a.strikeKnockback ?? 12);
-    }, RED));
+    }, RED);
   }
 
   protected targetPose(dt: number): { pose: Pose; rate: number } {
@@ -1039,11 +990,11 @@ export class ChaosBringer extends Enemy {
     switch (this.state) {
       case 'aim':
       case 'burst':
-        rear = Math.min(1, this.stateT / (this.state === 'aim' ? ruinsCfg.chargeWindup : this.arch.windup));
+        rear = this.windupK();
         out = { pose: bringerPoses.rear(rear), rate: 10 };
         break;
       case 'cast':
-        out = { pose: bringerPoses.laser(Math.min(1, this.stateT / (this.arch.shotWindup ?? 1.2))), rate: 10 };
+        out = { pose: bringerPoses.laser(this.windupK()), rate: 10 };
         break;
       case 'strike':
         if (this.move === 'charge') {

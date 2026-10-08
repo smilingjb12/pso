@@ -1,8 +1,7 @@
 import * as THREE from 'three';
-import { sfx, type SfxId } from '../../audio';
-import { darkFalz as cfg, pylonCfg, type HardBossScale, type Race } from '../config';
+import { darkFalz as cfg, pylonCfg, type HardBossScale } from '../config';
 import { separateCircles } from '../collision';
-import type { Hittable, StatusEffect } from '../combat/types';
+import type { Hittable } from '../combat/types';
 import { AngelModel, FalzModel, falzPoses, HuskModel } from '../models/falz';
 import { darvantModel } from '../models/ruins';
 import type { Pose } from '../models/Rig';
@@ -10,8 +9,9 @@ import { Pillar, Ring, Tracer } from '../world/Effects';
 import { glowDecal, glowTexture } from '../world/glow';
 import type { Level, Rect } from '../world/Level';
 import { inShape, type TelegraphShape } from '../world/Telegraph';
-import type { Boss, BossContext } from './Boss';
-import { CORRUPT_COLOR, type TelegraphHandle } from './Enemy';
+import type { BossContext } from './Boss';
+import { BossBase, BossPart } from './BossBase';
+import { CORRUPT_COLOR } from './Enemy';
 
 // Dark Falz: the Ruins boss, on a round altar over the void, in three forms (both difficulties):
 //  1. The husk hovers at the centre. Darvant flights dive along lanes across the altar (waves, each
@@ -31,57 +31,10 @@ type FState =
   | 'scythe' | 'cast' | 'vanish' | 'slam' | 'recover' | 'halves' | 'feathers' | 'lance' | 'dead';
 type Attack = 'lanes' | 'ring' | 'pulse' | 'scythe' | 'grants' | 'megid' | 'teleport' | 'halves' | 'feathers' | 'lance';
 
-const BOSS_DOT_CAP = 8;
 const RED = 0xff4060;
 const AMBER = 0xffb030;
 const LIGHT = 0xffe8a0;
 const SLOT = 3.6;
-
-/** The part you hit: the husk, Dark Falz or the Angel, wherever the current form is. */
-class FalzBody implements Hittable {
-  readonly pos = new THREE.Vector3();
-  readonly race: Race = 'dark';
-  constructor(private boss: DarkFalz) {}
-  get name(): string {
-    return this.boss.name;
-  }
-  get radius(): number {
-    return this.boss.bodyRadius;
-  }
-  get hp(): number {
-    return this.boss.hp;
-  }
-  set hp(_v: number) {
-    // Only damage() changes the boss HP.
-  }
-  get maxHp(): number {
-    return this.boss.maxHp;
-  }
-  get evp(): number {
-    return this.boss.evp;
-  }
-  get dfp(): number {
-    return this.boss.dfp;
-  }
-  get aimHeight(): number {
-    return this.boss.form === 1 ? 3.4 : this.boss.form === 2 ? 3.0 : 3.6;
-  }
-  get alive(): boolean {
-    return this.boss.alive;
-  }
-  get invulnerable(): boolean {
-    return this.boss.untouchable;
-  }
-  damage(amount: number): boolean {
-    return this.boss.damageBody(amount);
-  }
-  applyStatus(effect: StatusEffect, power: number, duration: number): void {
-    this.boss.applyStatus(effect, power, duration);
-  }
-  damageMult(): number {
-    return this.boss.bodyMult();
-  }
-}
 
 /** Darvants streaking from one point to another (purely visual; the telegraph does the damage). */
 interface Flight {
@@ -108,40 +61,25 @@ interface LightPool {
   ring: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
 }
 
-export class DarkFalz implements Boss {
-  readonly race: Race = 'dark';
+export class DarkFalz extends BossBase<FState, Attack> {
+  readonly id = 'falz' as const;
   readonly objects: THREE.Object3D[] = [];
-  readonly maxHp: number;
-  readonly injectorCharge = cfg.charge;
-  hp: number;
-  state: FState = 'dormant';
-  stateT = 0;
-  deadT = 0;
   form: 1 | 2 | 3 = 1;
-  onDot: ((target: Hittable, damage: number) => void) | null = null;
 
   private husk = new HuskModel();
   private falz = new FalzModel();
   private angel = new AngelModel();
   private fx = new THREE.Group();
-  private body: FalzBody;
+  /** The part you hit: the husk, Dark Falz or the Angel, wherever the current form is. */
+  private body: BossPart;
   private cx: number;
   private cz: number;
   /** Dark Falz's own position in form 2 (the husk and the Angel stay at the centre). */
   private fpos = new THREE.Vector3();
   private fyaw = Math.PI;
-  private time = 0;
-  private flashT = 0;
-  private gap = cfg.attackGap[0];
-  private lastAttack: Attack | null = null;
-  private announcedEnrage = false;
   private taughtOpen = false;
   private taughtLight = false;
-  private pending: TelegraphHandle[] = [];
   private lit = false;
-  private dotT = 0;
-  private dotLeft = 0;
-  private dotDps = 0;
   // Pose state.
   private open = 0;
   private charge = 0;
@@ -167,17 +105,12 @@ export class DarkFalz implements Boss {
   private pools: LightPool[] = [];
   private morphFrom: 1 | 2 = 1;
 
-  constructor(
-    arena: Rect,
-    /** Hard mode scaling (null on Normal). */
-    readonly hard: HardBossScale | null = null,
-  ) {
-    this.maxHp = Math.round(cfg.hp * (hard?.hp ?? 1));
-    this.hp = this.maxHp;
+  constructor(arena: Rect, hard: HardBossScale | null = null) {
+    super(cfg, hard);
     this.cx = (arena.minX + arena.maxX) / 2;
     this.cz = (arena.minZ + arena.maxZ) / 2;
     this.fpos.set(this.cx, 0, this.cz);
-    this.body = new FalzBody(this);
+    this.body = new BossPart(this, () => this.bodyRadius, () => (this.form === 1 ? 3.4 : this.form === 2 ? 3.0 : 3.6));
     this.body.pos.set(this.cx, 0, this.cz);
     this.husk.root.position.set(this.cx, 0, this.cz);
     this.angel.root.position.set(this.cx, 0, this.cz);
@@ -191,29 +124,8 @@ export class DarkFalz implements Boss {
   get name(): string {
     return this.form === 3 ? 'Dark Falz (Angel)' : 'Dark Falz';
   }
-  get atp(): number {
-    return cfg.atp + (this.hard?.atp ?? 0);
-  }
-  get ata(): number {
-    return cfg.ata + (this.hard?.ata ?? 0);
-  }
-  get dfp(): number {
-    return cfg.dfp + (this.hard?.dfp ?? 0);
-  }
-  get evp(): number {
-    return cfg.evp + (this.hard?.evp ?? 0);
-  }
-  get alive(): boolean {
-    return this.state !== 'dead';
-  }
-  get engaged(): boolean {
-    return this.state !== 'dormant';
-  }
   get weakPointOpen(): boolean {
     return this.state === 'open';
-  }
-  get enraged(): boolean {
-    return this.hp / this.maxHp <= cfg.enrageAt;
   }
   get bodyRadius(): number {
     return this.form === 1 ? cfg.huskRadius : this.form === 2 ? cfg.bodyRadius : 1.8;
@@ -227,9 +139,6 @@ export class DarkFalz implements Boss {
   }
   parts(): Hittable[] {
     return [this.body];
-  }
-  owns(h: Hittable): boolean {
-    return h === this.body;
   }
   setLit(lit: boolean): void {
     this.lit = lit;
@@ -254,35 +163,18 @@ export class DarkFalz implements Boss {
 
   // -------------------------------------------------------------- damage
 
-  bodyMult(): number {
+  partMult(): number {
     return (this.state === 'open' ? cfg.openMult : 1) * (this.lit ? pylonCfg.enemyDamage : 1);
   }
 
-  damageBody(amount: number): boolean {
-    if (!this.alive || this.untouchable) return false;
-    this.flashT = 0.08;
+  damagePart(p: BossPart, amount: number): boolean {
+    if (!this.alive || this.partInvulnerable(p)) return false;
     // A form can't be skipped: damage past its threshold is lost, and the next form takes over.
     const floor = this.form === 1 ? this.maxHp * cfg.form2At - 1 : this.form === 2 ? this.maxHp * cfg.form3At - 1 : 0;
-    this.hp = Math.max(floor, this.hp - amount);
-    if (this.hp <= 0) {
-      this.hp = 0;
-      this.die();
-      return true;
-    }
-    return false;
+    return this.loseHp(amount, floor);
   }
 
-  applyStatus(effect: StatusEffect, power: number, duration: number): void {
-    if (effect !== 'burn' && effect !== 'poison') return;
-    const dps = effect === 'poison' ? Math.min(BOSS_DOT_CAP, this.maxHp * power) : Math.min(BOSS_DOT_CAP * 1.5, power);
-    this.dotDps = Math.max(this.dotDps, dps);
-    this.dotLeft = Math.max(this.dotLeft, duration);
-  }
-
-  private die(): void {
-    this.cancelAll();
-    this.enter('dead');
-    this.sound('boss.die');
+  protected onDeath(): void {
     for (const o of this.orbs) this.fx.remove(o.mesh);
     this.orbs = [];
     this.clearPools();
@@ -290,52 +182,22 @@ export class DarkFalz implements Boss {
 
   // -------------------------------------------------------------- update
 
-  private enter(s: FState): void {
-    this.state = s;
-    this.stateT = 0;
+  protected get anchor(): THREE.Vector3 {
+    return this.body.pos;
   }
 
-  private sound(id: SfxId, x = this.body.pos.x, z = this.body.pos.z): void {
-    sfx(id, { x, z });
-  }
-
-  /** Windup multiplier: shorter when enraged. */
-  private sm(): number {
-    return this.enraged ? cfg.enrageSpeed : 1;
-  }
-
-  private warn(ctx: BossContext, shape: TelegraphShape, dur: number, color: number, onFire: () => void = () => {}, dash = false): void {
-    this.pending.push(ctx.telegraph(shape, dur, onFire, color, dash));
-  }
-
-  private cancelAll(): void {
-    for (const p of this.pending) p.cancel();
-    this.pending = [];
-  }
-
-  update(dt: number, ctx: BossContext): void {
-    this.time += dt;
-    this.stateT += dt;
-    this.flashT = Math.max(0, this.flashT - dt);
+  protected always(dt: number): void {
     this.updateFlights(dt);
     this.updatePools(dt);
+  }
 
-    if (this.state === 'dead') {
-      this.deadT += dt;
-      this.angelPresence = Math.max(0, 1 - this.deadT / 2.2);
-      this.falzPresence = Math.max(0, this.falzPresence - dt);
-      this.place();
-      return;
-    }
-    if (this.dotLeft > 0) {
-      this.dotLeft -= dt;
-      this.dotT += dt;
-      if (this.dotT >= 0.5) {
-        this.dotT -= 0.5;
-        if (!this.untouchable) this.onDot?.(this.body, Math.max(1, Math.round(this.dotDps * 0.5)));
-      }
-    }
-    if (!this.alive) return;
+  protected whileDead(dt: number): void {
+    this.angelPresence = Math.max(0, 1 - this.deadT / 2.2);
+    this.falzPresence = Math.max(0, this.falzPresence - dt);
+    this.place();
+  }
+
+  protected think(dt: number, ctx: BossContext): void {
     this.updateOrbs(dt, ctx);
 
     // A form's threshold crossed: the next one takes over at once.
@@ -343,11 +205,7 @@ export class DarkFalz implements Boss {
       if (this.form === 1 && this.hp <= this.maxHp * cfg.form2At) this.startMorph(ctx);
       else if (this.form === 2 && this.hp <= this.maxHp * cfg.form3At) this.startMorph(ctx);
     }
-    if (this.enraged && !this.announcedEnrage && this.form === 3) {
-      this.announcedEnrage = true;
-      ctx.announce('Dark Falz is enraged!');
-      this.sound('falz.ascend');
-    }
+    this.announceEnrage(ctx, this.form === 3, 'Dark Falz is enraged!', 'falz.ascend');
 
     let charge = 0;
     let cast = 0;
@@ -356,12 +214,7 @@ export class DarkFalz implements Boss {
 
     switch (this.state) {
       case 'dormant':
-        if (ctx.playerAlive && this.stateT > 1.2) {
-          this.enter('intro');
-          ctx.announce('DARK FALZ');
-          ctx.shake(0.4);
-          this.sound('falz.awaken');
-        }
+        if (ctx.playerAlive && this.stateT > 1.2) this.awaken(ctx, 'DARK FALZ', 0.4, 'falz.awaken');
         break;
 
       case 'intro':
@@ -451,7 +304,7 @@ export class DarkFalz implements Boss {
 
   private endAttack(): void {
     this.gap = cfg.attackGap[this.form - 1] * this.sm();
-    this.pending = [];
+    this.tele.forget();
     this.enter('idle');
   }
 
@@ -481,21 +334,19 @@ export class DarkFalz implements Boss {
   }
 
   private chooseAttack(ctx: BossContext): void {
-    let pool: Attack[];
-    const rng = ctx.rng;
+    let pick: Attack;
     if (this.form === 1) {
       const close = Math.hypot(ctx.playerX - this.cx, ctx.playerZ - this.cz) < cfg.pulseRange;
-      if (close && this.lastAttack !== 'pulse' && rng() < 0.6) pool = ['pulse'];
-      else pool = (['lanes', 'lanes', 'ring'] as Attack[]).filter((a) => a !== this.lastAttack);
+      // (A forced pick still draws from the rng, like any other.)
+      if (close && this.lastAttack !== 'pulse' && ctx.rng() < 0.6) pick = this.pickAttack(ctx, ['pulse']);
+      else pick = this.pickAttack(ctx, ['lanes', 'lanes', 'ring']);
     } else if (this.form === 2) {
       const near = Math.hypot(ctx.playerX - this.fpos.x, ctx.playerZ - this.fpos.z) < cfg.scytheRange + 0.8;
-      if (near && this.lastAttack !== 'scythe' && rng() < 0.55) pool = ['scythe'];
-      else pool = (['grants', 'megid', 'teleport', 'scythe'] as Attack[]).filter((a) => a !== this.lastAttack && (a !== 'scythe' || near));
+      if (near && this.lastAttack !== 'scythe' && ctx.rng() < 0.55) pick = this.pickAttack(ctx, ['scythe']);
+      else pick = this.pickAttack(ctx, ['grants', 'megid', 'teleport', 'scythe'], (a) => a !== 'scythe' || near);
     } else {
-      pool = (['halves', 'halves', 'feathers', 'lance'] as Attack[]).filter((a) => a !== this.lastAttack);
+      pick = this.pickAttack(ctx, ['halves', 'halves', 'feathers', 'lance']);
     }
-    const pick = pool[Math.floor(rng() * pool.length)];
-    this.lastAttack = pick;
     this.hitOnce = false;
     switch (pick) {
       case 'lanes':
@@ -679,11 +530,11 @@ export class DarkFalz implements Boss {
     this.enter('cast');
     this.sound('falz.charge', this.fpos.x, this.fpos.z);
     // The orbs leave its hands after a short charge.
-    this.pending.push(ctx.telegraph({ kind: 'circle', x: this.fpos.x, z: this.fpos.z, radius: 0.01 }, 0.8 * this.sm(), () => {
+    this.warn(ctx, { kind: 'circle', x: this.fpos.x, z: this.fpos.z, radius: 0.01 }, 0.8 * this.sm(), undefined, () => {
       if (this.state !== 'cast') return;
       this.releaseOrbs(ctx, cfg.megidOrbs);
       this.enter('recover');
-    }));
+    });
   }
 
   private releaseOrbs(ctx: BossContext, n: number): void {
@@ -863,7 +714,7 @@ export class DarkFalz implements Boss {
   // ------------------------------------------------------------- morphs
 
   private startMorph(ctx: BossContext): void {
-    this.cancelAll();
+    this.tele.cancelAll();
     this.morphFrom = this.form === 1 ? 1 : 2;
     this.slamAt = null;
     for (const o of this.orbs) this.fx.remove(o.mesh);
@@ -871,7 +722,8 @@ export class DarkFalz implements Boss {
     this.enter('morph');
     ctx.shake(0.5);
     this.sound('falz.morph', this.cx, this.cz);
-    ctx.announce(this.morphFrom === 1 ? 'Dark Falz breaks free of the husk!' : 'Dark Falz ascends: the Angel descends!');
+    if (this.morphFrom === 1) ctx.announce('Dark Falz breaks free of the husk!');
+    else this.escalate(ctx, 'Dark Falz ascends: the Angel descends!');
   }
 
   private updateMorph(dt: number, _ctx: BossContext): void {

@@ -1,7 +1,8 @@
 import { accuracy, attackTypes, casting, combo as comboCfg, enemies, formulas, magCfg, spellForms, type AttackTiming, type AttackType, type EnemyId, type Race } from './config';
 import { Combo, MAX_HITS, type AttackTypeMods, type ComboSettings } from './combo';
 import type { Character } from './character';
-import { areas, expeditions, type BossId, type ExpeditionId } from './data/areas';
+import { areas, expeditions, type ExpeditionId } from './data/areas';
+import { BOSSES } from './data/bosses';
 import { techniques, type TechId } from './data/techniques';
 import { hitChance, playerDamage } from './formulas';
 import { hardArch, hardScale } from './hard';
@@ -11,8 +12,6 @@ import { hardArch, hardScale } from './hard';
 // crits, perfect-chain streaks, specials, buffs and TP are left out (they scale every weapon alike).
 
 export const RACES: Race[] = ['native', 'abeast', 'machine', 'dark'];
-/** Each boss's race (as set on its class): none shares its expedition's usual race except the Warden. */
-export const BOSS_RACE: Record<BossId, Race> = { dragon: 'native', derolle: 'dark', warden: 'machine', falz: 'dark' };
 
 /** The enemy the estimates are measured against. */
 export interface Foe {
@@ -33,7 +32,7 @@ export function expeditionFoe(exp: ExpeditionId, hard: boolean): Foe {
   let bossRace: Race | null = null;
   for (const floor of expeditions[exp].floors) {
     const boss = areas[floor].boss;
-    if (boss) bossRace = BOSS_RACE[boss];
+    if (boss) bossRace = BOSSES[boss].race;
     for (const room of areas[floor].rooms) {
       for (const wave of room.waves ?? []) {
         for (const s of wave) {

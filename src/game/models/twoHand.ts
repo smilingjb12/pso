@@ -11,9 +11,10 @@ import type { CharacterModel } from './heroine';
 /**
  * Where the left hand holds each melee weapon, in metres along the weapon from the right
  * hand's grip (negative = toward the pommel). Staves are held with the hands apart; the
- * partisan's left hand sits forward on the shaft; the dagger's covers the pommel.
+ * partisan's left hand sits forward on the shaft; the dagger's covers the pommel. Guns and
+ * slicers are one-handed (null: callers fall back to a default grip).
  */
-export const LEFT_HAND_AT: Partial<Record<WeaponKind, number>> = {
+export const LEFT_HAND_AT: Record<WeaponKind, number | null> = {
   saber: -0.085,
   sword: -0.1,
   dagger: -0.07,
@@ -21,6 +22,11 @@ export const LEFT_HAND_AT: Partial<Record<WeaponKind, number>> = {
   cane: -0.24,
   rod: -0.28,
   wand: -0.1,
+  slicer: null,
+  handgun: null,
+  rifle: null,
+  mechgun: null,
+  shot: null,
 };
 
 /** Hilt target for a keyframed swing, in the character's own space (feet at the origin, +Z ahead, +X her left). */

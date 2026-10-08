@@ -5,7 +5,7 @@ import { boomaPoses } from '../models/booma';
 import { HidoomModel, LilyModel, lilyPoses, MigiumModel, migiumPoses, PanArmsModel } from '../models/cave';
 import type { Pose } from '../models/Rig';
 import type { TelegraphShape } from '../world/Telegraph';
-import { Brawler, Enemy, type EnemyContext, type EnemyOptions, type TelegraphHandle } from './Enemy';
+import { Brawler, Enemy, type EnemyContext, type EnemyOptions } from './Enemy';
 
 /** Seconds a Lily coils back before it spits (hitting it now cancels the shot). */
 const LILY_AIM = 0.5;
@@ -21,7 +21,6 @@ const RELEASE = 0.35;
 export class Lily extends Enemy {
   protected topplesOnDeath = false;
   private shotCd: number;
-  private pending: TelegraphHandle | null = null;
   private model: LilyModel;
 
   constructor(type: EnemyId, arch: EnemyArchetype, x: number, z: number, rng: () => number, opts: EnemyOptions = {}) {
@@ -38,18 +37,7 @@ export class Lily extends Enemy {
     return 1.9 * this.arch.scale;
   }
 
-  protected flinch(): void {
-    // Being hit while coiled calls the spit off; a launched glob still lands.
-    if (this.state === 'burst') this.pending?.cancel();
-    this.pending = null;
-    this.enter('hitstun');
-  }
-
-  protected telegraphHeat(): number {
-    if (this.state === 'aim') return Math.min(1, this.stateT / LILY_AIM);
-    if (this.state === 'burst') return Math.min(1, this.stateT / this.arch.windup);
-    return 0;
-  }
+  // A flinch calls a petal burst off (Enemy.warn); a launched glob still lands.
 
   protected think(dt: number, ctx: EnemyContext, dist: number, toPlayer: number): void {
     const a = this.arch;
@@ -62,22 +50,21 @@ export class Lily extends Enemy {
         if (!ctx.playerAlive || dist > a.aggroRange) break;
         this.yaw = turnToward(this.yaw, toPlayer, a.turnSpeed * dt);
         if (dist <= a.attackRange + 0.3 && this.cooldown <= 0) {
-          this.enter('burst');
+          this.beginWindup('burst', a.windup);
           const shape: TelegraphShape = { kind: 'circle', x: this.pos.x, z: this.pos.z, radius: a.strikeRange };
-          this.pending = ctx.telegraph(shape, a.windup, () => {
-            this.pending = null;
+          this.warn(ctx, shape, a.windup, () => {
             if (!this.alive || this.state !== 'burst') return;
             ctx.areaStrike(this, shape, 0.55, 9);
             this.enter('recover');
           }, 0xc070ff);
           break;
         }
-        if (dist <= (a.shotRange ?? 0) && this.shotCd <= 0 && ctx.requestShot(this)) this.enter('aim');
+        if (dist <= (a.shotRange ?? 0) && this.shotCd <= 0 && ctx.requestShot(this)) this.beginWindup('aim', LILY_AIM * this.windupScale);
         break;
       }
       case 'aim':
         this.yaw = turnToward(this.yaw, toPlayer, a.turnSpeed * 2 * dt);
-        if (this.stateT >= LILY_AIM * this.windupScale) this.spit(ctx);
+        if (this.windupDone()) this.spit(ctx);
         break;
       case 'burst':
         if (this.stateT > a.windup + 0.2) this.enter('recover'); // telegraph lost
@@ -87,7 +74,7 @@ export class Lily extends Enemy {
         break;
       case 'recover':
         if (this.stateT >= a.recovery) {
-          this.cooldown = a.attackCooldown * (0.8 + ctx.rng() * 0.4);
+          this.rollCooldown(ctx, 0.8, 0.4);
           this.enter('idle');
         }
         break;
@@ -96,7 +83,7 @@ export class Lily extends Enemy {
 
   /** Overclocked: spit again (after a spit or a petal burst). */
   protected followUp(): boolean {
-    this.enter('aim');
+    this.beginWindup('aim', LILY_AIM * this.windupScale);
     return true;
   }
 
@@ -111,7 +98,7 @@ export class Lily extends Enemy {
     const mouth = new THREE.Vector3(this.pos.x + Math.sin(this.yaw) * 0.4, 2.1 * a.scale, this.pos.z + Math.cos(this.yaw) * 0.4);
     ctx.lob(mouth, tx, tz, dur, color);
     this.holdThreat(dur);
-    this.shotCd = (a.shotCooldown ?? 3.5) * (0.85 + ctx.rng() * 0.3);
+    this.shotCd = this.rollShotCd(ctx, 3.5);
     this.enter('strike');
   }
 
@@ -151,8 +138,6 @@ export class Lily extends Enemy {
 export class Migium extends Enemy {
   private model: MigiumModel;
   private shotCd: number;
-  private pending: TelegraphHandle | null = null;
-  private strafeDir: number;
   private walkPhase = 0;
   private lastX: number;
   private lastZ: number;
@@ -167,16 +152,6 @@ export class Migium extends Enemy {
     this.lastZ = z;
   }
 
-  protected flinch(): void {
-    if (this.state === 'cast') this.pending?.cancel();
-    this.pending = null;
-    this.enter('hitstun');
-  }
-
-  protected telegraphHeat(): number {
-    return this.state === 'cast' ? Math.min(1, this.stateT / (this.arch.shotWindup ?? 1.3)) : 0;
-  }
-
   protected think(dt: number, ctx: EnemyContext, dist: number, toPlayer: number): void {
     const a = this.arch;
     this.shotCd = Math.max(0, this.shotCd - dt);
@@ -189,11 +164,7 @@ export class Migium extends Enemy {
         if (!ctx.playerAlive) break;
         this.yaw = turnToward(this.yaw, toPlayer, a.turnSpeed * dt);
         // Hold a ring 6-10 m out, drifting sideways.
-        const radial = dist < 6 ? -1 : dist > 10 ? 1 : 0;
-        const side = toPlayer + (Math.PI / 2) * this.strafeDir;
-        this.pos.x += (Math.sin(toPlayer) * radial + Math.sin(side) * 0.5) * a.moveSpeed * dt;
-        this.pos.z += (Math.cos(toPlayer) * radial + Math.cos(side) * 0.5) * a.moveSpeed * dt;
-        if (ctx.rng() < dt * 0.3) this.strafeDir *= -1;
+        this.strafe(ctx, dt, toPlayer, dist < 6 ? -1 : dist > 10 ? 1 : 0, 0.5, a.moveSpeed, 0.3);
         if (dist <= (a.shotRange ?? 14) && this.shotCd <= 0 && ctx.requestShot(this)) this.cast(ctx);
         break;
       }
@@ -206,20 +177,19 @@ export class Migium extends Enemy {
         break;
       case 'recover':
         if (this.stateT >= a.recovery) {
-          this.shotCd = (a.shotCooldown ?? 3.4) * (0.85 + ctx.rng() * 0.3);
+          this.shotCd = this.rollShotCd(ctx, 3.4);
           this.enter('chase');
         }
         break;
     }
   }
 
-  /** A lightning circle where the player stands. */
+  /** A lightning circle where the player stands (a flinch calls it off). */
   private cast(ctx: EnemyContext): void {
     const a = this.arch;
-    this.enter('cast');
+    this.beginWindup('cast', a.shotWindup ?? 1.3);
     const shape: TelegraphShape = { kind: 'circle', x: ctx.playerX, z: ctx.playerZ, radius: a.shotRadius ?? 2 };
-    this.pending = ctx.telegraph(shape, a.shotWindup ?? 1.3, () => {
-      this.pending = null;
+    this.warn(ctx, shape, a.shotWindup ?? 1.3, () => {
       if (!this.alive || this.state !== 'cast') return;
       ctx.bolt(shape.x, shape.z, 0x80e8ff);
       ctx.areaStrike(this, shape, 0.9, 2, a.shotStatus, a.shotStatusChance);

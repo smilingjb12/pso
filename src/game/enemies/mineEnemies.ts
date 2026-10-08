@@ -6,7 +6,7 @@ import {
 } from '../models/mines';
 import type { Pose } from '../models/Rig';
 import type { TelegraphShape } from '../world/Telegraph';
-import { Enemy, type EnemyContext, type EnemyOptions, type TelegraphHandle } from './Enemy';
+import { Enemy, type EnemyContext, type EnemyOptions } from './Enemy';
 
 // Mines machines. Movement and attack timings scale with `tempo` (Overclocked
 // elites run 30% faster). Sounds are raised as cues (see AudioCues).
@@ -25,8 +25,6 @@ export class Gunbot extends Enemy {
   protected selfTempo = true;
   private model: GunbotModel;
   private shotCd: number;
-  private pending: TelegraphHandle | null = null;
-  private strafeDir: number;
   private walkPhase = 0;
   private lastX: number;
   private lastZ: number;
@@ -54,8 +52,7 @@ export class Gunbot extends Enemy {
       // Linked: knocked offline, not killed (no reward until it really goes down).
       this.hp = 0;
       this.flashT = 0.08;
-      this.pending?.cancel();
-      this.pending = null;
+      this.tele.cancelAll();
       this.burnT = 0;
       this.poisonT = 0;
       this.enter('offline');
@@ -67,29 +64,19 @@ export class Gunbot extends Enemy {
 
   /** Its node went down: power off for good (the world awards the kill). */
   shutdown(): void {
-    this.pending?.cancel();
-    this.pending = null;
     this.hp = 0;
     this.enter('dead');
   }
 
-  protected flinch(): void {
-    if (this.state === 'aim') this.pending?.cancel();
-    this.pending = null;
-    this.enter('hitstun');
-  }
-
   protected telegraphHeat(): number {
-    if (this.state === 'aim') return Math.min(1, this.stateT / ((this.arch.shotWindup ?? 1) / this.tempo));
-    if (this.state === 'windup') return Math.min(1, this.stateT / ((this.arch.windup * this.windupScale) / this.tempo));
-    return this.state === 'strike' ? 1 : 0;
+    return this.state === 'strike' ? 1 : this.windupK();
   }
 
   /** Overclocked: the same attack again (a swipe with a quicker windup, or another shot down a fresh lane). */
   protected followUp(ctx: EnemyContext): boolean {
     if (!ctx.playerAlive) return false;
     if (this.fired) this.aim(ctx, yawTo(this.pos.x, this.pos.z, ctx.playerX, ctx.playerZ));
-    else this.enter('windup');
+    else this.beginWindup('windup', this.arch.windup * this.windupScale);
     return true;
   }
 
@@ -123,18 +110,12 @@ export class Gunbot extends Enemy {
         this.yaw = turnToward(this.yaw, toPlayer, a.turnSpeed * tempo * dt);
         const facing = Math.abs(angleDelta(this.yaw, toPlayer)) < 0.35;
         if (dist <= a.attackRange && this.cooldown <= 0 && facing && ctx.requestAttackToken(this)) {
-          this.enter('windup');
+          this.beginWindup('windup', a.windup * this.windupScale);
           this.cue('gunbot.swipe');
           break;
         }
         // Close to within 9 m and hold there, drifting sideways (they never back away: melee can catch them).
-        const radial = dist > 9 ? 1 : 0;
-        const side = toPlayer + (Math.PI / 2) * this.strafeDir;
-        const sp = a.moveSpeed * tempo;
-        const drift = dist < 4 ? 0.2 : 0.45;
-        this.pos.x += (Math.sin(toPlayer) * radial + Math.sin(side) * drift) * sp * dt;
-        this.pos.z += (Math.cos(toPlayer) * radial + Math.cos(side) * drift) * sp * dt;
-        if (ctx.rng() < dt * 0.35) this.strafeDir *= -1;
+        this.strafe(ctx, dt, toPlayer, dist > 9 ? 1 : 0, dist < 4 ? 0.2 : 0.45, a.moveSpeed * tempo, 0.35);
         if (dist <= (a.shotRange ?? 16) && dist > 2.5 && this.shotCd <= 0 && facing && ctx.requestShot(this)) this.aim(ctx, toPlayer);
         break;
       }
@@ -146,7 +127,7 @@ export class Gunbot extends Enemy {
 
       case 'windup':
         this.yaw = turnToward(this.yaw, toPlayer, a.turnSpeed * 0.35 * dt);
-        if (this.stateT >= (a.windup * this.windupScale) / tempo) {
+        if (this.windupDone()) {
           this.strikeConnected = false;
           this.enter('strike');
         }
@@ -166,7 +147,7 @@ export class Gunbot extends Enemy {
 
       case 'recover':
         if (this.stateT >= a.recovery / tempo) {
-          this.cooldown = a.attackCooldown * (0.6 + ctx.rng() * 0.8);
+          this.rollCooldown(ctx, 0.6, 0.8);
           this.enter('chase');
         }
         break;
@@ -177,16 +158,15 @@ export class Gunbot extends Enemy {
     const a = this.arch;
     this.yaw = toPlayer;
     const shape: TelegraphShape = { kind: 'line', x: this.pos.x, z: this.pos.z, yaw: toPlayer, length: a.shotRange ?? 16, width: (a.shotRadius ?? 0.9) * 2 };
-    this.enter('aim');
+    this.beginWindup('aim', a.shotWindup ?? 1);
     this.cue('gunbot.charge');
-    this.pending = ctx.telegraph(shape, (a.shotWindup ?? 1) / this.tempo, () => {
-      this.pending = null;
+    this.warn(ctx, shape, a.shotWindup ?? 1, () => {
       if (!this.alive || this.state !== 'aim') return;
       ctx.areaStrike(this, shape, 0.85, 4);
       ctx.tracer(shape.x, shape.z, shape.yaw, shape.length, 0xff6040);
       this.cue('gunbot.shot');
       this.fired = true;
-      this.shotCd = (a.shotCooldown ?? 3.4) * (0.85 + ctx.rng() * 0.3);
+      this.shotCd = this.rollShotCd(ctx, 3.4);
       this.enter('recover');
     }, 0xff5030);
   }
@@ -205,7 +185,7 @@ export class Gunbot extends Enemy {
       case 'aim':
         return { pose: gunbotPoses.aim(Math.min(1, this.stateT / 0.3)), rate: 14 };
       case 'windup':
-        return { pose: gunbotPoses.windup(Math.min(1, this.stateT / ((this.arch.windup * this.windupScale) / this.tempo))), rate: 20 };
+        return { pose: gunbotPoses.windup(this.windupK()), rate: 20 };
       case 'strike':
         return { pose: gunbotPoses.strike(), rate: 35 };
       case 'recover':
@@ -254,7 +234,6 @@ export class Garanz extends Enemy {
   private missilesLeft = 0;
   private launchT = 0;
   private lastLaunch = 10;
-  private pending: TelegraphHandle | null = null;
   private walkPhase = 0;
   private lastX: number;
   private lastZ: number;
@@ -273,18 +252,14 @@ export class Garanz extends Enemy {
   }
 
   protected flinch(): void {
-    // Knocked out of its stance: the rest of the barrage is called off (missiles in flight still land).
-    if (this.state === 'burst') this.pending?.cancel();
-    this.pending = null;
+    // Knocked out of its stance: the rest of the barrage (and a stomp) is called off (missiles in flight still land).
     this.missilesLeft = 0;
     this.planted = false;
     this.enter('hitstun');
   }
 
   protected telegraphHeat(): number {
-    if (this.state === 'aim') return Math.min(1, this.stateT / (PLANT_TIME / this.tempo));
-    if (this.state === 'burst') return Math.min(1, this.stateT / (this.arch.windup / this.tempo));
-    return this.state === 'cast' ? 0.8 : 0;
+    return this.state === 'cast' ? 0.8 : this.windupK();
   }
 
   protected think(dt: number, ctx: EnemyContext, dist: number, toPlayer: number): void {
@@ -312,7 +287,7 @@ export class Garanz extends Enemy {
         }
         if (dist <= (a.shotRange ?? 20) && dist > 4 && this.shotCd <= 0 && facing && ctx.requestShot(this, ai.barrageThreat)) {
           this.planted = true;
-          this.enter('aim');
+          this.beginWindup('aim', PLANT_TIME);
           this.cue('garanz.plant');
           break;
         }
@@ -324,7 +299,7 @@ export class Garanz extends Enemy {
       }
 
       case 'aim':
-        if (this.stateT >= PLANT_TIME / tempo) {
+        if (this.windupDone()) {
           this.missilesLeft = MISSILES;
           this.launchT = 0;
           this.enter('cast');
@@ -352,9 +327,9 @@ export class Garanz extends Enemy {
       case 'recover': {
         const hold = this.planted ? PLANTED_AFTER : a.recovery;
         if (this.stateT >= hold / tempo) {
-          if (this.planted) this.shotCd = (a.shotCooldown ?? 4.5) * (0.85 + ctx.rng() * 0.3);
+          if (this.planted) this.shotCd = this.rollShotCd(ctx, 4.5);
           this.planted = false;
-          this.cooldown = a.attackCooldown * (0.7 + ctx.rng() * 0.6);
+          this.rollCooldown(ctx);
           this.enter('chase');
         }
         break;
@@ -372,10 +347,9 @@ export class Garanz extends Enemy {
   private stomp(ctx: EnemyContext): void {
     const a = this.arch;
     const shape: TelegraphShape = { kind: 'circle', x: this.pos.x, z: this.pos.z, radius: a.strikeRange };
-    this.enter('burst');
+    this.beginWindup('burst', a.windup);
     this.cue('garanz.plant');
-    this.pending = ctx.telegraph(shape, a.windup / this.tempo, () => {
-      this.pending = null;
+    this.warn(ctx, shape, a.windup, () => {
       if (!this.alive || this.state !== 'burst') return;
       ctx.areaStrike(this, shape, 0.9, a.strikeKnockback ?? 10);
       this.cue('garanz.stomp');
@@ -422,7 +396,7 @@ export class Garanz extends Enemy {
       case 'spawning':
         return { pose: garanzPoses.plant(1), rate: 6 };
       case 'aim':
-        return { pose: garanzPoses.plant(Math.min(1, this.stateT / (PLANT_TIME / this.tempo))), rate: 10 };
+        return { pose: garanzPoses.plant(this.windupK()), rate: 10 };
       case 'cast':
         return { pose: this.lastLaunch < 0.12 ? garanzPoses.fire() : garanzPoses.plant(1), rate: 25 };
       case 'recover':
@@ -432,7 +406,7 @@ export class Garanz extends Enemy {
         }
         return { pose: garanzPoses.idle(this.time), rate: 5 };
       case 'burst':
-        return { pose: garanzPoses.stompWindup(Math.min(1, this.stateT / (this.arch.windup / this.tempo))), rate: 14 };
+        return { pose: garanzPoses.stompWindup(this.windupK()), rate: 14 };
       case 'strike':
         return { pose: garanzPoses.stomp(), rate: 35 };
       case 'hitstun':
@@ -482,10 +456,8 @@ export class Sinow extends Enemy {
   private to = new THREE.Vector3();
   private hop = 0;
   private spin = 0;
-  private landing: TelegraphHandle | null = null;
   /** This attack started in reach: no leap after the crouch. */
   private close = false;
-  private strafeDir: number;
   private runPhase = 0;
   private lastX: number;
   private lastZ: number;
@@ -501,20 +473,17 @@ export class Sinow extends Enemy {
 
   private release(): void {
     if (Sinow.busy === this) Sinow.busy = null;
-    this.landing?.cancel();
-    this.landing = null;
     this.hop = 0;
     this.spin = 0;
   }
 
   protected flinch(): void {
     this.release();
-    this.enter('hitstun');
+    this.enter('hitstun'); // (calls its landing marker off)
   }
 
   protected telegraphHeat(): number {
-    if (this.state === 'windup') return Math.min(1, this.stateT / (this.arch.windup / this.tempo));
-    return this.state === 'strike' ? 1 : 0;
+    return this.state === 'strike' ? 1 : this.windupK();
   }
 
   private othersBusy(): boolean {
@@ -549,11 +518,12 @@ export class Sinow extends Enemy {
             this.to.copy(this.pos);
             this.phase = 'crouch';
             this.close = true;
-            this.enter('windup');
+            this.beginWindup('windup', a.windup);
             this.cue('sinow.crouch');
-            this.landing = ctx.telegraph(
+            this.warn(
+              ctx,
               { kind: 'cone', x: this.pos.x, z: this.pos.z, yaw: toPlayer, range: a.strikeRange, arcDeg: a.strikeArcDeg },
-              a.windup / tempo,
+              a.windup,
               () => {},
               0xff4060,
             );
@@ -563,25 +533,20 @@ export class Sinow extends Enemy {
             this.to.set(this.pos.x + (ctx.playerX - this.pos.x) * k, 0, this.pos.z + (ctx.playerZ - this.pos.z) * k);
             this.phase = 'crouch';
             this.close = false;
-            this.enter('windup');
+            this.beginWindup('windup', a.windup);
             this.cue('sinow.crouch');
-            this.landing = ctx.telegraph({ kind: 'circle', x: this.to.x, z: this.to.z, radius: 1.7 }, (a.windup + LEAP_TIME) / tempo, () => {}, 0xff4060);
+            this.warn(ctx, { kind: 'circle', x: this.to.x, z: this.to.z, radius: 1.7 }, a.windup + LEAP_TIME, () => {}, 0xff4060);
           }
           break;
         }
         // Circle at 5-8 m, quick and twitchy.
-        const radial = dist < 5 ? -1 : dist > 8 ? 1 : 0;
-        const side = toPlayer + (Math.PI / 2) * this.strafeDir;
-        const sp = a.moveSpeed * tempo;
-        this.pos.x += (Math.sin(toPlayer) * radial + Math.sin(side) * 0.7) * sp * dt;
-        this.pos.z += (Math.cos(toPlayer) * radial + Math.cos(side) * 0.7) * sp * dt;
-        if (ctx.rng() < dt * 0.6) this.strafeDir *= -1;
+        this.strafe(ctx, dt, toPlayer, dist < 5 ? -1 : dist > 8 ? 1 : 0, 0.7, a.moveSpeed * tempo, 0.6);
         break;
       }
 
       case 'windup':
         if (!this.close) this.yaw = turnToward(this.yaw, yawTo(this.pos.x, this.pos.z, this.to.x, this.to.z), a.turnSpeed * dt);
-        if (this.stateT >= a.windup / tempo) {
+        if (this.windupDone()) {
           if (this.close) {
             this.startCombo();
             break;
@@ -648,7 +613,7 @@ export class Sinow extends Enemy {
         }
         // Landed: crouched and open. The punish window.
         if (this.stateT >= a.recovery / tempo) {
-          this.cooldown = a.attackCooldown * (0.7 + ctx.rng() * 0.6);
+          this.rollCooldown(ctx);
           this.enter('chase');
         }
         break;
@@ -671,7 +636,7 @@ export class Sinow extends Enemy {
     this.hitIndex = 0;
     this.hitT = 0;
     this.struck = false;
-    this.landing = null;
+    this.tele.forget(); // the landing marker plays out
     if (this.state !== 'strike') this.enter('strike');
     else this.stateT = 0;
   }
@@ -687,7 +652,7 @@ export class Sinow extends Enemy {
       case 'spawning':
         return { pose: sinowPoses.crouch(1), rate: 6 };
       case 'windup':
-        return { pose: sinowPoses.crouch(Math.min(1, this.stateT / (this.arch.windup / tempo))), rate: 16 };
+        return { pose: sinowPoses.crouch(this.windupK()), rate: 16 };
       case 'strike':
         if (this.phase === 'leap') return { pose: sinowPoses.leap(), rate: 20 };
         return { pose: sinowPoses.slash(this.hitIndex, Math.min(1, this.hitT / (HIT_CONTACT / tempo))), rate: 35 };
@@ -760,7 +725,6 @@ export class ControlNode extends Enemy {
 export class SparkMite extends Enemy {
   protected topplesOnDeath = false;
   private model: MiteModel;
-  private fuse: TelegraphHandle | null = null;
   private chaseT = 0;
   private walkPhase = 0;
   private lastX: number;
@@ -778,25 +742,7 @@ export class SparkMite extends Enemy {
     return 0.7;
   }
 
-  protected telegraphHeat(): number {
-    return this.state === 'windup' ? Math.min(1, this.stateT / this.arch.windup) : 0;
-  }
-
-  private defuse(): void {
-    this.fuse?.cancel();
-    this.fuse = null;
-  }
-
-  protected flinch(): void {
-    this.defuse();
-    super.flinch();
-  }
-
-  damage(amount: number, fromX: number, fromZ: number, knockback: number, stagger: number): boolean {
-    const killed = super.damage(amount, fromX, fromZ, knockback, stagger);
-    if (killed) this.defuse();
-    return killed;
-  }
+  // Killing or flinching it first defuses it (Enemy.warn).
 
   protected think(dt: number, ctx: EnemyContext, dist: number, toPlayer: number): void {
     const a = this.arch;
@@ -825,12 +771,11 @@ export class SparkMite extends Enemy {
   }
 
   private arm(ctx: EnemyContext): void {
-    this.enter('windup');
+    this.beginWindup('windup', this.arch.windup);
     this.chaseT = 0;
     this.cue('volatile.warn');
     const shape: TelegraphShape = { kind: 'circle', x: this.pos.x, z: this.pos.z, radius: this.arch.strikeRange };
-    this.fuse = ctx.telegraph(shape, this.arch.windup, () => {
-      this.fuse = null;
+    this.warn(ctx, shape, this.arch.windup, () => {
       if (!this.alive || this.state !== 'windup') return;
       ctx.areaStrike(this, shape, 1, 8, 'burn', 1);
       ctx.bolt(this.pos.x, this.pos.z, 0xff8a30);

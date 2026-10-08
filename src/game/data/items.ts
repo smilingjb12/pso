@@ -1,4 +1,5 @@
 import type { AttackTiming, Race, WeaponWeight } from '../config';
+import type { StatBonus, StatKey } from './stats';
 
 export type Attr = Race | 'hit';
 export const ATTRS: Attr[] = ['native', 'abeast', 'machine', 'dark', 'hit'];
@@ -215,12 +216,28 @@ export const armorLines: Record<ArmorLine, ArmorLineDef> = {
 
 // --------------------------------------------------------------- item defs
 
+/**
+ * Named effects an item has while worn: gameplay asks Character.hasGearPassive, so a new item can reuse one
+ * by listing it. The item's `desc` tells the player.
+ */
+export type ItemPassive =
+  /** Facility hazards and Burn hit half as hard. */
+  | 'hazardWard'
+  /** Flipping a power switch braces you (injectorCfg.braceTime). */
+  | 'switchBrace'
+  /** Corruption takes half as much (pylonCfg.sealCorruptMult). */
+  | 'corruptionWard'
+  /** Pylons you light burn longer (pylonCfg.sealLitMult). */
+  | 'pylonKeeper';
+
 interface BaseDef {
   id: string;
   name: string;
   price: number;
   rare?: boolean;
   desc?: string;
+  /** Effects while worn (gear only). */
+  passives?: ItemPassive[];
 }
 
 export interface WeaponItemDef extends BaseDef {
@@ -232,8 +249,8 @@ export interface WeaponItemDef extends BaseDef {
   ata: number;
   req: number; // required base value of the kind's reqStat
   special?: SpecialId;
-  /** Flat MST while equipped (canes, rods and wands). */
-  mst?: number;
+  /** Flat stats while equipped (MST on canes, rods and wands; Edge grinding raises an MST bonus too). */
+  bonus?: StatBonus;
 }
 
 export interface ArmorItemDef extends BaseDef {
@@ -243,11 +260,8 @@ export interface ArmorItemDef extends BaseDef {
   tier: number;
   dfp: number;
   evp: number;
-  /** Flat bonuses on top of DFP/EVP (the line's specialty). */
-  atp?: number;
-  ata?: number;
-  mst?: number;
-  tp?: number;
+  /** Flat stats on top of DFP/EVP (the line's specialty). */
+  bonus?: StatBonus;
   req: number; // required base value of the line's reqStat (0 = none)
 }
 
@@ -306,15 +320,6 @@ export type ItemDef = WeaponItemDef | ArmorItemDef | ConsumableItemDef | Grinder
 
 export const MAX_STACK = 10;
 export const INVENTORY_SIZE = 30;
-
-/** Most of one item you can carry in its stack. */
-export function stackCap(def: ItemDef): number {
-  return def.type === 'consumable' ? (def.maxStack ?? MAX_STACK) : MAX_STACK;
-}
-
-export function isStackable(def: ItemDef): boolean {
-  return def.type === 'consumable' || def.type === 'grinder';
-}
 
 const TIER_NAMES: Record<WeaponKind, string[]> = {
   saber: ['Saber', 'Brand', 'Buster', 'Pallasch', 'Gladius', 'Galatine', 'Astra Saber', 'Nova Blade', 'Stellar Saber', 'Quasar Saber', 'Cosmic Saber'],
@@ -384,7 +389,7 @@ for (const kind of Object.keys(TIER_NAMES) as WeaponKind[]) {
       atpMax: Math.round(mx * TIER_ATP[i]),
       ata: Math.round(ata * TIER_ATA[i]),
       req: TIER_REQ[weaponKinds[kind].reqStat][i],
-      ...(mst ? { mst: Math.round(mst * TIER_ATP[i]) } : {}),
+      ...(mst ? { bonus: { mst: Math.round(mst * TIER_ATP[i]) } } : {}),
       price: TIER_PRICE[i],
     });
   });
@@ -401,7 +406,7 @@ add({ id: 'varista', type: 'weapon', name: 'Varista', kind: 'handgun', tier: 2, 
   atpMin: 70, atpMax: 90, ata: 75, req: 70, special: 'ice', price: 9000,
   desc: 'A custom handgun with a freezing payload.' });
 add({ id: 'club_of_laconium', type: 'weapon', name: 'Club of Laconium', kind: 'cane', tier: 2, rare: true,
-  atpMin: 60, atpMax: 80, ata: 40, req: 70, special: 'draw', mst: 10, price: 9000,
+  atpMin: 60, atpMax: 80, ata: 40, req: 70, special: 'draw', bonus: { mst: 10 }, price: 9000,
   desc: 'A heavy laconium cane that drains life.' });
 add({ id: 'dragon_slayer', type: 'weapon', name: 'Dragon Slayer', kind: 'sword', tier: 3, rare: true,
   atpMin: 190, atpMax: 230, ata: 45, req: 85, special: 'heat', price: 20000,
@@ -414,7 +419,7 @@ add({ id: 'spread_needle', type: 'weapon', name: 'Spread Needle', kind: 'shot', 
   atpMin: 130, atpMax: 160, ata: 60, req: 110, special: 'venom', price: 16000,
   desc: 'A shot that sprays venom-tipped needles.' });
 add({ id: 'coral_rod', type: 'weapon', name: 'Coral Rod', kind: 'rod', tier: 4, rare: true,
-  atpMin: 120, atpMax: 150, ata: 40, req: 150, special: 'ice', mst: 30, price: 16000,
+  atpMin: 120, atpMax: 150, ata: 40, req: 150, special: 'ice', bonus: { mst: 30 }, price: 16000,
   desc: 'A rod of living cave coral that chills on contact.' });
 add({ id: 'rol_lance', type: 'weapon', name: 'Rol Lance', kind: 'partisan', tier: 5, rare: true,
   atpMin: 260, atpMax: 310, ata: 40, req: 145, special: 'shock', price: 30000,
@@ -433,7 +438,8 @@ add({ id: 'arc_welder', type: 'weapon', name: 'Arc Welder', kind: 'handgun', tie
 add({ id: 'frame_1', type: 'armor', slot: 'frame', line: 'basic', name: 'Frame', tier: 1, dfp: 5, evp: 5, req: 0, price: 200 });
 add({ id: 'barrier_1', type: 'armor', slot: 'barrier', line: 'basic', name: 'Barrier', tier: 1, dfp: 4, evp: 6, req: 0, price: 200 });
 
-type ArmorRow = { name: string; dfp: number; evp: number; atp?: number; ata?: number; mst?: number; tp?: number };
+/** A line's tier: DFP / EVP plus its flat bonuses written inline (they become the item's `bonus`). */
+type ArmorRow = { name: string; dfp: number; evp: number } & Partial<Record<Exclude<StatKey, 'dfp' | 'evp'>, number>>;
 const ARMOR_TABLE: Record<'frame' | 'barrier', Record<Exclude<ArmorLine, 'basic'>, ArmorRow[]>> = {
   frame: {
     guard: [
@@ -526,9 +532,9 @@ export const ARMOR_REQ: Record<'atp' | 'ata' | 'mst', number[]> = {
 const ARMOR_PRICE = [250, 800, 2400, 6500, 14000, 28000, 45000, 70000, 100000, 135000, 180000];
 for (const slot of ['frame', 'barrier'] as const) {
   for (const line of ['guard', 'combat', 'psy'] as const) {
-    ARMOR_TABLE[slot][line].forEach((row, i) =>
+    ARMOR_TABLE[slot][line].forEach(({ name, dfp, evp, ...bonus }, i) =>
       add({
-        id: `${slot}_${line}_${i + 1}`, type: 'armor', slot, line, tier: i + 1, ...row,
+        id: `${slot}_${line}_${i + 1}`, type: 'armor', slot, line, tier: i + 1, name, dfp, evp, bonus,
         req: ARMOR_REQ[armorLines[line].reqStat!][i], price: ARMOR_PRICE[i],
       }),
     );
@@ -543,7 +549,7 @@ add({ id: 'barrier_6', type: 'armor', slot: 'barrier', line: 'basic', name: 'Pho
   dfp: 30, evp: 30, req: 0, price: 24000, desc: 'A plain photon barrier anyone can wear.' });
 // Warden signature drop.
 add({ id: 'warden_core', type: 'armor', slot: 'barrier', line: 'basic', name: 'Warden Core', tier: 6, rare: true,
-  dfp: 34, evp: 28, req: 0, price: 40000,
+  dfp: 34, evp: 28, req: 0, price: 40000, passives: ['hazardWard', 'switchBrace'],
   desc: "The Warden's reactor core, set into a barrier. No requirement: anyone can wear it. Facility hazards and Burn hit you half as hard, and flipping a power switch braces you (30% less damage for 3 s)." });
 
 // Ruins rares (tier 7) and Dark Falz's signature drops.
@@ -554,13 +560,13 @@ add({ id: 'holy_ray', type: 'weapon', name: 'Holy Ray', kind: 'rifle', tier: 7, 
   atpMin: 330, atpMax: 430, ata: 110, req: 160, special: 'ice', price: 55000,
   desc: 'Fires a beam of cold white light. Freezes on heavy attacks.' });
 add({ id: 'psycho_wand', type: 'weapon', name: 'Psycho Wand', kind: 'wand', tier: 7, rare: true,
-  atpMin: 150, atpMax: 220, ata: 60, req: 255, special: 'heat', mst: 55, price: 55000,
+  atpMin: 150, atpMax: 220, ata: 60, req: 255, special: 'heat', bonus: { mst: 55 }, price: 55000,
   desc: 'A wand that hums with borrowed thought. Burns on heavy attacks.' });
 add({ id: 'dark_flow', type: 'weapon', name: 'Dark Flow', kind: 'sword', tier: 7, rare: true,
   atpMin: 520, atpMax: 660, ata: 55, req: 210, special: 'draw', price: 70000,
   desc: 'A blade of living darkness taken from Dark Falz. Heavy attacks drain life.' });
 add({ id: 'seal_of_light', type: 'armor', slot: 'barrier', line: 'basic', name: 'Seal of Light', tier: 7, rare: true,
-  dfp: 44, evp: 38, req: 0, price: 60000,
+  dfp: 44, evp: 38, req: 0, price: 60000, passives: ['corruptionWard', 'pylonKeeper'],
   desc: 'The seal that once held Dark Falz. No requirement: anyone can wear it. Corruption takes half as much from you, and pylons you light burn 50% longer.' });
 
 // Nightmare rares (tiers 8-11) and the Nightmare bosses' signature drops. Each moved up a tier when the
@@ -575,13 +581,13 @@ add({ id: 'magma_blade', type: 'weapon', name: 'Magma Blade', kind: 'sword', tie
   atpMin: 730, atpMax: 915, ata: 55, req: 270, special: 'heat', price: 125000,
   desc: "Forged in the Caves' deepest vents. Burns on heavy attacks." });
 add({ id: 'glacier_wand', type: 'weapon', name: 'Glacier Wand', kind: 'wand', tier: 9, rare: true,
-  atpMin: 210, atpMax: 305, ata: 60, req: 315, special: 'ice', mst: 70, price: 125000,
+  atpMin: 210, atpMax: 305, ata: 60, req: 315, special: 'ice', bonus: { mst: 70 }, price: 125000,
   desc: 'A shard of cave ice that never melts. Freezes on heavy attacks.' });
 add({ id: 'overcharge_gatling', type: 'weapon', name: 'Overcharge Gatling', kind: 'mechgun', tier: 10, rare: true,
   atpMin: 220, atpMax: 315, ata: 85, req: 205, special: 'shock', price: 175000,
   desc: 'A Garanz autocannon run past its limits. Shocks on heavy attacks.' });
 add({ id: 'reactor_rod', type: 'weapon', name: 'Reactor Rod', kind: 'rod', tier: 10, rare: true,
-  atpMin: 420, atpMax: 535, ata: 50, req: 345, special: 'heat', mst: 105, price: 175000,
+  atpMin: 420, atpMax: 535, ata: 50, req: 345, special: 'heat', bonus: { mst: 105 }, price: 175000,
   desc: "A control rod from the Mines' core. Burns on heavy attacks." });
 add({ id: 'excalibur', type: 'weapon', name: 'Excalibur', kind: 'saber', tier: 11, rare: true,
   atpMin: 560, atpMax: 750, ata: 80, req: 330, special: 'shock', price: 240000,
@@ -597,7 +603,7 @@ add({ id: 'overseer_cannon', type: 'weapon', name: 'Overseer Cannon', kind: 'han
   atpMin: 350, atpMax: 465, ata: 120, req: 195, special: 'arc', price: 190000,
   desc: "The Warden's hand cannon, taken on Nightmare and rebuilt as a sidearm. Heavy shots can arc on to two more enemies nearby and stun them." });
 add({ id: 'falz_halo', type: 'armor', slot: 'barrier', line: 'basic', name: 'Falz Halo', tier: 11, rare: true,
-  dfp: 90, evp: 78, req: 0, price: 220000,
+  dfp: 90, evp: 78, req: 0, price: 220000, passives: ['corruptionWard', 'pylonKeeper'],
   desc: "The Angel's halo, taken on Nightmare. No requirement: anyone can wear it. Corruption takes half as much from you, and pylons you light burn 50% longer." });
 
 add({ id: 'telepipe', type: 'consumable', name: 'Telepipe', effect: 'telepipe', price: 350, fieldOnly: true,

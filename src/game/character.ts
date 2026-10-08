@@ -1,14 +1,19 @@
 import { attributeCfg, BUILD_VERSION, formulas, magCfg, spellForms, type AttackType, type Race } from './config';
+import type { BossId } from './data/bosses';
 import type { Look } from './models/heroine';
 import {
+  addBonus,
   ATTRIBUTE_INFO,
   ATTRIBUTES,
   attributePointsEarned,
+  BONUS_ORDER,
+  bonusText,
   buildTitle,
   KITS,
   leadAttribute,
   MAX_LEVEL,
   noAttributes,
+  STAT_LABEL,
   statsAtLevel,
   xpToNext,
   type AttributeId,
@@ -16,6 +21,7 @@ import {
   type KitDef,
   type KitId,
   type PaletteRow,
+  type StatBonus,
   type StatKey,
   type Stats,
 } from './data/stats';
@@ -26,24 +32,23 @@ import {
   getDef,
   grindCap,
   INJECTOR_MODS,
-  INJECTOR_REQ_STAT,
   INVENTORY_SIZE,
-  isStackable,
   RACE_SUFFIX,
   raceCap,
   specials,
-  stackCap,
   weaponKinds,
   type ArmorItemDef,
   type Attr,
   type InjectorMod,
   type ItemDef,
+  type ItemPassive,
   type SpecialId,
   type WeaponItemDef,
   type WeaponKindDef,
 } from './data/items';
 import { ATTACK_TECHS, isAttackTech, techAttackPower, techTpCost, type TechId } from './data/techniques';
-import { describeInjector, injectorDef } from './injectors';
+import { chargeOf, describeInjector, injectorDef, injectorStats } from './injectors';
+import { GEAR_SLOTS, isGear, isStackable, itemRequirement, itemSlot, stackCap, type GearSlot, type ItemDefOf, type ItemType } from './itemTypes';
 import { hasPassive, magBonuses, magPointsFree, newMag, readMag, type MagData, type MagPassive } from './mag';
 
 // Persistent character state plus derived-stat helpers. No rendering here.
@@ -94,19 +99,29 @@ export interface CharacterData {
   stats: {
     kills: number;
     deaths: number;
-    dragonKills: number;
     playSeconds: number;
-    deRolLeKills?: number;
-    wardenKills?: number;
-    falzKills?: number;
+    /** Bosses beaten on Normal (each opens the next expedition, some a shop tier). */
+    bossKills: Partial<Record<BossId, number>>;
     /** Pylons lit (the first one explains them). */
     pylonsLit?: number;
     /** Opened Nightmare by beating the Warden before the Ruins existed: it stays open without Dark Falz. */
     nightmareKept?: boolean;
     dashes?: number;
     /** Bosses beaten on Hard (each opens the next Hard expedition and a shop tier). */
-    hardKills?: { dragon?: number; derolle?: number; warden?: number; falz?: number };
+    hardKills?: Partial<Record<BossId, number>>;
   };
+}
+
+/** Saves from before the boss registry kept one field per boss. */
+export function migrateBossKills(stats: CharacterData['stats']): void {
+  const legacy = stats as CharacterData['stats'] & { dragonKills?: number; deRolLeKills?: number; wardenKills?: number; falzKills?: number };
+  stats.bossKills ??= {};
+  const from: [keyof typeof legacy, BossId][] = [['dragonKills', 'dragon'], ['deRolLeKills', 'derolle'], ['wardenKills', 'warden'], ['falzKills', 'falz']];
+  for (const [field, boss] of from) {
+    const n = legacy[field];
+    if (typeof n === 'number') stats.bossKills[boss] = Math.max(stats.bossKills[boss] ?? 0, n);
+    delete legacy[field];
+  }
 }
 
 let uidCounter = 0;
@@ -215,11 +230,20 @@ export function weaponRace(inst: ItemInstance, race: Race): number {
  * that already give MST, so grinding a blade or a gun doesn't feed support techs).
  */
 export function grindBonus(def: WeaponItemDef, edge: number): { atp: number; ata: number; mst: number } {
+  const mst = def.bonus?.mst;
   return {
     atp: Math.round(edge * formulas.edgeAtpPct * ((def.atpMin + def.atpMax) / 2)),
     ata: Math.round(edge * formulas.edgeAtaPct * def.ata),
-    mst: def.mst ? Math.round(edge * formulas.edgeMstPct * def.mst) : 0,
+    mst: mst ? Math.round(edge * formulas.edgeMstPct * mst) : 0,
   };
+}
+
+/** A weapon's flat stat bonuses with `edge` grind levels counted (Edge raises an MST bonus). */
+export function weaponBonus(def: WeaponItemDef, edge: number): StatBonus {
+  const out = { ...def.bonus };
+  const g = grindBonus(def, edge).mst;
+  if (g) out.mst = (out.mst ?? 0) + g;
+  return out;
 }
 
 /** What a grinder would do to a weapon on one track (the grind picker shows one per track). */
@@ -278,11 +302,25 @@ export class Character {
       data.mag = newMag();
       data.build = BUILD_VERSION;
     }
+    migrateBossKills(data.stats);
     // The Ruins moved Nightmare behind Dark Falz: characters who had already opened it keep it.
     if ((data.content ?? 0) < 1) {
-      if ((data.stats.wardenKills ?? 0) > 0) data.stats.nightmareKept = true;
+      if ((data.stats.bossKills.warden ?? 0) > 0) data.stats.nightmareKept = true;
       data.content = CONTENT_VERSION;
     }
+  }
+
+  /** Times this boss has been beaten on Normal, or on Nightmare. */
+  bossKills(boss: BossId, hard: boolean): number {
+    const st = this.data.stats;
+    return (hard ? st.hardKills?.[boss] : st.bossKills[boss]) ?? 0;
+  }
+
+  /** Count a boss kill; returns the new count. */
+  addBossKill(boss: BossId, hard: boolean): number {
+    const st = this.data.stats;
+    const kills = hard ? (st.hardKills ??= {}) : st.bossKills;
+    return (kills[boss] = (kills[boss] ?? 0) + 1);
   }
 
   static create(name: string, kitId: KitId, appearance?: Look): Character {
@@ -305,7 +343,7 @@ export class Character {
       equipped: { weapon: weapon.uid, frame: frame.uid, injector: injector.uid },
       palette: kit.palette.map((row) => ({ mouse: row.mouse, quick: [{ ...row.quick[0] }, { ...row.quick[1] }] })),
       mag: newMag(),
-      stats: { kills: 0, deaths: 0, dragonKills: 0, playSeconds: 0 },
+      stats: { kills: 0, deaths: 0, playSeconds: 0, bossKills: {} },
     };
     return new Character(data);
   }
@@ -390,9 +428,9 @@ export class Character {
   stats(): Stats {
     const s = this.reqStats();
     const w = this.weaponDef();
-    const g = grindBonus(w, this.weaponEdge());
-    s.ata += w.ata + g.ata;
-    s.mst += (w.mst ?? 0) + g.mst;
+    const edge = this.weaponEdge();
+    s.ata += w.ata + grindBonus(w, edge).ata;
+    addBonus(s, weaponBonus(w, edge));
     for (const slot of ['frame', 'barrier'] as const) {
       const inst = this.equippedItem(slot);
       if (!inst) continue;
@@ -400,10 +438,7 @@ export class Character {
       if (def.type === 'armor') {
         s.dfp += def.dfp;
         s.evp += def.evp;
-        s.atp += def.atp ?? 0;
-        s.ata += def.ata ?? 0;
-        s.mst += def.mst ?? 0;
-        s.tp += def.tp ?? 0;
+        addBonus(s, def.bonus);
       }
     }
     return s;
@@ -495,9 +530,12 @@ export class Character {
     return GEAR_SLOTS.some((s) => this.data.equipped[s] === uid);
   }
 
-  /** Is an item with this id worn in any gear slot? */
-  hasEquipped(id: string): boolean {
-    return GEAR_SLOTS.some((s) => this.equippedItem(s)?.id === id);
+  /** Does anything worn carry this passive (the Warden Core's hazard ward, the Seal of Light's...)? */
+  hasGearPassive(p: ItemPassive): boolean {
+    return GEAR_SLOTS.some((s) => {
+      const inst = this.equippedItem(s);
+      return !!inst && !!getDef(inst.id).passives?.includes(p);
+    });
   }
 
   countOf(id: string): number {
@@ -558,24 +596,11 @@ export class Character {
   /** Whether the item can be worn now; `need` is set when only a stat requirement is in the way. */
   canEquip(inst: ItemInstance): { ok: boolean; reason?: string; need?: { stat: StatKey; req: number } } {
     const def = getDef(inst.id);
-    const have = this.reqStats();
-    if (def.type === 'weapon') {
-      const stat = weaponKinds[def.kind].reqStat;
-      if (have[stat] < def.req) return { ok: false, reason: reqReason(stat, def.req, have[stat]), need: { stat, req: def.req } };
-      return { ok: true };
-    }
-    if (def.type === 'armor') {
-      const line = armorLines[def.line];
-      if (line.reqStat && have[line.reqStat] < def.req)
-        return { ok: false, reason: reqReason(line.reqStat, def.req, have[line.reqStat]), need: { stat: line.reqStat, req: def.req } };
-      return { ok: true };
-    }
-    if (def.type === 'injector') {
-      const stat = INJECTOR_REQ_STAT[def.kind];
-      if (have[stat] < def.req) return { ok: false, reason: reqReason(stat, def.req, have[stat]), need: { stat, req: def.req } };
-      return { ok: true };
-    }
-    return { ok: false, reason: 'Not equippable' };
+    if (!isGear(def)) return { ok: false, reason: 'Not equippable' };
+    const need = itemRequirement(def);
+    const have = need ? this.reqStats()[need.stat] : 0;
+    if (need && have < need.req) return { ok: false, reason: reqReason(need.stat, need.req, have), need };
+    return { ok: true };
   }
 
   /** Equip into its slot (replacing what was there). */
@@ -643,17 +668,11 @@ export class Character {
 
 // ------------------------------------------------------------ comparison
 
-/** One injector slot (key 1), Mate or Fluid: the sustain budget for a floor. */
-export type GearSlot = 'weapon' | 'frame' | 'barrier' | 'injector';
-export const GEAR_SLOTS: GearSlot[] = ['weapon', 'frame', 'barrier', 'injector'];
+export { GEAR_SLOTS, type GearSlot };
 
 /** The slot an item goes in, or null if it isn't gear. */
 export function gearSlot(inst: ItemInstance): GearSlot | null {
-  const def = getDef(inst.id);
-  if (def.type === 'weapon') return 'weapon';
-  if (def.type === 'armor') return def.slot;
-  if (def.type === 'injector') return 'injector';
-  return null;
+  return itemSlot(getDef(inst.id));
 }
 
 export function fitsSlot(inst: ItemInstance, slot: GearSlot): boolean {
@@ -662,20 +681,18 @@ export function fitsSlot(inst: ItemInstance, slot: GearSlot): boolean {
 
 /** Stats that equipment changes. */
 export interface GearSnapshot {
+  /** The weapon's ATP range (rolled per hit, so not in `stats`). */
   atp: [number, number];
-  ata: number;
-  dfp: number;
-  evp: number;
-  /** Flat stats armor can add. */
-  bonusAtp: number;
-  mst: number;
-  tp: number;
+  /** ch.stats(): base, Mag and every flat gear stat. */
+  stats: Stats;
   attrs: Record<Attr, number>;
   special: string;
 }
 
 export interface CompareRow {
   label: string;
+  /** The stat compared (unset for the weapon's ATP range, race % and Special). */
+  stat?: StatKey;
   before: string;
   after: string;
   /** Change in the compared value (positive = better). */
@@ -683,16 +700,10 @@ export interface CompareRow {
 }
 
 function snapshot(ch: Character): GearSnapshot {
-  const s = ch.stats();
   const sp = ch.weaponSpecial();
   return {
     atp: ch.weaponAtp(),
-    ata: s.ata,
-    dfp: s.dfp,
-    evp: s.evp,
-    bonusAtp: s.atp,
-    mst: s.mst,
-    tp: s.tp,
+    stats: ch.stats(),
     attrs: Object.fromEntries(ATTRS.map((a) => [a, ch.weaponAttr(a)])) as Record<Attr, number>,
     special: sp ? specials[sp].name : '—',
   };
@@ -717,26 +728,29 @@ export function compareEquip(ch: Character, inst: ItemInstance): { slot: GearSlo
   const before = snapshot(ch);
   const after = snapshot(simulateEquip(ch, inst, slot));
   const rows: CompareRow[] = [];
-  const num = (label: string, a: number, b: number) => rows.push({ label, before: `${a}`, after: `${b}`, delta: b - a });
+  const num = (stat: StatKey) => {
+    const [a, b] = [before.stats[stat], after.stats[stat]];
+    rows.push({ label: STAT_LABEL[stat], stat, before: `${a}`, after: `${b}`, delta: b - a });
+  };
+  /** The slot's headline stats always, then any other stat (a flat gear bonus) that changes. */
+  const stats = (always: StatKey[]) => {
+    for (const k of always) num(k);
+    for (const k of BONUS_ORDER) if (!always.includes(k) && before.stats[k] !== after.stats[k]) num(k);
+  };
   if (slot === 'weapon') {
     const avg = (r: [number, number]) => (r[0] + r[1]) / 2;
     rows.push({ label: 'ATP', before: `${before.atp[0]}-${before.atp[1]}`, after: `${after.atp[0]}-${after.atp[1]}`, delta: avg(after.atp) - avg(before.atp) });
-    num('ATA', before.ata, after.ata);
-    if (before.mst !== after.mst) num('MST', before.mst, after.mst);
+    stats(['ata']);
     for (const a of ATTRS) if (before.attrs[a] || after.attrs[a]) rows.push({ label: ATTR_LABEL[a], before: `${before.attrs[a]}%`, after: `${after.attrs[a]}%`, delta: after.attrs[a] - before.attrs[a] });
     if (before.special !== after.special) rows.push({ label: 'Special', before: before.special, after: after.special, delta: 0 });
   } else {
-    num('DFP', before.dfp, after.dfp);
-    num('EVP', before.evp, after.evp);
-    // Line bonuses: only listed when they change.
-    const extra: [string, number, number][] = [['ATP', before.bonusAtp, after.bonusAtp], ['ATA', before.ata, after.ata], ['MST', before.mst, after.mst], ['TP', before.tp, after.tp]];
-    for (const [label, a, b] of extra) if (a !== b) num(label, a, b);
+    stats(['dfp', 'evp']);
   }
   return { slot, current: ch.equippedItem(slot), rows };
 }
 
 /** How much one point of each armor stat is worth, in rough % of fight outcome (see items.ts). */
-const ARMOR_WEIGHT: Record<string, number> = { DFP: 1.5, EVP: 0.3, ATP: 0.7, ATA: 0.5, MST: 0.4, TP: 0.2 };
+const ARMOR_WEIGHT: Partial<Record<StatKey, number>> = { dfp: 1.5, evp: 0.3, atp: 0.7, ata: 0.5, mst: 0.4, tp: 0.2 };
 
 /** Quick verdict for list rows: +1 better, -1 worse, 0 same (by the slot's headline stats). */
 export function gearVerdict(ch: Character, inst: ItemInstance): number {
@@ -746,7 +760,7 @@ export function gearVerdict(ch: Character, inst: ItemInstance): number {
 }
 
 function rowsVerdict(slot: GearSlot, rows: CompareRow[]): number {
-  if (slot !== 'weapon') return Math.sign(rows.reduce((t, r) => t + r.delta * (ARMOR_WEIGHT[r.label] ?? 1), 0));
+  if (slot !== 'weapon') return Math.sign(rows.reduce((t, r) => t + r.delta * ((r.stat && ARMOR_WEIGHT[r.stat]) ?? 1), 0));
   // Weapons: ATP first; on a tie, attributes and gaining (or losing) a special decide.
   if (rows[0].delta) return Math.sign(rows[0].delta);
   const sp = rows.find((r) => r.label === 'Special');
@@ -783,13 +797,10 @@ function changesText(rows: CompareRow[], max = 4): string {
  */
 export function dropVerdict(ch: Character, inst: ItemInstance): DropVerdict {
   const def = getDef(inst.id);
-  let stat: StatKey | null = null;
-  if (def.type === 'weapon') stat = weaponKinds[def.kind].reqStat;
-  else if (def.type === 'armor') stat = armorLines[def.line].reqStat;
-  else if (def.type === 'injector') stat = INJECTOR_REQ_STAT[def.kind];
-  else return { look: 'plain', mark: '', note: '' };
-  const have = stat ? ch.reqStats()[stat] : 0;
-  const locked = stat && have < def.req ? `Needs ${stat.toUpperCase()} ${def.req} (you have ${have})` : '';
+  if (!isGear(def)) return { look: 'plain', mark: '', note: '' };
+  const need = itemRequirement(def);
+  const have = need ? ch.reqStats()[need.stat] : 0;
+  const locked = need && have < need.req ? `Needs ${need.stat.toUpperCase()} ${need.req} (you have ${have})` : '';
   const c = compareEquip(ch, inst);
   // Injectors aren't compared (two slots, either kind).
   if (!c) return { look: 'plain', mark: locked ? 'no' : '', note: locked };
@@ -803,54 +814,81 @@ export function dropVerdict(ch: Character, inst: ItemInstance): DropVerdict {
 
 /** "DFP +13  EVP +4  ATP +2" */
 export function armorStatText(def: ArmorItemDef): string {
-  const parts = [`DFP +${def.dfp}`, `EVP +${def.evp}`];
-  if (def.atp) parts.push(`ATP +${def.atp}`);
-  if (def.ata) parts.push(`ATA +${def.ata}`);
-  if (def.mst) parts.push(`MST +${def.mst}`);
-  if (def.tp) parts.push(`TP +${def.tp}`);
-  return parts.join('  ');
+  return [`DFP +${def.dfp}`, `EVP +${def.evp}`, ...bonusText(def.bonus)].join('  ');
 }
 
-export function describeItem(inst: ItemInstance, ch?: Character): string[] {
-  const def: ItemDef = getDef(inst.id);
-  const lines: string[] = [];
-  switch (def.type) {
-    case 'weapon': {
-      const kind = weaponKinds[def.kind];
-      const g = grindBonus(def, edgeLevels(inst));
-      lines.push(`${kind.label}${def.rare ? ' · ★ RARE' : ''}`);
+/** Menu text for one item type. */
+interface ItemText<D extends ItemDef> {
+  /** Its numbers on one line (gear lists): "ATP 40-55  ATA 30" with grind counted; '' if none. */
+  headline(def: D, inst: ItemInstance, ch?: Character): string;
+  /** Info lines; describeItem adds the requirement, the description and why it can't be worn after them. */
+  describe(def: D, inst: ItemInstance, ch?: Character): string[];
+}
+
+const ITEM_TEXT: { [T in ItemType]: ItemText<ItemDefOf<T>> } = {
+  weapon: {
+    headline: (def, inst) => {
+      const edge = edgeLevels(inst);
+      const g = grindBonus(def, edge);
+      return [`ATP ${def.atpMin + g.atp}-${def.atpMax + g.atp}`, `ATA ${def.ata + g.ata}`, ...bonusText(weaponBonus(def, edge))].join('  ');
+    },
+    describe: (def, inst) => {
       // What the kind itself does (reach, Poise, technique boost, TP on hit) is common knowledge: only this item's numbers.
-      lines.push(`ATP ${def.atpMin + g.atp}-${def.atpMax + g.atp}  ATA ${def.ata + g.ata}${def.mst ? `  MST +${def.mst + g.mst}` : ''}`);
-      lines.push(grindText(inst));
+      const lines = [`${weaponKinds[def.kind].label}${def.rare ? ' · ★ RARE' : ''}`, ITEM_TEXT.weapon.headline(def, inst), grindText(inst)];
       const sp = itemSpecial(inst);
       if (sp) lines.push(`Special: ${specials[sp].name}`);
       const at = attrText(inst);
       if (at) lines.push(at);
-      if (def.req) lines.push(`Req: ${kind.reqStat.toUpperCase()} ${def.req}`);
-      break;
-    }
-    case 'armor': {
+      return lines;
+    },
+  },
+  armor: {
+    headline: (def) => armorStatText(def),
+    describe: (def) => {
       const line = armorLines[def.line];
-      lines.push(`${line.label} ${def.slot === 'frame' ? 'Frame' : 'Barrier'}${def.rare ? ' · ★ RARE' : ''}`);
-      lines.push(armorStatText(def));
+      const lines = [`${line.label} ${def.slot === 'frame' ? 'Frame' : 'Barrier'}${def.rare ? ' · ★ RARE' : ''}`, armorStatText(def)];
       if (def.line !== 'basic') lines.push(line.desc);
-      if (line.reqStat && def.req) lines.push(`Req: ${line.reqStat.toUpperCase()} ${def.req}`);
-      break;
-    }
-    case 'consumable':
-      lines.push(`Carry up to ${stackCap(def)}${def.fieldOnly ? ' · field only' : ''} · use it from the Items tab or a Q / E quick slot`);
-      break;
-    case 'injector':
-      lines.push(...describeInjector(inst, ch));
-      break;
-    case 'grinder':
-      lines.push(`Grinds a weapon +${def.amount} (weapons take ${grindCap({ tier: 1 })}-${grindCap({ tier: 9 })} levels, rares 2 more)`);
-      lines.push(`Edge, per level: +${Math.round(formulas.edgeAtpPct * 100)}% of the weapon's ATP and ATA, +${Math.round(formulas.edgeMstPct * 100)}% of its MST (canes, rods, wands)`);
-      lines.push(`A race, per level: +${formulas.banePerGrind}% damage against it, up to the tier's attribute cap`);
-      break;
-  }
+      return lines;
+    },
+  },
+  injector: {
+    headline: (def, inst, ch) => {
+      const s = injectorStats(inst, ch);
+      return `${def.kind === 'mate' ? 'HP' : 'TP'} ${Math.round(s.potency * 100)}% · ${Math.floor(chargeOf(inst, ch))}/${s.doses} doses`;
+    },
+    describe: (_def, inst, ch) => describeInjector(inst, ch),
+  },
+  consumable: {
+    headline: () => '',
+    describe: (def) => [`Carry up to ${stackCap(def)}${def.fieldOnly ? ' · field only' : ''} · use it from the Items tab or a Q / E quick slot`],
+  },
+  grinder: {
+    headline: () => '',
+    describe: (def) => [
+      `Grinds a weapon +${def.amount} (weapons take ${grindCap({ tier: 1 })}-${grindCap({ tier: 9 })} levels, rares 2 more)`,
+      `Edge, per level: +${Math.round(formulas.edgeAtpPct * 100)}% of the weapon's ATP and ATA, +${Math.round(formulas.edgeMstPct * 100)}% of its MST (canes, rods, wands)`,
+      `A race, per level: +${formulas.banePerGrind}% damage against it, up to the tier's attribute cap`,
+    ],
+  },
+};
+
+function itemText<D extends ItemDef>(def: D): ItemText<D> {
+  return ITEM_TEXT[def.type] as unknown as ItemText<D>;
+}
+
+/** An item's numbers on one line: "ATP 40-55  ATA 30" (grind counted), "DFP +13  EVP +4", "HP 30% · 3/3 doses"; '' if none. */
+export function itemHeadline(inst: ItemInstance, ch?: Character): string {
+  const def = getDef(inst.id);
+  return itemText(def).headline(def, inst, ch);
+}
+
+export function describeItem(inst: ItemInstance, ch?: Character): string[] {
+  const def = getDef(inst.id);
+  const lines = itemText(def).describe(def, inst, ch);
+  const need = itemRequirement(def);
+  if (need) lines.push(`Req: ${need.stat.toUpperCase()} ${need.req}`);
   if (def.desc) lines.push(def.desc);
-  if (ch && (def.type === 'weapon' || def.type === 'armor' || def.type === 'injector')) {
+  if (ch && isGear(def)) {
     const c = ch.canEquip(inst);
     if (!c.ok) lines.push(`✖ ${c.reason}`);
   }

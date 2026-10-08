@@ -1,14 +1,15 @@
 import * as THREE from 'three';
-import { sfx, type SfxId } from '../../audio';
-import { deRolLe as cfg, type HardBossScale, type Race } from '../config';
+import { sfx } from '../../audio';
+import { deRolLe as cfg, type HardBossScale } from '../config';
 import { separateCircles, turnToward } from '../collision';
-import type { Hittable, StatusEffect } from '../combat/types';
+import type { Hittable } from '../combat/types';
 import { DeRolLeModel } from '../models/derolle';
 import { Lob, Pillar, Ring } from '../world/Effects';
 import { glowMaterial } from '../world/glow';
 import { WATER_Y, type Level, type Rect } from '../world/Level';
 import type { TelegraphShape } from '../world/Telegraph';
-import type { Boss, BossContext } from './Boss';
+import type { BossContext } from './Boss';
+import { BossBase, BossPart } from './BossBase';
 
 // De Rol Le: the Cave boss. A giant armoured worm that swims around (and under)
 // the raft the player stands on. It attacks from the water and only offers
@@ -54,7 +55,6 @@ const SURFACE = WATER_Y + 0.45;
 /** Parts whose centre is below this are under water: they can't be hit. */
 const SUBMERGED = WATER_Y - 0.25;
 const HEAD_RADIUS = 1.5;
-const BOSS_DOT_CAP = 8;
 /** Hard: metres of clear deck between the slam lane and the row of mines paired with it. */
 const HARD_ROW_GAP = 2.5;
 
@@ -93,85 +93,27 @@ class Trail {
   }
 }
 
-/** One hittable piece of the worm: the head (index -1) or a body segment. */
-class DrlPart implements Hittable {
-  readonly pos = new THREE.Vector3();
-  readonly name = 'De Rol Le';
-  readonly race: Race = 'dark';
+/** The head's aim point and the segments': a little above the part. */
+const partAim = (p: BossPart) => p.pos.y + 0.6;
 
-  constructor(
-    private boss: DeRolLe,
-    readonly index: number,
-    readonly radius: number,
-  ) {}
-
-  get hp(): number {
-    return this.boss.hp;
-  }
-  set hp(_v: number) {
-    // Only damage() changes the boss HP.
-  }
-  get maxHp(): number {
-    return this.boss.maxHp;
-  }
-  get evp(): number {
-    return cfg.evp + (this.boss.hard?.evp ?? 0);
-  }
-  get dfp(): number {
-    return cfg.dfp + (this.boss.hard?.dfp ?? 0);
-  }
-  get aimHeight(): number {
-    return this.pos.y + 0.6;
-  }
-  get alive(): boolean {
-    return this.boss.alive;
-  }
-  get invulnerable(): boolean {
-    return this.boss.partInvulnerable(this);
-  }
-  damage(amount: number): boolean {
-    return this.boss.damagePart(this, amount);
-  }
-  applyStatus(effect: StatusEffect, power: number, duration: number): void {
-    this.boss.applyStatus(effect, power, duration);
-  }
-  damageMult(): number {
-    return this.boss.partMult(this);
-  }
-}
-
-export class DeRolLe implements Boss {
-  readonly name = 'De Rol Le';
-  readonly race: Race = 'dark';
+export class DeRolLe extends BossBase<DrlState, Attack> {
+  readonly id = 'derolle' as const;
   readonly objects: THREE.Object3D[];
-  readonly maxHp: number;
-  readonly injectorCharge = cfg.charge;
-  hp: number;
-  state: DrlState = 'dormant';
-  stateT = 0;
-  deadT = 0;
   phase: 1 | 2 = 1;
-  onDot: ((target: Hittable, damage: number) => void) | null = null;
 
   private model: DeRolLeModel;
   private head: THREE.Vector3;
   private headYaw = 0;
   private headPitch = 0;
   private trail: Trail;
-  private readonly partsList: DrlPart[] = [];
+  /** The head (index -1), then the body segments. */
+  private readonly partsList: BossPart[] = [];
   private plates: number[];
   private maskHp: number;
   private wantShatter = false;
-  private announcedEnrage = false;
-  private time = 0;
-  private flashT = 0;
   private jaw = 0;
   private charge = 0;
   private sink = 0;
-  private dotT = 0;
-  private dotLeft = 0;
-  private dotDps = 0;
-  private lastAttack: Attack | null = null;
   // Raft geometry.
   private cx: number;
   private cz: number;
@@ -189,7 +131,6 @@ export class DeRolLe implements Boss {
   private beamFrom = 0;
   private beamTo = 0;
   private beamTick = 0;
-  private gap = cfg.attackGap;
   private fired = false;
   private beam: THREE.Group;
   private beamMat: THREE.MeshBasicMaterial;
@@ -199,11 +140,9 @@ export class DeRolLe implements Boss {
 
   constructor(
     private raft: Rect,
-    /** Hard mode scaling (null on Normal). */
-    readonly hard: HardBossScale | null = null,
+    hard: HardBossScale | null = null,
   ) {
-    this.maxHp = Math.round(cfg.hp * (hard?.hp ?? 1));
-    this.hp = this.maxHp;
+    super(cfg, hard);
     this.maskHp = Math.round(cfg.maskHp * (hard?.hp ?? 1));
     this.cx = (raft.minX + raft.maxX) / 2;
     this.cz = (raft.minZ + raft.maxZ) / 2;
@@ -213,8 +152,8 @@ export class DeRolLe implements Boss {
     this.plates = Array.from({ length: cfg.segments }, () => Math.round(cfg.plateHp * (hard?.hp ?? 1)));
     this.head = new THREE.Vector3(this.cx, DEEP - 2, raft.minZ - 16);
     this.trail = new Trail(this.head, new THREE.Vector3(0, 0, -1), (cfg.segments + 1) * cfg.segSpacing);
-    this.partsList.push(new DrlPart(this, -1, HEAD_RADIUS));
-    for (let i = 0; i < cfg.segments; i++) this.partsList.push(new DrlPart(this, i, 1.25 - i * 0.055));
+    this.partsList.push(new BossPart(this, HEAD_RADIUS, partAim, -1));
+    for (let i = 0; i < cfg.segments; i++) this.partsList.push(new BossPart(this, 1.25 - i * 0.055, partAim, i));
 
     // The beam: a glowing shaft from the mouth plus the strip of deck it scorches.
     this.beamMat = new THREE.MeshBasicMaterial({ color: 0xe080ff, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending });
@@ -236,29 +175,11 @@ export class DeRolLe implements Boss {
 
   // ---------------------------------------------------------------- Boss
 
-  get atp(): number {
-    return cfg.atp + (this.hard?.atp ?? 0);
-  }
-  get ata(): number {
-    return cfg.ata + (this.hard?.ata ?? 0);
-  }
-  get alive(): boolean {
-    return this.state !== 'dead';
-  }
-  get engaged(): boolean {
-    return this.state !== 'dormant';
-  }
   get weakPointOpen(): boolean {
     return this.state === 'headRest';
   }
-  get enraged(): boolean {
-    return this.hp / this.maxHp <= cfg.enrageAt;
-  }
   parts(): Hittable[] {
     return this.partsList;
-  }
-  owns(h: Hittable): boolean {
-    return h instanceof DrlPart && this.partsList.includes(h);
   }
 
   collide(playerPos: THREE.Vector3, playerRadius: number, level: Level): void {
@@ -273,13 +194,14 @@ export class DeRolLe implements Boss {
 
   // -------------------------------------------------------------- damage
 
-  partInvulnerable(p: DrlPart): boolean {
-    if (this.state === 'dormant' || this.state === 'intro' || this.state === 'shatter' || this.state === 'dead') return true;
+  /** Asleep, rearing out of the river, shattering, dead, or that part is under water. */
+  partInvulnerable(p: BossPart): boolean {
+    if (this.untouchable || this.state === 'shatter') return true;
     return p.pos.y < SUBMERGED;
   }
 
   /** Damage multiplier shown on the hit (shell plates soak most of a blow). */
-  partMult(p: DrlPart): number {
+  partMult(p: BossPart): number {
     if (this.phase === 1) {
       if (p.index < 0) return cfg.plateMult * (this.state === 'headRest' ? cfg.headRestMult : 1);
       return this.plates[p.index] > 0 ? cfg.plateMult : 1;
@@ -287,9 +209,8 @@ export class DeRolLe implements Boss {
     return cfg.phase2DamageMult * (p.index < 0 && this.state === 'headRest' ? cfg.headRestMult : 1);
   }
 
-  damagePart(p: DrlPart, amount: number): boolean {
+  damagePart(p: BossPart, amount: number): boolean {
     if (!this.alive || this.partInvulnerable(p)) return false;
-    this.flashT = 0.08;
     if (this.phase === 1) {
       // Mask and plates take the blow at full strength; the boss only feels the share that gets through.
       if (p.index < 0) {
@@ -300,25 +221,13 @@ export class DeRolLe implements Boss {
         if (this.plates[p.index] <= 0) this.breakPlate(p.index);
       }
     }
-    this.hp -= amount;
-    if (this.phase === 1 && this.hp <= this.maxHp * cfg.phase2At) this.wantShatter = true;
-    if (this.hp <= 0) {
-      this.hp = 0;
-      this.enter('dead');
-      this.sound('boss.die');
-      this.beam.visible = false;
-      this.beamGround.visible = false;
-      return true;
-    }
-    return false;
+    const killed = this.loseHp(amount);
+    if (!killed && this.phase === 1 && this.hp <= this.maxHp * cfg.phase2At) this.wantShatter = true;
+    return killed;
   }
 
-  applyStatus(effect: StatusEffect, power: number, duration: number): void {
-    // Shrugs off freeze and stun; burn and (capped) poison tick.
-    if (effect !== 'burn' && effect !== 'poison') return;
-    const dps = effect === 'poison' ? Math.min(BOSS_DOT_CAP, this.maxHp * power) : Math.min(BOSS_DOT_CAP * 1.5, power);
-    this.dotDps = Math.max(this.dotDps, dps);
-    this.dotLeft = Math.max(this.dotLeft, duration);
+  protected onDeath(): void {
+    this.hideBeam();
   }
 
   private breakPlate(i: number): void {
@@ -332,21 +241,16 @@ export class DeRolLe implements Boss {
 
   // -------------------------------------------------------------- update
 
-  private enter(s: DrlState): void {
+  protected enter(s: DrlState): void {
     // The head breaking the surface or going under splashes.
     const under = (st: DrlState) => st === 'dive' || st === 'swim' || st.endsWith('Prep');
     if (this.state !== 'dormant' && s !== 'dead' && under(s) !== under(this.state)) this.sound('drl.splash');
-    this.state = s;
-    this.stateT = 0;
+    super.enter(s);
     this.fired = false;
   }
 
-  private sound(id: SfxId, x = this.head.x, z = this.head.z, arg?: number): void {
-    sfx(id, { x, z, arg });
-  }
-
-  private sm(): number {
-    return this.enraged ? cfg.enrageSpeed : 1;
+  protected get anchor(): THREE.Vector3 {
+    return this.head;
   }
 
   /** Move the head toward a point at a capped speed; returns the distance left. */
@@ -376,11 +280,7 @@ export class DeRolLe implements Boss {
     return [Math.min(r.maxX - inset, Math.max(r.minX + inset, x)), Math.min(r.maxZ - inset, Math.max(r.minZ + inset, z))];
   }
 
-  update(dt: number, ctx: BossContext): void {
-    this.time += dt;
-    this.stateT += dt;
-    this.flashT = Math.max(0, this.flashT - dt);
-
+  protected always(_dt: number, ctx: BossContext): void {
     for (const fx of this.pendingFx) {
       const p = this.partsList[fx.i + 1].pos;
       ctx.effect(new Ring(p.x, p.z, 0xe8e0c0, 3, 0.4));
@@ -389,34 +289,20 @@ export class DeRolLe implements Boss {
     }
     if (this.pendingFx.length) ctx.announce(this.plates.some((v) => v > 0) ? 'Shell plate broken!' : 'Every plate is broken!');
     this.pendingFx.length = 0;
+  }
 
-    if (this.state === 'dead') {
-      this.deadT += dt;
-      this.sink += dt * 1.1;
-      this.jaw = 1;
-      this.head.y -= dt * 0.6;
-      this.placeParts();
-      return;
-    }
+  protected whileDead(dt: number): void {
+    this.sink += dt * 1.1;
+    this.jaw = 1;
+    this.head.y -= dt * 0.6;
+    this.placeParts();
+  }
 
-    // Damage over time (needs a part above water to land on).
-    if (this.dotLeft > 0) {
-      this.dotLeft -= dt;
-      this.dotT += dt;
-      if (this.dotT >= 0.5) {
-        this.dotT -= 0.5;
-        const target = this.partsList.find((p) => !p.invulnerable);
-        if (target) this.onDot?.(target, Math.max(1, Math.round(this.dotDps * 0.5)));
-      }
-    }
-    if (!this.alive) return;
+  // Damage over time lands on the first part above water (BossBase.dotTarget).
 
+  protected think(dt: number, ctx: BossContext): void {
     if (this.wantShatter && this.phase === 1 && this.state !== 'intro' && this.state !== 'dormant') this.startShatter(ctx);
-    if (this.enraged && !this.announcedEnrage && this.phase === 2) {
-      this.announcedEnrage = true;
-      ctx.announce('De Rol Le is enraged!');
-      this.sound('drl.screech');
-    }
+    this.announceEnrage(ctx, this.phase === 2, 'De Rol Le is enraged!', 'drl.screech');
 
     const sm = this.sm();
     this.jaw += (0 - this.jaw) * Math.min(1, 3 * dt);
@@ -425,10 +311,7 @@ export class DeRolLe implements Boss {
     switch (this.state) {
       case 'dormant':
         if (ctx.playerAlive && this.stateT > 1.2) {
-          this.enter('intro');
-          ctx.announce('DE ROL LE');
-          ctx.shake(0.5);
-          this.sound('drl.splash');
+          this.awaken(ctx, 'DE ROL LE', 0.5, 'drl.splash');
           setTimeout(() => this.sound('drl.screech'), 1500);
         }
         break;
@@ -561,7 +444,7 @@ export class DeRolLe implements Boss {
         const apexZ = this.head.z;
         if (this.beamTick <= 0) {
           this.beamTick = 0.2;
-          ctx.tickPlayer({ kind: 'cone', x: apexX, z: apexZ, yaw, range: cfg.beamRange, arcDeg: cfg.beamArcDeg }, Math.round(cfg.beamTickDamage * (this.hard?.flat ?? 1)), apexX, apexZ);
+          ctx.tickPlayer({ kind: 'cone', x: apexX, z: apexZ, yaw, range: cfg.beamRange, arcDeg: cfg.beamArcDeg }, this.flat(cfg.beamTickDamage), apexX, apexZ);
         }
         this.showBeam(yaw);
         if (k >= sweeps) {
@@ -620,10 +503,7 @@ export class DeRolLe implements Boss {
   }
 
   private chooseAttack(ctx: BossContext): void {
-    const pool: Attack[] = this.phase === 2 ? ['bombs', 'slam', 'beam', 'spray'] : ['bombs', 'slam', 'beam'];
-    const options = pool.filter((a) => a !== this.lastAttack);
-    const pick = options[Math.floor(ctx.rng() * options.length)];
-    this.lastAttack = pick;
+    const pick = this.pickAttack(ctx, this.phase === 2 ? ['bombs', 'slam', 'beam', 'spray'] : ['bombs', 'slam', 'beam']);
     const pz = ctx.playerZ;
     switch (pick) {
       case 'bombs':
@@ -804,7 +684,7 @@ export class DeRolLe implements Boss {
         ctx.effect(new Ring(p.x, p.z, 0xe8e0c0, 3, 0.5));
       }
     }
-    ctx.announce("De Rol Le's shell shatters!");
+    this.escalate(ctx, "De Rol Le's shell shatters!");
     ctx.shake(0.6);
     this.sound('drl.shatter');
     this.sound('drl.screech');

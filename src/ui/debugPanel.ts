@@ -38,7 +38,7 @@ import {
   pylonCfg,
   ruinsCfg,
 } from '../game/config';
-import type { AreaId } from '../game/data/areas';
+import { areas, expeditions, type AreaId, type ExpeditionId } from '../game/data/areas';
 import { weaponKinds } from '../game/data/items';
 
 export interface DebugActions {
@@ -49,9 +49,8 @@ export interface DebugActions {
   heal(): void;
   killAll(): void;
   goto(area: AreaId): void;
-  unlockCaves(): void;
-  unlockMines(): void;
-  unlockRuins(): void;
+  /** Open an expedition (every boss before it counts as beaten). */
+  unlock(exp: ExpeditionId): void;
   unlockHard(): void;
 }
 
@@ -75,21 +74,6 @@ export function createDebugPanel(actions: DebugActions): GUI {
     rare: () => actions.giveRare(),
     heal: () => actions.heal(),
     kill: () => actions.killAll(),
-    city: () => actions.goto('city'),
-    forest: () => actions.goto('forest1'),
-    boss: () => actions.goto('dragon'),
-    caves: () => actions.unlockCaves(),
-    cave1: () => actions.goto('cave1'),
-    cave2: () => actions.goto('cave2'),
-    derolle: () => actions.goto('derolle'),
-    mines: () => actions.unlockMines(),
-    mine1: () => actions.goto('mine1'),
-    mine2: () => actions.goto('mine2'),
-    warden: () => actions.goto('warden'),
-    ruins: () => actions.unlockRuins(),
-    ruin1: () => actions.goto('ruin1'),
-    ruin2: () => actions.goto('ruin2'),
-    falz: () => actions.goto('falz'),
     hard: () => actions.unlockHard(),
   };
   g.add(act, 'heal').name('heal HP/TP');
@@ -99,22 +83,12 @@ export function createDebugPanel(actions: DebugActions): GUI {
   g.add(act, 'weapon').name('give random weapon');
   g.add(act, 'rare').name('give random rare');
   g.add(act, 'kill').name('kill all enemies');
-  g.add(act, 'city').name('warp: Pioneer 2');
-  g.add(act, 'forest').name('warp: Forest 1');
-  g.add(act, 'boss').name("warp: Dragon's lair");
-  g.add(act, 'caves').name('unlock Caves');
-  g.add(act, 'cave1').name('warp: Cave 1');
-  g.add(act, 'cave2').name('warp: Cave 2');
-  g.add(act, 'derolle').name('warp: De Rol Le');
-  g.add(act, 'mines').name('unlock Mines');
   g.add(act, 'hard').name('unlock Nightmare');
-  g.add(act, 'mine1').name('warp: Mine 1');
-  g.add(act, 'mine2').name('warp: Mine 2');
-  g.add(act, 'warden').name('warp: Warden');
-  g.add(act, 'ruins').name('unlock Ruins');
-  g.add(act, 'ruin1').name('warp: Ruin 1');
-  g.add(act, 'ruin2').name('warp: Ruin 2');
-  g.add(act, 'falz').name('warp: Dark Falz');
+  g.add({ city: () => actions.goto('city') }, 'city').name('warp: Pioneer 2');
+  for (const exp of Object.values(expeditions)) {
+    if (exp.needs) g.add({ unlock: () => actions.unlock(exp.id) }, 'unlock').name(`unlock ${exp.name}`);
+    for (const id of exp.floors) g.add({ warp: () => actions.goto(id) }, 'warp').name(`warp: ${areas[id].name}`);
+  }
 
   const c = gui.addFolder('Combo timing');
   c.add(combo, 'windowOpen', 0.2, 1, 0.01).name('window opens at (swing %)');

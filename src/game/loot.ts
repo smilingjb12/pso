@@ -1,8 +1,11 @@
 import { makeItem, type ItemInstance } from './character';
 import { drops, type EnemyArchetype } from './config';
+import { expeditionOfBoss } from './data/areas';
+import { BOSS_IDS, BOSSES, type BossId, type ShopUnlock } from './data/bosses';
 import {
   armorLines, ATTRS, INJECTOR_MODS, itemDefs, raceCap, specials, weaponKinds, type ArmorLine, type Attr, type InjectorMod, type ItemDef, type SpecialId,
 } from './data/items';
+import { hardScale } from './hard';
 
 export type Rng = () => number;
 
@@ -216,19 +219,26 @@ export function rollFalzDrops(rng: Rng, bias?: LootBias): Drop[] {
   return out;
 }
 
-export type HardBossId = 'dragon' | 'derolle' | 'warden' | 'falz';
+/** Each boss's Normal loot. */
+export const BOSS_DROPS: Record<BossId, (rng: Rng, bias?: LootBias) => Drop[]> = {
+  dragon: rollDragonDrops,
+  derolle: rollDeRolLeDrops,
+  warden: rollWardenDrops,
+  falz: rollFalzDrops,
+};
 
-/** Each Nightmare boss: the top tier its expedition drops, its signature drop and its rares. */
-const HARD_BOSS_LOOT: Record<HardBossId, { top: number; sig: string; rares: string[]; meseta: number }> = {
-  dragon: { top: 8, sig: 'elder_scale', rares: ['verdant_edge', 'thornshot'], meseta: 9000 },
-  derolle: { top: 9, sig: 'abyssal_carapace', rares: ['magma_blade', 'glacier_wand'], meseta: 13000 },
-  warden: { top: 10, sig: 'overseer_cannon', rares: ['overcharge_gatling', 'reactor_rod'], meseta: 17000 },
-  falz: { top: 11, sig: 'falz_halo', rares: ['excalibur', 'heaven_punisher'], meseta: 22000 },
+/** Each Nightmare boss's signature drop and base Meseta (its top tier and rares are its expedition's, from `hard`). */
+const HARD_BOSS_LOOT: Record<BossId, { sig: string; meseta: number }> = {
+  dragon: { sig: 'elder_scale', meseta: 9000 },
+  derolle: { sig: 'abyssal_carapace', meseta: 13000 },
+  warden: { sig: 'overseer_cannon', meseta: 17000 },
+  falz: { sig: 'falz_halo', meseta: 22000 },
 };
 
 /** Hard bosses: their expedition's top tier, a signature drop, Hard rares and a modded tier 6 injector. */
-export function rollHardBossDrops(boss: HardBossId, rng: Rng, bias?: LootBias): Drop[] {
-  const { top, sig, rares, meseta: base } = HARD_BOSS_LOOT[boss];
+export function rollHardBossDrops(boss: BossId, rng: Rng, bias?: LootBias): Drop[] {
+  const { sig, meseta: base } = HARD_BOSS_LOOT[boss];
+  const { dropTier: top, rares } = hardScale(expeditionOfBoss(boss));
   // The +1000 replaced the Trimate and Trifluid they used to drop.
   const out: Drop[] = [{ kind: 'meseta', amount: base + 1000 + Math.round(rng() * base * 0.5) }];
   if (rng() < 0.4 * drops.rareMult) out.push({ kind: 'item', item: rollRare(rng, [sig]) });
@@ -240,36 +250,31 @@ export function rollHardBossDrops(boss: HardBossId, rng: Rng, bias?: LootBias): 
   return out;
 }
 
+export function rollBossDrops(boss: BossId, hard: boolean, rng: Rng, bias?: LootBias): Drop[] {
+  return hard ? rollHardBossDrops(boss, rng, bias) : BOSS_DROPS[boss](rng, bias);
+}
+
 // ------------------------------------------------------------------ shops
 
 export type ShopKind = 'weapon' | 'armor' | 'item';
 
-/** Bosses this character has beaten that open shop tiers. */
-export interface ShopUnlocks {
-  /** Normal: De Rol Le opens tier 5, the Warden tier 6, Dark Falz tier 7. */
-  derolle?: boolean;
-  warden?: boolean;
-  falz?: boolean;
-  /** Nightmare bosses: tiers 8 / 9 / 10 / 11. */
-  hard?: Partial<Record<HardBossId, boolean>>;
-}
+/** Bosses this character has beaten on Normal, and on Nightmare (`hard`): each opens shop tiers (BOSSES[id].shop / hardShop). */
+export type ShopUnlocks = Partial<Record<BossId, boolean>> & { hard?: Partial<Record<BossId, boolean>> };
 
 /**
- * Highest tier a shop stocks for a given character level: tier 5 after De Rol Le (from Lv 24), 6 after the
- * Warden (Lv 32), 7 after Dark Falz (Lv 42); on Nightmare, 8 / 9 / 10 / 11 after its Dragon / De Rol Le /
- * Warden / Dark Falz from Lv 52 / 62 / 72 / 82.
+ * Highest tier a shop stocks for a given character level: the level ladder up to tier 4, then whatever the
+ * bosses beaten open (tier 5 after De Rol Le from Lv 24 ... tier 11 after the Nightmare Dark Falz from Lv 82).
  */
 export function shopTier(level: number, u: ShopUnlocks = {}): number {
-  const h = u.hard ?? {};
-  if (h.falz && level >= 82) return 11;
-  if (h.warden && level >= 72) return 10;
-  if (h.derolle && level >= 62) return 9;
-  if (h.dragon && level >= 52) return 8;
-  // Characters who played Nightmare before the Ruins got tier 7 from its Dragon: they keep it.
-  if ((u.falz || h.dragon) && level >= 42) return 7;
-  if (u.warden && level >= 32) return 6;
-  if (u.derolle && level >= 24) return 5;
-  return level >= 20 ? 4 : level >= 12 ? 3 : level >= 5 ? 2 : 1;
+  let tier = level >= 20 ? 4 : level >= 12 ? 3 : level >= 5 ? 2 : 1;
+  const open = (unlocks: ShopUnlock[]) => {
+    for (const s of unlocks) if (level >= s.level) tier = Math.max(tier, s.tier);
+  };
+  for (const id of BOSS_IDS) {
+    if (u[id]) open(BOSSES[id].shop);
+    if (u.hard?.[id]) open(BOSSES[id].hardShop);
+  }
+  return tier;
 }
 
 export function shopStock(kind: ShopKind, level: number, bias: LootBias, rng: Rng, unlocks: ShopUnlocks = {}): ItemInstance[] {
