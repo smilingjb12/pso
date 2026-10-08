@@ -1,33 +1,33 @@
 import type { CharacterData } from '../game/character';
-import { classes } from '../game/data/classes';
-import type { ClassId } from '../game/data/items';
-import { magForm, magPointsFree, migrateMag } from '../game/mag';
+import { itemDefs, type WeaponKind } from '../game/data/items';
+import { buildTitle, leadAttribute, type KitId } from '../game/data/stats';
+import { magForm, magPointsFree, readMag } from '../game/mag';
 import { DEFAULT_APPEARANCE, playerLook, type Look } from '../game/models/heroine';
-import { classWeapon, getStage, LookEditor } from './lookEditor';
+import { getStage, kitWeapon, LookEditor } from './lookEditor';
 import { esc, type Menu } from './Menus';
 
 // Title screen: save slots, with the selected character standing on a
 // teleporter pad. "Create character" opens the creation wizard. Starting a
 // character asks for the difficulty first (Diablo style: the whole session is
-// played on it; Nightmare opens once the Warden falls on Normal).
+// played on it; Nightmare opens once Dark Falz falls on Normal).
 
 /** Session difficulty. Nightmare is the run state's `hard` flag (see DESIGN.md "Nightmare"). */
 export type Difficulty = 'normal' | 'nightmare';
 
 const DIFFS: { id: Difficulty; name: string; sub: string }[] = [
-  { id: 'normal', name: 'Normal', sub: 'Lv 1-32' },
-  { id: 'nightmare', name: 'Nightmare', sub: 'Lv 32-62' },
+  { id: 'normal', name: 'Normal', sub: 'Lv 1-42' },
+  { id: 'nightmare', name: 'Nightmare', sub: 'Lv 42-82' },
 ];
 
-/** Nightmare opens once the Warden has fallen on Normal. */
+/** Nightmare opens once Dark Falz has fallen on Normal (characters who opened it with the Warden, before the Ruins, keep it). */
 export function nightmareOpen(c: CharacterData): boolean {
-  return (c.stats.wardenKills ?? 0) > 0;
+  return (c.stats.falzKills ?? 0) > 0 || !!c.stats.nightmareKept;
 }
 
 export interface TitleApi {
   slots(): (CharacterData | null)[];
   load(slot: number, difficulty: Difficulty): void;
-  create(slot: number, name: string, cls: ClassId, appearance: Look): void;
+  create(slot: number, name: string, kit: KitId, appearance: Look): void;
   remove(slot: number): void;
 }
 
@@ -57,7 +57,7 @@ export class TitleMenu implements Menu {
     const rows = DIFFS.map((d) => {
       const locked = d.id === 'nightmare' && !open;
       const cls = `slot-row diff-row${d.id === this.diff ? ' sel' : ''}${locked ? ' disabled' : ''}`;
-      const sub = locked ? 'Defeat the Warden on Normal to unlock' : d.sub;
+      const sub = locked ? 'Defeat Dark Falz on Normal to unlock' : d.sub;
       return `<div class="${cls}" data-act="diff" data-arg="${d.id}"><span class="slot-name">${d.name}</span><span class="diff-sub">${sub}</span></div>`;
     }).join('');
     return `<div class="win slot-win"><div class="win-title">Difficulty</div><div class="slot-list">${rows}</div>
@@ -72,7 +72,7 @@ export class TitleMenu implements Menu {
         const num = String(i + 1).padStart(2, '0');
         if (!s) return `<div class="slot-row empty${on}" data-act="sel" data-arg="${i}"><span class="slot-num">${num}</span><span class="slot-name dim">— Empty —</span></div>`;
         return `<div class="slot-row${on}" data-act="sel" data-arg="${i}"><span class="slot-num">${num}</span>
-          <span class="slot-name">${esc(s.name)}</span><span class="slot-cls">${classes[s.classId].title}</span><span class="slot-lv">Lv ${s.level}</span></div>`;
+          <span class="slot-name">${esc(s.name)}</span><span class="slot-cls">${buildTitle(s.kit, s.attributes)}</span><span class="slot-lv">Lv ${s.level}</span></div>`;
       })
       .join('');
     const cur = slots[this.sel];
@@ -89,7 +89,7 @@ export class TitleMenu implements Menu {
     }
     const plate = cur
       ? `<div class="win nameplate"><div class="np-name">${esc(cur.name)}</div>
-          <div class="np-sub">${classes[cur.classId].title} · ${classes[cur.classId].name}</div>
+          <div class="np-sub">${buildTitle(cur.kit, cur.attributes)}</div>
           <div class="np-grid"><span>Level</span><b>${cur.level}</b><span>Meseta</span><b>${cur.meseta.toLocaleString()}</b>
           <span>Play time</span><b>${formatTime(cur.stats.playSeconds)}</b><span>Dragons</span><b>${cur.stats.dragonKills}</b></div></div>`
       : `<div class="win nameplate empty"><div class="np-name dim">No data</div><div class="np-sub">Create a character in this slot.</div></div>`;
@@ -109,16 +109,16 @@ export class TitleMenu implements Menu {
     const ed = this.editor;
     if (ed) {
       stage.leftInset = 0.44;
-      stage.setLook(ed.stageLook(), classWeapon(ed.cls));
+      stage.setLook(ed.stageLook(), kitWeapon(ed.kit));
       stage.spin = ed.spin;
       stage.setView(ed.stageView());
     } else {
       const cur = this.api.slots()[this.sel];
       stage.leftInset = 0.36;
-      const curMag = cur ? migrateMag(cur.mag) : null;
-      const mag = cur && curMag ? magForm(curMag, cur.classId) : null;
+      const curMag = cur ? readMag(cur.mag) : null;
+      const mag = cur && curMag ? magForm(curMag, leadAttribute(cur.kit, cur.attributes)) : null;
       const glow = !!cur && !!curMag && magPointsFree(curMag, cur.level) > 0;
-      stage.setLook(cur ? playerLook(cur) : null, cur ? classWeapon(cur.classId) : null, mag && { stage: mag.stage, color: mag.color, theme: mag.theme, glow });
+      stage.setLook(cur ? playerLook(cur) : null, cur ? heldWeapon(cur) : null, mag && { stage: mag.stage, color: mag.color, theme: mag.theme, glow });
       stage.spin = false;
       stage.setView('body');
     }
@@ -216,7 +216,7 @@ export class TitleMenu implements Menu {
         this.confirmDelete = false;
         break;
       case 'new':
-        this.editor = new LookEditor(['class', 'body', 'hair', 'face', 'colors', 'name'], { look: DEFAULT_APPEARANCE }, 'Start');
+        this.editor = new LookEditor(['kit', 'body', 'hair', 'face', 'colors', 'name'], { look: DEFAULT_APPEARANCE }, 'Start');
         break;
     }
   }
@@ -225,8 +225,15 @@ export class TitleMenu implements Menu {
     const ed = this.editor;
     if (!ed || !r) return;
     if (r === 'cancel') this.editor = null;
-    else this.api.create(this.sel, ed.name.trim(), ed.cls, ed.result());
+    else this.api.create(this.sel, ed.name.trim(), ed.kit, ed.result());
   }
+}
+
+/** The kind of weapon a saved character has in hand (the kit's starter if none is equipped). */
+function heldWeapon(c: CharacterData): WeaponKind {
+  const id = c.inventory.find((i) => i.uid === c.equipped.weapon)?.id;
+  const def = id ? itemDefs[id] : undefined;
+  return def?.type === 'weapon' ? def.kind : kitWeapon(c.kit);
 }
 
 export function logo(small = false): string {

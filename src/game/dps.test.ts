@@ -3,7 +3,7 @@ import { Character, makeItem, simulateEquip } from './character';
 import { estimateDamage, expeditionFoe } from './dps';
 
 const force = () => {
-  const ch = Character.create('T', 'force');
+  const ch = Character.create('T', 'mystic');
   ch.addXp(1e6);
   return ch;
 };
@@ -36,6 +36,6 @@ describe('damage estimates', () => {
     const high = estimateDamage(simulateEquip(ch, makeItem('rod_6'), 'weapon'), foe, true);
     expect(high.spell!.native).toBeGreaterThan(low.spell!.native);
     expect(high.weapon.native).toBeGreaterThan(low.weapon.native);
-    expect(estimateDamage(Character.create('H', 'hunter'), foe, false).spell).toBeNull();
+    expect(estimateDamage(Character.create('H', 'vanguard'), foe, false).spell).toBeNull();
   });
 });

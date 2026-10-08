@@ -1,6 +1,7 @@
 import GUI from 'lil-gui';
 import { applyMix, mix } from '../audio';
 import {
+  attributeCfg,
   dash,
   ai,
   attackTypes,
@@ -33,6 +34,9 @@ import {
   nodes,
   warden,
   weaponWeights,
+  darkFalz,
+  pylonCfg,
+  ruinsCfg,
 } from '../game/config';
 import type { AreaId } from '../game/data/areas';
 import { weaponKinds } from '../game/data/items';
@@ -47,6 +51,7 @@ export interface DebugActions {
   goto(area: AreaId): void;
   unlockCaves(): void;
   unlockMines(): void;
+  unlockRuins(): void;
   unlockHard(): void;
 }
 
@@ -81,6 +86,10 @@ export function createDebugPanel(actions: DebugActions): GUI {
     mine1: () => actions.goto('mine1'),
     mine2: () => actions.goto('mine2'),
     warden: () => actions.goto('warden'),
+    ruins: () => actions.unlockRuins(),
+    ruin1: () => actions.goto('ruin1'),
+    ruin2: () => actions.goto('ruin2'),
+    falz: () => actions.goto('falz'),
     hard: () => actions.unlockHard(),
   };
   g.add(act, 'heal').name('heal HP/TP');
@@ -102,6 +111,10 @@ export function createDebugPanel(actions: DebugActions): GUI {
   g.add(act, 'mine1').name('warp: Mine 1');
   g.add(act, 'mine2').name('warp: Mine 2');
   g.add(act, 'warden').name('warp: Warden');
+  g.add(act, 'ruins').name('unlock Ruins');
+  g.add(act, 'ruin1').name('warp: Ruin 1');
+  g.add(act, 'ruin2').name('warp: Ruin 2');
+  g.add(act, 'falz').name('warp: Dark Falz');
 
   const c = gui.addFolder('Combo timing');
   c.add(combo, 'windowOpen', 0.2, 1, 0.01).name('window opens at (swing %)');
@@ -168,7 +181,9 @@ export function createDebugPanel(actions: DebugActions): GUI {
   fm.add(formulas, 'damageScale', 0.1, 3, 0.01);
   fm.add(formulas, 'evpFactor', 0, 1, 0.01).name('EVP factor (accuracy)');
   fm.add(formulas, 'enemyDamageScale', 0.05, 2, 0.01);
-  fm.add(formulas, 'atpPerGrind', 0, 10, 1);
+  fm.add(formulas, 'edgeAtpPct', 0, 0.2, 0.005).name('Edge ATP share / grind');
+  fm.add(formulas, 'edgeMstPct', 0, 0.5, 0.01).name('Edge MST share / grind');
+  fm.add(formulas, 'banePerGrind', 0, 20, 1).name('Bane race % / grind');
   fm.add(formulas, 'tpRegen', 0, 10, 0.1).name('TP regen /s');
   fm.add(formulas, 'meleeTpMult', 0, 5, 0.1).name('melee TP-on-hit mult');
   fm.close();
@@ -183,27 +198,48 @@ export function createDebugPanel(actions: DebugActions): GUI {
   ts.add(techScaling, 'burnMstDivisor', 5, 200, 1).name('burn: MST per +1 dmg');
   ts.close();
 
+  const attrF = gui.addFolder('Attributes');
+  attrF.add(attributeCfg, 'pointsPerLevel', 1, 6, 1).name('points per level');
+
   const mg = gui.addFolder('Mag');
   mg.add(magCfg, 'pointsPerLevel', 0.25, 3, 0.25).name('points per char level');
-  mg.add(magCfg, 'keystoneMinSpent', 0, 40, 1).name('squares before keystone');
-  mg.add(magCfg, 'freeRespecBelow', 1, 100, 1).name('free respec below Lv');
-  mg.add(magCfg, 'respecCostPerPoint', 0, 500, 5).name('respec M per square');
+  mg.add(magCfg.keystoneReq[0], 'squares', 0, 40, 1).name('keystone I squares');
+  mg.add(magCfg.keystoneReq[0], 'points', 0, 200, 5).name('keystone I attr points');
+  mg.add(magCfg.keystoneReq[1], 'squares', 0, 40, 1).name('keystone II squares');
+  mg.add(magCfg.keystoneReq[1], 'points', 0, 300, 5).name('keystone II attr points');
+  mg.add(magCfg, 'hybridReqPoints', 0, 100, 5).name('two-arm notable points');
   mg.add(magCfg, 'bulwarkMult', 0.3, 1, 0.01).name('Bulwark dmg x');
   mg.add(magCfg, 'lastStandCooldown', 5, 600, 5).name('Last Stand cooldown');
   mg.add(magCfg, 'followThroughMult', 1, 2, 0.01).name('Follow-through x');
+  mg.add(magCfg, 'breakerMult', 1, 3, 0.05).name('Breaker stagger x');
   mg.add(magCfg, 'crushDfpIgnore', 0, 1, 0.05).name('Crush DFP ignored');
-  mg.add(magCfg, 'rhythmBonus', 0, 0.2, 0.005).name('Rhythm +perfect s');
+  mg.add(magCfg, 'fleetCharges', 0, 3, 1).name('Fleet extra dashes');
   mg.add(magCfg, 'deadeyeMaxHit', 85, 100, 1).name('Deadeye heavy cap');
+  mg.add(magCfg, 'rhythmBonus', 0, 0.2, 0.005).name('Rhythm +perfect s');
+  mg.add(magCfg, 'rhythmRunMult', 1, 1.5, 0.01).name('Rhythm run speed x');
   mg.add(magCfg, 'efficiencyTpMult', 0.3, 1, 0.01).name('Efficiency TP x');
   mg.add(magCfg, 'injectorBoost', 0, 1, 0.05).name('Bulwark/Efficiency injector +');
-  mg.add(magCfg, 'rhythmCharge', 0, 0.2, 0.01).name('Rhythm dose per perfect');
   mg.add(magCfg, 'clarityTime', 0, 10, 0.5).name('Clarity free-cast s');
+  mg.add(magCfg, 'swiftCastMult', 0.3, 1, 0.01).name('Swift Cast time x');
+  mg.add(magCfg, 'steadfastKnockback', 0, 1, 0.05).name('Steadfast knockback x');
+  mg.add(magCfg, 'slipstreamTime', 0.5, 10, 0.5).name('Slipstream window s');
+  mg.add(magCfg, 'longshotMult', 1, 2, 0.01).name('Longshot dmg x');
+  mg.add(magCfg, 'longshotRange', 2, 20, 0.5).name('Longshot range m');
+  mg.add(magCfg, 'barrierCap', 0, 1, 0.05).name('Barrier cap (max HP)');
+  mg.add(magCfg, 'barrierFade', 0.5, 15, 0.5).name('Barrier fade s');
+  mg.add(magCfg, 'retaliateMult', 1, 2, 0.05).name('Retaliate dmg x');
+  mg.add(magCfg, 'retaliateTime', 0.5, 6, 0.5).name('Retaliate window s');
   const ij = gui.addFolder('Injectors').close();
   ij.add(injectorCfg, 'chargePerEnemy', 0, 2, 0.05).name('Doses per enemy');
   ij.add(injectorCfg, 'fluidChargeMult', 0, 1, 0.05).name('Fluid charge rate x');
   ij.add(injectorCfg, 'eliteChargeMult', 1, 4, 0.25).name('Elite multiplier');
-  ij.add(injectorCfg, 'trickleSecPerDose', 2, 60, 1).name('Trickle s/dose (to 1)');
+  ij.add(injectorCfg, 'calmRate', 0, 1, 0.01).name('Out of combat doses / s');
+  ij.add(injectorCfg, 'calmDelay', 0, 20, 0.5).name('Out of combat delay (s)');
   ij.add(injectorCfg, 'useLock', 0, 1.5, 0.05).name('Use lock (s)');
+  ij.add(injectorCfg, 'orbChance', 0, 0.3, 0.01).name('Orb chance / enemy');
+  ij.add(injectorCfg, 'orbBoxChance', 0, 0.3, 0.01).name('Orb chance / crate');
+  ij.add(injectorCfg, 'orbDoses', 0.25, 3, 0.25).name('Orb doses');
+  ij.add(injectorCfg, 'orbLife', 5, 60, 1).name('Orb life (s)');
   ij.add(telepipeCfg, 'castTime', 0.5, 8, 0.25).name('Telepipe cast (s)');
   mg.close();
 
@@ -417,6 +453,42 @@ export function createDebugPanel(actions: DebugActions): GUI {
   mn.add(machinery, 'laserDamage', 0, 300, 1);
   mn.add(machinery, 'conveyorSpeed', 0, 6, 0.1).name('conveyor speed');
   mn.close();
+
+  const ru = gui.addFolder('Ruins');
+  ru.add(statuses, 'corruptPctPerStack', 0, 0.2, 0.005).name('corruption max HP % / stack');
+  ru.add(statuses, 'corruptMaxStacks', 1, 10, 1).name('corruption max stacks');
+  ru.add(statuses, 'corruptLightTime', 0.2, 5, 0.1).name('light sheds a stack every (s)');
+  ru.add(pylonCfg, 'radius', 1, 10, 0.1).name('pylon light radius (m)');
+  ru.add(pylonCfg, 'litTime', 1, 30, 0.5).name('pylon lit (s)');
+  ru.add(pylonCfg, 'recharge', 1, 60, 0.5).name('pylon recharge (s)');
+  ru.add(pylonCfg, 'enemySlow', 0.2, 1, 0.05).name('light: Dark tempo x');
+  ru.add(pylonCfg, 'enemyDamage', 1, 2, 0.05).name('light: Dark damage taken x');
+  ru.add(pylonCfg, 'snuffTime', 0.2, 5, 0.1).name('Sorcerer snuff (s)');
+  ru.add(ruinsCfg, 'guardMult', 0, 1, 0.01).name('Delsaber guard: light hit x');
+  ru.add(ruinsCfg, 'guardDown', 0, 10, 0.1).name('Delsaber guard down (s)');
+  ru.add(ruinsCfg, 'blinkRange', 0, 10, 0.1).name('Sorcerer blinks inside (m)');
+  ru.add(ruinsCfg, 'chargeWindup', 0.3, 3, 0.05).name('Bringer charge warning (s)');
+  ru.add(ruinsCfg, 'chargeSpeed', 4, 25, 0.5).name('Bringer charge speed (m/s)');
+  ru.close();
+
+  const fz = gui.addFolder('Dark Falz');
+  fz.add(darkFalz, 'hp', 1000, 40000, 100).name('max HP (next spawn)');
+  fz.add(darkFalz, 'atp', 0, 800, 1);
+  fz.add(darkFalz, 'form2At', 0, 1, 0.05).name('form 2 at HP %');
+  fz.add(darkFalz, 'form3At', 0, 1, 0.05).name('form 3 at HP %');
+  fz.add(darkFalz, 'openTime', 0, 8, 0.1).name('husk open (s)');
+  fz.add(darkFalz, 'laneWindup', 0.3, 4, 0.05).name('lane warning (s)');
+  fz.add(darkFalz, 'ringWindup', 0.3, 4, 0.05).name('ring warning (s)');
+  fz.add(darkFalz, 'grantsWindup', 0.3, 4, 0.05).name('Grants warning (s)');
+  fz.add(darkFalz, 'grantsLight', 0, 10, 0.5).name('Grants light lasts (s)');
+  fz.add(darkFalz, 'megidSpeed', 0.5, 6, 0.1).name('Megid orb speed (m/s)');
+  fz.add(darkFalz, 'slamWindup', 0.3, 4, 0.05).name('teleport slam warning (s)');
+  fz.add(darkFalz, 'slamRadius', 1, 8, 0.1).name('teleport slam radius (m)');
+  fz.add(darkFalz, 'halfWindup', 0.3, 4, 0.05).name('halves warning (s)');
+  fz.add(darkFalz, 'halfFlip', 0.3, 4, 0.05).name('halves flip (s)');
+  fz.add(darkFalz, 'lanceWindup', 0.3, 4, 0.05).name('lance warning (s)');
+  fz.add(darkFalz, 'lanceWidth', 1, 12, 0.1).name('lance width (m)');
+  fz.close();
 
   const dr = gui.addFolder('Drops');
   dr.add(drops, 'rateMult', 0, 5, 0.1).name('drop rate x');

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { player as playerCfg } from './game/config';
 import { itemDefs, weaponKinds, type ArmorLine, type WeaponKind } from './game/data/items';
-import { CLASS_ARM, LEAD_FORMS, STAGE1 } from './game/mag';
+import { LEAD_FORMS, STAGE1, type MagStat } from './game/mag';
 import { GAITS, gaitPose, scaleGait } from './game/models/gait';
 import { BODIES, EVOLUTIONS, FACES, HAIRS, Heroine, LINE_OUTFIT, PALETTES, TIER_STAGE, type Look } from './game/models/heroine';
 import { humanPoses } from './game/models/humanoid';
@@ -33,10 +33,10 @@ scene.add(sun, sun.target);
 
 type Line = Exclude<ArmorLine, 'basic'>;
 const LINES: Line[] = ['guard', 'combat', 'psy'];
-const LINE_INFO: Record<Line, { cls: string; weapon: WeaponKind; mag: 'hunter' | 'ranger' | 'force' }> = {
-  guard: { cls: 'Guard line · Hunter', weapon: 'saber', mag: 'hunter' },
-  combat: { cls: 'Combat line · Ranger', weapon: 'handgun', mag: 'ranger' },
-  psy: { cls: 'Psy line · Force', weapon: 'cane', mag: 'force' },
+const LINE_INFO: Record<Line, { cls: string; weapon: WeaponKind; mag: MagStat }> = {
+  guard: { cls: 'Guard line (ATP)', weapon: 'saber', mag: 'pow' },
+  combat: { cls: 'Combat line (ATA)', weapon: 'handgun', mag: 'dex' },
+  psy: { cls: 'Psy line (MST)', weapon: 'cane', mag: 'mind' },
 };
 const LINE_COLOR: Record<Line, string> = { guard: '#7aa8ff', combat: '#ff8a7a', psy: '#c49aff' };
 /** Colour schemes used with 'per line', so each row shows a different glow colour. */
@@ -171,18 +171,18 @@ function rebuild(): void {
     c.holder.add(c.model.rig.root);
     if (params.mag !== 'none') {
       c.mag = new MagCompanion(0.75); // in-game size
-      const arm = CLASS_ARM[info.mag];
+      const arm = info.mag;
       if (params.mag === 'twin') c.mag.setForm(4, LEAD_FORMS[arm][2], { theme: arm, colors: c.model.pal });
       else c.mag.setForm(1, STAGE1[info.mag][1], { theme: arm, colors: c.model.pal });
       c.holder.add(c.mag.root);
     }
     const evo = EVOLUTIONS[LINE_OUTFIT[s.line]!];
     const st = evo.stages[s.stage];
+    const head = `<b style="color:${LINE_COLOR[s.line]}">${s.stage} · ${st.name}</b>`;
     c.label.innerHTML =
       s.view === 'behind (game view)'
-        ? `<b style="color:${LINE_COLOR[s.line]}">${s.stage} · ${st.name}</b> <span class="tier">from behind (game camera)</span>`
-        : `<b style="color:${LINE_COLOR[s.line]}">${s.stage} · ${st.name}</b>` +
-          `<div class="tier">${tierText(s.line, s.stage)}</div><div class="desc">${st.desc}</div>`;
+        ? `${head} <span class="tier">from behind (game camera)</span>`
+        : `${head}<div class="tier">${tierText(s.line, s.stage)}</div><div class="desc">${st.desc}</div>`;
   });
   const lines = params.mode === 'All lines' ? LINES : [params.mode];
   document.getElementById('note')!.innerHTML = lines
@@ -286,13 +286,13 @@ const refresh = () => {
   rebuild();
   layout();
 };
-gui.add(params, 'mode', { 'All lines': 'All lines', 'Guard (Hunter)': 'guard', 'Combat (Ranger)': 'combat', 'Psy (Force)': 'psy' }).onChange(refresh);
+gui.add(params, 'mode', { 'All lines': 'All lines', 'Guard (ATP)': 'guard', 'Combat (ATA)': 'combat', 'Psy (MST)': 'psy' }).onChange(refresh);
 gui.add(params, 'view', Object.keys(VIEWS)).name('camera').onChange(placeCamera);
 gui.add({ reset: placeCamera }, 'reset').name('reset camera');
 gui.add(params, 'frontBack').name('front + back (one line)').onChange(refresh);
 gui.add(params, 'animation', ['idle', 'run', 'turntable']);
 gui.add(params, 'timeScale', 0.05, 1, 0.05).name('time scale');
-gui.add(params, 'weapon').name('class weapon').onChange(rebuild);
+gui.add(params, 'weapon').name('line weapon').onChange(rebuild);
 gui.add(params, 'mag', ['none', 'single', 'twin']).name('Mag').onChange(rebuild);
 const look = gui.addFolder('Look');
 look.add(params, 'palette', { 'Per line': 'per line', ...Object.fromEntries(Object.entries(PALETTES).map(([k, p]) => [p.name, k])) }).name('colours').onChange(rebuild);

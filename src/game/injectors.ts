@@ -13,8 +13,6 @@ export interface InjectorStats {
   /** Seconds a dose takes to land (0 = at once). */
   over: number;
   chargeMult: number;
-  /** Doses it creeps back up to between fights. */
-  trickleTo: number;
   mod?: InjectorMod;
 }
 
@@ -30,18 +28,18 @@ export const INJECTOR_NOTABLE = { mate: 'bulwark', fluid: 'efficiency' } as cons
 export function injectorStats(inst: ItemInstance, ch?: Character): InjectorStats {
   const def = injectorDef(inst)!;
   const mod = inst.mod;
-  const doses = def.doses;
+  // Reserve: one more dose to fill (charge comes from fighting, resting between fights and Pioneer 2).
+  const doses = def.doses + (mod === 'reserve' ? injectorCfg.reserveDoses : 0);
   let potency = def.potency;
   let chargeMult = def.kind === 'fluid' ? injectorCfg.fluidChargeMult : 1;
   let over = 0;
-  const trickleTo = mod === 'reserve' ? Math.min(doses, injectorCfg.reserveTrickle) : 1;
   if (mod === 'steady') {
     potency *= injectorCfg.steadyMult;
     over = injectorCfg.steadyTime;
   }
   if (mod === 'absorbent') chargeMult *= injectorCfg.absorbentMult;
   if (ch?.hasMagPassive(INJECTOR_NOTABLE[def.kind])) potency *= 1 + magCfg.injectorBoost;
-  return { kind: def.kind, doses, potency, over, chargeMult, trickleTo, mod };
+  return { kind: def.kind, doses, potency, over, chargeMult, mod };
 }
 
 /** Doses ready (fractional). */
@@ -84,7 +82,7 @@ export function describeInjector(inst: ItemInstance, ch?: Character): string[] {
   lines.push(`${s.doses} doses · each restores ${Math.round(s.potency * 100)}% of max ${gauge}${s.over ? ` over ${s.over} s` : ''}`);
   if (s.mod) lines.push(`${INJECTOR_MODS[s.mod].name}: ${INJECTOR_MODS[s.mod].desc}`);
   const rate = s.chargeMult === 1 ? '' : ` (${s.chargeMult < 1 ? 'slower' : 'faster'}: ×${+s.chargeMult.toFixed(2)})`;
-  lines.push(`Refills as you damage enemies${rate}; slowly up to ${s.trickleTo === 1 ? 'one dose' : `${s.trickleTo} doses`} between fights; fully in Pioneer 2.`);
+  lines.push(`Refills as you damage enemies${rate}, slowly between fights, and fully in Pioneer 2.`);
   if (ch?.hasMagPassive(INJECTOR_NOTABLE[def.kind])) lines.push(`Mag ${def.kind === 'mate' ? 'Bulwark' : 'Efficiency'}: +${Math.round(magCfg.injectorBoost * 100)}% per dose (included)`);
   if (def.req) lines.push(`Req: ${INJECTOR_REQ_STAT[def.kind].toUpperCase()} ${def.req}`);
   return lines;

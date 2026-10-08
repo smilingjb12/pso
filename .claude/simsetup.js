@@ -2,13 +2,18 @@
 // Not loaded by the game. Defines mkChar / goRoom / simRooms / dmgBy on window.
 (async () => {
   const { Character, makeItem } = await import('/src/game/character.ts');
-  const { xpToNext } = await import('/src/game/data/classes.ts');
+  const { xpToNext } = await import('/src/game/data/stats.ts');
   const g = window.__h.game;
+  // No classes any more: the old class names pick a kit and spend attribute points the way that class grew
+  // (hunter: Vanguard kit, 2 POW : 1 DEF; ranger: Ranger kit, 2 DEX : 1 POW; force: Mystic kit, all MIND).
+  const OLD_CLASS = { hunter: ['vanguard', ['pow', 'pow', 'def']], ranger: ['ranger', ['dex', 'dex', 'pow']], force: ['mystic', ['mind', 'mind', 'mind']] };
   window.mkChar = (cls, lvl, weapon, frame, barrier) => {
-    const ch = Character.create('Tester', cls);
+    const [kit, split] = OLD_CLASS[cls] ?? [cls, ['pow', 'pow', 'def']];
+    const ch = Character.create('Tester', kit);
     let xp = 0;
     for (let l = 1; l < lvl; l++) xp += xpToNext(l);
     ch.addXp(xp);
+    for (let i = 0; ch.attributePoints > 0; i++) ch.spendAttribute(split[i % 3]);
     for (const [slot, id] of [['weapon', weapon], ['frame', frame], ['barrier', barrier]]) {
       if (!id) continue;
       const it = makeItem(id);
@@ -18,6 +23,7 @@
     ch.data.stats.dragonKills = 1;
     ch.data.stats.deRolLeKills = 1;
     ch.data.stats.wardenKills = 1;
+    ch.data.stats.falzKills = 1;
     return ch;
   };
   window.goRoom = (id) => {
@@ -40,8 +46,18 @@
       p.z += ((t.pos.z - p.z) / d) * (d - 10);
     }
   };
+  // Ruins: Corruption would clamp the 1e6 sim HP down to max HP; count its stacks instead (window.corrupted).
+  window.corrupted = 0;
+  const simCorrupt = (n) => {
+    const p = g.player;
+    const b = p.corruption;
+    p.corruption = Math.min(5, b + n);
+    window.corrupted += p.corruption - b;
+    return p.corruption - b;
+  };
   window.simRooms = (ids) => {
     const out = [];
+    g.player.corrupt = simCorrupt;
     for (const id of ids) {
       goRoom(id);
       g.player.hp = 1e6;
@@ -88,19 +104,26 @@
     rM: ['ranger', 24, 'handgun_5', 'frame_combat_5', 'barrier_combat_5', 'mine1', ['m1', 'm2', 'm3', 'm4', 'm5']],
     hM2: ['hunter', 28, 'saber_5', 'frame_guard_5', 'barrier_guard_5', 'mine2', ['n1', 'n2', 'n3', 'n4', 'n5']],
     rM2: ['ranger', 28, 'handgun_5', 'frame_combat_5', 'barrier_combat_5', 'mine2', ['n1', 'n2', 'n3', 'n4', 'n5']],
-    // Hard (last arg true): Forest at Lv 37 with tier 6, the band the Normal Mines hand over to.
-    hHF: ['hunter', 37, 'saber_6', 'frame_guard_6', 'barrier_guard_6', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], true],
-    rHF: ['ranger', 37, 'handgun_6', 'frame_combat_6', 'barrier_combat_6', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], true],
-    hHC: ['hunter', 46, 'saber_7', 'frame_guard_7', 'barrier_guard_7', 'cave1', ['c1', 'c2', 'c3', 'c4', 'c5'], true],
-    hHM: ['hunter', 56, 'saber_8', 'frame_guard_8', 'barrier_guard_8', 'mine2', ['n1', 'n2', 'n3', 'n4', 'n5'], true],
+    // Ruins (unlocked by the Warden): Lv 34 tier 6 for Ruin 1, Lv 38 tier 6-7 for Ruin 2.
+    hR: ['hunter', 34, 'saber_6', 'frame_guard_6', 'barrier_guard_6', 'ruin1', ['r1', 'r2', 'r3', 'r4', 'r5']],
+    rR: ['ranger', 34, 'handgun_6', 'frame_combat_6', 'barrier_combat_6', 'ruin1', ['r1', 'r2', 'r3', 'r4', 'r5']],
+    hR2: ['hunter', 38, 'saber_6', 'frame_guard_7', 'barrier_guard_6', 'ruin2', ['s1', 's2', 's3', 's4', 's5']],
+    rR2: ['ranger', 38, 'handgun_6', 'frame_combat_7', 'barrier_combat_6', 'ruin2', ['s1', 's2', 's3', 's4', 's5']],
+    // Hard (last arg true), bands moved up with the Ruins: Forest at Lv 44 with tier 7 (the Normal Ruins' gear).
+    hHF: ['hunter', 44, 'saber_7', 'frame_guard_7', 'barrier_guard_7', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], true],
+    rHF: ['ranger', 44, 'handgun_7', 'frame_combat_7', 'barrier_combat_7', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], true],
+    hHC: ['hunter', 54, 'saber_8', 'frame_guard_8', 'barrier_guard_8', 'cave1', ['c1', 'c2', 'c3', 'c4', 'c5'], true],
+    hHM: ['hunter', 66, 'saber_9', 'frame_guard_9', 'barrier_guard_9', 'mine2', ['n1', 'n2', 'n3', 'n4', 'n5'], true],
+    hHR: ['hunter', 76, 'saber_10', 'frame_guard_10', 'barrier_guard_10', 'ruin2', ['s1', 's2', 's3', 's4', 's5'], true],
   };
   window.simClass = (cls, lvl, w, f, b, area, rooms, hard = false) => {
     g.startCharacter(-1, mkChar(cls, lvl, w, f, b));
     window.__h.run(0.1);
-    g.newExpedition(area === 'forest1' ? 'forest' : area.startsWith('mine') ? 'mines' : 'caves', hard);
+    g.newExpedition(area === 'forest1' ? 'forest' : area.startsWith('mine') ? 'mines' : area.startsWith('ruin') ? 'ruins' : 'caves', hard);
     g.enterArea(area, 'start');
     window.__h.run(0.5);
     noRender();
+    window.corrupted = 0;
     let time = 0, dmg = 0, stuck = 0;
     for (const s of simRooms(rooms)) {
       const m = s.match(/ (\d+)s dmg(-?\d+)/);
@@ -109,18 +132,18 @@
       dmg += +m[2];
       if (s.includes('STUCK')) stuck++;
     }
-    return { time, dmg, bars: dmg / g.player.maxHp, stuck };
+    return { time, dmg, bars: dmg / g.player.trueMaxHp, stuck, corrupted: window.corrupted };
   };
   /** Average n runs of each setup key: { key: { time, dmg, bars, stuck } }. */
   window.batch = (keys, n) => {
     const out = {};
     for (const k of keys) {
-      const sum = { time: 0, dmg: 0, bars: 0, stuck: 0 };
+      const sum = { time: 0, dmg: 0, bars: 0, stuck: 0, corrupted: 0 };
       for (let i = 0; i < n; i++) {
         const r = simClass(...SETUPS[k]);
         for (const f in sum) sum[f] += r[f];
       }
-      out[k] = { time: Math.round(sum.time / n), dmg: Math.round(sum.dmg / n), bars: +(sum.bars / n).toFixed(2), stuck: sum.stuck };
+      out[k] = { time: Math.round(sum.time / n), dmg: Math.round(sum.dmg / n), bars: +(sum.bars / n).toFixed(2), stuck: sum.stuck, corrupted: +(sum.corrupted / n).toFixed(1) };
     }
     return out;
   };

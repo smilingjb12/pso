@@ -64,11 +64,6 @@ function techGlyph(tech: string): string {
   }
 }
 
-const CAPSULE: Record<string, [string, string]> = {
-  trimate: ['#ffd040', '#fff8e0'],
-  trifluid: ['#b070ff', '#f4e8ff'],
-};
-
 /** Injector glyph: a pen injector, green for Mate (HP), blue for Fluid (TP). */
 function injectorIcon(kind: 'mate' | 'fluid'): string {
   const [a, b] = kind === 'mate' ? ['#4ad86a', '#e8fff0'] : ['#4a9aff', '#e0f0ff'];
@@ -81,13 +76,6 @@ function injectorIcon(kind: 'mate' | 'fluid'): string {
 export function itemIcon(id: string): string {
   const inj = /^(mate|fluid)_\d$/.exec(id);
   if (inj) return injectorIcon(inj[1] as 'mate' | 'fluid');
-  if (CAPSULE[id]) {
-    const [a, b] = CAPSULE[id];
-    // Two-tone capsule, like PSO's mate/fluid glyph.
-    return svg(
-      `<g transform="rotate(-35 24 24)"><rect x="8" y="16" width="32" height="16" rx="8" fill="${b}"/><path d="M24 16 L32 16 A8 8 0 0 1 32 32 L24 32 Z" fill="${a}"/><path d="M16 16 L24 16 L24 32 L16 32 A8 8 0 0 1 16 16 Z" fill="${a}" opacity=".55"/><circle cx="24" cy="24" r="3" fill="#fff" opacity=".8"/></g>`,
-    );
-  }
   switch (id) {
     case 'telepipe':
       return svg(`<rect x="18" y="8" width="12" height="32" rx="3" fill="#8ab0d8"/><ellipse cx="24" cy="8" rx="9" ry="4" fill="#4ae0ff"/><rect x="20" y="16" width="8" height="18" fill="#4ae0ff" opacity=".6"/>`);

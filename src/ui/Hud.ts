@@ -36,6 +36,10 @@ const HEX_LAYOUT = [
 export interface HudState {
   hp: number;
   maxHp: number;
+  /** Max HP before Corruption took its share (the bar's full width); defaults to maxHp. */
+  trueMaxHp?: number;
+  /** Barrier shield HP (absorbed before HP). */
+  shield: number;
   tp: number;
   maxTp: number;
   level: number;
@@ -68,8 +72,8 @@ export interface HudState {
   /** Status ailments (poison, paralysis) as chips. */
   statuses: { label: string; cls: string }[];
   cast: number | null; // 0..1
-  /** Injector slots 1 and 2 (keys 1 / 2): doses ready (fractional) out of the most it holds. */
-  injectors: ({ kind: 'mate' | 'fluid'; doses: number; charge: number; name: string; mod: string | null } | null)[];
+  /** The injector (key 1): doses ready (fractional) out of the most it holds. */
+  injector: { kind: 'mate' | 'fluid'; doses: number; charge: number; name: string; mod: string | null } | null;
   /** Dash charges ready, the most there can be, and progress (0..1) toward the next. */
   dash: { charges: number; max: number; refill: number };
 }
@@ -110,15 +114,19 @@ export class Hud {
   private dashCells: HTMLDivElement[] = [];
   private hpBar: HTMLDivElement;
   private hpFill: HTMLDivElement;
+  /** Corruption's share of max HP, at the right end of the bar. */
+  private hpCorrupt: HTMLDivElement;
   private hpTrail: HTMLDivElement;
+  /** Barrier shield: a pale layer over the left of the HP bar, as wide as the shield is a share of max HP. */
+  private hpShield!: HTMLDivElement;
   private hpText: HTMLDivElement;
   private tpRow: HTMLDivElement;
   private tpFill: HTMLDivElement;
   private tpTrail: HTMLDivElement;
   private tpText: HTMLDivElement;
   private lvEl: HTMLDivElement;
-  /** Injector gauges: one per slot, a cell per dose. */
-  private injEls: { root: HTMLDivElement; cells: HTMLDivElement; key: string }[] = [];
+  /** Injector gauge: a cell per dose. */
+  private injEl!: { root: HTMLDivElement; cells: HTMLDivElement; key: string };
   /** Damage-trail state per gauge: where the trail sits (0..1), the last value, and how long the trail still lingers. */
   private trail = { hp: { k: 1, last: 1, hold: 0 }, tp: { k: 1, last: 1, hold: 0 } };
   private buffsEl: HTMLDivElement;
@@ -194,13 +202,16 @@ export class Hud {
     const hp = gauge('hp');
     const tp = gauge('tp');
     [this.hpBar, this.hpTrail, this.hpFill, this.hpText] = [hp.bar, hp.trail, hp.fill, hp.text];
+    this.hpShield = document.createElement('div');
+    this.hpShield.className = 'shield';
+    hp.bar.insertBefore(this.hpShield, hp.fill.nextSibling);
+    this.hpCorrupt = document.createElement('div');
+    this.hpCorrupt.className = 'corrupt';
+    hp.bar.insertBefore(this.hpCorrupt, this.hpShield.nextSibling);
     [this.tpRow, this.tpTrail, this.tpFill, this.tpText] = [tp.row, tp.trail, tp.fill, tp.text];
-    // Injectors: key, then one cell per dose; the next dose fills up as you deal damage.
-    const injRow = el('vinj', this.vitals);
-    for (let i = 0; i < 2; i++) {
-      const root = el('inj', injRow, `<span class="inj-key">${i + 1}</span>`);
-      this.injEls.push({ root, cells: el('inj-cells', root), key: '' });
-    }
+    // Injector: one cell per dose; the next dose fills up as you deal damage.
+    const injRoot = el('inj', el('vinj', this.vitals));
+    this.injEl = { root: injRoot, cells: el('inj-cells', injRoot), key: '' };
     const side = el('vside', this.vitals);
     this.statusChips = el('vchips', side);
     this.buffsEl = el('vbuffs', side);
@@ -332,9 +343,13 @@ export class Hud {
   update(realDt: number, s: HudState, camera: THREE.Camera, lockPos: THREE.Vector3 | null): void {
     const hpK = s.maxHp > 0 ? Math.max(0, s.hp / s.maxHp) : 0;
     const tpK = s.maxTp > 0 ? Math.max(0, s.tp / s.maxTp) : 0;
-    this.setGauge(this.hpFill, this.hpTrail, this.trail.hp, hpK, realDt);
+    // With Corruption the bar keeps its full width (true max HP) and the lost share shows at its right end.
+    const barFull = Math.max(s.maxHp, s.trueMaxHp ?? s.maxHp);
+    this.setGauge(this.hpFill, this.hpTrail, this.trail.hp, barFull > 0 ? Math.max(0, s.hp / barFull) : 0, realDt);
+    this.hpCorrupt.style.width = `${barFull > 0 ? ((barFull - s.maxHp) / barFull) * 100 : 0}%`;
     this.setGauge(this.tpFill, this.tpTrail, this.trail.tp, tpK, realDt);
-    this.hpText.textContent = `${Math.ceil(s.hp)}/${s.maxHp}`;
+    this.hpText.textContent = `${Math.ceil(s.hp)}/${s.maxHp}${s.shield >= 1 ? ` +${Math.ceil(s.shield)}` : ''}`;
+    this.hpShield.style.width = `${Math.min(1, barFull > 0 ? s.shield / barFull : 0) * 100}%`;
     this.tpText.textContent = `${Math.ceil(s.tp)}/${s.maxTp}`;
     this.tpRow.style.display = s.maxTp > 0 ? '' : 'none';
     const lv = String(s.level);
@@ -342,7 +357,7 @@ export class Hud {
       this.lvEl.dataset.lv = lv;
       this.lvEl.innerHTML = `<span>Lv.</span>${lv}`;
     }
-    s.injectors.forEach((inj, i) => this.setInjector(this.injEls[i], inj));
+    this.setInjector(this.injEl, s.injector);
     this.setDash(s.dash);
     const low = hpK < HP_LOW;
     this.hpBar.dataset.band = low ? 'low' : hpK < HP_OK ? 'mid' : 'ok';
@@ -456,7 +471,7 @@ export class Hud {
     trailEl.style.width = `${tr.k * 100}%`;
   }
 
-  private setInjector(v: { root: HTMLDivElement; cells: HTMLDivElement; key: string }, inj: HudState['injectors'][number]): void {
+  private setInjector(v: { root: HTMLDivElement; cells: HTMLDivElement; key: string }, inj: HudState['injector']): void {
     v.root.style.display = inj ? '' : 'none';
     if (!inj) return;
     const key = `${inj.kind}:${inj.doses}:${inj.name}`;

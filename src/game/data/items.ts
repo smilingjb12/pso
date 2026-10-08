@@ -1,6 +1,5 @@
 import type { AttackTiming, Race, WeaponWeight } from '../config';
 
-export type ClassId = 'hunter' | 'ranger' | 'force';
 export type Attr = Race | 'hit';
 export const ATTRS: Attr[] = ['native', 'abeast', 'machine', 'dark', 'hit'];
 export const ATTR_LABEL: Record<Attr, string> = {
@@ -9,6 +8,27 @@ export const ATTR_LABEL: Record<Attr, string> = {
   machine: 'Machine',
   dark: 'Dark',
   hit: 'Hit',
+};
+
+/** Highest race % a weapon of `tier` can roll (5% steps): 10% at tier 1 up to 60% at tier 11. */
+export function raceCap(tier: number): number {
+  return 5 + tier * 5;
+}
+
+/**
+ * Grind levels a weapon takes: 5 at tiers 1-2 up to 10 at tier 11, rares 2 more. Few enough that a weapon
+ * fills up (an expedition clear drops about one weapon's worth), so each level is a choice.
+ */
+export function grindCap(def: { tier: number; rare?: boolean }): number {
+  return 4 + Math.ceil(def.tier / 2) + (def.rare ? 2 : 0);
+}
+
+/** Name suffix for a weapon whose best race % is at least half its tier's cap ("Brand of Beasts"). */
+export const RACE_SUFFIX: Record<Race, string> = {
+  native: 'of Natives',
+  abeast: 'of Beasts',
+  machine: 'of Machines',
+  dark: 'of Darkness',
 };
 
 // ------------------------------------------------------------------ specials
@@ -57,7 +77,6 @@ export type WeaponKind =
 export interface WeaponKindDef {
   kind: WeaponKind;
   label: string;
-  classes: ClassId[];
   ranged: boolean;
   /** Melee reach, or projectile max range for guns. */
   range: number;
@@ -113,63 +132,63 @@ export interface WeaponKindDef {
 // partisans stab a line, slicers and rifles pierce, shots spread widest, daggers stay tight.
 export const weaponKinds: Record<WeaponKind, WeaponKindDef> = {
   saber: {
-    kind: 'saber', label: 'Saber', classes: ['hunter', 'ranger'], ranged: false,
+    kind: 'saber', label: 'Saber', ranged: false,
     range: 2.4, arcDeg: 110, maxTargets: 3, hits: 1, projectiles: 0, projSpeed: 0, damageScale: 1,
     timing: { windup: 0.17, active: 0.09, recovery: 0.47 }, techBoost: 1, weight: 'medium', reqStat: 'atp', color: 0x3aa0ff,
   },
   sword: {
-    kind: 'sword', label: 'Sword', classes: ['hunter'], ranged: false,
+    kind: 'sword', label: 'Sword', ranged: false,
     range: 3.0, arcDeg: 160, maxTargets: 4, hits: 1, projectiles: 0, projSpeed: 0, damageScale: 1.05,
     timing: { windup: 0.32, active: 0.12, recovery: 0.62, perfect: 0.15, grace: 0.26 }, techBoost: 1, weight: 'heavy', reqStat: 'atp', color: 0x9fffc0,
   },
   dagger: {
-    kind: 'dagger', label: 'Dagger', classes: ['hunter'], ranged: false,
+    kind: 'dagger', label: 'Dagger', ranged: false,
     range: 2.0, arcDeg: 90, maxTargets: 2, hits: 2, projectiles: 0, projSpeed: 0, damageScale: 0.6,
     timing: { windup: 0.12, active: 0.1, recovery: 0.33, perfect: 0.065, grace: 0.12 }, techBoost: 1, weight: 'light', reqStat: 'atp', color: 0xffe070,
   },
   partisan: {
-    kind: 'partisan', label: 'Partisan', classes: ['hunter'], ranged: false,
+    kind: 'partisan', label: 'Partisan', ranged: false,
     range: 4.2, arcDeg: 30, lineWidth: 1.4, maxTargets: 4, hits: 1, projectiles: 0, projSpeed: 0, damageScale: 1.1,
     timing: { windup: 0.3, active: 0.1, recovery: 0.64, perfect: 0.13, grace: 0.24 }, techBoost: 1, weight: 'heavy', reqStat: 'atp', color: 0x70e0ff,
   },
   slicer: {
-    kind: 'slicer', label: 'Slicer', classes: ['hunter'], ranged: true,
+    kind: 'slicer', label: 'Slicer', ranged: true,
     range: 15, arcDeg: 0, maxTargets: 3, hits: 1, projectiles: 1, projSpeed: 20, pierce: true, damageScale: 1,
     timing: { windup: 0.28, active: 0.08, recovery: 0.71, perfect: 0.12, grace: 0.22 }, techBoost: 1, reqStat: 'atp', color: 0xff80c0,
   },
   handgun: {
-    kind: 'handgun', label: 'Handgun', classes: ['hunter', 'ranger', 'force'], ranged: true,
+    kind: 'handgun', label: 'Handgun', ranged: true,
     range: 16, arcDeg: 0, maxTargets: 2, hits: 1, projectiles: 3, projSpeed: 28, spreadDeg: 18, damageScale: 1,
     timing: { windup: 0.12, active: 0.05, recovery: 0.38, perfect: 0.085, grace: 0.15 }, techBoost: 1, reqStat: 'ata', color: 0xffc040,
   },
   rifle: {
-    kind: 'rifle', label: 'Rifle', classes: ['ranger'], ranged: true,
+    kind: 'rifle', label: 'Rifle', ranged: true,
     range: 26, arcDeg: 0, maxTargets: 3, hits: 1, projectiles: 1, projSpeed: 41, pierce: true, damageScale: 1, falloffStart: 18,
     timing: { windup: 0.36, active: 0.06, recovery: 0.76, perfect: 0.13, grace: 0.24 }, techBoost: 1, reqStat: 'ata', color: 0xff8040,
   },
   mechgun: {
-    kind: 'mechgun', label: 'Mechgun', classes: ['hunter', 'ranger'], ranged: true,
+    kind: 'mechgun', label: 'Mechgun', ranged: true,
     range: 13, arcDeg: 0, maxTargets: 3, hits: 1, projectiles: 5, projSpeed: 26, spreadDeg: 30, damageScale: 1,
     heavyProjectiles: 3, heavyScale: 0.5,
     timing: { windup: 0.15, active: 0.25, recovery: 0.51, perfect: 0.075, grace: 0.14 }, techBoost: 1, reqStat: 'ata', color: 0xffa020,
   },
   shot: {
-    kind: 'shot', label: 'Shot', classes: ['ranger'], ranged: true,
+    kind: 'shot', label: 'Shot', ranged: true,
     range: 11, arcDeg: 0, maxTargets: 5, hits: 1, projectiles: 5, projSpeed: 26, spreadDeg: 36, damageScale: 1,
     timing: { windup: 0.26, active: 0.06, recovery: 0.78, perfect: 0.12, grace: 0.22 }, techBoost: 1, reqStat: 'ata', color: 0x90ff60,
   },
   cane: {
-    kind: 'cane', label: 'Cane', classes: ['hunter', 'force'], ranged: false,
+    kind: 'cane', label: 'Cane', ranged: false,
     range: 2.4, arcDeg: 110, maxTargets: 3, hits: 1, projectiles: 0, projSpeed: 0, damageScale: 1,
     timing: { windup: 0.24, active: 0.1, recovery: 0.58 }, techBoost: 1.05, tpOnHit: 4, weight: 'medium', reqStat: 'mst', color: 0xd0a0ff,
   },
   rod: {
-    kind: 'rod', label: 'Rod', classes: ['force'], ranged: false,
+    kind: 'rod', label: 'Rod', ranged: false,
     range: 2.8, arcDeg: 150, maxTargets: 4, hits: 1, projectiles: 0, projSpeed: 0, damageScale: 1.1,
     timing: { windup: 0.3, active: 0.12, recovery: 0.62, perfect: 0.14, grace: 0.26 }, techBoost: 1.2, tpOnHit: 2, weight: 'heavy', reqStat: 'mst', color: 0xb080ff,
   },
   wand: {
-    kind: 'wand', label: 'Wand', classes: ['force'], ranged: false,
+    kind: 'wand', label: 'Wand', ranged: false,
     range: 2.2, arcDeg: 100, maxTargets: 2, hits: 1, projectiles: 0, projSpeed: 0, damageScale: 1,
     timing: { windup: 0.15, active: 0.08, recovery: 0.42, perfect: 0.08, grace: 0.14 }, techBoost: 1.1, tpOnHit: 6, weight: 'light', reqStat: 'mst', color: 0xff90e0,
   },
@@ -179,24 +198,20 @@ export const weaponKinds: Record<WeaponKind, WeaponKindDef> = {
 
 export type ArmorLine = 'basic' | 'guard' | 'combat' | 'psy';
 
-/** Armor lines work like weapon kinds: a class list and a stat requirement (base + Mag). */
+/** Armor lines work like weapon kinds: a stat requirement (base + Mag) decides who can wear them. */
 export interface ArmorLineDef {
   line: ArmorLine;
   label: string;
-  classes: ClassId[];
   reqStat: 'atp' | 'ata' | 'mst' | null;
   desc: string;
 }
 
 export const armorLines: Record<ArmorLine, ArmorLineDef> = {
-  basic: { line: 'basic', label: 'Standard', classes: ['hunter', 'ranger', 'force'], reqStat: null, desc: 'Plain protection anyone can wear.' },
-  guard: { line: 'guard', label: 'Guard', classes: ['hunter', 'ranger'], reqStat: 'atp', desc: 'Heavy plating for the front line: most DFP, little EVP, a small ATP bonus.' },
-  combat: { line: 'combat', label: 'Combat', classes: ['hunter', 'ranger', 'force'], reqStat: 'ata', desc: 'Balanced DFP and EVP with the biggest ATP and ATA bonus.' },
-  psy: { line: 'psy', label: 'Psy', classes: ['force'], reqStat: 'mst', desc: 'Light weave that amplifies techniques: low DFP, adds MST and TP.' },
+  basic: { line: 'basic', label: 'Standard', reqStat: null, desc: 'Plain protection anyone can wear.' },
+  guard: { line: 'guard', label: 'Guard', reqStat: 'atp', desc: 'Heavy plating for the front line: most DFP, little EVP, a small ATP bonus.' },
+  combat: { line: 'combat', label: 'Combat', reqStat: 'ata', desc: 'Balanced DFP and EVP with the biggest ATP and ATA bonus.' },
+  psy: { line: 'psy', label: 'Psy', reqStat: 'mst', desc: 'Light weave that amplifies techniques: low DFP, adds MST and TP.' },
 };
-
-/** The line each class is built around (used to migrate old saves). */
-export const CLASS_ARMOR_LINE: Record<ClassId, ArmorLine> = { hunter: 'guard', ranger: 'combat', force: 'psy' };
 
 // --------------------------------------------------------------- item defs
 
@@ -215,7 +230,6 @@ export interface WeaponItemDef extends BaseDef {
   atpMin: number;
   atpMax: number;
   ata: number;
-  maxGrind: number;
   req: number; // required base value of the kind's reqStat
   special?: SpecialId;
   /** Flat MST while equipped (canes, rods and wands). */
@@ -237,8 +251,8 @@ export interface ArmorItemDef extends BaseDef {
   req: number; // required base value of the line's reqStat (0 = none)
 }
 
-/** Trimate / Trifluid refill your Mate / Fluid injectors; the Telepipe opens a portal to Pioneer 2. */
-export type ConsumableEffect = 'refillMate' | 'refillFluid' | 'telepipe';
+/** The Telepipe opens a portal to Pioneer 2 (injector refills are charge orbs on the ground, not items). */
+export type ConsumableEffect = 'telepipe';
 
 export interface ConsumableItemDef extends BaseDef {
   type: 'consumable';
@@ -282,7 +296,7 @@ export type InjectorMod = 'steady' | 'emergency' | 'reserve' | 'absorbent' | 'so
 export const INJECTOR_MODS: Record<InjectorMod, { name: string; desc: string }> = {
   steady: { name: 'Steady', desc: 'Restores over 4 s instead of at once, but 60% more in total.' },
   emergency: { name: 'Emergency', desc: 'Restores 60% more while that gauge is below 35%.' },
-  reserve: { name: 'Reserve', desc: 'Between fights it refills up to 2 doses instead of 1.' },
+  reserve: { name: 'Reserve', desc: 'Holds 4 doses instead of 3.' },
   absorbent: { name: 'Absorbent', desc: 'Refills 50% faster.' },
   sol: { name: 'Sol', desc: 'Each dose also cures poison, paralysis and Burn, and wards off paralysis for 4 s. Usable while paralysed.' },
   bracing: { name: 'Bracing', desc: 'Each dose also cuts damage taken by 30% for 3 s.' },
@@ -303,18 +317,18 @@ export function isStackable(def: ItemDef): boolean {
 }
 
 const TIER_NAMES: Record<WeaponKind, string[]> = {
-  saber: ['Saber', 'Brand', 'Buster', 'Pallasch', 'Gladius', 'Galatine', 'Astra Saber', 'Nova Blade', 'Stellar Saber'],
-  sword: ['Sword', 'Gigush', 'Breaker', 'Claymore', 'Calibur', 'Zanbato', 'Titan Cleaver', 'Meteor Sword', 'Colossus'],
-  dagger: ['Dagger', 'Knife', 'Blade', 'Edge', 'Ripper', 'Vibro Edge', 'Nebula Fang', 'Phase Knife', 'Void Stiletto'],
-  partisan: ['Partisan', 'Halbert', 'Glaive', 'Berdys', 'Gungnir', 'Vjaya', 'Comet Pike', 'Star Lance', 'Zenith Spear'],
-  slicer: ['Slicer', 'Spinner', 'Cutter', 'Sawcer', 'Diska', 'Arc Disc', 'Halo Disc', 'Orbit Slicer', 'Eclipse Ring'],
-  handgun: ['Handgun', 'Autogun', 'Lockgun', 'Railgun', 'Raygun', 'Hypergun', 'Plasma Pistol', 'Ion Gun', 'Pulsar Gun'],
-  rifle: ['Rifle', 'Sniper', 'Blaster', 'Beam', 'Laser', 'Photon Lancer', 'Ion Rifle', 'Meteor Beam', 'Horizon Rifle'],
-  mechgun: ['Mechgun', 'Assault', 'Repeater', 'Gatling', 'Vulcan', 'Typhoon', 'Storm', 'Cyclone', 'Maelstrom'],
-  shot: ['Shot', 'Spread', 'Cannon', 'Arms', 'Launcher', 'Hyper Cannon', 'Nova Cannon', 'Supernova', 'Starburst'],
-  cane: ['Cane', 'Stick', 'Mace', 'Club', 'Maul', 'Quasar Mace', 'Pulsar Mace', 'Nebula Club', 'Singularity'],
-  rod: ['Rod', 'Pole', 'Pillar', 'Striker', 'Obelisk', 'Monolith', 'Spire', 'Zenith Rod', 'Eternal Pillar'],
-  wand: ['Wand', 'Staff', 'Baton', 'Scepter', 'Diadem', 'Aurora Staff', 'Celestial Staff', 'Starlight Wand', 'Halo Scepter'],
+  saber: ['Saber', 'Brand', 'Buster', 'Pallasch', 'Gladius', 'Galatine', 'Astra Saber', 'Nova Blade', 'Stellar Saber', 'Quasar Saber', 'Cosmic Saber'],
+  sword: ['Sword', 'Gigush', 'Breaker', 'Claymore', 'Calibur', 'Zanbato', 'Titan Cleaver', 'Meteor Sword', 'Colossus', 'Behemoth', 'Worldsplitter'],
+  dagger: ['Dagger', 'Knife', 'Blade', 'Edge', 'Ripper', 'Vibro Edge', 'Nebula Fang', 'Phase Knife', 'Void Stiletto', 'Rift Dagger', 'Horizon Fang'],
+  partisan: ['Partisan', 'Halbert', 'Glaive', 'Berdys', 'Gungnir', 'Vjaya', 'Comet Pike', 'Star Lance', 'Zenith Spear', 'Nadir Glaive', 'Aurora Halberd'],
+  slicer: ['Slicer', 'Spinner', 'Cutter', 'Sawcer', 'Diska', 'Arc Disc', 'Halo Disc', 'Orbit Slicer', 'Eclipse Ring', 'Corona Disc', 'Solar Wheel'],
+  handgun: ['Handgun', 'Autogun', 'Lockgun', 'Railgun', 'Raygun', 'Hypergun', 'Plasma Pistol', 'Ion Gun', 'Pulsar Gun', 'Quasar Gun', 'Nova Pistol'],
+  rifle: ['Rifle', 'Sniper', 'Blaster', 'Beam', 'Laser', 'Photon Lancer', 'Ion Rifle', 'Meteor Beam', 'Horizon Rifle', 'Zenith Beam', 'Infinity Rifle'],
+  mechgun: ['Mechgun', 'Assault', 'Repeater', 'Gatling', 'Vulcan', 'Typhoon', 'Storm', 'Cyclone', 'Maelstrom', 'Tempest', 'Hurricane'],
+  shot: ['Shot', 'Spread', 'Cannon', 'Arms', 'Launcher', 'Hyper Cannon', 'Nova Cannon', 'Supernova', 'Starburst', 'Hypernova', 'Big Bang'],
+  cane: ['Cane', 'Stick', 'Mace', 'Club', 'Maul', 'Quasar Mace', 'Pulsar Mace', 'Nebula Club', 'Singularity', 'Event Mace', 'Genesis Club'],
+  rod: ['Rod', 'Pole', 'Pillar', 'Striker', 'Obelisk', 'Monolith', 'Spire', 'Zenith Rod', 'Eternal Pillar', 'Sky Pillar', 'Axis Rod'],
+  wand: ['Wand', 'Staff', 'Baton', 'Scepter', 'Diadem', 'Aurora Staff', 'Celestial Staff', 'Starlight Wand', 'Halo Scepter', 'Seraph Staff', 'Empyrean Wand'],
 };
 
 /** Tier-1 base [atpMin, atpMax, ata] for each kind. */
@@ -339,14 +353,15 @@ const KIND_MST: Partial<Record<WeaponKind, number>> = { cane: 4, wand: 6, rod: 8
 // Tier 5 drops in the Caves (shops stock it after De Rol Le). Its requirements sit around
 // Lv 26-30 base, so a well-fed Mag pulls it into the low 20s. Tier 6 drops in the Mines
 // (shops after the Warden): about Lv 34-38 base, so a Mag built for it reaches it near 30.
-// Tiers 7-9 drop on Hard (Forest, Caves, Mines), reqs reachable near the Lv 42 / 52 / 62 band tops.
-const TIER_ATP = [1, 1.7, 2.5, 3.4, 4.4, 5.5, 6.7, 8.0, 9.4];
-const TIER_ATA = [1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8];
-const TIER_PRICE = [250, 900, 2800, 7500, 16000, 30000, 50000, 80000, 120000];
+// Tier 7 drops in the Ruins (shops after Dark Falz), reqs about Lv 44 base. Tiers 8-11 drop on Nightmare
+// (Forest, Caves, Mines, Ruins), reqs reachable near the Lv 52 / 62 / 72 / 82 band tops.
+const TIER_ATP = [1, 1.7, 2.5, 3.4, 4.4, 5.5, 6.7, 8.0, 9.4, 10.9, 12.5];
+const TIER_ATA = [1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0];
+const TIER_PRICE = [250, 900, 2800, 7500, 16000, 30000, 50000, 80000, 120000, 170000, 230000];
 const TIER_REQ: Record<'atp' | 'ata' | 'mst', number[]> = {
-  atp: [0, 60, 90, 130, 160, 185, 215, 245, 275],
-  ata: [0, 75, 95, 120, 135, 150, 165, 180, 195],
-  mst: [0, 80, 120, 170, 200, 230, 260, 290, 320],
+  atp: [0, 60, 90, 130, 160, 185, 215, 245, 275, 305, 335],
+  ata: [0, 75, 95, 120, 135, 150, 165, 180, 195, 210, 225],
+  mst: [0, 80, 120, 170, 200, 230, 260, 290, 320, 350, 380],
 };
 
 export const itemDefs: Record<string, ItemDef> = {};
@@ -368,7 +383,6 @@ for (const kind of Object.keys(TIER_NAMES) as WeaponKind[]) {
       atpMin: Math.round(mn * TIER_ATP[i]),
       atpMax: Math.round(mx * TIER_ATP[i]),
       ata: Math.round(ata * TIER_ATA[i]),
-      maxGrind: 5 + i * 5,
       req: TIER_REQ[weaponKinds[kind].reqStat][i],
       ...(mst ? { mst: Math.round(mst * TIER_ATP[i]) } : {}),
       price: TIER_PRICE[i],
@@ -378,36 +392,36 @@ for (const kind of Object.keys(TIER_NAMES) as WeaponKind[]) {
 
 // Rares: fixed specials, strong for the area.
 add({ id: 'red_saber', type: 'weapon', name: 'Red Saber', kind: 'saber', tier: 2, rare: true,
-  atpMin: 100, atpMax: 130, ata: 40, maxGrind: 25, req: 55, special: 'heat', price: 8000,
+  atpMin: 100, atpMax: 130, ata: 40, req: 55, special: 'heat', price: 8000,
   desc: 'A crimson photon blade. Burns on heavy attacks.' });
 add({ id: 'flowens_sword', type: 'weapon', name: "Flowen's Sword", kind: 'sword', tier: 3, rare: true,
-  atpMin: 160, atpMax: 200, ata: 40, maxGrind: 30, req: 80, special: 'shock', price: 12000,
+  atpMin: 160, atpMax: 200, ata: 40, req: 80, special: 'shock', price: 12000,
   desc: 'The sword of the legendary hunter Flowen.' });
 add({ id: 'varista', type: 'weapon', name: 'Varista', kind: 'handgun', tier: 2, rare: true,
-  atpMin: 70, atpMax: 90, ata: 75, maxGrind: 25, req: 70, special: 'ice', price: 9000,
+  atpMin: 70, atpMax: 90, ata: 75, req: 70, special: 'ice', price: 9000,
   desc: 'A custom handgun with a freezing payload.' });
 add({ id: 'club_of_laconium', type: 'weapon', name: 'Club of Laconium', kind: 'cane', tier: 2, rare: true,
-  atpMin: 60, atpMax: 80, ata: 40, maxGrind: 25, req: 70, special: 'draw', mst: 10, price: 9000,
+  atpMin: 60, atpMax: 80, ata: 40, req: 70, special: 'draw', mst: 10, price: 9000,
   desc: 'A heavy laconium cane that drains life.' });
 add({ id: 'dragon_slayer', type: 'weapon', name: 'Dragon Slayer', kind: 'sword', tier: 3, rare: true,
-  atpMin: 190, atpMax: 230, ata: 45, maxGrind: 30, req: 85, special: 'heat', price: 20000,
+  atpMin: 190, atpMax: 230, ata: 45, req: 85, special: 'heat', price: 20000,
   desc: 'Forged from the scales of a fallen dragon.' });
 // Cave rares.
 add({ id: 'lily_sting', type: 'weapon', name: 'Lily Sting', kind: 'dagger', tier: 4, rare: true,
-  atpMin: 120, atpMax: 150, ata: 45, maxGrind: 30, req: 110, special: 'venom', price: 16000,
+  atpMin: 120, atpMax: 150, ata: 45, req: 110, special: 'venom', price: 16000,
   desc: 'Twin needles grown from a Poison Lily. Poisons on heavy attacks.' });
 add({ id: 'spread_needle', type: 'weapon', name: 'Spread Needle', kind: 'shot', tier: 4, rare: true,
-  atpMin: 130, atpMax: 160, ata: 60, maxGrind: 30, req: 110, special: 'venom', price: 16000,
+  atpMin: 130, atpMax: 160, ata: 60, req: 110, special: 'venom', price: 16000,
   desc: 'A shot that sprays venom-tipped needles.' });
 add({ id: 'coral_rod', type: 'weapon', name: 'Coral Rod', kind: 'rod', tier: 4, rare: true,
-  atpMin: 120, atpMax: 150, ata: 40, maxGrind: 30, req: 150, special: 'ice', mst: 30, price: 16000,
+  atpMin: 120, atpMax: 150, ata: 40, req: 150, special: 'ice', mst: 30, price: 16000,
   desc: 'A rod of living cave coral that chills on contact.' });
 add({ id: 'rol_lance', type: 'weapon', name: 'Rol Lance', kind: 'partisan', tier: 5, rare: true,
-  atpMin: 260, atpMax: 310, ata: 40, maxGrind: 35, req: 145, special: 'shock', price: 30000,
+  atpMin: 260, atpMax: 310, ata: 40, req: 145, special: 'shock', price: 30000,
   desc: 'Carved from a mandible of De Rol Le. Shocks on heavy attacks.' });
 // Warden signature drop (a handgun, so every class can carry it).
 add({ id: 'arc_welder', type: 'weapon', name: 'Arc Welder', kind: 'handgun', tier: 6, rare: true,
-  atpMin: 190, atpMax: 240, ata: 85, maxGrind: 35, req: 140, special: 'arc', price: 45000,
+  atpMin: 190, atpMax: 240, ata: 85, req: 140, special: 'arc', price: 45000,
   desc: "The Warden's welding arm, rebuilt as a sidearm. Heavy shots can arc on to two more enemies nearby and stun them." });
 
 // Armor: a neutral starter (tier 1 only) plus three lines per tier.
@@ -415,7 +429,7 @@ add({ id: 'arc_welder', type: 'weapon', name: 'Arc Welder', kind: 'handgun', tie
 // 1 MST ≈ 0.4% more tech damage, 1 EVP ≈ 0.3% fewer hits taken (Forest numbers).
 // Melee eats far more hits than ranged, so DFP is worth more to a Hunter and
 // offense more to a Ranger; each line should win for its own class only.
-// Requirements equal the line's main class stat at levels 6 / 12 / 20 / 28 / 36, then 44 / 52 / 60 (Hard).
+// Requirements equal the line's main class stat at levels 6 / 12 / 20 / 28 / 36 / 44 (Ruins), then 52 / 60 / 68 / 76 (Nightmare).
 add({ id: 'frame_1', type: 'armor', slot: 'frame', line: 'basic', name: 'Frame', tier: 1, dfp: 5, evp: 5, req: 0, price: 200 });
 add({ id: 'barrier_1', type: 'armor', slot: 'barrier', line: 'basic', name: 'Barrier', tier: 1, dfp: 4, evp: 6, req: 0, price: 200 });
 
@@ -432,6 +446,8 @@ const ARMOR_TABLE: Record<'frame' | 'barrier', Record<Exclude<ArmorLine, 'basic'
       { name: 'Fortress Frame', dfp: 72, evp: 20, atp: 11 },
       { name: 'Citadel Armor', dfp: 88, evp: 24, atp: 13 },
       { name: 'Aegis Frame', dfp: 105, evp: 28, atp: 15 },
+      { name: 'Bulwark Frame', dfp: 123, evp: 32, atp: 17 },
+      { name: 'Paragon Frame', dfp: 142, evp: 36, atp: 19 },
     ],
     combat: [
       { name: 'Combat Frame', dfp: 4, evp: 6, atp: 2, ata: 2 },
@@ -443,6 +459,8 @@ const ARMOR_TABLE: Record<'frame' | 'barrier', Record<Exclude<ArmorLine, 'basic'
       { name: 'Paladin Frame', dfp: 43, evp: 51, atp: 29, ata: 17 },
       { name: 'Sentinel Frame', dfp: 53, evp: 63, atp: 36, ata: 20 },
       { name: 'Warlord Frame', dfp: 64, evp: 76, atp: 43, ata: 23 },
+      { name: 'Champion Frame', dfp: 75, evp: 90, atp: 50, ata: 26 },
+      { name: 'Legend Frame', dfp: 87, evp: 105, atp: 58, ata: 29 },
     ],
     psy: [
       { name: 'Psy Frame', dfp: 3, evp: 5, mst: 6, tp: 5 },
@@ -454,6 +472,8 @@ const ARMOR_TABLE: Record<'frame' | 'barrier', Record<Exclude<ArmorLine, 'basic'
       { name: 'Ethereal Garment', dfp: 32, evp: 42, mst: 66, tp: 61 },
       { name: 'Celestial Garment', dfp: 40, evp: 52, mst: 81, tp: 75 },
       { name: 'Divine Garment', dfp: 49, evp: 63, mst: 97, tp: 90 },
+      { name: 'Seraphic Garment', dfp: 58, evp: 75, mst: 114, tp: 106 },
+      { name: 'Empyrean Garment', dfp: 68, evp: 88, mst: 132, tp: 123 },
     ],
   },
   barrier: {
@@ -467,6 +487,8 @@ const ARMOR_TABLE: Record<'frame' | 'barrier', Record<Exclude<ArmorLine, 'basic'
       { name: 'Fortress Shield', dfp: 59, evp: 27, atp: 6 },
       { name: 'Citadel Shield', dfp: 72, evp: 33, atp: 7 },
       { name: 'Aegis Shield', dfp: 86, evp: 40, atp: 8 },
+      { name: 'Bulwark Shield', dfp: 101, evp: 47, atp: 9 },
+      { name: 'Paragon Shield', dfp: 117, evp: 55, atp: 10 },
     ],
     combat: [
       { name: 'Combat Barrier', dfp: 3, evp: 7, atp: 1, ata: 1 },
@@ -478,6 +500,8 @@ const ARMOR_TABLE: Record<'frame' | 'barrier', Record<Exclude<ArmorLine, 'basic'
       { name: 'Paladin Shield', dfp: 37, evp: 53, atp: 19, ata: 12 },
       { name: 'Sentinel Shield', dfp: 46, evp: 65, atp: 23, ata: 14 },
       { name: 'Warlord Shield', dfp: 56, evp: 78, atp: 28, ata: 16 },
+      { name: 'Champion Shield', dfp: 67, evp: 92, atp: 33, ata: 18 },
+      { name: 'Legend Shield', dfp: 79, evp: 107, atp: 38, ata: 20 },
     ],
     psy: [
       { name: 'Psy Barrier', dfp: 2, evp: 6, mst: 4, tp: 3 },
@@ -489,15 +513,17 @@ const ARMOR_TABLE: Record<'frame' | 'barrier', Record<Exclude<ArmorLine, 'basic'
       { name: 'Ethereal Shield', dfp: 28, evp: 48, mst: 42, tp: 36 },
       { name: 'Celestial Shield', dfp: 35, evp: 59, mst: 52, tp: 45 },
       { name: 'Divine Shield', dfp: 43, evp: 71, mst: 63, tp: 55 },
+      { name: 'Seraphic Shield', dfp: 52, evp: 84, mst: 75, tp: 66 },
+      { name: 'Empyrean Shield', dfp: 61, evp: 98, mst: 88, tp: 78 },
     ],
   },
 };
 export const ARMOR_REQ: Record<'atp' | 'ata' | 'mst', number[]> = {
-  atp: [0, 60, 84, 116, 148, 180, 212, 244, 276],
-  ata: [0, 79, 89, 104, 119, 133, 147, 161, 175],
-  mst: [0, 80, 104, 136, 168, 200, 232, 264, 296],
+  atp: [0, 60, 84, 116, 148, 180, 212, 244, 276, 308, 340],
+  ata: [0, 79, 89, 104, 119, 133, 147, 161, 175, 189, 203],
+  mst: [0, 80, 104, 136, 168, 200, 232, 264, 296, 328, 360],
 };
-const ARMOR_PRICE = [250, 800, 2400, 6500, 14000, 28000, 45000, 70000, 100000];
+const ARMOR_PRICE = [250, 800, 2400, 6500, 14000, 28000, 45000, 70000, 100000, 135000, 180000];
 for (const slot of ['frame', 'barrier'] as const) {
   for (const line of ['guard', 'combat', 'psy'] as const) {
     ARMOR_TABLE[slot][line].forEach((row, i) =>
@@ -509,48 +535,71 @@ for (const slot of ['frame', 'barrier'] as const) {
   }
 }
 add({ id: 'dragon_scale', type: 'armor', slot: 'barrier', line: 'basic', name: 'Dragon Scale', tier: 3, rare: true,
-  dfp: 22, evp: 18, req: 0, price: 15000, desc: 'A shield cut from a dragon scale. Any class can wear it.' });
+  dfp: 22, evp: 18, req: 0, price: 15000, desc: 'A shield cut from a dragon scale. No requirement: anyone can wear it.' });
 add({ id: 'rol_shell', type: 'armor', slot: 'barrier', line: 'basic', name: 'De Rol Le Shell', tier: 5, rare: true,
-  dfp: 32, evp: 26, req: 0, price: 26000, desc: "A plate of De Rol Le's armour. Any class can wear it." });
+  dfp: 32, evp: 26, req: 0, price: 26000, desc: "A plate of De Rol Le's armour. No requirement: anyone can wear it." });
 // Tier 6 standard barrier: weaker than the lines, but anyone can wear it.
 add({ id: 'barrier_6', type: 'armor', slot: 'barrier', line: 'basic', name: 'Photon Barrier', tier: 6,
   dfp: 30, evp: 30, req: 0, price: 24000, desc: 'A plain photon barrier anyone can wear.' });
 // Warden signature drop.
 add({ id: 'warden_core', type: 'armor', slot: 'barrier', line: 'basic', name: 'Warden Core', tier: 6, rare: true,
   dfp: 34, evp: 28, req: 0, price: 40000,
-  desc: "The Warden's reactor core, set into a barrier. Any class can wear it. Facility hazards and Burn hit you half as hard, and flipping a power switch braces you (30% less damage for 3 s)." });
+  desc: "The Warden's reactor core, set into a barrier. No requirement: anyone can wear it. Facility hazards and Burn hit you half as hard, and flipping a power switch braces you (30% less damage for 3 s)." });
 
-// Hard rares (tiers 7-9) and the Hard bosses' signature drops.
-add({ id: 'verdant_edge', type: 'weapon', name: 'Verdant Edge', kind: 'saber', tier: 7, rare: true,
-  atpMin: 300, atpMax: 400, ata: 60, maxGrind: 40, req: 210, special: 'draw', price: 60000,
+// Ruins rares (tier 7) and Dark Falz's signature drops.
+add({ id: 'brionac', type: 'weapon', name: 'Brionac', kind: 'partisan', tier: 7, rare: true,
+  atpMin: 400, atpMax: 500, ata: 45, req: 210, special: 'shock', price: 55000,
+  desc: 'A holy lance from the temple vaults. Shocks on heavy attacks.' });
+add({ id: 'holy_ray', type: 'weapon', name: 'Holy Ray', kind: 'rifle', tier: 7, rare: true,
+  atpMin: 330, atpMax: 430, ata: 110, req: 160, special: 'ice', price: 55000,
+  desc: 'Fires a beam of cold white light. Freezes on heavy attacks.' });
+add({ id: 'psycho_wand', type: 'weapon', name: 'Psycho Wand', kind: 'wand', tier: 7, rare: true,
+  atpMin: 150, atpMax: 220, ata: 60, req: 255, special: 'heat', mst: 55, price: 55000,
+  desc: 'A wand that hums with borrowed thought. Burns on heavy attacks.' });
+add({ id: 'dark_flow', type: 'weapon', name: 'Dark Flow', kind: 'sword', tier: 7, rare: true,
+  atpMin: 520, atpMax: 660, ata: 55, req: 210, special: 'draw', price: 70000,
+  desc: 'A blade of living darkness taken from Dark Falz. Heavy attacks drain life.' });
+add({ id: 'seal_of_light', type: 'armor', slot: 'barrier', line: 'basic', name: 'Seal of Light', tier: 7, rare: true,
+  dfp: 44, evp: 38, req: 0, price: 60000,
+  desc: 'The seal that once held Dark Falz. No requirement: anyone can wear it. Corruption takes half as much from you, and pylons you light burn 50% longer.' });
+
+// Nightmare rares (tiers 8-11) and the Nightmare bosses' signature drops. Each moved up a tier when the
+// Ruins took the Lv 32-42 band (the Nightmare expeditions moved up one with it).
+add({ id: 'verdant_edge', type: 'weapon', name: 'Verdant Edge', kind: 'saber', tier: 8, rare: true,
+  atpMin: 360, atpMax: 480, ata: 65, req: 240, special: 'draw', price: 85000,
   desc: 'A blade of living green photon from the deep Forest. Heavy attacks drain life.' });
-add({ id: 'thornshot', type: 'weapon', name: 'Thornshot', kind: 'shot', tier: 7, rare: true,
-  atpMin: 240, atpMax: 320, ata: 70, maxGrind: 40, req: 160, special: 'venom', price: 60000,
+add({ id: 'thornshot', type: 'weapon', name: 'Thornshot', kind: 'shot', tier: 8, rare: true,
+  atpMin: 285, atpMax: 380, ata: 75, req: 175, special: 'venom', price: 85000,
   desc: 'Sprays barbed, venomous thorns. Poisons on heavy attacks.' });
-add({ id: 'magma_blade', type: 'weapon', name: 'Magma Blade', kind: 'sword', tier: 8, rare: true,
-  atpMin: 620, atpMax: 780, ata: 50, maxGrind: 45, req: 240, special: 'heat', price: 90000,
+add({ id: 'magma_blade', type: 'weapon', name: 'Magma Blade', kind: 'sword', tier: 9, rare: true,
+  atpMin: 730, atpMax: 915, ata: 55, req: 270, special: 'heat', price: 125000,
   desc: "Forged in the Caves' deepest vents. Burns on heavy attacks." });
-add({ id: 'glacier_wand', type: 'weapon', name: 'Glacier Wand', kind: 'wand', tier: 8, rare: true,
-  atpMin: 180, atpMax: 260, ata: 55, maxGrind: 45, req: 285, special: 'ice', mst: 60, price: 90000,
+add({ id: 'glacier_wand', type: 'weapon', name: 'Glacier Wand', kind: 'wand', tier: 9, rare: true,
+  atpMin: 210, atpMax: 305, ata: 60, req: 315, special: 'ice', mst: 70, price: 125000,
   desc: 'A shard of cave ice that never melts. Freezes on heavy attacks.' });
-add({ id: 'overcharge_gatling', type: 'weapon', name: 'Overcharge Gatling', kind: 'mechgun', tier: 9, rare: true,
-  atpMin: 190, atpMax: 270, ata: 80, maxGrind: 50, req: 190, special: 'shock', price: 130000,
+add({ id: 'overcharge_gatling', type: 'weapon', name: 'Overcharge Gatling', kind: 'mechgun', tier: 10, rare: true,
+  atpMin: 220, atpMax: 315, ata: 85, req: 205, special: 'shock', price: 175000,
   desc: 'A Garanz autocannon run past its limits. Shocks on heavy attacks.' });
-add({ id: 'reactor_rod', type: 'weapon', name: 'Reactor Rod', kind: 'rod', tier: 9, rare: true,
-  atpMin: 360, atpMax: 460, ata: 45, maxGrind: 50, req: 315, special: 'heat', mst: 90, price: 130000,
+add({ id: 'reactor_rod', type: 'weapon', name: 'Reactor Rod', kind: 'rod', tier: 10, rare: true,
+  atpMin: 420, atpMax: 535, ata: 50, req: 345, special: 'heat', mst: 105, price: 175000,
   desc: "A control rod from the Mines' core. Burns on heavy attacks." });
-add({ id: 'elder_scale', type: 'armor', slot: 'barrier', line: 'basic', name: 'Elder Dragon Scale', tier: 7, rare: true,
-  dfp: 52, evp: 44, req: 0, price: 70000, desc: 'A scale from the Dragon on Nightmare. Any class can wear it.' });
-add({ id: 'abyssal_carapace', type: 'armor', slot: 'barrier', line: 'basic', name: 'Abyssal Carapace', tier: 8, rare: true,
-  dfp: 64, evp: 52, req: 0, price: 100000, desc: "A plate from De Rol Le's shell, taken on Nightmare. Any class can wear it." });
-add({ id: 'overseer_cannon', type: 'weapon', name: 'Overseer Cannon', kind: 'handgun', tier: 9, rare: true,
-  atpMin: 300, atpMax: 400, ata: 110, maxGrind: 50, req: 180, special: 'arc', price: 150000,
+add({ id: 'excalibur', type: 'weapon', name: 'Excalibur', kind: 'saber', tier: 11, rare: true,
+  atpMin: 560, atpMax: 750, ata: 80, req: 330, special: 'shock', price: 240000,
+  desc: 'The legendary photon sword, sealed in the deepest Ruins. Shocks on heavy attacks.' });
+add({ id: 'heaven_punisher', type: 'weapon', name: 'Heaven Punisher', kind: 'rifle', tier: 11, rare: true,
+  atpMin: 600, atpMax: 800, ata: 135, req: 220, special: 'ice', price: 240000,
+  desc: 'A judgement-white beam rifle. Freezes on heavy attacks.' });
+add({ id: 'elder_scale', type: 'armor', slot: 'barrier', line: 'basic', name: 'Elder Dragon Scale', tier: 8, rare: true,
+  dfp: 60, evp: 51, req: 0, price: 95000, desc: 'A scale from the Dragon on Nightmare. No requirement: anyone can wear it.' });
+add({ id: 'abyssal_carapace', type: 'armor', slot: 'barrier', line: 'basic', name: 'Abyssal Carapace', tier: 9, rare: true,
+  dfp: 74, evp: 60, req: 0, price: 130000, desc: "A plate from De Rol Le's shell, taken on Nightmare. No requirement: anyone can wear it." });
+add({ id: 'overseer_cannon', type: 'weapon', name: 'Overseer Cannon', kind: 'handgun', tier: 10, rare: true,
+  atpMin: 350, atpMax: 465, ata: 120, req: 195, special: 'arc', price: 190000,
   desc: "The Warden's hand cannon, taken on Nightmare and rebuilt as a sidearm. Heavy shots can arc on to two more enemies nearby and stun them." });
+add({ id: 'falz_halo', type: 'armor', slot: 'barrier', line: 'basic', name: 'Falz Halo', tier: 11, rare: true,
+  dfp: 90, evp: 78, req: 0, price: 220000,
+  desc: "The Angel's halo, taken on Nightmare. No requirement: anyone can wear it. Corruption takes half as much from you, and pylons you light burn 50% longer." });
 
-add({ id: 'trimate', type: 'consumable', name: 'Trimate', effect: 'refillMate', price: 2000, fieldOnly: true, maxStack: 3,
-  desc: 'Refills every equipped Mate injector. Carry up to 3.' });
-add({ id: 'trifluid', type: 'consumable', name: 'Trifluid', effect: 'refillFluid', price: 2000, fieldOnly: true, maxStack: 3,
-  desc: 'Refills every equipped Fluid injector. Carry up to 3.' });
 add({ id: 'telepipe', type: 'consumable', name: 'Telepipe', effect: 'telepipe', price: 350, fieldOnly: true,
   desc: 'A long cast (any hit or step breaks it) that opens a portal to Pioneer 2. Step back through it from the city to return here; then it closes.' });
 
@@ -558,12 +607,12 @@ add({ id: 'telepipe', type: 'consumable', name: 'Telepipe', effect: 'telepipe', 
 export const INJECTOR_DOSES = 3;
 // Fluid restores a smaller share: TP pools grow faster than HP, and a Force's techs are its HP too (Resta).
 // Tier 6 drops only on Hard (bosses and champions).
-const INJECTOR_POTENCY: Record<InjectorKind, number[]> = { mate: [0.3, 0.33, 0.36, 0.39, 0.42, 0.47], fluid: [0.22, 0.25, 0.28, 0.31, 0.34, 0.38] };
+const INJECTOR_POTENCY: Record<InjectorKind, number[]> = { mate: [0.3, 0.33, 0.36, 0.39, 0.42, 0.47], fluid: [0.3, 0.31, 0.32, 0.33, 0.34, 0.38] };
 const INJECTOR_NAMES: Record<InjectorKind, string[]> = {
   mate: ['Mate Injector', 'Dimate Injector', 'Hi-Mate Injector', 'Star Mate Injector', 'Grand Mate Injector', 'Prime Mate Injector'],
   fluid: ['Fluid Injector', 'Difluid Injector', 'Hi-Fluid Injector', 'Star Fluid Injector', 'Grand Fluid Injector', 'Prime Fluid Injector'],
 };
-/** Base requirement (DFP for Mate, MST for Fluid): Hunters reach Mate T3-5 around Lv 8 / 16 / 25, Forces Fluid T3-5 around Lv 6 / 15 / 23. */
+/** Base requirement (DFP for Mate, MST for Fluid): a Hunter-like build reaches Mate T3-5 around Lv 8 / 16 / 25, an all-MIND one Fluid T3-5 around Lv 6 / 15 / 23. */
 export const INJECTOR_REQ: Record<InjectorKind, number[]> = { mate: [0, 0, 45, 70, 95, 125], fluid: [0, 0, 80, 115, 150, 200] };
 const INJECTOR_PRICE = [300, 1200, 3500, 8000, 16000, 32000];
 for (const kind of ['mate', 'fluid'] as const) {
@@ -572,25 +621,10 @@ for (const kind of ['mate', 'fluid'] as const) {
   );
 }
 
-/** Consumables removed with the injector rework, and what a save gets back for each (their old price). */
-export const LEGACY_REFUND: Record<string, number> = {
-  monomate: 50, dimate: 300, monofluid: 100, difluid: 500, antidote: 60, antiparalysis: 80, moon_atomizer: 500, scape_doll: 5000,
-};
-
-add({ id: 'monogrinder', type: 'grinder', name: 'Monogrinder', amount: 1, price: 1600, desc: 'Grinds a weapon by +1: more ATP and ATA, and more MST on canes, rods and wands.' });
-add({ id: 'digrinder', type: 'grinder', name: 'Digrinder', amount: 2, price: 3600, desc: 'Grinds a weapon by +2: more ATP and ATA, and more MST on canes, rods and wands.' });
-add({ id: 'trigrinder', type: 'grinder', name: 'Trigrinder', amount: 3, price: 8000, desc: 'Grinds a weapon by +3: more ATP and ATA, and more MST on canes, rods and wands.' });
-
-/**
- * Technique disks were removed (every class knows every technique; MST scales them). A save gets
- * back what selling a leftover disk would have paid (a quarter of its old price), or null if `id`
- * isn't a disk.
- */
-export function legacyDiskRefund(id: string): number | null {
-  const m = /^disk_[a-z]+_(\d+)$/.exec(id);
-  if (!m) return null;
-  return Math.floor(Math.round((300 * Math.pow(1.45, Number(m[1]) - 1)) / 10) * 10 / 4);
-}
+const GRINDER_DESC = 'Pick where each level goes: Edge (more ATP, ATA and MST, against everything) or one race (more damage against it only).';
+add({ id: 'monogrinder', type: 'grinder', name: 'Monogrinder', amount: 1, price: 1600, desc: GRINDER_DESC });
+add({ id: 'digrinder', type: 'grinder', name: 'Digrinder', amount: 2, price: 3600, desc: `${GRINDER_DESC} Both levels go to the same pick.` });
+add({ id: 'trigrinder', type: 'grinder', name: 'Trigrinder', amount: 3, price: 8000, desc: `${GRINDER_DESC} All three levels go to the same pick.` });
 
 export function getDef(id: string): ItemDef {
   const d = itemDefs[id];

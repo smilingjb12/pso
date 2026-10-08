@@ -1,9 +1,11 @@
-import type { CharacterData } from './character';
+import { SAVE_VERSION, type CharacterData } from './character';
 
 // localStorage-backed save slots. All access is guarded: storage can be
 // unavailable (private mode, blocked site data) and the game must still run.
 
-const KEY = 'pso-like-save-v1';
+const KEY = 'pso-like-save-v2';
+/** Saves from before classes were removed: deleted on first load, not migrated. */
+const OLD_KEYS = ['pso-like-save-v1'];
 export const SLOT_COUNT = 3;
 
 interface SaveFile {
@@ -12,11 +14,13 @@ interface SaveFile {
 
 function read(): SaveFile {
   try {
+    for (const k of OLD_KEYS) localStorage.removeItem(k);
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as SaveFile;
       if (Array.isArray(parsed.slots)) {
         while (parsed.slots.length < SLOT_COUNT) parsed.slots.push(null);
+        parsed.slots = parsed.slots.map((s) => (s && s.version === SAVE_VERSION ? s : null));
         return parsed;
       }
     }

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { sfx } from '../../audio';
 import { expeditionOf, isCounter, type ExpeditionId, type SpawnDef } from '../data/areas';
 import {
-  affixes as affixCfg, ai, dash as dashCfg, elite as eliteCfg, enemies as enemyDefs, hard as hardCfg, hazards as hazardCfg, machinery as machineCfg, panArms as panCfg,
+  affixes as affixCfg, ai, dash as dashCfg, elite as eliteCfg, enemies as enemyDefs, hard as hardCfg, hazards as hazardCfg, machinery as machineCfg, panArms as panCfg, pylonCfg,
   type EnemyArchetype, type EnemyId,
 } from '../config';
 import { AFFIXES, MINES_AFFIXES, rollAffixes } from '../data/affixes';
@@ -20,6 +20,7 @@ import type { Enemy, EnemyContext, EnemyOptions } from '../enemies/Enemy';
 import { ControlNode, Gunbot } from '../enemies/mineEnemies';
 import { createEnemy } from '../enemies/spawn';
 import { Warden } from '../enemies/Warden';
+import { DarkFalz } from '../enemies/DarkFalz';
 import type { Player } from '../Player';
 import { Breakable } from './Breakable';
 import { Pillar, Ring, type Effect } from './Effects';
@@ -28,6 +29,7 @@ import { Interactable } from './Interactable';
 import { Level, TILE, type RoomRuntime } from './Level';
 import { Conveyor, Crusher, LaserFence, type Machine, type MachineHooks } from './Machinery';
 import { Pickup, type PickupContent } from './Pickup';
+import { Pylon } from './Pylon';
 import { Projectile, type ProjectileSpec } from './Projectile';
 import { Telegraph, type TelegraphShape } from './Telegraph';
 
@@ -132,6 +134,8 @@ export class World {
   readonly effects: Effect[] = [];
   /** Mines machinery, and the state of each power circuit (true = flipped from its default). */
   readonly machines: Machine[] = [];
+  /** Ruins light pylons. */
+  readonly pylons: Pylon[] = [];
   private circuits = new Map<string, boolean>();
   private links: NodeLink[] = [];
   /** Volatile elites whose death blast has been set off. */
@@ -215,13 +219,25 @@ export class World {
         this.pools.push(p);
         this.group.add(p.group);
       }
+      // Ruins light pylons, glowing in the area's light colour.
+      for (const [tx, tz] of r.pylons ?? []) {
+        const stone = new THREE.Color(def.theme.wall).lerp(new THREE.Color(0xffffff), 0.35).getHex();
+        const p = new Pylon(X(tx), Z(tz), r.id, def.theme.accent3 ?? 0xffe6a0, stone);
+        this.pylons.push(p);
+        this.group.add(p.group);
+        this.interactables.push(p.interactable);
+      }
     }
 
     if (def.kind === 'boss' && !run.bossDefeated) {
       const c = this.level.center();
       const rect = this.level.rooms[0].rect;
       const hs = run.hard ? hardBoss(def.boss ?? 'dragon') : null;
-      this.boss = def.boss === 'derolle' ? new DeRolLe(rect, hs) : def.boss === 'warden' ? new Warden(rect, hs) : new Dragon(c.x, c.z - 6, hs);
+      this.boss =
+        def.boss === 'derolle' ? new DeRolLe(rect, hs)
+        : def.boss === 'warden' ? new Warden(rect, hs)
+        : def.boss === 'falz' ? new DarkFalz(rect, hs)
+        : new Dragon(c.x, c.z - 6, hs);
       this.group.add(...this.boss.objects);
     }
     if (def.kind === 'boss' && run.bossDefeated) this.spawnReturnTeleporter();
@@ -405,6 +421,66 @@ export class World {
       l.tether.material.opacity = off ? 0.5 + Math.sin(performance.now() / 60) * 0.3 : 0.3;
     }
     if (fallen.size) this.hooks.onEvent('Control node destroyed: its gunbots shut down!');
+  }
+
+  // ------------------------------------------------------------ pylons
+
+  /** Is a point (with this radius) in light: a lit pylon's circle, or light the boss left (Grants)? */
+  lightAt(x: number, z: number, r = 0): boolean {
+    return this.pylons.some((p) => p.inside(x, z, r)) || !!this.boss?.lightAt?.(x, z, r);
+  }
+
+  /** The pylon behind an interactable. */
+  pylonOf(it: Interactable): Pylon | null {
+    return this.pylons.find((p) => p.interactable === it) ?? null;
+  }
+
+  /** A lit pylon in this enemy's room that nobody is draining yet. */
+  litPylon(e: Enemy): { id: number; x: number; z: number } | null {
+    const p = this.pylons.find((q) => q.lit && q.snuffK <= 0 && (q.room === e.room || !e.room));
+    return p ? { id: p.id, x: p.pos.x, z: p.pos.z } : null;
+  }
+
+  /** A Sorcerer's drain on a pylon: progress 0..1 (1 puts it out), -1 calls it off. */
+  snuffPylon(id: number, k: number): void {
+    const p = this.pylons.find((q) => q.id === id);
+    if (!p) return;
+    if (k < 0) {
+      p.snuffK = 0;
+      return;
+    }
+    p.snuffK = k;
+    if (k >= 1) {
+      p.snuff();
+      this.addEffect(new Ring(p.pos.x, p.pos.z, 0x8040c0, pylonCfg.radius, 0.6));
+      this.hooks.onEvent('A Chaos Sorcerer snuffed out the pylon!');
+    }
+  }
+
+  /**
+   * A free spot about `dist` m from (x, z), inside the enemy's room and off walls, props and pylons
+   * (Sorcerer blinks). Tries a ring of directions, starting from the side the enemy is on.
+   */
+  blinkSpot(e: Enemy, x: number, z: number, dist: number): [number, number] | null {
+    const rect = this.level.rooms.find((r) => r.def.id === e.room)?.rect ?? this.level.roomAt(e.pos.x, e.pos.z)?.rect;
+    const start = Math.atan2(e.pos.x - x, e.pos.z - z);
+    for (let i = 0; i < 12; i++) {
+      const a = start + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * (Math.PI / 6) + (this.hooks.rng() - 0.5) * 0.3;
+      const px = x + Math.sin(a) * dist;
+      const pz = z + Math.cos(a) * dist;
+      if (rect && (px < rect.minX + 1.4 || px > rect.maxX - 1.4 || pz < rect.minZ + 1.4 || pz > rect.maxZ - 1.4)) continue;
+      if (this.level.isSolidAt(px, pz) || this.level.trees.some((t) => Math.hypot(t.x - px, t.z - pz) < t.r + 1)) continue;
+      return [px, pz];
+    }
+    return null;
+  }
+
+  /** Metres from (x, z) along `yaw` before a wall (or a closed gate), up to `max`. */
+  reach(x: number, z: number, yaw: number, max: number): number {
+    const dx = Math.sin(yaw);
+    const dz = Math.cos(yaw);
+    for (let d = 0.5; d <= max; d += 0.5) if (this.level.isSolidAt(x + dx * d, z + dz * d)) return d - 0.5;
+    return max;
   }
 
   // ------------------------------------------------------------- power
@@ -741,8 +817,8 @@ export class World {
       } else if (opts.elite && hard) {
         opts.affixes = rollAffixes(1, arch, rng);
       } else if (opts.elite && this.def.affixes) {
-        // Normal Mines elites roll a machine affix.
-        opts.affixes = rollAffixes(1, arch, rng, MINES_AFFIXES);
+        // Normal Mines elites roll a machine affix, Ruins elites a dark one.
+        opts.affixes = rollAffixes(1, arch, rng, this.def.affixPool ?? MINES_AFFIXES);
       }
       let x: number;
       let z: number;
@@ -976,7 +1052,16 @@ export class World {
       bctx.playerAlive = player.alive;
       this.boss.update(dt, bctx);
       this.boss.collide(player.pos, player.radius, this.level);
+      if (this.boss.setLit) {
+        const boss = this.boss;
+        boss.setLit?.(boss.alive && boss.parts().some((p) => this.pylons.some((q) => q.inside(p.pos.x, p.pos.z, p.radius * 0.5))));
+      }
     }
+
+    // Pylon light (and any light the boss leaves): cleanses the player, slows and exposes Dark enemies.
+    for (const p of this.pylons) p.update(dt);
+    player.inLight = player.alive && this.lightAt(player.pos.x, player.pos.z, player.radius);
+    for (const e of this.enemies) e.lit = e.alive && e.race === 'dark' && this.lightAt(e.pos.x, e.pos.z, e.radius * 0.5);
 
     // Hazards.
     let slow = 1;

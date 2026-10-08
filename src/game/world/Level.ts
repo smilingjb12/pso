@@ -3,7 +3,7 @@ import { resolveCircleBoxes, type Box2 } from '../collision';
 import type { AreaDef, FeatureDef, RoomDef } from '../data/areas';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { neutralPropGeometry, propGeometry, propMaterial, type PropKind } from '../models/props';
-import { warden as wardenCfg } from '../config';
+import { darkFalz as falzCfg, pylonCfg, warden as wardenCfg } from '../config';
 import { glowMaterial, glowSprite, glowTexture } from './glow';
 
 export const TILE = 2;
@@ -171,6 +171,11 @@ export class Level {
       }
       for (const c of r.conveyors ?? []) {
         this.hazardSpots.push({ x: (x0 + c.tx + c.w / 2) * TILE, z: (z0 + c.tz + c.h / 2) * TILE, r: (Math.hypot(c.w, c.h) / 2) * TILE });
+      }
+      // Ruins pylons are solid, and props and boxes keep clear of them.
+      for (const [tx, tz] of r.pylons ?? []) {
+        this.hazardSpots.push({ x: (x0 + tx) * TILE, z: (z0 + tz) * TILE, r: 2.2 });
+        this.trees.push({ x: (x0 + tx) * TILE, z: (z0 + tz) * TILE, r: 0.85 });
       }
     }
     for (const link of def.links) this.carveLink(link.a, link.b, link.lock);
@@ -358,6 +363,9 @@ export class Level {
     const cave = t.scenery === 'volcanic' || t.scenery === 'marsh';
     const river = t.scenery === 'river';
     const mine = t.scenery === 'foundry' || t.scenery === 'control' || t.scenery === 'warden';
+    const temple = t.scenery === 'temple' || t.scenery === 'sanctum';
+    // The Dark Falz altar floats over the void: no tiles or walls, the scenery builds a round platform.
+    const altar = t.scenery === 'altar';
     // Forest, cave and lair edges are uneven rock/earth; the city gets flat walls.
     const rugged = t.trees || lair || cave;
     const floorRng = mulberry32(hashString(`${this.def.id}:floor`));
@@ -366,6 +374,10 @@ export class Level {
     let wi = 0;
     for (let z = 0; z < this.height; z++)
       for (let x = 0; x < this.width; x++) {
+        if (altar) {
+          this.wallH[z * this.width + x] = -100;
+          continue;
+        }
         if (this.isFloor(x, z)) {
           m.makeTranslation((x + 0.5) * TILE, -0.1, (z + 0.5) * TILE);
           floorMesh.setMatrixAt(fi, m);
@@ -378,6 +390,12 @@ export class Level {
             // Deck plates: a checker with a little wear per plate.
             floorColor.copy((x + z) % 2 === 0 ? c1 : c2).offsetHSL(0, 0, (floorRng() - 0.5) * 0.03);
             floorMesh.setColorAt(fi, floorColor);
+          } else if (temple) {
+            // Big flagstones (2 x 2 tiles), each a little different, with the odd inlaid slab.
+            const slab = (Math.floor(x / 2) + Math.floor(z / 2)) % 2 === 0;
+            floorColor.copy(slab ? c1 : c2).offsetHSL(0, 0, (floorRng() - 0.5) * 0.05);
+            if (x % 6 === 3 && z % 6 === 3 && t.accent3 !== undefined) floorColor.lerp(new THREE.Color(t.accent3), 0.18);
+            floorMesh.setColorAt(fi, floorColor);
           }
           else floorMesh.setColorAt(fi, (x + z) % 2 === 0 ? c1 : c2);
           fi++;
@@ -386,26 +404,30 @@ export class Level {
           this.wallH[z * this.width + x] = -100;
         } else if (this.touchesFloor(x, z)) {
           // Mines walls are flat panels with the odd taller buttress.
-          const h = rugged ? t.wallHeight + wallRng() * (lair || cave ? 2.2 : 0.9) : mine && wallRng() < 0.18 ? t.wallHeight + 1.6 : t.wallHeight;
+          const h = rugged
+            ? t.wallHeight + wallRng() * (lair || cave ? 2.2 : 0.9)
+            : (mine && wallRng() < 0.18) || (temple && (x + z) % 4 === 0) ? t.wallHeight + 1.6 : t.wallHeight;
           this.wallH[z * this.width + x] = h;
           m.compose(new THREE.Vector3((x + 0.5) * TILE, 0, (z + 0.5) * TILE), new THREE.Quaternion(), new THREE.Vector3(1, h, 1));
           wallMesh.setMatrixAt(wi, m);
           wallColor.set(t.wall);
-          if (rugged || mine) wallColor.offsetHSL((wallRng() - 0.5) * 0.02, 0, (wallRng() - 0.5) * (mine ? 0.04 : 0.06));
+          if (rugged || mine || temple) wallColor.offsetHSL((wallRng() - 0.5) * 0.02, 0, (wallRng() - 0.5) * (mine ? 0.04 : 0.06));
           wallMesh.setColorAt(wi, wallColor);
           wi++;
         } else {
           this.wallH[z * this.width + x] = t.wallHeight;
         }
       }
-    this.group.add(floorMesh);
-    if (!river) this.group.add(wallMesh);
+    if (!altar) this.group.add(floorMesh);
+    if (!river && !altar) this.group.add(wallMesh);
 
     if (t.trees) this.buildForestScenery();
     if (lair) this.buildLairScenery();
     if (cave) this.buildCaveScenery(t.scenery === 'volcanic');
     if (river) this.buildRiverScenery();
     if (mine) this.buildMineScenery(t.scenery as 'foundry' | 'control' | 'warden');
+    if (temple) this.buildTempleScenery(t.scenery === 'sanctum');
+    if (altar) this.buildAltarScenery();
   }
 
   /** Animate scenery (called by the world every frame). */
@@ -1258,6 +1280,309 @@ export class Level {
   }
 
   /**
+   * Ruins dressing (both floors): an ancient temple of pale stone lit from within. Columns stand along
+   * the wall tops and against the room edges (solid, some broken), glyph bands glow along every wall,
+   * a faint ring marks each pylon's reach and an inlaid circle the middle of each room; ruined spires
+   * and floating stones make the skyline, and gold dust drifts up. The sanctum adds floating shards.
+   */
+  private buildTempleScenery(sanctum: boolean): void {
+    const rng = mulberry32(hashString(`${this.def.id}:temple`));
+    const t = this.def.theme;
+    const accent = t.accent ?? 0xffd070;
+    const accent2 = t.accent2 ?? accent;
+    const accent3 = t.accent3 ?? accent;
+    const stone = new THREE.Color(t.wall).lerp(new THREE.Color(0xffffff), 0.3);
+    const stoneMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, flatShading: true });
+    const gateCenters = this.gates.map((g) => [((g.tiles[0][0] + g.tiles[1][0]) / 2 + 0.5) * TILE, ((g.tiles[0][1] + g.tiles[1][1]) / 2 + 0.5) * TILE]);
+    const solids: { x: number; z: number; r: number }[] = [];
+    const clear = (x: number, z: number, r: number) =>
+      !solids.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + r + 0.5) &&
+      !this.features.some((f) => Math.hypot(f.x - x, f.z - z) < 2.8 + r) &&
+      !this.boxSpots.some((b) => Math.hypot(b.x - x, b.z - z) < 1.2 + r) &&
+      !this.hazardSpots.some((h) => Math.hypot(h.x - x, h.z - z) < h.r + r + 0.4) &&
+      !gateCenters.some(([gx, gz]) => Math.hypot(gx - x, gz - z) < r + 4.5);
+
+    // Columns: a plinth, a shaft (stretched to the height) and a capital, each instanced on its own so
+    // only the shaft stretches.
+    const plinthGeo = mergeGeometries([new THREE.BoxGeometry(1.1, 0.3, 1.1).translate(0, 0.15, 0), new THREE.BoxGeometry(0.9, 0.18, 0.9).translate(0, 0.39, 0)])!;
+    const shaftGeo = new THREE.CylinderGeometry(0.34, 0.4, 1, 10).translate(0, 0.5, 0);
+    const capitalGeo = mergeGeometries([new THREE.CylinderGeometry(0.55, 0.38, 0.25, 10).translate(0, 0.12, 0), new THREE.BoxGeometry(1.05, 0.2, 1.05).translate(0, 0.34, 0)])!;
+    const plinths: THREE.Matrix4[] = [];
+    const shafts: THREE.Matrix4[] = [];
+    const capitals: THREE.Matrix4[] = [];
+    const rubble: THREE.Matrix4[] = [];
+    const spires: THREE.Matrix4[] = [];
+    const put = (list: THREE.Matrix4[], x: number, y: number, z: number, sx: number, sy: number, yaw: number) =>
+      list.push(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), new THREE.Vector3(sx, sy, sx)));
+    /** A column `h` m tall (w: thickness), or a broken stump without its capital. */
+    const column = (x: number, z: number, h: number, w = 1, brokenOff = false) => {
+      const yaw = rng() * Math.PI;
+      put(plinths, x, 0, z, w, 1, yaw);
+      put(shafts, x, 0.48, z, w, h - 0.48 - (brokenOff ? 0 : 0.45), yaw);
+      if (!brokenOff) put(capitals, x, h - 0.45, z, w, 1, yaw);
+    };
+    const col = (list: THREE.Matrix4[], x: number, y: number, z: number, h: number, w = 1, yaw = rng() * Math.PI) => put(list, x, y, z, w, h, yaw);
+
+    for (let tz = 0; tz < this.height; tz++)
+      for (let tx = 0; tx < this.width; tx++) {
+        if (this.isFloor(tx, tz)) continue;
+        const d = this.floorDistance(tx, tz);
+        const x = (tx + 0.5) * TILE;
+        const z = (tz + 0.5) * TILE;
+        if (d === 1) {
+          const h = this.wallH[tz * this.width + tx];
+          // Columns rising from the wall line every few tiles.
+          if ((tx + tz) % 4 === 0) column(x, z, h + 1.6, 1.3);
+        } else if (d === 2 && rng() < 0.18) {
+          col(spires, x + (rng() - 0.5), 0, z + (rng() - 0.5), 6 + rng() * 6, 0.8 + rng() * 0.6);
+        } else if (d === 3 && rng() < 0.22) {
+          col(spires, x + (rng() - 0.5), 0, z + (rng() - 0.5), 8 + rng() * 9, 1 + rng() * 0.8);
+        }
+      }
+
+    // Columns (some broken) and rubble against each room's edges.
+    for (const room of this.rooms) {
+      const q = room.rect;
+      const area = ((q.maxX - q.minX) * (q.maxZ - q.minZ)) / 4;
+      for (let i = 0; i < Math.round(area / 50); i++) {
+        for (let a = 0; a < 20; a++) {
+          const side = Math.floor(rng() * 4);
+          const inset = 1.3 + rng() * 0.5;
+          const x = side < 2 ? q.minX + 2 + rng() * (q.maxX - q.minX - 4) : side === 2 ? q.minX + inset : q.maxX - inset;
+          const z = side >= 2 ? q.minZ + 2 + rng() * (q.maxZ - q.minZ - 4) : side === 0 ? q.minZ + inset : q.maxZ - inset;
+          if (!clear(x, z, 0.8)) continue;
+          if (rng() < 0.6) column(x, z, 3.4 + rng() * 1.6);
+          else {
+            column(x, z, 1.0 + rng() * 1.8, 1, true);
+            for (let r = 0; r < 3; r++) col(rubble, x + (rng() - 0.5) * 2.2, 0.15, z + (rng() - 0.5) * 2.2, 0.3 + rng() * 0.3, 0.4 + rng() * 0.4);
+          }
+          solids.push({ x, z, r: 0.75 });
+          this.trees.push({ x, z, r: 0.6 });
+          break;
+        }
+      }
+    }
+    this.solidClutter = solids;
+    const stoneColor = new THREE.Color();
+    const addInstanced = (geo: THREE.BufferGeometry, list: THREE.Matrix4[], shadow: boolean) => {
+      if (!list.length) return;
+      const mesh = new THREE.InstancedMesh(geo, stoneMat, list.length);
+      list.forEach((m, i) => {
+        mesh.setMatrixAt(i, m);
+        mesh.setColorAt(i, stoneColor.copy(stone).offsetHSL((rng() - 0.5) * 0.02, 0, (rng() - 0.5) * 0.08));
+      });
+      mesh.castShadow = shadow;
+      mesh.receiveShadow = true;
+      this.group.add(mesh);
+    };
+    addInstanced(plinthGeo, plinths, true);
+    addInstanced(shaftGeo, shafts, true);
+    addInstanced(capitalGeo, capitals, true);
+    addInstanced(new THREE.DodecahedronGeometry(0.5, 0), rubble, false);
+    addInstanced(new THREE.CylinderGeometry(0.15, 0.6, 1, 5).translate(0, 0.5, 0), spires, false);
+
+    // Glyph bands along every wall face, and a gold rim along the wall tops.
+    const glyphs: THREE.BufferGeometry[] = [];
+    const rims: THREE.BufferGeometry[] = [];
+    for (let tz = 0; tz < this.height; tz++)
+      for (let tx = 0; tx < this.width; tx++) {
+        if (!this.isFloor(tx, tz)) continue;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          if (this.isFloor(tx + dx, tz + dz)) continue;
+          const fx = (tx + 0.5 + dx * 0.5) * TILE - dx * 0.04;
+          const fz = (tz + 0.5 + dz * 0.5) * TILE - dz * 0.04;
+          const yaw = Math.atan2(-dx, -dz);
+          glyphs.push(new THREE.PlaneGeometry(TILE, 0.55).rotateY(yaw).translate(fx, 2.2, fz));
+          if (sanctum) glyphs.push(new THREE.PlaneGeometry(TILE, 0.3).rotateY(yaw).translate(fx, 4.2, fz));
+          rims.push(new THREE.BoxGeometry(dx !== 0 ? 0.06 : TILE, 0.07, dx !== 0 ? TILE : 0.06).translate(fx, 0.4, fz));
+        }
+      }
+    if (glyphs.length) {
+      const glyphMat = new THREE.MeshBasicMaterial({ map: signTexture(), color: accent, transparent: true, opacity: 0.7, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+      this.group.add(new THREE.Mesh(mergeGeometries(glyphs)!, glyphMat));
+      this.animators.push((_dt, time) => (glyphMat.opacity = 0.55 + Math.sin(time * 0.8) * 0.12));
+      this.group.add(new THREE.Mesh(mergeGeometries(rims)!, new THREE.MeshBasicMaterial({ color: new THREE.Color(accent2).multiplyScalar(0.85) })));
+    }
+
+    // Floor inlays: an inlaid circle in each room's middle, and a faint ring at every pylon's reach.
+    const inlays: THREE.BufferGeometry[] = [];
+    for (const room of this.rooms) {
+      const q = room.rect;
+      const cx = (q.minX + q.maxX) / 2;
+      const cz = (q.minZ + q.maxZ) / 2;
+      const r = Math.min(q.maxX - q.minX, q.maxZ - q.minZ) * 0.3;
+      if (!(room.def.pylons ?? []).some(([px, pz]) => Math.hypot(q.minX + px * TILE - cx, q.minZ + pz * TILE - cz) < r + 1)) {
+        inlays.push(tinted(new THREE.RingGeometry(r - 0.08, r, 48).rotateX(-Math.PI / 2).translate(cx, 0.021, cz), accent3));
+        inlays.push(tinted(new THREE.RingGeometry(r * 0.55 - 0.06, r * 0.55, 6).rotateX(-Math.PI / 2).translate(cx, 0.021, cz), accent3));
+      }
+      for (const [px, pz] of room.def.pylons ?? []) {
+        const x = q.minX + px * TILE;
+        const z = q.minZ + pz * TILE;
+        inlays.push(tinted(new THREE.RingGeometry(pylonCfg.radius - 0.06, pylonCfg.radius, 64).rotateX(-Math.PI / 2).translate(x, 0.022, z), accent3));
+      }
+    }
+    if (inlays.length) {
+      const inlayMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.3, depthWrite: false, blending: THREE.AdditiveBlending });
+      const mesh = new THREE.Mesh(mergeGeometries(inlays)!, inlayMat);
+      mesh.renderOrder = 1;
+      this.group.add(mesh);
+      this.animators.push((_dt, time) => (inlayMat.opacity = 0.24 + Math.sin(time * 1.1) * 0.06));
+    }
+
+    // Floating stones beyond the walls (and shards over the sanctum's rooms), bobbing slowly.
+    const floaters: { m: THREE.Mesh; y: number; phase: number; spin: number }[] = [];
+    const floatGeo = new THREE.OctahedronGeometry(1, 0);
+    const shardMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(accent2).multiplyScalar(0.8) });
+    for (let i = 0; i < (sanctum ? 26 : 14); i++) {
+      const q = this.rooms[Math.floor(rng() * this.rooms.length)].rect;
+      const inside = sanctum && i % 2 === 0;
+      const x = inside ? q.minX + rng() * (q.maxX - q.minX) : q.minX - 6 + rng() * (q.maxX - q.minX + 12);
+      const z = inside ? q.minZ + rng() * (q.maxZ - q.minZ) : q.minZ - 6 + rng() * (q.maxZ - q.minZ + 12);
+      const y = inside ? 6.5 + rng() * 3 : 8 + rng() * 8;
+      const s = inside ? 0.3 + rng() * 0.4 : 0.8 + rng() * 1.8;
+      const m = new THREE.Mesh(floatGeo, inside ? shardMat : stoneMat);
+      m.scale.set(s, s * (inside ? 2.2 : 0.7 + rng() * 0.6), s);
+      m.position.set(x, y, z);
+      m.rotation.set(rng() * 0.6, rng() * 6, rng() * 0.6);
+      this.group.add(m);
+      floaters.push({ m, y, phase: rng() * 6, spin: (rng() - 0.5) * 0.3 });
+    }
+    this.animators.push((dt, time) => {
+      for (const f of floaters) {
+        f.m.position.y = f.y + Math.sin(time * 0.5 + f.phase) * 0.5;
+        f.m.rotation.y += f.spin * dt;
+      }
+    });
+
+    this.addDust(this.rooms.map((r) => r.rect), t.motes ?? accent3, 9, 0.12);
+  }
+
+  /**
+   * The Dark Falz arena: a round altar of pale stone floating over the void, with glowing inlaid
+   * rings and spokes, a glyph band round its edge, and broken stones drifting around and below it.
+   */
+  private buildAltarScenery(): void {
+    const rng = mulberry32(hashString(`${this.def.id}:altar`));
+    const t = this.def.theme;
+    const accent = t.accent ?? 0xffd070;
+    const accent2 = t.accent2 ?? accent;
+    const accent3 = t.accent3 ?? accent;
+    const q = this.rooms[0].rect;
+    const cx = (q.minX + q.maxX) / 2;
+    const cz = (q.minZ + q.maxZ) / 2;
+    const R = falzCfg.altarRadius + 0.4;
+    const top = new THREE.MeshStandardMaterial({ color: t.floor, roughness: 0.8, metalness: 0.05, flatShading: true });
+    const side = new THREE.MeshStandardMaterial({ color: new THREE.Color(t.wall).lerp(new THREE.Color(0xffffff), 0.2), roughness: 0.9, flatShading: true });
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(R, R * 0.97, 1.4, 72), [side, top, side]);
+    disc.position.set(cx, -0.7, cz);
+    disc.receiveShadow = true;
+    // Its underside tapers down into the void like a spire turned over.
+    const keel = new THREE.Mesh(new THREE.ConeGeometry(R * 0.95, 22, 24), side);
+    keel.rotation.x = Math.PI;
+    keel.position.set(cx, -1.4 - 11, cz);
+    this.group.add(disc, keel);
+    // Flagstone rings for texture (slightly lighter than the top).
+    const slabs: THREE.BufferGeometry[] = [];
+    for (let r = 3; r < R; r += 3.2) slabs.push(new THREE.RingGeometry(r - 0.05, r + 0.05, 72).rotateX(-Math.PI / 2).translate(cx, 0.012, cz));
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      slabs.push(new THREE.PlaneGeometry(0.08, R - 3).rotateX(-Math.PI / 2).rotateY(a).translate(cx + Math.sin(a) * (R + 3) / 2, 0.012, cz + Math.cos(a) * (R + 3) / 2));
+    }
+    this.group.add(new THREE.Mesh(mergeGeometries(slabs)!, new THREE.MeshBasicMaterial({ color: new THREE.Color(t.floor).multiplyScalar(0.7) })));
+
+    // Glowing inlays: three rings, eight spokes and the bright rim.
+    const glow: THREE.BufferGeometry[] = [];
+    for (const [r, c] of [[2.6, accent], [7, accent3], [11.5, accent3]] as const) glow.push(tinted(new THREE.RingGeometry(r - 0.1, r + 0.1, 72).rotateX(-Math.PI / 2).translate(cx, 0.02, cz), c));
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+      glow.push(tinted(new THREE.PlaneGeometry(0.14, 8.5).rotateX(-Math.PI / 2).rotateY(a).translate(cx + Math.sin(a) * 7.1, 0.021, cz + Math.cos(a) * 7.1), accent2));
+    }
+    glow.push(tinted(new THREE.RingGeometry(R - 0.35, R - 0.1, 96).rotateX(-Math.PI / 2).translate(cx, 0.022, cz), accent));
+    const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending });
+    const inlay = new THREE.Mesh(mergeGeometries(glow)!, glowMat);
+    inlay.renderOrder = 1;
+    this.group.add(inlay);
+    this.animators.push((_dt, time) => (glowMat.opacity = 0.45 + Math.sin(time * 0.9) * 0.1));
+    // A glyph band round the altar's edge.
+    const bandTex = signTexture().clone();
+    bandTex.wrapS = THREE.RepeatWrapping;
+    bandTex.repeat.set(36, 1);
+    bandTex.needsUpdate = true;
+    const band = new THREE.Mesh(
+      new THREE.CylinderGeometry(R + 0.02, R * 0.99 + 0.02, 0.5, 72, 1, true),
+      new THREE.MeshBasicMaterial({ map: bandTex, color: accent, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
+    );
+    band.position.set(cx, -0.45, cz);
+    this.group.add(band);
+
+    // Broken stones and column drums drifting round the altar, above and below the rim.
+    const stoneMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(t.wall).lerp(new THREE.Color(0xffffff), 0.25), roughness: 0.85, flatShading: true });
+    const rocks: { m: THREE.Mesh; a: number; r: number; y: number; speed: number; phase: number }[] = [];
+    for (let i = 0; i < 34; i++) {
+      const geo = i % 3 === 0 ? new THREE.CylinderGeometry(0.6, 0.6, 1.2, 8) : new THREE.DodecahedronGeometry(1, 0);
+      const m = new THREE.Mesh(geo, stoneMat);
+      const s = 0.6 + rng() * 2.4;
+      m.scale.set(s, s * (0.6 + rng() * 0.6), s);
+      m.rotation.set(rng() * 3, rng() * 3, rng() * 3);
+      this.group.add(m);
+      rocks.push({ m, a: rng() * Math.PI * 2, r: R + 5 + rng() * 26, y: -14 + rng() * 26, speed: (0.01 + rng() * 0.03) * (rng() < 0.5 ? -1 : 1), phase: rng() * 6 });
+    }
+    // Two broken arches far out, the remains of the temple around it.
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + rng() * 0.4;
+      const d = R + 22 + rng() * 14;
+      const h = 10 + rng() * 14;
+      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.6, h, 8), stoneMat);
+      pillar.position.set(cx + Math.sin(a) * d, -8 + h / 2, cz + Math.cos(a) * d);
+      pillar.rotation.z = (rng() - 0.5) * 0.2;
+      this.group.add(pillar);
+    }
+    this.animators.push((_dt, time) => {
+      for (const r of rocks) {
+        const a = r.a + time * r.speed;
+        r.m.position.set(cx + Math.sin(a) * r.r, r.y + Math.sin(time * 0.4 + r.phase) * 0.8, cz + Math.cos(a) * r.r);
+        r.m.rotation.y += 0.002;
+      }
+    });
+    // The void glows faintly below.
+    const voidGlow = glowSprite(accent2, 90, 0.25);
+    voidGlow.position.set(cx, -40, cz);
+    this.group.add(voidGlow);
+
+    this.addDust([{ minX: cx - R - 4, maxX: cx + R + 4, minZ: cz - R - 4, maxZ: cz + R + 4 }], t.motes ?? accent3, 12, 0.16);
+  }
+
+  /** Slow motes drifting up through these rects (temple dust, altar sparks). */
+  private addDust(rects: Rect[], color: number, top: number, size: number): void {
+    const rng = mulberry32(hashString(`${this.def.id}:dust`));
+    const count = Math.min(500, Math.round(rects.reduce((n, q) => n + (q.maxX - q.minX) * (q.maxZ - q.minZ), 0) / 30));
+    const pos = new Float32Array(count * 3);
+    const speed = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      const q = rects[Math.floor(rng() * rects.length)];
+      pos.set([q.minX + rng() * (q.maxX - q.minX), rng() * top, q.minZ + rng() * (q.maxZ - q.minZ)], i * 3);
+      speed[i] = 0.15 + rng() * 0.3;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const motes = new THREE.Points(
+      geo,
+      new THREE.PointsMaterial({ map: glowTexture(), color, size, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending }),
+    );
+    motes.frustumCulled = false;
+    this.group.add(motes);
+    this.animators.push((dt, time) => {
+      for (let i = 0; i < count; i++) {
+        let y = pos[i * 3 + 1] + speed[i] * dt;
+        if (y > top) y -= top;
+        pos[i * 3 + 1] = y;
+        pos[i * 3] += Math.sin(time * 0.7 + i) * 0.15 * dt;
+      }
+      geo.attributes.position.needsUpdate = true;
+    });
+  }
+
+  /**
    * The De Rol Le arena: a metal raft (the floor tiles) on an underground river.
    * The raft stays put in world space; the water, foam and canyon walls scroll
    * past so it reads as drifting downstream (toward -Z, the raft's prow).
@@ -1458,7 +1783,7 @@ export class Level {
       const z = from.z + dir.z * d;
       const tx = Math.floor(x / TILE);
       const tz = Math.floor(z / TILE);
-      if (this.isFloor(tx, tz) || this.def.theme.scenery === 'river') continue;
+      if (this.isFloor(tx, tz) || this.def.theme.scenery === 'river' || this.def.theme.scenery === 'altar') continue;
       const inside = tx >= 0 && tz >= 0 && tx < this.width && tz < this.height;
       const h = inside ? this.wallH[tz * this.width + tx] + 0.6 : this.def.theme.wallHeight; // + leafy crest
       if (y < h) return d;

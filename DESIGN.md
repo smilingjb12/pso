@@ -4,10 +4,11 @@ Living spec agreed during the kickoff interview. Gameplay first, graphics later.
 
 ## Scope — First Playable
 - **Hub city** → teleporter → **Forest 1** (handcrafted, ~8–10 rooms) → **Dragon-style boss**.
-  Expedition 2 (Caves → De Rol Le) and Expedition 3 (Mines → Warden) follow; see their sections below.
+  Expedition 2 (Caves → De Rol Le), Expedition 3 (Mines → Warden) and Expedition 4 (Ruins → Dark Falz) follow;
+  see their sections below.
 - Target run length for a fresh character: **~15–20 min**; each floor is a checkpoint (see Death & Saves).
 - **Single-player only.** No networking plans.
-- **Normal and Nightmare**, chosen at login, Diablo style (Nightmare opens after the Warden; see "Nightmare"). More later. No Section IDs yet.
+- **Normal and Nightmare**, chosen at login, Diablo style (Nightmare opens after Dark Falz; see "Nightmare"). More later. No Section IDs yet.
 
 ## Tech
 - **TypeScript + Vite + three.js**.
@@ -21,11 +22,10 @@ Living spec agreed during the kickoff interview. Gameplay first, graphics later.
 - A camera-reset key snaps the camera behind the player.
 - **Action palette:** two rows, Shift swaps them. Each row has an attack source on the mouse (LMB = heavy
   single target, RMB = light area): **Weapon** swings the equipped weapon, **Magic** casts the selected attack technique (the mouse
-  wheel cycles Foie / Zonde / Barta; a HUD chip shows the pick). Q and E are quick slots for injectors, items and
-  support techniques (Resta, Shifta, Deband). Hunters and Rangers default to Weapon on row 1, Forces to Magic, and
-  the palette editor (Menu → Palette) can swap them. Old saves are migrated: their items and support techs move to
-  the quick slots and their first attack tech becomes the selected one.
-- **Keys 1 and 2** always use injector slot 1 and 2 (see Injectors).
+  wheel cycles Foie / Zonde / Barta; a HUD chip shows the pick). Q and E are quick slots for the injector, items and
+  support techniques (Resta, Shifta, Deband). The Vanguard and Ranger kits start with Weapon on row 1, the Mystic
+  kit with Magic, and the palette editor (Menu → Palette) can swap them.
+- **Key 1** always uses the injector (see Injectors).
 - **Space + a direction** dashes (see Dash). Space alone does nothing until a direction is pressed while it is
   held; one dash per press. **R** is the interact key (talk, pick up, pull switches, break boxes; the context hex
   shows what it will do). Interact was split off Space (2026-10-07) so a panic dash next to a power switch or a
@@ -76,8 +76,9 @@ combos feel like traps. The combos stay slow; the dash gives a way out that cost
   A / D circle the target at the same distance, so it doubles as a strafe while she keeps facing it.
 - Each dash **sheds one Burn stack** and counts as moving.
 - A photon streak on the floor marks the path; `player.dash` sound (3 variants in the sound lab).
-- Tuning panel: **Dash** folder. Ideas for later: Mag notables (+1 charge, perfect timing after dashing through a
-  telegraph), a no-dash keystone for purists, per-class flavour (Hunter lunge, Ranger backstep, Force blink).
+- Tuning panel: **Dash** folder. Two of the ideas became Mag passives (2026-10-08): **Fleet** (+1 charge) and
+  **Slipstream** (dash out of a telegraph and the next attack or cast lands perfect). Still ideas: a no-dash keystone
+  for purists, per-build flavour (Vanguard lunge, Ranger backstep, Mystic blink).
 
 ### Dash checks (bosses)
 Added 2026-10-07 so the bosses ask for the dash at set moments, not all the time. A **dash check** is an area
@@ -94,6 +95,8 @@ then walk or dash straight out):
 | De Rol Le | **Phase 2 lane slams** (7 m lane, 1.0 s; both of the pair) | fails | ~0.65 s (enraged ~0.45 s) |
 | De Rol Le | **Bomb ring**: the last volley of every phase 2 barrage, 8 bombs at 3.2 m plus one on you | fails | ~0.6 s (enraged ~0.45 s) |
 | Warden | **Phase 2 hand slams** (3.5 m circle on you, 1.0 s; both of the pair) | fails from the middle (walks ~3 m of the ~3.9 needed) | not measured yet |
+| Dark Falz | **Teleport slam** (form 2: 4.2 m circle on you as it vanishes, 1.3 s) | fails at a 0.35 s reaction (a very quick 0.25 s one just makes it) | ~1.0 s (from standing still: ~0.8 s) |
+| Dark Falz | **Lance** (form 3: a 7 m lane across the altar through you, 1.0 s) | fails from its middle (~3 m of 3.95) | not measured yet |
 
 Phase 1 of De Rol Le and the Warden stays walkable (wider lane, longer windups) so the shapes can be
 learned first. Pairs (De Rol Le's double slam, the Warden's double hand slam) fit the 2 charges; spending
@@ -146,7 +149,8 @@ of anything).
     system gave about 40 / 82 / 125 / 264). Lv 42 Hunter / Ranger (MST 56): heavy Foie 27, Resta 34 HP (5%),
     Shifta 4%. Light Foie casts per full TP bar go ~20 → ~33 over the game.
   - Old saves: learned levels are dropped and leftover disks refunded at their sell price. Drops: misc rolls are
-    grinders only now (misc weight 7 → 3; the old disk share went to weapons 16 → 18 and armor 9 → 11).
+    grinders only now (misc weight 7 → 3; the old disk share went to weapons 16 → 18 and armor 9 → 11; the
+    grind rework later doubled misc to 6).
   - Next (agreed, not built): technique mods on canes / rods / wands and Psy armor, sidegrades in the spirit of
     injector mods (e.g. Foie splits into 3 fireballs, Zonde chains to 5, Barta leaves an ice field, Resta also
     cleanses), so Forces keep a loot chase. Advanced techs (Gi- / Ra- tiers, Megid): skipped for now.
@@ -158,105 +162,197 @@ of anything).
   another attack tech there chains it (up to 3, the third with longer recovery), with the same perfect window,
   streak damage and too-early break. Resta and buffs only cast from idle and never chain.
 
-## Classes
-- **Hunter** (melee), **Ranger** (guns), **Force** (techniques, e.g. Foie / Zonde / Barta / Resta).
-- Per-class stat growth curves and equipment restrictions. One class per save slot.
+## Character: no classes
+Agreed 2026-10-07 and built 2026-10-08, after the user found the Mag grid full by Lv 60 with POW squares wasted on a
+Force. Their calls: **remove classes** (you are your attributes, your Mag tree and your gear), attribute points
+rather than tree squares that carry growth, **everything permanent**, and **old saves deleted**, not migrated.
+- **Attributes** (`data/stats.ts`): every level after the first gives **3 points** (`attributeCfg.pointsPerLevel`)
+  for **POW** (a point: ATP 0.9, ATA 0.1, HP 1.5), **DEX** (ATA 0.35, ATP 0.15, DFP 0.45, HP 1.5), **MIND** (MST 1,
+  TP 1⅓) or **DEF** (DFP 1.7, HP 3.5), on top of a growth everyone shares (the lowest of the old classes in each
+  stat: HP 7.5, TP 2, ATP 2.2, DFP 1.3, MST 1, ATA 1, EVP 2.2, LCK 0.3). Points spent like an old class grow
+  exactly like it (to within 0.2 EVP a level): all MIND = the old Force, two POW to one DEF = the old Hunter, two
+  DEX to one POW = the old Ranger (`progression.test.ts` checks it), so gear requirements and the tuning below
+  still hold for those builds. **Base stats** = kit + shared growth + attributes (what Mag keystones and the
+  Status screen's "base" use; equip requirements add the Mag).
+- **Permanent:** no respec of attributes or Mag squares, ever. Bumping `BUILD_VERSION` (only when these rules
+  change) refunds every point and square once, with a toast on load.
+- **Starting kits** (`KITS`, picked at creation instead of a class): **Vanguard** (Saber, Mate, the old Hunter's
+  Lv 1 stats), **Ranger** (Handgun, Mate, the old Ranger's) and **Mystic** (Cane, Fluid, the old Force's), each with
+  its default palette. They lock nothing.
+- **Title** = the attribute with the most points (the kit's on a tie): POW **Vanguard**, DEX **Ranger**, MIND
+  **Mystic**, DEF **Guardian** (the user's names). It shows in the menu header, the slot list and the name plate,
+  picks the outfit worn in a Standard frame (POW / DEF jacket, DEX coat, MIND robe) and the Mag's stage-1 form.
+- **Gear** has no class lists: every weapon kind and armour line is gated by its stat requirement alone. Drops and
+  shops lean (60%) toward the equipped weapon's stat: ATP blades and Guard armour, ATA guns and Combat, MST staves,
+  Psy and Fluid injectors. Damage tables show the selected technique for builds led by MIND or holding a staff.
+- **Saves:** the key moved to `pso-like-save-v2` (save `version` 4); the old key is deleted on first load, and
+  every old-save migration went with it.
+- Bot check (`.claude/simsetup.js` `mkChar` now spends points like the old class): Forest Lv 7 Hunter-like
+  158 s / 1.2 bars, Ranger-like 169 s / 2.2; Cave 1 Lv 15 189 s / 3.3 and 226 s / 7.2; Mine 1 Lv 24 Hunter-like
+  256 s / 3.9, all within run-to-run noise of the references. Hard Forest Lv 37 swings 330-545 s between runs with
+  identical stats (champions), so compare paired runs there.
+- Older notes in this file say Hunter / Ranger / Force for those builds.
 
 ## Loot & Progression — PSO-style
-- XP curve + level-ups with per-class stat growth (HP, TP, ATP, DFP, MST, ATA, EVP, LCK).
+- XP curve + level-ups: stats come from the shared growth and attribute points (see "Character: no classes").
 - Random drops with rarity tiers. Weapons roll **attribute %** (Native / A.Beast / Machine / Dark / Hit).
   Race % multiplies both weapon hits and attack-tech damage against that race (unlike PSO, so a Force's
   weapon attributes matter); Hit % only affects weapon accuracy. Because race % counts for everything, it
-  rolls in 5% steps up to only 5 + 5 x tier (10% at tier 1, 45% at tier 8); saves from before this (2026-10-07)
-  have their race % halved once on load (save `version` 2).
+  rolls in 5% steps up to only 5 + 5 x tier (10% at tier 1, 45% at tier 8).
+- **Races follow the expeditions** (2026-10-07, like PSO): Forest (Boomas, Dragon) **Native**, Caves **A.Beast**
+  (except the Native lilies and the Dark De Rol Le), Mines **Machine**, Ruins (and Dark Falz) **Dark**. The Forest
+  used to be A.Beast, which left Native % useful only against lilies.
+- **Item names encode the rolls** (2026-10-07, the user's idea; `itemName` in `character.ts`, used everywhere
+  incl. the ground prompt): `[prefix] Name [suffix] [+grind]`. The **prefix says what it does**: a rolled
+  weapon special ("Heat Brand") or an injector mod ("Steady Star Fluid Injector"); a rare's fixed special is
+  part of its identity and isn't prefixed. The **suffix says what it's for**: the best race % once it reaches
+  half its tier's cap ("of Natives / Beasts / Machines / Darkness"; tier 8: 25%+), on rares too
+  ("Red Saber of Machines"). From the Caves on, a half-cap race % is worth about a tier upgrade in its
+  expedition, so the suffix means "beats the next tier here". Hit % and the exact numbers stay on the card.
+  Planned caster tech mods will share the one prefix slot.
 - **Weapon card** (menus and shops, 2026-10-07): only the item's own numbers (ATP / ATA / MST / Grind tiles;
-  Special, Hit %, Req tags); what the kind does (reach, Poise, tech boost, TP on hit, classes) is left out as
+  Special, Hit %, Req tags); what the kind does (reach, Poise, tech boost, TP on hit) is left out as
   known. Below it, a **damage per second** table by enemy race (`src/game/dps.ts`): the weapon's best 3-hit
-  light / heavy mix on one enemy and, for Forces, a chain of heavy casts of the selected technique, using the
+  light / heavy mix on one enemy and, for casters, a chain of heavy casts of the selected technique, using the
   real Combo timings, accuracy and Mag passives against the average regular enemy of the current expedition
   (Nightmare-scaled). No crits, perfect chains, specials, buffs or TP. A weapon that isn't equipped shows the
   % change against the equipped one per cell, so "more MST vs. more A.Beast %" reads directly.
 - **Drops on the ground** (`world/Pickup.ts`, `dropVerdict` in `character.ts`, 2026-10-07): the gem's colour is
   the type; **rares** are a purple cube with a purple pillar (and purple names in menus: red read as
-  "can't use"); **grinders** get a silver pillar like their icon (scarce, always useful; purple stays rare-only). Each drop is judged against the character: **junk** (a class that can never use
-  it, or no stat better than what is worn) fades to a dull grey gem with no pulse; an equippable **upgrade** gets
+  "can't use"); **grinders** get a silver pillar like their icon (scarce, always useful; purple stays rare-only). Each drop is judged against the character: **junk** (no stat better than what is
+  worn) fades to a dull grey gem with no pulse; an equippable **upgrade** gets
   a green ▲ above it. An unmet requirement never makes an item junk (a locked upgrade stays plain). Rares never
-  fade. Verdicts are re-read on a level-up, Mag point, equip or grind. The pickup prompt adds the inventory's
-  mark and a note: "✖ Hunters can't use Rods", "▲ ATP +14 · +Heat", "Downgrade: ATP −8", or in amber
+  fade. Verdicts are re-read on a level-up, attribute or Mag point, equip or grind. The pickup prompt adds the
+  inventory's mark and a note: "▲ ATP +14 · +Heat", "Downgrade: ATP −8", or in amber
   "Needs ATP 90 (you have 76) · ATP +38".
 - **Supply boxes** open with the interact key (R, when within reach; the context hex shows a crate) and
   drop an item or Meseta. Attacks and techniques pass them by, so area attacks never waste hits on them.
-- **Grinders** (+N weapon grind, up to the weapon's cap) and stat requirements to equip. Each grind level adds
-  ATP +2 and ATA +0.5 to any weapon, and MST +1.5 to weapons that already give MST (canes, rods, wands);
-  2026-10-07, their call: grinding was useless for a Force, who never melees. MST from grinds is sized so max
-  grind is roughly +15% technique damage, about what the ATP grind gives a Hunter (it also raises TP costs, like
-  all MST). Stat requirements to equip: Requirements check **base + Mag** stats;
-  armor bonuses never count (so gear swaps can't unlock gear).
-- **Armor lines**, gated like weapon kinds (class list + stat requirement): a neutral tier-1 starter, then
-  **Guard** (Hunter/Ranger, req ATP: most DFP, little EVP, small ATP), **Combat** (all classes, req ATA:
-  balanced DFP/EVP, biggest ATP + ATA) and **Psy** (Force only, req MST: low DFP, adds MST + TP), tiers 1-4.
-  Requirements equal the line's main class stat at levels 6 / 12 / 20, so cross-wearing needs a Mag built for it.
+- **Grinders: Edge or a race, chosen per level** (reworked 2026-10-07). Why: grinding was a no-decision
+  resource ("apply to the best weapon"), and the caps (5 x tier, up to 50 on rares) never mattered: a clear
+  dropped only ~2.4 (Forest) to ~3.4 (Caves, Mines) grind levels. Their calls: choose on apply (rejected typed
+  grinders: the drop would make the choice, not the player), races **mixable per level**, and **no** strip /
+  refund at the Tekker. Lower caps with bigger levels and more grinders was left to me.
+  - **Caps** (`grindCap`): 5 levels at tiers 1-2, 6 at 3-4, 7 at 5-6, 8 at 7-8, 9 at tier 9; rares 2 more.
+  - **Edge** (any level not on a race): +4% of the weapon's own average ATP (both ends) and ATA, and +15% of its
+    MST on canes / rods / wands (`formulas.edgeAtpPct / edgeAtaPct / edgeMstPct`). A share of the weapon,
+    not flat, so a level is ~3% damage at every tier and on light or heavy weapons alike (the old flat +2 ATP
+    was ~4% at tier 1 but ~1% at tier 9, and half as much on a Sword as on a Saber).
+  - **Race (Bane)**: +5% against one race per level (`banePerGrind`, one roll step), counted with the rolled
+    % against the tier's roll cap (`raceCap`, 10% at tier 1 to 50% at tier 9). A good roll saves levels; a
+    weapon rolled at the cap can't take more of that race. ~5-6% damage per level against that race, about
+    2x an Edge level (fast low-ATP weapons like mechguns and daggers lean further toward races, as race %
+    already did).
+  - Races per expedition: Forest trash and the Dragon are **Native**; Caves trash ~70% A.Beast / 30% Native
+    (Poison Lilies) with a **Dark** De Rol Le; Mines trash and the Warden are **Machine**; the Ruins and Dark Falz
+    are all **Dark**. So the Caves is
+    where mixing levels pays; the picker tags the race most enemies are ("here") and the boss's ("boss").
+  - Data: `grind` stays the total (the "+N" in names), `bane` holds the race levels; Edge = total - races.
+    Race % from Bane counts everywhere rolled % does (damage, the DPS table, names: "of Machines").
+  - **Picker**: Items > grinder > "Use on weapon..." > weapon > one row per track (Edge, Native, A.Beast,
+    Machine, Dark) with what it adds and the damage-per-second change against the current expedition's typical
+    enemy (the selected technique for Forces). A Di- / Trigrinder puts all its levels on one pick; levels past
+    a cap are lost, shown in amber ("+2 only, 1 lost") before you click. The weapon card adds a "Ground: Edge 1 ·
+    Machine 2" tag.
+  - **Supply**: misc drop weight 3 -> 6 (meseta 55 -> 52) and every boss drops two grinders, so a clear drops
+    about one weapon's worth of levels of its tier (~5 Forest, ~7 Caves / Mines, more on Nightmare with elites).
+    Pre-ground drops roll +1 (or +2) Edge.
+- Stat requirements to equip check **base + Mag** stats; armor bonuses never count (so gear swaps can't unlock
+  gear).
+- **Armor lines**, gated like weapon kinds by a stat requirement alone (no classes since 2026-10-08): a neutral
+  tier-1 starter, then **Guard** (req ATP: most DFP, little EVP, small ATP), **Combat** (req ATA: balanced DFP/EVP,
+  biggest ATP + ATA) and **Psy** (req MST: low DFP, adds MST + TP), tiers 1-4. Requirements equal the line's stat
+  for the old class that wore it at levels 6 / 12 / 20, so wearing another line needs attributes or a Mag built
+  for it.
   Balance was checked with the combat bot (Forest, Lv 12, tier 3): Hunter Guard is safer and Combat ~6% faster;
   Ranger Combat beats Guard on both kill time and damage taken; a casting Force clears ~12% faster in Psy.
 - **Mag** (`game/mag.ts`): every character has one (not an inventory item). It grows through a **talent grid**,
   not feeding (feeding was a chore, and the 5-feed bank threw progress away). **Each character level gives one
-  point**; points never expire. The grid is a diamond (radius 5, 60 squares) around the Mag at its centre, and a
-  square can only be taken next to one already learned. Four arms: **POW** up (+3 ATP per square), **DEX** right
-  (+2 ATA), **MIND** down (+3 MST), **DEF** left (+2 DFP). Each arm has 11 stat squares (its axis and the wedge
-  leaning toward it), a **notable** passive 3 squares out and a **keystone** passive at its tip (keystones need
-  12 squares learned first). The 8 diagonal squares between two arms give half of each. Passives:
-  - DEF: Bulwark (area attacks, boss attacks and hazards deal 15% less; Mate doses +20%) · Last Stand (a lethal
-    hit leaves 1 HP and fires a free Mate dose; recharges after 120 s).
-  - POW: Follow-through (finishers +15% damage) · Crush (heavy attacks ignore 30% of enemy DFP).
-  - DEX: Rhythm (perfect window +0.03 s, combos and cast chains; each perfect chain adds 0.04 dose to every
-    injector) · Deadeye (heavy hit cap 95%, half the gun range falloff).
+  point**; points never expire, and **every square is permanent** (click to learn; no respec). The grid is a
+  diamond (**radius 7, 112 squares**, since 2026-10-08; radius 5 / 60 squares filled up by Lv 60 and every build
+  ended the same) around the Mag at its centre, and a square can only be taken next to one already learned. Four
+  arms: **POW** up (+3 ATP per square), **DEX** right (+2 ATA), **MIND** down (+3 MST), **DEF** left (+2 DFP), 22
+  stat squares each (its axis and the wedge leaning toward it). Along each axis: a **notable** 3 out, **keystone
+  I** 5 out and **keystone II** at the tip. Each diagonal has two half-and-half squares and a **two-arm notable**
+  3 along it. At Lv 62 a build has about half the grid, so it has to choose; a specialist can push its own stat
+  further than before (a full MIND arm is +74 MST, the old full grid +41) at the cost of the others.
+  - **Requirements** (`magCfg.keystoneReq`, `hybridReqPoints`): keystone I needs 8 squares of its colour and 45
+    points in its attribute, keystone II 16 squares and 115 points (hybrids count for both colours). Three points a
+    level all in one attribute reach 45 at Lv 16 and 115 at Lv 39; two a level at Lv 23 / 58; half at Lv 31 / 78. So
+    the deep keystones belong to builds that commit (the user's ask: MIND-heavy builds get the MIND keystones).
+    Two-arm notables need 20 points in each of their attributes. Arm notables need nothing.
+  - POW: Follow-through (finishers +15%) · **Breaker** (melee hits fill stagger 25% faster) · Crush (heavy
+    **melee** attacks ignore 30% of enemy DFP).
+  - DEX: **Fleet** (+1 dash charge) · Deadeye (heavy hit cap 95%, half the gun range falloff) · **Rhythm** (perfect
+    window +0.03 s for combos and cast chains, and **10% faster running**; it no longer charges the injector).
   - MIND: Efficiency (attack techs cost 15% less TP; Fluid doses +20%) · Clarity (after a Fluid dose, attack
-    techs cost no TP for 4 s: dose as a wave clusters or a weak point opens, then chain casts for free). Clarity
-    replaced Siphon (TP per kill, no HP twin) and then Mind Shell (damage drained TP; rejected).
-  Points are picked as a plan (click to add or undo) and learned with a confirm button. **Respec** forgets every
-  square: free below Lv 10, then 40 Meseta per square. Mag level = squares learned; it evolves at 5 (form by
-  class), 15 and 25 (form by the arm with the most squares; ties go to the class's arm), and at 40 splits into a
-  mirrored **twin pair** (Ashvinau), one per shoulder. It floats behind the player's shoulder and also stands
-  beside her on the character select pad. Glow stripes around its pod pulse in her palette accent colour while
-  a point is unspent, and a level-up toast says so. Old saves (no Mag, or the old fed Mag) get a fresh grid with
-  every point their level has earned, and have their old single-line armor moved to the class's line.
-- Currency: **Meseta**. Consumables: **Telepipe**, **Trimate** and **Trifluid** (see Injectors).
+    techs cost no TP for 4 s) · **Swift Cast** (techniques cast 20% faster, wind-up and recovery, support included).
+    Clarity replaced Siphon (TP per kill, no HP twin) and then Mind Shell (damage drained TP; rejected).
+  - DEF: Bulwark (area attacks, boss attacks and hazards deal 15% less; Mate doses +20%) · **Steadfast** (every
+    melee swing carries Poise like a heavy weapon; half knockback. The user accepted the overlap with heavy weapons)
+    · Last Stand (a lethal hit leaves 1 HP and fires a free Mate dose; recharges after 120 s).
+  - Two-arm: **Slipstream** (POW + DEX: dash out of an enemy telegraph and the next attack or cast within 3 s lands
+    perfect, one more streak step) · **Longshot** (DEX + MIND: guns and techniques +12% past 8 m) · **Barrier**
+    (MIND + DEF: Resta past full HP becomes a shield up to 20% of max HP that fades over 4 s; striped on the HP bar)
+    · **Retaliate** (DEF + POW: after a hit, the next melee swing within 2 s deals +25%).
+  The order is the user's (2026-10-08): Swift Cast last with Clarity before it, Deadeye as DEX keystone I with
+  Fleet as the notable (kept after I warned it's a cheap must-have), Breaker and Crush melee only.
+  Mag level = squares learned; it evolves at 5 (form by the leading attribute: Varuna POW, Kalki DEX, Vritra MIND,
+  Bhima DEF), 15 and 25 (form by the arm with the most squares; ties go to the leading attribute), and at 40 splits
+  into a mirrored **twin pair** (Ashvinau), one per shoulder. It floats behind the player's shoulder and also
+  stands beside her on the character select pad. Glow stripes around its pod pulse in her palette accent colour
+  while a point is unspent, and a level-up toast says so.
+- Currency: **Meseta**. The one consumable is the **Telepipe**; injector refills are charge orbs (see Injectors).
 
 ## Injectors — HP / TP sustain
 Agreed 2026-10-07, replacing stacks of mates and fluids. Stocking up on consumables made content trivial, while a
 player deep in an expedition without them had no way back up; and the consumables crowded the 30-slot bag.
-- **Two equipment slots** (Injector 1 / 2, keys 1 / 2, also assignable to Q / E) take **any mix** of **Mate**
-  (HP) and **Fluid** (TP) injectors. A Hunter can run two Mates, a Force two Fluids (Resta turns TP into HP), and
-  either can split. The slot is the trade-off.
+- **One equipment slot** (key 1, also assignable to Q / E) takes a **Mate** (HP) or a **Fluid** (TP) injector.
+  The Vanguard and Ranger kits start with a Mate, the Mystic kit with a Fluid (Resta turns TP into HP); the mods are
+  the real choice.
+  (2026-10-07: it was two slots with generous recharge, and a player who didn't outlevel the content still never
+  emptied the second one: a single Mate gave ~19 doses a floor against the 2-5 a dodging player needs.)
 - Every injector holds **3 doses**; tiers differ in how much a dose restores: Mate 30 / 33 / 36 / 39 / 42% of max
-  HP, Fluid 22 / 25 / 28 / 31 / 34% of max TP (TP pools grow faster than HP, and Resta turns TP into HP). There is
+  HP, Fluid 30 / 31 / 32 / 33 / 34% of max TP (TP pools grow faster than HP, and Resta turns TP into HP; the user
+  asked for 30% on the first Fluid on 2026-10-08 as low levels ran dry, so tiers 2-4 were lifted to stay above it). There is
   no shared cooldown; a dose locks the hands for 0.45 s, and a hit cancels the lock, not the dose.
   (2026-10-07 nerf: a Lv 26 MST Force never ran dry with 5 × 50% Fluid doses that refunded ~40 TP per kill.)
-- **Recharge comes from damage dealt**, not kills: every equipped injector gains doses in proportion to the enemy
-  HP the player removes (a normal enemy's whole bar = 0.3 doses; elites ×2; **Fluid injectors charge at half
-  that rate** from every source). Bosses count the same way across their
-  whole bar (Dragon 5 doses, De Rol Le 8), so long boss fights keep refilling. Lava damage and re-formed Pan Arms
-  halves give nothing. Between fights an injector creeps back up to **one** dose (15 s), never further, so waiting
-  is never the play (Reserve mod: two). Only Pioneer 2 refills everything (no field refills since checkpoints went).
+- **Recharge comes from damage dealt**, not kills: the injector gains doses in proportion to the enemy HP the
+  player removes (a normal enemy's whole bar = 0.15 doses; elites ×2; **Fluid injectors charge at half that rate**
+  from every source). Bosses count the same way across their whole bar (Dragon 3 doses, De Rol Le 4.5, Warden 4.5,
+  Dark Falz 5).
+  Lava damage and re-formed Pan Arms halves give nothing. Only Pioneer 2 refills everything at once (no field
+  refills since checkpoints went). A floor (~35 enemies) is worth about 3 + 5 Mate doses plus charge orbs.
+- **Out of combat** (2026-10-08, the user: "very rough at lower levels at least"): with no room fight and no boss
+  engaged, the injector refills **0.1 doses a second** (either kind, Fluid not halved) once **3 s** have passed since
+  the fight (`injectorCfg.calmRate` / `calmDelay`, tuning panel **Injectors**): empty to full in about 30 s, so a
+  fight can still drain it but walking on mostly tops it up. This reverses the earlier "nothing refills between
+  fights" rule (and the one-dose trickle before that); the damage-based charge and orbs still decide mid-fight.
+  (Recharge was 0.1 / enemy for a few hours on 2026-10-07; the user found it far too slow, so all damage-based
+  sources went up by half.)
 - **Requirements** only on tiers 3-5: Mate needs DFP 45 / 70 / 95, Fluid MST 80 / 115 / 150 (base + Mag, like
-  gear). A Force can't run a strong Mate without a DEF-heavy Mag; a Hunter can't run a strong Fluid.
+  gear). A MIND build can't run a strong Mate without DEF points or squares; a fighter can't run a strong Fluid.
 - **Mods** (one per injector, about half of drops, two in every item shop): **Steady** (over 4 s, +60%),
-  **Emergency** (+60% when the gauge is under 35%), **Reserve** (refills to 2 doses between fights), **Absorbent** (charges 50%
+  **Emergency** (+60% when the gauge is under 35%), **Reserve** (holds 4 doses instead of 3), **Absorbent** (charges 50%
   faster), **Sol** (also cures poison, paralysis and Burn, 4 s paralysis ward, usable while paralysed), **Bracing** (30%
   less damage for 3 s). Swapping injectors for a boss or a poison-heavy floor is the point.
-- **Trimate / Trifluid** refill every equipped Mate / Fluid injector at once. Rare drops (the Dragon and De Rol Le
-  always drop them), never sold, at most 3 carried.
+- **Charge orbs** (2026-10-07, the user's idea, replacing Trimate / Trifluid): a glowing orb in the worn injector's
+  colour that gives it **one full dose** (either kind, at full rate) when you **walk over it**, like meseta. No
+  item, no key, no stockpile: a carried refill was an extra flask charge saved for later, and with one slot half
+  of the Trimate / Trifluid drops were dead. Elites and champions always drop one, other enemies 4%, crates 3%
+  (about 1.4 a floor plus elites); **bosses never** (their damage still charges the injector). While the injector
+  is full (or none is worn) the orb dims and stays; it blinks and fades after 25 s, so it's a mid-fight pickup,
+  not a bank to walk back to. Rebooting gunbots drop none. Bosses drop the old Trimate / Trifluid value in Meseta.
 - Shops sell tier 1 and the two best tiers on sale (clean), plus two modded ones. Injectors drop as their own
   loot category; healing left the drop table, so gear drops a little more often.
-- The HUD shows each slot under the TP bar: one cell per dose, the next one filling as you fight.
-- Old saves: mates, fluids, cures, Moon Atomizers and Scape Dolls are refunded at their old price, palette slots
-  that used mates / fluids point at the matching injector, and characters without injectors get Mate + Fluid T1.
+- The HUD shows the injector beside the gauges: one cell per dose, the next one filling as you fight.
 
 ## Telepipe
 - A **3.5 s cast** that roots you; a hit, a step or a dash breaks it (the pipe isn't used up), so it is no escape from a
   boss. It opens a **portal** where you stand. The portal leads to Pioneer 2 and stays open; a matching portal
   appears by the city teleporter and leads back to the spot, then both close. One Telepipe open at a time; a new
   expedition closes it. Dying keeps it open, which is the way back to where you fell.
+- Cast from a Q / E quick slot, or from the inventory (Items → Telepipe → **Use**, 2026-10-08, the user's ask): the
+  menu closes and the cast is already running, under the same rules.
 
 ## Death & Saves — PSO-like
 - Death costs no Meseta. The only option is returning to Pioneer 2 (no Moon Atomizer or Scape Doll): come back
@@ -276,7 +372,7 @@ player deep in an expedition without them had no way back up; and the consumable
 - One or two switch/key puzzles. The layout is the same every run.
 
 ## Enemies (first playable)
-- **Booma family:** Booma → Gobooma → Gigobooma (stat/behaviour tiers).
+- **Booma family:** Booma → Gobooma → Gigobooma (stat/behaviour tiers). Native, like the Dragon.
   Melee brawlers with slow, clearly telegraphed swipes. Wave composition varies the mix.
 - **Boss — Dragon-style:** arena fight with phases: ground stomps, fire-breath cone, burrow phase,
   head/belly weak point. The eruption out of the burrow is the game's first **dash check** (see Dash checks);
@@ -299,7 +395,7 @@ player deep in an expedition without them had no way back up; and the consumable
 ## Graphics
 - **Procedural low-poly models built in code** (no external assets), styled after the PSO originals:
   the player heroine, Pioneer 2 shopkeepers, the Booma family, the Dragon, forest props and weapons.
-- **Player character:** one anime-styled heroine for every class (`models/heroine.ts`), assembled from
+- **Player character:** one anime-styled heroine for everyone (`models/heroine.ts`), assembled from
   interchangeable proportions, hair, outfit, accessory and colour scheme (`PLAYER_LOOK`). Long hair and
   skirt/coat panels have spring-driven secondary motion and are pushed clear of the legs each frame.
   Sci-fi gear is part of the look (she stays human): glow trim / circuitry, light to heavy armour,
@@ -311,9 +407,9 @@ player deep in an expedition without them had no way back up; and the consumable
   The **Stylist** in Pioneer 2 (west wall) reopens these steps any time, for free.
 - **Armour looks** (2026-10-07, their call): the outfit, glow and back tech are no longer choices; the
   **equipped frame** decides them (`armorLook`, `playerLook`), like a Mag evolving. The frame's line picks the
-  outfit: Guard (melee) = Ranger jacket, Combat (ranged) = Coat & knit, Psy (Force) = Force robe; a Standard
-  frame (or none) gives the class's own outfit. Its tier picks an **evolution stage** (`TIER_STAGE`): T1 = 0,
-  T2 = 1, T3-4 = 2, T5-6 = 3, T7-9 (Nightmare) = 4, so Normal tops out at stage 3. Each stage keeps the parts
+  outfit: Guard (melee) = Ranger jacket, Combat (ranged) = Coat & knit, Psy (caster) = Force robe; a Standard
+  frame (or none) gives the leading attribute's outfit (POW / DEF jacket, DEX coat, MIND robe). Its tier picks an **evolution stage** (`TIER_STAGE`): T1 = 0,
+  T2 = 1, T3-4 = 2, T5-7 = 3, T8-11 (Nightmare) = 4, so Normal tops out at stage 3 (the Ruins' T7 included). Each stage keeps the parts
   before it (`EVOLUTIONS`): glow trim from stage 2, circuit lines from 3, a slow pulse at 4.
   - **Vanguard** (Guard): pauldrons + bracers → breastplate, hip plates, plated coat tails → finned
     thruster pods, knee/shin plates, heel jets → thruster blades + two hex photon shields.
@@ -346,9 +442,9 @@ Agreed 2026-10-05: everything **synthesized in code with the Web Audio API**, wi
   and a *battle* arrangement over the same chords and tempo. Battle crossfades in on the beat when a room's gates
   seal and fades out when the room is cleared.
   Pioneer 2 (jazz-fusion, also the title screen), Forest, Caves. Boss arenas are silent until the boss wakes,
-  then play its own theme (Dragon, De Rol Le, Warden). The enraged / shattered / overclocked phase brings in the boss
+  then play its own theme (Dragon, De Rol Le, Warden, Dark Falz). The enraged / shattered / overclocked phase (the Angel for Dark Falz) brings in the boss
   theme's battle layer. After the kill, a victory fanfare plays, then the expedition's field theme.
-  Mines and Warden play their synth arrangements until ElevenLabs recordings are made (credits ran out).
+  Mines, Warden, Ruins and Dark Falz play their synth arrangements until ElevenLabs recordings are made (credits ran out).
 - **SFX: about 90 sounds in four groups** (combat, enemies & bosses, world & loot, UI), plus jingles (level up,
   room clear, victory, death, Mag evolution). World sounds are panned and attenuated relative to the player and
   camera. Footsteps follow the run cycle and the area surface (metal deck, grass, stone, wooden raft). Caves
@@ -361,18 +457,19 @@ Agreed 2026-10-05: everything **synthesized in code with the Web Audio API**, wi
 
 ## Implementation map (first playable)
 - `src/game/combo.ts`: 3-hit combo state machine (unit-tested).
-- `src/game/data/`: classes and stat growth, items (weapon kinds × tiers, rares, armor, injectors, consumables,
+- `src/game/data/`: stats, attributes and starting kits (`stats.ts`), items (weapon kinds × tiers, rares, armor, injectors, consumables,
   grinders), techniques (MST scaling), area layouts.
 - `src/game/character.ts`: persistent character, inventory, equipment rules, grinding, technique cost / damage, XP.
-- `src/game/mag.ts`: Mag talent grid, passives, points, respec, evolution forms; `models/mag.ts` is its model.
+- `src/game/mag.ts`: Mag talent grid, passives, points, requirements, evolution forms; `models/mag.ts` is its model.
 - `src/game/injectors.ts`: injector stats, mods, charge and doses (unit-tested in `injectors.test.ts`).
 - `src/game/loot.ts`: drop tables, weapon attributes/specials, injector rolls, shop stock.
 - `src/game/world/`: level builder (rooms + corridors + laser gates; forest, lair, cave and river dressing),
   room waves (pinned spawns, ambushes, overlap), Pan Arms pairs, hazards, cosmetic effects, pickups, boxes,
   projectiles, telegraphs, interactables.
 - `src/game/enemies/`: `Enemy` base + `Brawler` (Booma family), cave AIs (`caveEnemies.ts`), Mines machines
-  (`mineEnemies.ts`), factory (`spawn.ts`), the `Boss` interface, Dragon (`Dragon.ts`), De Rol Le (`DeRolLe.ts`)
-  and the Warden (`Warden.ts`).
+  (`mineEnemies.ts`), Ruins enemies (`ruinsEnemies.ts`), factory (`spawn.ts`), the `Boss` interface, Dragon
+  (`Dragon.ts`), De Rol Le (`DeRolLe.ts`), the Warden (`Warden.ts`) and Dark Falz (`DarkFalz.ts`).
+- `src/game/world/Pylon.ts`: the Ruins' light pylons.
 - `src/game/world/Machinery.ts`: crushers, laser fences and conveyors (Mines).
 - `src/game/combat/Combat.ts`: hit resolution for melee, guns and techniques, statuses, incoming damage.
 - `src/game/Game.ts`: loop, areas and the expedition run state, menus, death, saving.
@@ -381,7 +478,7 @@ Agreed 2026-10-05: everything **synthesized in code with the Web Audio API**, wi
 - `src/viewer.ts` + `viewer.html`: standalone model viewer; `runlab` and `charlab` pages compare run cycles and character looks; `maglab` compares Mag designs (`src/game/models/magDesigns.ts`); `armorlab` shows the armour evolutions.
 - `src/ui/`: HUD, menus (inventory, shop, dialogs), lil-gui tuning panel. `title.ts`: title screen (save
   slots, the selected character on a teleporter pad rendered by `MenuStage.ts`) and the 6-step creation
-  wizard (class, body, hair, face gear, colours, name). `src/menus.css`: PSO Dreamcast-style windows used by every
+  wizard (kit, body, hair, face gear, colours, name). `src/menus.css`: PSO Dreamcast-style windows used by every
   menu, the pause window, prompts and toasts.
 - `src/audio/`: engine (context, buses, reverb), `synth.ts` primitives, `sfx.ts` catalogue, `picks.ts` /
   `levels.ts` (chosen variants and loudness trims), `music/` (instruments, theory helpers, tracks, sequencer).
@@ -559,7 +656,7 @@ Redesigned 2026-10-07: the relays, shield, rail and overload switch were too gim
   - Floor patterns come up twice as often as each other attack (their vent is the main damage window).
 - **Phase 2** at 50% (it overclocks: shorter warnings, longer patterns, paired walls and slams). Enrages below
   25% (windups ×0.8).
-- Rewards: 1600 XP, 3000–4500 Meseta, tier 5–6 gear, Trimate + Trifluid, a modded T5 injector, a 40% chance at a
+- Rewards: 1600 XP, 4000–5500 Meseta, tier 5–6 gear, a modded T5 injector, a 40% chance at a
   **signature drop** and 15% at a cave rare.
 - Bot fight at Lv 30, tier 6 saber, parked at the core (never dodges, stands in every zone): 106 s / 5.6 bars at
   7200 HP, then 119 s / 5.0 bars at 9000 (lockdown hit the cap of 5 and reset once). With intake and adds
@@ -582,6 +679,114 @@ Redesigned 2026-10-07: the relays, shield, rail and overload switch were too gim
   0.55→0.9 s plus a crouch before close-range combos, combo cuts land at 0.2 s instead of 0.12 s): Mine 2 Hunter
   237 s / 2.9 bars (one run).
 
+## Expedition 4 — Ruins → Dark Falz
+Planned in a question round and built on 2026-10-08. The user's calls: **Corruption** as the Ruins status, **light
+pylons** in the rooms, **Dark Falz in three forms on both difficulties**, the full roster (Dimenian family, Delsaber,
+Chaos Sorcerer, Dark Belra, Chaos Bringer), and **Nightmare moved up one expedition** so that the Nightmare Forest
+carries on from here. My defaults, offered for veto: only violet-telegraphed attacks corrupt, Sol clears Corruption,
+characters who already had Nightmare keep it, the T7 frame shows armour stage 3, injectors unchanged. Same day they
+asked for the environment to be **darker and more ominous** than the first, bright temple looks. Numbers live in
+`config.ts` (`enemies`, `pylonCfg`, `ruinsCfg`, `statuses.corrupt*`, `darkFalz`; tuning panel **Ruins** and **Dark Falz**).
+
+### Structure
+- **Unlock:** the city teleporter offers the Ruins once the Warden is dead (`needs: 'warden'`).
+- **Ruin 1** (the outer temple, 7 rooms with a gate switch side room) → teleporter → **Ruin 2** (the inner sanctum,
+  7 rooms; its first room has the teleporter to Pioneer 2) → teleporter to **the Altar** (Dark Falz).
+- Tuned for **Lv 32–42**; every enemy is **Dark** (Dark % and Dark grinding finally pay).
+- Normal elites (1 in 12) roll **Shielding** or **Regenerating** (`RUINS_AFFIXES`; the Mines roll Overclocked /
+  Volatile).
+
+### Corruption (player status)
+- Each stack takes **6% of max HP** away, up to **5** (−30%); current HP drops with it and heals fill only to the
+  lowered max. It never wears off by itself: **pylon light** (or a Grants pool) sheds one stack a second, and a
+  **cleared room**, a **Sol** dose, a boss kill or Pioneer 2 clear it all.
+- Only attacks that **telegraph in violet** corrupt (a melee windup that corrupts heats up violet, not orange): So
+  Dimenian cuts (50%), Chaos Sorcerer spells, the Dark Belra slam, Chaos Bringer lasers, Dark Falz's husk pulse, the
+  Angel's halves and Megid orbs (two stacks).
+- HUD: the HP bar keeps its full width and the lost share shows as a cracked violet block at its right end; a chip
+  reads `CORRUPT ×n · LIGHT` (the hint goes once you stand in light).
+- **Seal of Light** (Dark Falz signature barrier) and **Falz Halo** (its Nightmare twin) halve what Corruption takes.
+
+### Light pylons (`world/Pylon.ts`)
+- 1–2 per room (`pylons` in the room data), solid obelisks with a crystal. **R lights one**: a **5 m** circle for
+  **10 s**, then **20 s** to recharge (a ring fills; the prompt counts down). A faint inlaid ring on the floor shows
+  each pylon's reach even while dark.
+- Inside the light: Corruption sheds, and **Dark enemies are slowed (tempo ×0.7) and take +25% damage** (Dark Falz
+  too, if it stands in one). Luring pays.
+- **Chaos Sorcerers** blink beside a lit pylon in their room and drain it out (1.2 s, violet tendrils on the pylon);
+  any hit interrupts them. The Seal / Halo make pylons you light burn 50% longer.
+- Four pylons stand near the Altar's rim.
+
+### Enemies (`enemies/ruinsEnemies.ts`, `models/ruins.ts`)
+- **Dimenian / La Dimenian / So Dimenian:** sword soldiers in packs (the Booma family's role, Brawler AI); one, two
+  and three cuts a swing. So Dimenian cuts corrupt.
+- **Delsaber:** shield knight. Its guard **blocks light hits from the front** (×0.12, no stagger; the ward flashes);
+  a **heavy hit breaks it**: it reels and fights guard-down for 3.5 s. Circles at ~4.5 m shield up, crouches and
+  leaps in (landing circle) or cuts in place, a three-cut combo, then recovers guard-down (the punish window).
+- **Chaos Sorcerer:** floats 8–12 m away with two orbiting bits, **blinks** away when you come within 4 m (5 s
+  cooldown), casts one of three corrupting Gi-techs: a **fire ring** round you (safe in its middle or well out), a
+  **lightning field** (one circle on you, two near) or an **ice line** through you. Drains lit pylons (above).
+- **Dark Belra:** a stone giant. From up to 11 m it draws its fist back and **punches down a lane** (the arm
+  stretches the whole way); crowd it and it raises both arms and **slams** a violet circle round itself.
+- **Chaos Bringer** (Ruin 2, one at a time): a centaur. It rears and **charges down a lane across the room** (to the
+  wall; the whole threat budget, so nothing else attacks; it can't be flinched mid-charge, and skids into a long
+  recovery), fires a **fan of three corrupting chest lasers**, and stomps if you stand under it.
+- **Field balance** (bot, never dodges, never lights pylons; `.claude/simsetup.js` SETUPS hR / rR / hR2 / rR2):
+  Ruin 1 Lv 34 tier 6: Hunter-like ~275 s / ~3.2-4.3 bars (champion-free variance), Ranger-like ~290-310 s /
+  ~8.3-9.3. Ruin 2 Lv 38: Hunter-like ~340 s / ~3-4.3, Ranger-like ~350 s / ~8.2. About 11-20 Corruption stacks a
+  floor for a bot that stands in everything. The Mines for comparison: 250 s / 2.9 and 249 s / 7.8.
+- Area attack multipliers scale ATP **before** DFP comes off, so a multiplier much under ~0.9 barely scratches at
+  these levels (the first Delsaber cuts did 1 damage).
+
+### Boss — Dark Falz (`enemies/DarkFalz.ts`, `models/falz.ts`)
+On a round altar (14 m radius) floating over the void. **14000 HP, 450 ATP**, three forms on both difficulties
+(the user rejected keeping the Angel for Nightmare only). Damage past a form's threshold is lost: no form can be
+skipped. Each change of form takes 2.6 s (untouchable).
+- **Form 1, the husk (100–70%):** a crystal cocoon with a great eye hovers at the centre. **Darvant lanes**: three
+  waves of three parallel lanes across the altar (one always on you), each wave's warning showing as the last one
+  fires, Darvants streaking along them; a **ring dive** (a 3.2 m circle on you, Darvants spiralling in); stand
+  within 6 m and it often **pulses** a corrupting 5.5 m shockwave. After a lane or ring flight **the husk opens for
+  3 s (×1.5 damage)**. Everything is walkable.
+- **Form 2, Dark Falz (70–35%):** a winged demon with scythe arms glides after you. **Scythe** sweep up close (110°
+  cone, 5 m); **Grants** (three light pillars, one on you, that crash down and then **stay as light for 4 s**,
+  cleansing Corruption: risk / reward); **Megid** (two slow homing orbs, slower than a walk, two Corruption stacks
+  on contact); **teleport slam** (the 4.2 m circle lands on you the moment it starts to vanish, and it crashes down
+  there 1.3 s later: a **dash check**, a dash started by ~1 s clears it), then a long recovery. (Built first as a
+  1.0 s circle shown only after a 0.45 s vanish with no warning; the user found it near impossible even with the
+  dash, 2026-10-08.)
+- **Form 3, the Angel (35–0%):** a radiant six-winged figure at the centre. **Light and dark halves**: the altar
+  splits along a line through the centre that runs ~1.6 m from you; your half goes dark and erupts after 1.7 s, then
+  the other half 1.5 s later (cross the line, then cross back); **feather volleys** (five lanes fanned at you);
+  the **lance** (a 7 m lane across the altar through you, 1 s: a **dash check**). Enrages below 15% (windups ×0.8).
+- **Nightmare pairs:** Grants with a Megid orb (form 2), the halves with a feather volley (form 3).
+- Rewards: 2600 XP, 5500–7500 Meseta, tier 6–7 gear, a modded T5 injector, a 40% chance at a **signature drop**
+  (Dark Flow or Seal of Light) and 15% at a Ruins rare. Injector worth 5 doses over its whole bar.
+- Bot (parked on the body, never dodges): Lv 40 tier 7 saber, ~121-128 s, ~2.6-3 bars, 8-11 Corruption stacks
+  (form 1 ~36 s, form 2 ~47 s, form 3 ~40 s). Nightmare Lv 78 tier 11: 166 s / 2.9 bars.
+
+### Loot
+- **Tier 7** of every weapon kind and armour line drops here (Ruins enemies drop T5–7); it used to be the Nightmare
+  Forest's tier and keeps its stats (reqs about Lv 44 base). Shops stock T7 from Lv 42 once Dark Falz is dead.
+  The T7 frame now shows **armour stage 3** (`TIER_STAGE`): stage 4 stays Nightmare-only (T8+).
+- Ruins rares (T7): **Brionac** (partisan, Shock), **Holy Ray** (rifle, Ice), **Psycho Wand** (wand, Heat).
+- Signature drops: **Dark Flow** (T7 sword, Draw) and **Seal of Light** (T7 any-class barrier: Corruption takes
+  half, pylons you light burn 50% longer).
+
+### Look and sound
+- Area looks (`data/looks.ts`, pick in `/arealab.html`): **Eclipse** (default: violet-black stone, crimson glyphs,
+  a black sun with a burning corona), **Blood moon** (charcoal stone, ember glyphs, a huge red moon) and **The void**
+  (blue-black stone, cyan glyphs, a thin aurora). Ambient light is lower than the other areas (hemi 0.7, sun 0.7)
+  and fog closes in at 75–80 m; the glyph bands, pylons and telegraphs stay bright against it.
+- Scenery (`Level.buildTempleScenery` / `buildAltarScenery`): columns on the wall line and against room edges
+  (some broken, all solid), glyph bands along every wall, an inlaid circle per room, spires and floating stones on
+  the skyline, drifting motes; the Altar is a round platform with glowing rings and spokes, a glyph band round its
+  rim, an inverted spire beneath it and stones drifting round it in the void.
+- Models in `/viewer.html`: Dimenian (×3), Delsaber, Chaos Sorcerer, Dark Belra, Chaos Bringer, Darvant and the
+  three Falz forms.
+- Sound: ~40 new synthesized SFX in the **Ruins** and **Dark Falz** groups of the Sound Lab. Music: synth
+  arrangements (`ruins`: D lydian, beatless calm / flute-and-strings battle; `falz`: D minor synth-orchestral, the
+  Angel and the enrage bring in choir and taiko) until ElevenLabs recordings are made.
+
 ## Nightmare
 Called Hard in the code (`hard` flags, `hard.ts`, `config.hard`) and in the notes below; players see "Nightmare".
 
@@ -592,21 +797,27 @@ expeditions on up the level curve, PSO style, and gets harder through mechanics 
 `config.ts` (`hard`, plus the affix fields of `affixes`); scaling helpers in `hard.ts`, affixes in `data/affixes.ts`.
 
 ### Structure
-- **One new difficulty, Hard**, for Forest, Caves and Mines. Very Hard can follow later the same way.
-- **Unlock:** killing the Warden on Normal opens Hard. Inside Hard the chain repeats: Hard Caves needs the Hard
-  Dragon, Hard Mines needs Hard De Rol Le (`stats.hardKills`).
+- **One new difficulty, Hard**, for Forest, Caves, Mines and (since 2026-10-08) the Ruins. Very Hard can follow later the same way.
+- **Unlock:** killing **Dark Falz** on Normal opens Hard (it was the Warden until the Ruins; characters who had
+  opened Nightmare that way keep it: `stats.nightmareKept`, set once when a pre-Ruins save loads). Inside Hard the
+  chain repeats: Hard Caves needs the Hard Dragon, Hard Mines Hard De Rol Le, Hard Ruins the Hard Warden
+  (`stats.hardKills`).
 - **Chosen at login** (2026-10-07, Diablo 1 style): starting a character asks Normal or Nightmare (locked until the
-  Warden falls on Normal; defaults to the hardest open one). The whole session plays on it: the city teleporter
+  Dark Falz falls on Normal; defaults to the hardest open one). The whole session plays on it: the city teleporter
   lists only that difficulty's expeditions, and switching means Save & quit and starting again. The run state
   carries a `hard` flag; runs reset at login, so Normal and Nightmare progress never mix. Area names, Pioneer 2 included, read "(Nightmare)" on the banner and in the menu.
-- **Level bands:** Forest 32–42, Caves 42–52, Mines 52–62, carrying on from Normal (1–12 / 12–22 / 22–32).
+- **Level bands:** Forest 42–52, Caves 52–62, Mines 62–72, Ruins 72–82, carrying on from Normal (1–12 / 12–22 /
+  22–32 / 32–42). The whole difficulty moved up one expedition on 2026-10-08 (the user's ask: "Nightmare Forest is
+  the logical continuation of the 4th expedition"); it was Forest 32–42, Caves 42–52, Mines 52–62 before.
 - **Same maps and wave lists** as Normal (remixed waves were considered and left out). Field enemies get per
   expedition HP / XP / Meseta multipliers and flat ATP / DFP / ATA / EVP additions (multiplying ATP would widen the
-  gap between grunts and brutes too much): Forest HP ×6, ATP +195; Caves ×3.4, +190; Mines ×2.2, +165. Boss adds
-  (the Warden's Spark Mites and Repair Drones) get the Mines scaling.
+  gap between grunts and brutes too much): Forest HP ×6.8, ATP +240; Caves ×4.7, +280; Mines ×2.9, +255; Ruins ×2.6,
+  +270 (before the shift: Forest ×6 / +195, Caves ×3.4 / +190, Mines ×2.2 / +165). XP multipliers keep the levelling
+  pace for the higher bands (22 / 5.7 / 3.4 / 3). Boss adds (the Warden's Spark Mites and Repair Drones) get the
+  Mines scaling.
 - **No XP falloff** for being above a band: Hard is where the XP is, but levelling anywhere stays allowed.
 - Techniques scale with MST only (no disks since 2026-10-07; see Loot & Progression), so a Force keeps growing
-  through MST from levels, Mag and Hard-tier gear. (The Mag grid is full at Lv 61, the top of the Hard bands.)
+  through MST from levels, Mag and Hard-tier gear. (At Lv 82, the top of the bands, a build has 81 of the Mag tree's 112 squares.)
 
 ### Tempo: busier, not shorter
 - Recoveries and attack cooldowns ×0.8, movement ×1.1: enemies attack more often.
@@ -655,10 +866,11 @@ expeditions on up the level curve, PSO style, and gets harder through mechanics 
   lines and the "[LOCK]" tag were removed; the lock-on reticle already shows the lock).
 
 ### Bosses
-- HP ×9 / ×6.5 / ×1.9 and ATP +330 / +300 / +270 (Dragon / De Rol Le / Warden). Flat damage (breath and beam ticks,
-  the laser wall, burning zones) ×2.6 / ×2 / ×1.6; mask and shell plates scale with HP. The Warden's Repair Drones
+- HP ×13.5 / ×7.8 / ×2.45 / ×2.4 and ATP +375 / +345 / +320 / +310 (Dragon / De Rol Le / Warden / Dark Falz; before
+  the shift ×9 / ×6.5 / ×1.9 and +330 / +300 / +270). Flat damage (breath and beam ticks, the laser wall, burning
+  zones) ×3.2 / ×2.4 / ×1.9; mask and shell plates scale with HP. The Warden's Repair Drones
   heal off the Normal HP pool (times the flat multiplier), not the bigger bar, or two drones would out-heal a
-  Lv 60 player. XP 2600 / 4800 / 7200.
+  Lv 70 player. XP 3600 / 6400 / 9000 / 12000.
 - **Paired attacks:** two telegraphs at once in the later phase, always with a safe route:
   - **Dragon** (below 50% HP): its fire breath comes with a tail quake, a 6 m ring around it landing 0.5 s after
     the breath starts. Safe: sidestep out of the cone, then out past the ring.
@@ -668,23 +880,34 @@ expeditions on up the level curve, PSO style, and gets harder through mechanics 
   - **Warden** (phase 2): the first laser wall comes with a hand slam (3.5 m, 1.4 s) on you, but never on the
     gap's lane: it lands before the wall sets off, and stepping toward the gap clears both. Early in a floor
     pattern, the cell you stand on is locked down too.
-- No new attacks or phase 3 for now.
+  - **Dark Falz**: Grants come with a Megid orb (form 2); the light / dark halves come with a feather volley (form 3).
+- No new attacks or phase 3 for the first three bosses (Dark Falz has its three forms on both difficulties).
 
 ### Loot
-- **Tiers 7–9** of every weapon kind and armour line (Forest T7, Caves T8, Mines T9; weapon reqs ATP 215 / 245 /
-  275, ATA 165 / 180 / 195, MST 260 / 290 / 320; armour reqs at the line's class stat for Lv 44 / 52 / 60). Hard
-  enemies drop the top three tiers up to their expedition's (Forest T5–7 ... Mines T7–9).
-- **Hard rares:** Verdant Edge (saber, Draw) and Thornshot (shot, Venom) in the Forest; Magma Blade (sword, Heat)
-  and Glacier Wand (wand, Ice) in the Caves; Overcharge Gatling (mechgun, Shock) and Reactor Rod (rod, Heat) in
-  the Mines.
-- **Signature drops** (40%): Elder Dragon Scale (T7 any-class barrier), Abyssal Carapace (T8 any-class barrier),
-  Overseer Cannon (T9 handgun, Arc). Hard bosses also drop their tier, a 25% Hard rare, Trimate + Trifluid and a
-  modded tier 6 injector.
+- **Tiers 8–11** of every weapon kind and armour line (Forest T8, Caves T9, Mines T10, Ruins T11; weapon reqs ATP
+  245 / 275 / 305 / 335, ATA 180 / 195 / 210 / 225, MST 290 / 320 / 350 / 380; armour reqs at the line's class stat for
+  Lv 52 / 60 / 68 / 76). Tiers 7–9 kept their numbers when the Ruins took T7; T10–11 are new. Hard enemies drop
+  the top three tiers up to their expedition's (Forest T6–8 ... Ruins T9–11).
+- **Hard rares** (each moved up a tier with its expedition): Verdant Edge (saber, Draw) and Thornshot (shot, Venom)
+  in the Forest (T8); Magma Blade (sword, Heat) and Glacier Wand (wand, Ice) in the Caves (T9); Overcharge Gatling
+  (mechgun, Shock) and Reactor Rod (rod, Heat) in the Mines (T10); Excalibur (saber, Shock) and Heaven Punisher
+  (rifle, Ice) in the Ruins (T11).
+- **Signature drops** (40%): Elder Dragon Scale (T8 any-class barrier), Abyssal Carapace (T9 any-class barrier),
+  Overseer Cannon (T10 handgun, Arc), Falz Halo (T11 any-class barrier, the Seal of Light's effects). Hard bosses also drop their tier, a 25% Hard rare, +1000 Meseta (once a
+  Trimate + Trifluid) and a modded tier 6 injector.
 - **Injector tier 6** (Prime Mate 47% / Prime Fluid 38% a dose; reqs DFP 125 / MST 200), only from Hard bosses
   and champions. The new injector mods the design mentioned are not built yet.
-- Shops stock tier 7 / 8 / 9 from Lv 42 / 52 / 62 once the matching Hard boss is dead.
+- Shops stock tier 8 / 9 / 10 / 11 from Lv 52 / 62 / 72 / 82 once the matching Hard boss is dead (tier 7 from Lv 42
+  after Normal Dark Falz, or the Hard Dragon for characters from before the Ruins).
 
-### Balance reference (bot, never dodges; `.claude/simsetup.js` SETUPS hHF / hHC / hHM, last arg = Hard)
+### Balance reference (bot, never dodges; `.claude/simsetup.js` SETUPS hHF / hHC / hHM / hHR, last arg = Hard)
+- After the shift (2026-10-08, one or two runs each, champions make it noisy): Hard Forest Hunter Lv 44 tier 7:
+  ~350-400 s / ~6-7 bars at HP ×7.4 / ATP +260-240 (then lowered to ×6.8 / +240). Hard Cave 1 Lv 54 tier 8: 313 s /
+  5.2. Hard Mine 2 Lv 66 tier 9: 329 s / 3.5. Hard Ruin 2 Lv 76 tier 10: 728 s / 17.5 at ×3.2 / +290 (champions,
+  affixed Delsabers whose guards blocked the bot's light hits), then lowered to ×2.6 / +270: needs a real playtest.
+  Bosses: Hard Dragon Lv 50 tier 8: 111 s / 2.2 bars; Hard De Rol Le Lv 60 tier 9: 146 s / 0.9; Hard Warden Lv 70
+  tier 10: 187 s / 10.3; Hard Dark Falz Lv 78 tier 11: 166 s / 2.9.
+- Before the shift:
 - Hard Forest (6 rooms), Hunter Lv 37 tier 6: ~340 s / ~4.3 bars (before tuning: 6.5, a third of it champions).
   Hard Caves (Cave 1), Hunter Lv 46 tier 7: ~280 s / 4.3. Hard Mine 2, Hunter Lv 56 tier 8: ~380 s / 3.4 at HP ×2.45,
   then lowered to ×2.2. For comparison, Normal Mine 2 at Lv 28: 237 s / 2.9.
@@ -694,5 +917,6 @@ expeditions on up the level curve, PSO style, and gets harder through mechanics 
 
 ## Deferred / Later Milestones
 - Very Hard/Ultimate, Section IDs, Mag photon blasts (planned as grid keystones), bank, tekker, guild quests, more enemy types (Rappy, Wolves,
-  Mothmant/Monest, Hildebear, Shark family, Nano Dragon, Canadine drones, cloaking Sinows), Ruins → Dark Falz, gamepad support,
-  ElevenLabs recordings for the Mines and Warden themes.
+  Mothmant/Monest, Hildebear, Shark family, Nano Dragon, Canadine drones, cloaking Sinows), gamepad support,
+  ElevenLabs recordings for the Mines, Warden, Ruins and Dark Falz themes, a tier 7 injector and the new injector
+  mods for Nightmare.

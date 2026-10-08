@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { affixes as affixCfg, elite as eliteCfg, hard as hardCfg, stagger as staggerCfg, type EnemyArchetype, type EnemyId, type Race } from '../config';
+import { affixes as affixCfg, elite as eliteCfg, hard as hardCfg, pylonCfg, stagger as staggerCfg, type EnemyArchetype, type EnemyId, type PlayerStatus, type Race } from '../config';
 import { AFFIXES, type Affix } from '../data/affixes';
 import { angleDelta, turnToward, yawTo } from '../collision';
 import type { Hittable, StatusEffect, StatusTimer } from '../combat/types';
@@ -26,7 +26,7 @@ export type EnemyState =
   | 'offline'
   | 'dead';
 
-export type PlayerStatusKind = 'poison' | 'paralysis' | 'burn';
+export type PlayerStatusKind = PlayerStatus;
 
 export type { Affix } from '../data/affixes';
 
@@ -68,6 +68,16 @@ export interface EnemyContext {
   healed(enemy: Enemy, amount: number): void;
   /** Cosmetic blast: a ring and a flash with a bang (Volatile vents, the Frenzied roar). */
   boom(x: number, z: number, radius: number, color: number): void;
+  /** A free spot about `dist` m from (x, z) inside this enemy's room, away from walls (Sorcerer blinks); null if none. */
+  blinkSpot(e: Enemy, x: number, z: number, dist: number): [number, number] | null;
+  /** Metres from (x, z) along `yaw` before a wall, up to `max` (Chaos Bringer charge lanes). */
+  reach(x: number, z: number, yaw: number, max: number): number;
+  /** A lit pylon in this enemy's room (Chaos Sorcerers put them out), or null. */
+  litPylon(e: Enemy): { id: number; x: number; z: number } | null;
+  /** A Sorcerer's snuff on a pylon: progress 0..1 (shown on the pylon); 1 puts it out, -1 calls it off. */
+  snuffPylon(id: number, k: number): void;
+  /** Cosmetic dark burst where a Sorcerer blinks out or in. */
+  blinkFx(x: number, z: number): void;
   rng(): number;
 }
 
@@ -88,6 +98,9 @@ export interface EnemyOptions {
 let nextId = 1;
 const TMP_COLOR = new THREE.Color();
 const WINDUP_COLOR = new THREE.Color(0xff5a1a);
+/** Attacks that corrupt (Ruins) glow violet instead, like their telegraphs. */
+export const CORRUPT_COLOR = 0xa040ff;
+const CORRUPT_TINT = new THREE.Color(CORRUPT_COLOR);
 const BURN_COLOR = new THREE.Color(0xff8800);
 const POISON_COLOR = new THREE.Color(0x60d040);
 const FREEZE_COLOR = new THREE.Color(0x9fdcff);
@@ -156,6 +169,8 @@ export abstract class Enemy implements Hittable {
   private staggerIdle = 0;
   /** Rooted enemies (Lilies) ignore knockback and can't be shoved by bodies. */
   rooted = false;
+  /** A Dark enemy standing in pylon light (set by the world each frame): slowed and takes more damage. */
+  lit = false;
   private dotT = 0;
   private aura: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null = null;
   private tintBase: THREE.Color[];
@@ -243,11 +258,12 @@ export abstract class Enemy implements Hittable {
   get frenzied(): boolean {
     return this.hasAffix('frenzied') && this.hp < this.maxHp * affixCfg.frenzyAt;
   }
-  /** Speed multiplier on movement and attack timings (Overclocked elites run faster, Frenzied ones once hurt). */
+  /** Speed multiplier on movement and attack timings (Overclocked elites run faster, Frenzied ones once hurt; pylon light slows the Dark). */
   get tempo(): number {
     let t = this.hasAffix('overclocked') ? affixCfg.overclockedTempo : 1;
     if (this.frenzied) t *= affixCfg.frenzyTempo;
-    return Math.min(affixCfg.tempoCap, t);
+    t = Math.min(affixCfg.tempoCap, t);
+    return this.lit ? t * pylonCfg.enemySlow : t;
   }
   /** Attack power (Frenzied hits harder once frenzied). */
   get atp(): number {
@@ -291,13 +307,14 @@ export abstract class Enemy implements Hittable {
    * Shielded by a living Shielding ally: it takes reduced damage. A Shielding elite with nobody left
    * to protect shields its own front (hits from `fromX, fromZ` in front of it).
    */
-  damageMult(fromX?: number, fromZ?: number): number {
-    if (this.shieldedBy?.alive) return affixCfg.shieldMult;
+  damageMult(fromX?: number, fromZ?: number, _heavy?: boolean): number {
+    const light = this.lit ? pylonCfg.enemyDamage : 1;
+    if (this.shieldedBy?.alive) return affixCfg.shieldMult * light;
     if (this.hasAffix('shielding') && this.shieldAllies === 0 && fromX !== undefined && fromZ !== undefined) {
       const front = Math.abs(angleDelta(this.yaw, yawTo(this.pos.x, this.pos.z, fromX, fromZ)));
-      if (front <= (affixCfg.selfShieldArcDeg * Math.PI) / 180) return affixCfg.selfShieldMult;
+      if (front <= (affixCfg.selfShieldArcDeg * Math.PI) / 180) return affixCfg.selfShieldMult * light;
     }
-    return 1;
+    return light;
   }
 
   /** Stagger points needed to flinch. */
@@ -629,6 +646,11 @@ export abstract class Enemy implements Hittable {
     return 0;
   }
 
+  /** Does the attack being telegraphed corrupt? Its body heats up violet instead of orange. */
+  protected corruptingAttack(): boolean {
+    return this.arch.strikeStatus === 'corrupt';
+  }
+
   protected cue(id: string): void {
     if (this.cues.length < 8) this.cues.push(id);
   }
@@ -705,7 +727,8 @@ export abstract class Enemy implements Hittable {
 
     let emissive = 0x000000;
     const heat = this.telegraphHeat();
-    if (heat > 0.75) emissive = 0x501400;
+    const corrupting = heat > 0 && this.corruptingAttack();
+    if (heat > 0.75) emissive = corrupting ? 0x3a0858 : 0x501400;
     switch (this.state) {
       case 'spawning':
         root.position.y = -1.8 * this.arch.scale * (1 - Math.min(1, this.stateT / SPAWN_TIME));
@@ -721,7 +744,7 @@ export abstract class Enemy implements Hittable {
     this.rig.tintable.forEach((m, i) => {
       const c = TMP_COLOR.copy(this.tintBase[i]);
       if (molten) c.lerp(MOLTEN_COLOR, 0.55);
-      if (heat > 0) c.lerp(WINDUP_COLOR, heat * 0.75);
+      if (heat > 0) c.lerp(corrupting ? CORRUPT_TINT : WINDUP_COLOR, heat * 0.75);
       if (this.burnT > 0) c.lerp(BURN_COLOR, 0.35);
       if (this.poisonT > 0) c.lerp(POISON_COLOR, 0.35);
       if (this.state === 'frozen') c.lerp(FREEZE_COLOR, 0.8);

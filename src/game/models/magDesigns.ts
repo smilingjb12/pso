@@ -154,6 +154,76 @@ function gearPow(k: MagKit, w: number, top: number): void {
   }
 }
 
+/** Flat-shaded three-sided cone (a 3D triangle), a flat face toward +Z; `down` points the tip down. */
+function triCone(r: number, h: number, down: boolean): THREE.BufferGeometry {
+  const g = new THREE.ConeGeometry(r, h, 3);
+  if (down) g.rotateX(Math.PI);
+  else g.rotateY(Math.PI);
+  const flat = g.toNonIndexed();
+  flat.computeVertexNormals();
+  return flat;
+}
+
+/** A floating crown of `n` spikes above the body at `y`, bobbing and turning. */
+function magCrown(k: MagKit, y: number, R: number, n: number, tall: number): void {
+  const crown = new THREE.Group();
+  k.body.add(crown);
+  part(crown, new THREE.TorusGeometry(R, 0.006, 3, 24), k.glow, [0, 0, 0], [Math.PI / 2, 0, 0]);
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const len = i % 2 ? tall * 0.6 : tall;
+    spike(crown, 0.011, len, i % 2 ? k.trim : k.glow, [Math.cos(a) * R, 0, Math.sin(a) * R], [Math.cos(a) * 0.3, 1, Math.sin(a) * 0.3]);
+  }
+  k.anim.push((t) => {
+    crown.position.y = y + Math.sin(t * 2.2) * 0.008;
+    crown.rotation.y = t * 0.8;
+  });
+}
+
+/**
+ * POW (Kits): an inverted three-sided pyramid, point down, with forward-swept blades and horns.
+ * Stage 2 adds a floating spiked crown and a glowing stinger under the point; stage 3 a taller
+ * crown, a back-swept second blade pair and a spiked crescent behind.
+ */
+function vanguardMag(k: MagKit): void {
+  const [yTop, yTip, R0] = [0.06, -0.17, 0.12];
+  /** Circumradius of the body at height y. */
+  const rad = (y: number) => (R0 * (y - yTip)) / (yTop - yTip);
+  part(k.body, triCone(R0, yTop - yTip, true), k.shell, [0, (yTop + yTip) / 2, 0]);
+  part(k.body, triCone(R0 * 0.98, 0.035, false), k.trim, [0, yTop + 0.0175, 0]);
+  eye(k, 0.026, [0, 0.015, rad(0.015) * 0.5]);
+  for (const y of [0.035, -0.02, -0.075]) {
+    // Triangular stripes; a band's corners sit on the body's edges.
+    part(k.body, new THREE.TorusGeometry(rad(y) + 0.008, 0.0065, 3, 3).rotateX(Math.PI / 2).rotateY(-Math.PI / 6), k.stripe, [0, y, 0]);
+  }
+  const s = [1.25, 1.45, 1.6][k.stage - 1];
+  const blades = mirrored(k.body, [0.07, 0.0, 0.03], (p) => {
+    part(p, plateGeo(BLADE, 0.014), k.trim, [0, 0, 0], [0, 0, 0], [s, 1, s]);
+    part(p, plateGeo(BLADE_EDGE, 0.006), k.glow, [0, 0.009, 0], [0, 0, 0], [s, 1, s]);
+  });
+  flap(k, blades, 0.12, 0.1, 3.4);
+  mirrored(k.body, [0.055, yTop + 0.02, 0.025], (p) => spike(p, 0.013, 0.05 + 0.02 * k.stage, k.trim, [0, 0, 0], [0.45, 1, 0.7]));
+  if (k.stage >= 2) {
+    spike(k.body, 0.016, 0.07 + 0.02 * k.stage, k.glow, [0, yTip + 0.02, 0], [0, -1, 0], 3);
+    magCrown(k, yTop + 0.07, k.stage >= 3 ? 0.065 : 0.055, k.stage >= 3 ? 8 : 6, k.stage >= 3 ? 0.075 : 0.055);
+  }
+  if (k.stage >= 3) {
+    const low = mirrored(k.body, [0.055, -0.05, 0.0], (p) => {
+      part(p, plateGeo(BLADE.map(([x, z]): [number, number] => [x * 0.85, -z]), 0.012), k.trim, [0, 0, 0], [0, 0, -0.4]);
+    });
+    flap(k, low, -0.05, 0.08, 3.4, 0.8);
+    const arc = new THREE.Group();
+    arc.position.set(0, 0, -0.08);
+    k.body.add(arc);
+    part(arc, new THREE.TorusGeometry(0.17, 0.008, 3, 14, Math.PI), k.glow);
+    for (let i = 0; i < 5; i++) {
+      const a = ((i + 1) / 6) * Math.PI;
+      spike(arc, 0.013, 0.055, k.glow, [Math.cos(a) * 0.17, Math.sin(a) * 0.17, 0], [Math.cos(a), Math.sin(a), 0]);
+    }
+    k.anim.push((t) => (arc.rotation.z = Math.sin(t * 0.9) * 0.12));
+  }
+}
+
 /** DEX: long swept-back wings and a tail fin; a sighting ring from stage 2; canards, twin fins and streamers at 3. */
 function gearDex(k: MagKit, w: number, top: number, tail: number): void {
   const s = grow(k, 0.12);
@@ -454,11 +524,14 @@ export const MAG_DESIGNS: Record<string, MagDesign> = {
   },
   kits: {
     name: 'Kits',
-    desc: 'The familiar pod at every stage; the arm swaps its gear: blades, long wings and sighting ring, shields and hex ward, or floating petals and crystals.',
+    desc: 'The familiar pod at every stage (POW trades it for a point-down pyramid under a floating crown); the arm swaps its gear: blades, long wings and sighting ring, shields and hex ward, or floating petals and crystals.',
     build(k) {
+      if (k.theme === 'pow') {
+        vanguardMag(k);
+        return;
+      }
       const w = classicPod(k);
-      if (k.theme === 'pow') gearPow(k, w, 0.075);
-      else if (k.theme === 'dex') gearDex(k, w, 0.07, -0.12);
+      if (k.theme === 'dex') gearDex(k, w, 0.07, -0.12);
       else if (k.theme === 'def') gearDef(k, w, 0.075);
       else gearMind(k, w, 0.085, true);
     },

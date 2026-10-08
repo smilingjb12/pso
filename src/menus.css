@@ -300,8 +300,8 @@ kbd {
   width: min(440px, 94vw);
 }
 .menu-layer:not(.stage-layer) > .menu-panel.wide {
-  width: min(860px, 96vw);
-  height: min(600px, 90vh);
+  width: min(980px, 96vw);
+  height: min(700px, 92vh);
 }
 @keyframes win-open {
   from {
@@ -1491,6 +1491,53 @@ table.controls td:nth-child(odd) {
   color: var(--text-dim);
   cursor: help;
 }
+/* Grind picker: one row per track (Edge, then each race) with what it adds and the damage change. */
+.grind-head {
+  margin-bottom: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.grind-picks .row {
+  display: grid;
+  grid-template-columns: 10em 1fr auto;
+  column-gap: 10px;
+  row-gap: 1px;
+  font-variant-numeric: tabular-nums;
+}
+.grind-picks .row.dimmed {
+  cursor: default;
+}
+.gp-name {
+  font: 700 13px var(--font-head);
+  white-space: nowrap;
+}
+.gp-here {
+  margin-left: 5px;
+  padding: 0 4px;
+  font: 600 9px var(--font-head);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  vertical-align: 2px;
+}
+.gp-what {
+  font-size: 13px;
+}
+.gp-gain {
+  font: 700 12px var(--font-head);
+  color: var(--good);
+  text-align: right;
+}
+.gp-note {
+  grid-column: 2 / -1;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.gp-note.warn {
+  color: var(--accent);
+}
 .cmp {
   margin-top: 10px;
   padding: 8px 10px;
@@ -1621,14 +1668,16 @@ table.controls td:nth-child(odd) {
   --dex: #50e080;
   --mind: #6aa0ff;
   --def: #ffc040;
+  /* Squares grow with the window: the 15-row grid fills the panel height (header and footer take ~215px). */
+  --cell: clamp(22px, calc((min(700px, 92vh) - 215px) / 16), 30px);
   position: relative;
-  padding: 22px 34px;
+  padding: 20px 34px;
 }
 .mag-grid {
   display: grid;
-  grid-template-columns: repeat(11, 30px);
-  grid-auto-rows: 30px;
-  gap: 3px;
+  grid-template-columns: repeat(15, var(--cell));
+  grid-auto-rows: var(--cell);
+  gap: 2px;
 }
 .mg-arm {
   position: absolute;
@@ -1652,7 +1701,7 @@ table.controls td:nth-child(odd) {
   font: 700 10px var(--font-head);
   color: var(--c);
   border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
-  border-radius: 6px;
+  border-radius: 5px;
   background: rgba(2, 10, 36, 0.6);
   cursor: pointer;
   user-select: none;
@@ -1670,6 +1719,8 @@ table.controls td:nth-child(odd) {
 .mg-cell.k-hybrid { font-size: 9px; }
 .mg-cell.k-notable { font-size: 15px; border-radius: 50%; }
 .mg-cell.k-keystone { font-size: 15px; border-radius: 50%; border-width: 2px; }
+/* Keystone II (the tip): a double ring. */
+.mg-cell.k-keystone.t2 { font-size: 17px; border-style: double; border-width: 3px; }
 .mg-cell.k-core { border-radius: 50%; font-size: 9px; }
 .mg-cell.locked { opacity: 0.35; }
 .mg-cell.open {
@@ -1712,6 +1763,65 @@ table.controls td:nth-child(odd) {
   color: var(--text-dim);
 }
 .mi-state.open { color: var(--good); }
+.mi-req {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #ffd27a;
+}
+
+/* ------------------------------------------------------------ attributes */
+.attr-pts {
+  margin-left: 6px;
+  font: 400 13px var(--font-body, inherit);
+  color: var(--text-dim);
+}
+.attr-pts b {
+  font: 700 16px var(--font-head);
+  color: var(--accent-hi);
+}
+.attr-list {
+  --pow: #ff6a50;
+  --dex: #50e080;
+  --mind: #6aa0ff;
+  --def: #ffc040;
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 6px;
+}
+.attr-row {
+  display: grid;
+  grid-template-columns: 46px 34px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px 3px 8px;
+  border-left: 3px solid var(--c);
+  background: rgba(2, 10, 36, 0.45);
+  border-radius: 0 6px 6px 0;
+}
+.attr-row.a-pow { --c: var(--pow); }
+.attr-row.a-dex { --c: var(--dex); }
+.attr-row.a-mind { --c: var(--mind); }
+.attr-row.a-def { --c: var(--def); }
+.attr-name {
+  font: 700 13px var(--font-head);
+  color: var(--c);
+  letter-spacing: 0.06em;
+}
+.attr-val {
+  font: 700 16px var(--font-head);
+  text-align: right;
+}
+.attr-gain {
+  font-size: 12px;
+}
+.attr-add {
+  min-width: 28px;
+  padding: 2px 8px;
+}
+.attr-note {
+  margin-bottom: 10px;
+  font-size: 12px;
+}
 .mag-totals {
   margin-top: 10px;
 }

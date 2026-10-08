@@ -31,8 +31,8 @@ export interface Hittable {
   /** Statuses currently running (target frame icons). */
   statusTimers?(): StatusTimer[];
   /**
-   * Damage taken multiplier right now (weak point windows, shields). `fromX, fromZ` is where the hit
-   * comes from (a lone Shielding elite guards its front).
+   * Damage taken multiplier right now (weak point windows, shields, a guard). `fromX, fromZ` is where the hit
+   * comes from (a lone Shielding elite and a Delsaber guard their front); `heavy`: a heavy attack or cast.
    */
-  damageMult(fromX?: number, fromZ?: number): number;
+  damageMult(fromX?: number, fromZ?: number, heavy?: boolean): number;
 }

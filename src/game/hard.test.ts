@@ -13,7 +13,7 @@ describe('Hard scaling', () => {
     expect(h.hp).toBe(Math.round(b.hp * hard.forest.hp));
     expect(h.atp).toBe(b.atp + hard.forest.atp);
     expect(h.recovery).toBeCloseTo(b.recovery * hard.recoveryMult);
-    expect(h.dropTier).toBe(7);
+    expect(h.dropTier).toBe(8);
     expect(h.rarePool).toEqual(hard.forest.rares);
     // Every Hard telegraph stays at or above the floor unless it was already shorter.
     for (const a of Object.values(enemies)) {
@@ -32,13 +32,13 @@ describe('Hard scaling', () => {
     const rng = mulberry32(7);
     const tiers = new Set<number>();
     for (let i = 0; i < 400; i++) {
-      const d = rollEnemyDrop(hardArch(enemies.Gillchic, hard.mines), rng, 'hunter');
+      const d = rollEnemyDrop(hardArch(enemies.Gillchic, hard.mines), rng, 'atp');
       if (d?.kind !== 'item') continue;
       const def = getDef(d.item.id);
       if ((def.type === 'weapon' || def.type === 'armor') && !def.rare) tiers.add(def.tier);
     }
-    expect(Math.min(...tiers)).toBeGreaterThanOrEqual(7);
-    expect(Math.max(...tiers)).toBe(9);
+    expect(Math.min(...tiers)).toBeGreaterThanOrEqual(8);
+    expect(Math.max(...tiers)).toBe(10);
   });
 });
 
@@ -62,30 +62,50 @@ describe('Affixes', () => {
 });
 
 describe('Hard loot', () => {
-  it('has tiers 7-9 for every weapon kind and armour line', () => {
+  it('has tiers 7-11 for every weapon kind and armour line', () => {
     for (const kind of Object.keys(weaponKinds) as WeaponKind[]) {
-      for (const t of [7, 8, 9]) expect(itemDefs[`${kind}_${t}`]?.type).toBe('weapon');
+      for (const t of [7, 8, 9, 10, 11]) expect(itemDefs[`${kind}_${t}`]?.type).toBe('weapon');
+      expect(itemDefs[`${kind}_12`]).toBeUndefined();
     }
     for (const line of Object.keys(armorLines).filter((l) => l !== 'basic')) {
-      for (const slot of ['frame', 'barrier']) for (const t of [7, 8, 9]) expect(itemDefs[`${slot}_${line}_${t}`]?.type).toBe('armor');
+      for (const slot of ['frame', 'barrier']) for (const t of [7, 8, 9, 10, 11]) expect(itemDefs[`${slot}_${line}_${t}`]?.type).toBe('armor');
+    }
+  });
+
+  it('raises requirements and stats with every tier', () => {
+    for (const kind of Object.keys(weaponKinds) as WeaponKind[]) {
+      for (let t = 2; t <= 11; t++) {
+        const a = getDef(`${kind}_${t - 1}`);
+        const b = getDef(`${kind}_${t}`);
+        if (a.type !== 'weapon' || b.type !== 'weapon') throw new Error('not a weapon');
+        expect(b.atpMax).toBeGreaterThan(a.atpMax);
+        expect(b.req).toBeGreaterThan(a.req);
+      }
     }
   });
 
   it('keeps tier 6 injectors to Hard bosses and champions', () => {
     const rng = mulberry32(11);
     for (let i = 0; i < 50; i++) expect(getDef(rollInjector(9, rng).id)).toMatchObject({ tier: 5 });
-    for (const boss of ['dragon', 'derolle', 'warden'] as const) {
-      const drops = rollHardBossDrops(boss, rng, 'force');
+    for (const boss of ['dragon', 'derolle', 'warden', 'falz'] as const) {
+      const drops = rollHardBossDrops(boss, rng, 'mst');
       expect(drops.some((d) => d.kind === 'item' && d.item.id.endsWith('_6') && getDef(d.item.id).type === 'injector')).toBe(true);
     }
     expect(rollChampionBonus(hardArch(enemies.Booma, hard.forest), rng).length).toBeGreaterThanOrEqual(2);
   });
 
-  it('opens shop tiers 7-9 after the Hard bosses, at the band tops', () => {
-    expect(shopTier(45, true, true)).toBe(6);
-    expect(shopTier(41, true, true, { dragon: true })).toBe(6);
-    expect(shopTier(42, true, true, { dragon: true })).toBe(7);
-    expect(shopTier(55, true, true, { dragon: true, derolle: true })).toBe(8);
-    expect(shopTier(62, true, true, { dragon: true, derolle: true, warden: true })).toBe(9);
+  it('opens shop tier 7 after Dark Falz and 8-11 after the Nightmare bosses, at the band tops', () => {
+    const normal = { derolle: true, warden: true };
+    expect(shopTier(45, normal)).toBe(6);
+    expect(shopTier(41, { ...normal, falz: true })).toBe(6);
+    expect(shopTier(42, { ...normal, falz: true })).toBe(7);
+    const all = { ...normal, falz: true };
+    expect(shopTier(51, { ...all, hard: { dragon: true } })).toBe(7);
+    expect(shopTier(52, { ...all, hard: { dragon: true } })).toBe(8);
+    expect(shopTier(65, { ...all, hard: { dragon: true, derolle: true } })).toBe(9);
+    expect(shopTier(72, { ...all, hard: { dragon: true, derolle: true, warden: true } })).toBe(10);
+    expect(shopTier(82, { ...all, hard: { dragon: true, derolle: true, warden: true, falz: true } })).toBe(11);
+    // Nightmare played before the Ruins (Hard Dragon, no Dark Falz) keeps tier 7.
+    expect(shopTier(45, { ...normal, hard: { dragon: true } })).toBe(7);
   });
 });

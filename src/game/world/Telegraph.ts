@@ -19,6 +19,8 @@ export class Telegraph {
   readonly group = new THREE.Group();
   t = 0;
   done = false;
+  /** The player's own technique flashes (not a warning; Slipstream ignores them). */
+  friendly = false;
   private fill: THREE.Mesh;
   private rim: THREE.MeshBasicMaterial | null = null;
 

@@ -6,7 +6,7 @@ import { fm, group, later, noise, pitched, tone, type V } from './synth';
 // audition in /soundlab.html; the game plays the variant chosen in picks.ts.
 // `x` is an optional per-call argument (duration of a breath / beam, ...).
 
-export type SfxGroup = 'Combat' | 'Techniques' | 'Player' | 'Enemies' | 'Dragon' | 'De Rol Le' | 'Mines' | 'Warden' | 'World' | 'Loot' | 'UI' | 'Jingles';
+export type SfxGroup = 'Combat' | 'Techniques' | 'Player' | 'Enemies' | 'Dragon' | 'De Rol Le' | 'Mines' | 'Warden' | 'Ruins' | 'Dark Falz' | 'World' | 'Loot' | 'UI' | 'Jingles';
 
 export interface Variant {
   name: string;
@@ -1270,6 +1270,472 @@ const DEFS = {
     ],
   },
 
+  // ================================================================= Ruins
+  'ruins.growl': {
+    group: 'Ruins', label: 'Ruins enemy winds up (war cry)', gap: 0.15, ref: 14,
+    variants: [
+      v_('Hiss', 'Metallic hiss through a mask', (v) => {
+        noise(v, { a: 0.08, d: 0.35, gain: 0.22, filter: { type: 'bandpass', f: 2600, f1: 1400, q: 2.5 } });
+        tone(v, { type: 'sawtooth', f: 140, f1: 110, a: 0.05, d: 0.35, gain: 0.05, filter: { type: 'lowpass', f: 900 } });
+      }),
+      v_('Dark chant', 'A short low chant', (v) => {
+        const g = group(v, { filter: { type: 'bandpass', f: 700, q: 1.2 }, wet: 0.5 });
+        for (const f of [98, 147]) tone(g, { type: 'sawtooth', f, a: 0.08, d: 0.45, gain: 0.08, vib: [5, 20] });
+      }),
+    ],
+  },
+  'ruins.slash': {
+    group: 'Ruins', label: 'Ruins blade cut', gap: 0.06, ref: 12,
+    variants: [
+      v_('Dark swish', 'Swish with a dark hum', (v) => {
+        swoosh(v, 500, 2400, 0.22, 0.35);
+        tone(v, { type: 'sawtooth', f: 80, f1: 130, a: 0.02, d: 0.25, gain: 0.08, filter: { type: 'lowpass', f: 600, f1: 1800, fT: 0.12, q: 3 } });
+      }),
+      v_('Whip', 'Sharp whip of a blade', (v) => {
+        swoosh(v, 900, 3800, 0.15, 0.4);
+        crack(v, 0.03, 0.12, 4500, 0.1);
+      }),
+    ],
+  },
+  'ruins.die': {
+    group: 'Ruins', label: 'Ruins enemy dissolves', gap: 0.1, ref: 18,
+    variants: [
+      v_('Dissolve', 'Falling hiss into dust', (v) => {
+        noise(v, { a: 0.02, d: 0.9, gain: 0.3, filter: { type: 'bandpass', f: 3000, f1: 400, q: 1.2 }, wet: 0.5 });
+        tone(v, { type: 'triangle', f: 600, f1: 90, d: 0.7, gain: 0.08, wet: 0.5 });
+      }),
+      v_('Shatter', 'Dark glass shattering', (v) => {
+        for (let i = 0; i < 8; i++) fm(v, { f: 900 + Math.random() * 1800, ratio: 2.7, index: 1.2, d: 0.35, gain: 0.04, at: Math.random() * 0.25, wet: 0.5 });
+        thump(v, 90, 0.4, 0.4);
+      }),
+    ],
+  },
+  'delsaber.block': {
+    group: 'Ruins', label: 'Delsaber blocks with its shield', gap: 0.05, ref: 14,
+    variants: [
+      v_('Clang', 'Heavy shield clang', (v) => {
+        fm(v, { f: 520, ratio: 2.41, index: 3, index1: 0.3, d: 0.5, gain: 0.14, wet: 0.4 });
+        crack(v, 0.03, 0.3, 3000);
+      }),
+      v_('Ward ping', 'Shield ward rings out', (v) => {
+        fm(v, { f: 880, ratio: 3.01, index: 1.5, d: 0.6, gain: 0.1, wet: 0.5 });
+        thump(v, 200, 0.1, 0.3);
+      }),
+    ],
+  },
+  'delsaber.break': {
+    group: 'Ruins', label: 'Delsaber guard broken', gap: 0.2, ref: 18,
+    variants: [
+      v_('Guard shatters', 'Shatter with a falling ring', (v) => {
+        for (let i = 0; i < 10; i++) fm(v, { f: 1500 + Math.random() * 2500, ratio: 2.7, index: 1.5, d: 0.3, gain: 0.05, at: Math.random() * 0.2 });
+        fm(v, { f: 700, f1: 300, ratio: 2.41, index: 3, d: 0.8, gain: 0.12, wet: 0.5 });
+        thump(v, 110, 0.3, 0.6);
+      }),
+      v_('Crunch', 'Metal crunch', (v) => {
+        crack(v, 0.08, 0.5, 1500);
+        noise(v, { d: 0.3, gain: 0.2, filter: { type: 'bandpass', f: 800, q: 1 } });
+        thump(v, 90, 0.4, 0.6);
+      }),
+    ],
+  },
+  'delsaber.leap': {
+    group: 'Ruins', label: 'Delsaber leaps', gap: 0.2, ref: 14,
+    variants: [
+      v_('Armoured leap', 'Rush of air and armour rattle', (v) => {
+        swoosh(v, 300, 1600, 0.35, 0.35);
+        for (let i = 0; i < 4; i++) crack(v, 0.02, 0.06, 2500, 0.05 + i * 0.04);
+      }),
+      v_('War cry', 'Short rising cry', (v) => growl(v, 140, 0.35, 0.15, 15)),
+    ],
+  },
+  'sorcerer.cast': {
+    group: 'Ruins', label: 'Chaos Sorcerer casting', gap: 0.2, ref: 18,
+    variants: [
+      v_('Dark chord', 'Rising dissonant chord', (v) => {
+        for (const f of [220, 233, 330]) tone(v, { type: 'triangle', f, f1: f * 1.5, a: 0.9, d: 0.3, gain: 0.05, wet: 0.6, vib: [6, 15] });
+      }),
+      v_('Whisper', 'Whispering rise', (v) => {
+        noise(v, { a: 1.0, d: 0.3, gain: 0.15, filter: { type: 'bandpass', f: 1500, f1: 4500, fT: 1.1, q: 3 }, wet: 0.6 });
+        fm(v, { f: 300, f1: 900, ratio: 2, index: 1.5, a: 1, d: 0.3, gain: 0.05, wet: 0.5 });
+      }),
+    ],
+  },
+  'sorcerer.blink': {
+    group: 'Ruins', label: 'Chaos Sorcerer blinks', gap: 0.15, ref: 18,
+    variants: [
+      v_('Pop', 'Reversed whoosh and pop', (v) => {
+        noise(v, { a: 0.25, d: 0.05, gain: 0.25, filter: { type: 'bandpass', f: 800, f1: 4000, fT: 0.25, q: 2 } });
+        tone(v, { f: 900, f1: 300, d: 0.12, gain: 0.12, at: 0.25 });
+      }),
+      v_('Phase', 'Phasing shimmer', (v) => fm(v, { f: 600, f1: 1800, ratio: 1.5, index: 4, d: 0.35, gain: 0.08, wet: 0.6 })),
+    ],
+  },
+  'sorcerer.drain': {
+    group: 'Ruins', label: 'Chaos Sorcerer drains a pylon', gap: 0.5, ref: 22, len: 3,
+    variants: [
+      v_('Suck', 'Light being drawn out', (v) => {
+        noise(v, { a: 0.1, h: 0.9, d: 0.3, gain: 0.2, filter: { type: 'bandpass', f: 5000, f1: 600, fT: 1.2, q: 2 }, wet: 0.5 });
+        tone(v, { type: 'sawtooth', f: 400, f1: 100, a: 0.1, h: 0.9, d: 0.3, gain: 0.05, filter: { type: 'lowpass', f: 1200 } });
+      }),
+      v_('Moan', 'Low wavering moan', (v) => tone(v, { type: 'triangle', f: 160, f1: 110, a: 0.2, h: 0.8, d: 0.4, gain: 0.12, vib: [4, 40], wet: 0.6 })),
+    ],
+  },
+  'sorcerer.interrupt': {
+    group: 'Ruins', label: 'Pylon drain interrupted', gap: 0.2, ref: 22,
+    variants: [
+      v_('Snap', 'Snap back to light', (v) => sparkle(v, [1568, 2093, 2637], 0.05, 0.07, 0.4, 2)),
+      v_('Crack', 'Dark tendril snaps', (v) => {
+        crack(v, 0.04, 0.3, 2500);
+        tone(v, { f: 300, f1: 700, d: 0.2, gain: 0.08 });
+      }),
+    ],
+  },
+  'pylon.snuff': {
+    group: 'Ruins', label: 'Pylon snuffed out', gap: 0.3, ref: 25,
+    variants: [
+      v_('Gutter', 'Light gutters out', (v) => {
+        tone(v, { type: 'triangle', f: 1200, f1: 150, d: 0.9, gain: 0.1, wet: 0.6 });
+        noise(v, { d: 0.6, gain: 0.15, filter: { type: 'lowpass', f: 2000, f1: 200 } });
+      }),
+      v_('Thump out', 'Dull thump and fade', (v) => {
+        thump(v, 120, 0.5, 0.4);
+        tone(v, { f: 600, f1: 200, d: 0.6, gain: 0.06, wet: 0.5 });
+      }),
+    ],
+  },
+  'ruins.pylon': {
+    group: 'Ruins', label: 'Pylon lit', gap: 0.2, ref: 25,
+    variants: [
+      v_('Chime swell', 'Bright chime and swell', (v) => {
+        sparkle(v, [1047, 1568, 2093, 3136], 0.05, 0.06, 1.2, 2);
+        for (const f of [523, 784]) tone(v, { type: 'triangle', f, a: 0.15, d: 1.2, gain: 0.05, wet: 0.7 });
+      }),
+      v_('Ignite', 'Whoosh of light', (v) => {
+        noise(v, { a: 0.05, d: 0.6, gain: 0.2, filter: { type: 'bandpass', f: 1500, f1: 6000, fT: 0.3, q: 1 }, wet: 0.5 });
+        fm(v, { f: 784, ratio: 2, index: 1, d: 1, gain: 0.07, wet: 0.6 });
+      }),
+    ],
+  },
+  'status.corrupt': {
+    group: 'Ruins', label: 'Corruption takes hold', gap: 0.15,
+    variants: [
+      v_('Dark pulse', 'Low pulse and a falling tone', (v) => {
+        thump(v, 70, 0.35, 0.35);
+        tone(v, { type: 'sawtooth', f: 330, f1: 110, d: 0.5, gain: 0.06, filter: { type: 'lowpass', f: 900 }, wet: 0.5 });
+      }),
+      v_('Heartbeat', 'Two heavy beats', (v) => {
+        thump(v, 60, 0.2, 0.45);
+        thump(v, 55, 0.25, 0.4, 0.22);
+        noise(v, { d: 0.4, gain: 0.08, filter: { type: 'lowpass', f: 500 }, wet: 0.5 });
+      }),
+    ],
+  },
+  'status.cleanse': {
+    group: 'Ruins', label: 'Corruption cleansed (a stack, or all)', gap: 0.1,
+    variants: [
+      v_('Bell', 'A single clear bell', (v) => fm(v, { f: 1568, ratio: 2, index: 0.9, d: 0.7, gain: 0.07, wet: 0.6 })),
+      v_('Sparkle', 'Rising sparkle', (v) => sparkle(v, [1319, 1760, 2349], 0.05, 0.06, 0.5, 2)),
+    ],
+  },
+  'belra.windup': {
+    group: 'Ruins', label: 'Dark Belra draws back its fist', gap: 0.3, ref: 20,
+    variants: [
+      v_('Grinding stone', 'Grinding rock', (v) => {
+        noise(v, { color: 'brown', a: 0.3, d: 0.8, gain: 0.35, filter: { type: 'bandpass', f: 300, f1: 600, q: 1.5 } });
+        growl(v, 50, 1.0, 0.12, 10);
+      }),
+      v_('Creak', 'Creaking strain', (v) => tone(v, { type: 'sawtooth', f: 70, f1: 50, a: 0.3, d: 0.9, gain: 0.08, vib: [12, 60], filter: { type: 'lowpass', f: 500 } })),
+    ],
+  },
+  'belra.punch': {
+    group: 'Ruins', label: 'Dark Belra rock punch', gap: 0.2, ref: 22,
+    variants: [
+      v_('Rocket fist', 'Whoosh into a crash', (v) => {
+        swoosh(v, 200, 1200, 0.25, 0.4);
+        rumble(v, 0.6, 0.45, 700, 0.01, 0.18);
+        crack(v, 0.06, 0.35, 1800, 0.18);
+      }),
+      v_('Boom', 'Heavy boom', (v) => explosion(v, 0.9, 0.5)),
+    ],
+  },
+  'belra.slam': {
+    group: 'Ruins', label: 'Dark Belra ground slam', gap: 0.2, ref: 24,
+    variants: [
+      v_('Slam', 'Stone slam with a dark ring', (v) => {
+        slam(v, 0.75);
+        tone(v, { type: 'triangle', f: 220, f1: 110, d: 0.9, gain: 0.06, wet: 0.6 });
+      }),
+      v_('Quake', 'Rolling quake', (v) => {
+        thump(v, 50, 1.0, 0.8);
+        rumble(v, 1.5, 0.5, 400, 0.02);
+      }),
+    ],
+  },
+  'bringer.roar': {
+    group: 'Ruins', label: 'Chaos Bringer rears (charge or stomp)', gap: 0.4, ref: 30,
+    variants: [
+      v_('Roar', 'Deep beastly roar', (v) => growl(v, 70, 1.1, 0.3, 25)),
+      v_('Neigh', 'Distorted neigh', (v) => {
+        const g = group(v, { drive: 0.5, filter: { type: 'bandpass', f: 900, q: 1.2 }, wet: 0.4 });
+        tone(g, { type: 'sawtooth', f: 260, f1: 180, a: 0.05, d: 0.9, gain: 0.18, vib: [9, 80] });
+      }),
+    ],
+  },
+  'bringer.charge': {
+    group: 'Ruins', label: 'Chaos Bringer charges', gap: 0.4, ref: 30, len: 3,
+    variants: [
+      v_('Stampede', 'Galloping thunder', (v) => {
+        for (let i = 0; i < 8; i++) thump(v, 70 + (i % 2) * 10, 0.12, 0.45, i * 0.11);
+        swoosh(v, 200, 900, 0.9, 0.3);
+      }),
+      v_('Rush', 'Rushing roar of wind', (v) => {
+        noise(v, { color: 'brown', a: 0.1, h: 0.6, d: 0.3, gain: 0.5, filter: { type: 'lowpass', f: 900 } });
+        rumble(v, 1.0, 0.4, 300, 0.05);
+      }),
+    ],
+  },
+  'bringer.skid': {
+    group: 'Ruins', label: 'Chaos Bringer skids to a halt', gap: 0.3, ref: 24,
+    variants: [
+      v_('Skid', 'Scraping skid', (v) => noise(v, { a: 0.02, d: 0.6, gain: 0.3, filter: { type: 'bandpass', f: 1800, f1: 600, q: 2 } })),
+      v_('Thud', 'Heavy thud and grit', (v) => {
+        thump(v, 80, 0.4, 0.5);
+        noise(v, { d: 0.4, gain: 0.15, filter: { type: 'highpass', f: 2500 } });
+      }),
+    ],
+  },
+  'bringer.laserCharge': {
+    group: 'Ruins', label: 'Chaos Bringer opens its chest (lasers)', gap: 0.3, ref: 28,
+    variants: [
+      v_('Charge', 'Rising energy whine', (v) => {
+        tone(v, { type: 'sawtooth', f: 150, f1: 900, a: 1.1, d: 0.15, gain: 0.07, filter: { type: 'lowpass', f: 600, f1: 4000, fT: 1.1 } });
+        noise(v, { a: 1, d: 0.2, gain: 0.08, filter: { type: 'bandpass', f: 2000, f1: 6000, fT: 1.1, q: 2 } });
+      }),
+      v_('Heartbeat', 'Quickening dark pulses', (v) => {
+        for (let i = 0; i < 6; i++) thump(v, 90, 0.08, 0.3, i * (0.22 - i * 0.025));
+      }),
+    ],
+  },
+  'bringer.laser': {
+    group: 'Ruins', label: 'Chaos Bringer laser fan', gap: 0.2, ref: 30,
+    variants: [
+      v_('Beams', 'Searing beam burst', (v) => {
+        fm(v, { f: 180, ratio: 5.1, index: 6, index1: 0.5, d: 0.5, gain: 0.15 });
+        noise(v, { d: 0.35, gain: 0.2, filter: { type: 'highpass', f: 3000 } });
+      }),
+      v_('Zaps', 'Three quick zaps', (v) => {
+        for (let i = 0; i < 3; i++) fm(v, { f: 300 + i * 80, ratio: 7.1, index: 5, d: 0.2, gain: 0.1, at: i * 0.05 });
+      }),
+    ],
+  },
+
+  // ============================================================= Dark Falz
+  'falz.awaken': {
+    group: 'Dark Falz', label: 'Dark Falz awakens (intro)', gap: 1, ref: 60, len: 5,
+    variants: [
+      v_('Abyss', 'Huge rising drone and a toll', (v) => {
+        for (const f of [41, 55, 82]) tone(v, { type: 'sawtooth', f, f1: f * 1.5, a: 2, d: 1, gain: 0.08, filter: { type: 'lowpass', f: 200, f1: 1200, fT: 2.5 }, wet: 0.6 });
+        fm(v, { f: 110, ratio: 1.41, index: 4, d: 3, gain: 0.15, at: 2, wet: 0.7 });
+        rumble(v, 3, 0.4, 300, 1);
+      }),
+      v_('Choir', 'Dark choir swell', (v) => {
+        for (const f of [110, 131, 165, 196]) tone(v, { type: 'triangle', f, a: 1.8, d: 1.4, gain: 0.05, vib: [5, 15], wet: 0.8 });
+        thump(v, 50, 1.5, 0.7, 1.8);
+      }),
+    ],
+  },
+  'falz.charge': {
+    group: 'Dark Falz', label: 'Dark Falz winds up', gap: 0.4, ref: 50,
+    variants: [
+      v_('Swell', 'Dark swell', (v) => {
+        tone(v, { type: 'sawtooth', f: 65, f1: 130, a: 0.9, d: 0.3, gain: 0.1, filter: { type: 'lowpass', f: 300, f1: 1500 } });
+        noise(v, { a: 0.9, d: 0.2, gain: 0.08, filter: { type: 'bandpass', f: 600, f1: 2500, fT: 1, q: 1 } });
+      }),
+      v_('Whispers', 'Many whispers rising', (v) => {
+        for (let i = 0; i < 3; i++) noise(v, { a: 0.8, d: 0.3, gain: 0.07, at: i * 0.05, filter: { type: 'bandpass', f: 1200 + i * 900, f1: 3000 + i * 900, q: 4 }, wet: 0.6 });
+      }),
+    ],
+  },
+  'falz.swarm': {
+    group: 'Dark Falz', label: 'Darvants take flight', gap: 0.5, ref: 50, len: 3,
+    variants: [
+      v_('Swarm', 'Buzzing swarm', (v) => {
+        for (let i = 0; i < 4; i++) tone(v, { type: 'sawtooth', f: 180 + i * 37, a: 0.3, h: 0.6, d: 0.4, gain: 0.03, vib: [30 + i * 7, 60], filter: { type: 'bandpass', f: 1200, q: 1 } });
+      }),
+      v_('Wingbeats', 'Flurry of wingbeats', (v) => {
+        for (let i = 0; i < 14; i++) noise(v, { d: 0.05, gain: 0.08, at: i * 0.07 + Math.random() * 0.03, filter: { type: 'bandpass', f: 600 + Math.random() * 600, q: 1.5 } });
+      }),
+    ],
+  },
+  'falz.dive': {
+    group: 'Dark Falz', label: 'Darvants dive', gap: 0.15, ref: 50,
+    variants: [
+      v_('Screech', 'Shrieking dive', (v) => {
+        tone(v, { type: 'sawtooth', f: 1800, f1: 400, d: 0.35, gain: 0.06, filter: { type: 'bandpass', f: 2000, q: 2 } });
+        swoosh(v, 400, 2500, 0.3, 0.4);
+      }),
+      v_('Rush', 'Rush of wings', (v) => swoosh(v, 300, 1800, 0.45, 0.5)),
+    ],
+  },
+  'falz.pulse': {
+    group: 'Dark Falz', label: 'Husk shockwave', gap: 0.3, ref: 50,
+    variants: [
+      v_('Pulse', 'Deep throbbing burst', (v) => {
+        thump(v, 45, 1.0, 0.9);
+        tone(v, { type: 'triangle', f: 200, f1: 60, d: 1.0, gain: 0.12, wet: 0.6 });
+      }),
+      v_('Shock', 'Shockwave crack', (v) => {
+        explosion(v, 1.1, 0.6);
+        fm(v, { f: 90, ratio: 1.41, index: 5, d: 1, gain: 0.1, wet: 0.5 });
+      }),
+    ],
+  },
+  'falz.open': {
+    group: 'Dark Falz', label: 'Husk opens / closes (weak point)', gap: 0.5, ref: 50,
+    variants: [
+      v_('Unfurl', 'Creaking unfurl with a chime', (v) => {
+        tone(v, { type: 'sawtooth', f: 90, f1: 60, a: 0.2, d: 0.7, gain: 0.07, vib: [10, 50], filter: { type: 'lowpass', f: 700 } });
+        fm(v, { f: 1175, ratio: 2, index: 1, d: 0.6, gain: 0.05, at: 0.3, wet: 0.6 });
+      }),
+      v_('Breath', 'A great exhale', (v) => noise(v, { color: 'pink', a: 0.2, d: 1.0, gain: 0.25, filter: { type: 'lowpass', f: 1200, f1: 300 }, wet: 0.5 })),
+    ],
+  },
+  'falz.morph': {
+    group: 'Dark Falz', label: 'Dark Falz changes form', gap: 1, ref: 60, len: 5,
+    variants: [
+      v_('Rebirth', 'Shatter, roar and swell', (v) => {
+        for (let i = 0; i < 14; i++) fm(v, { f: 800 + Math.random() * 3000, ratio: 2.7, index: 1.5, d: 0.5, gain: 0.04, at: Math.random() * 0.6 });
+        growl(v, 60, 2.0, 0.25, 18);
+        rumble(v, 2.5, 0.5, 400, 0.2);
+      }),
+      v_('Ascension', 'Rising choir and boom', (v) => {
+        for (const f of [196, 247, 294, 392]) tone(v, { type: 'triangle', f, f1: f * 2, a: 2, d: 0.6, gain: 0.05, wet: 0.8 });
+        thump(v, 50, 1.2, 0.7, 2);
+      }),
+    ],
+  },
+  'falz.scythe': {
+    group: 'Dark Falz', label: 'Scythe sweep', gap: 0.2, ref: 40,
+    variants: [
+      v_('Reap', 'Huge blade sweep', (v) => {
+        swoosh(v, 250, 1800, 0.45, 0.55);
+        tone(v, { type: 'sawtooth', f: 70, f1: 140, a: 0.05, d: 0.4, gain: 0.1, filter: { type: 'lowpass', f: 500, f1: 1500 } });
+      }),
+      v_('Ring', 'Sweep with a ringing edge', (v) => {
+        swoosh(v, 400, 2600, 0.4, 0.45);
+        fm(v, { f: 1300, ratio: 2.41, index: 1, d: 0.6, gain: 0.04, at: 0.1, wet: 0.5 });
+      }),
+    ],
+  },
+  'falz.grants': {
+    group: 'Dark Falz', label: 'Grants called down (warning)', gap: 0.4, ref: 50,
+    variants: [
+      v_('Heavenly rise', 'Bright rising chord', (v) => {
+        for (const f of [523, 659, 784, 1047]) tone(v, { type: 'triangle', f, a: 1.1, d: 0.3, gain: 0.04, vib: [5, 10], wet: 0.8 });
+      }),
+      v_('Hum', 'Gathering hum', (v) => fm(v, { f: 400, f1: 800, ratio: 2, index: 2, a: 1.1, d: 0.3, gain: 0.07, wet: 0.7 })),
+    ],
+  },
+  'falz.grantsHit': {
+    group: 'Dark Falz', label: 'Grants pillars crash down', gap: 0.2, ref: 50,
+    variants: [
+      v_('Light crash', 'Crash of light with bells', (v) => {
+        explosion(v, 0.8, 0.45);
+        sparkle(v, [1568, 2093, 2637, 3136], 0.04, 0.06, 0.8, 2);
+      }),
+      v_('Thunderbell', 'Bell-like thunderclap', (v) => {
+        noise(v, { d: 0.05, gain: 0.5, filter: { type: 'highpass', f: 1500 } });
+        fm(v, { f: 220, ratio: 3.5, index: 5, index1: 0.3, d: 1.2, gain: 0.15, wet: 0.6 });
+      }),
+    ],
+  },
+  'falz.megid': {
+    group: 'Dark Falz', label: 'Megid orbs released', gap: 0.3, ref: 45,
+    variants: [
+      v_('Void', 'Hollow void launch', (v) => {
+        tone(v, { type: 'triangle', f: 300, f1: 60, d: 0.8, gain: 0.12, wet: 0.6 });
+        noise(v, { a: 0.05, d: 0.6, gain: 0.15, filter: { type: 'bandpass', f: 500, f1: 150, q: 2 } });
+      }),
+      v_('Moan', 'Ghostly moan', (v) => tone(v, { type: 'sine', f: 220, f1: 180, a: 0.2, d: 1, gain: 0.12, vib: [3, 60], wet: 0.8 })),
+    ],
+  },
+  'falz.orbPop': {
+    group: 'Dark Falz', label: 'Megid orb bursts', gap: 0.1, ref: 30,
+    variants: [
+      v_('Pop', 'Dark pop', (v) => {
+        thump(v, 140, 0.25, 0.4);
+        noise(v, { d: 0.3, gain: 0.12, filter: { type: 'lowpass', f: 1500, f1: 300 }, wet: 0.5 });
+      }),
+      v_('Shatter', 'Glassy burst', (v) => sparkle(v, [700, 600, 500], 0.03, 0.06, 0.3, 2.7)),
+    ],
+  },
+  'falz.vanish': {
+    group: 'Dark Falz', label: 'Dark Falz vanishes (teleport)', gap: 0.4, ref: 50,
+    variants: [
+      v_('Fade out', 'Reverse swell into silence', (v) => noise(v, { a: 0.4, d: 0.05, gain: 0.3, filter: { type: 'bandpass', f: 400, f1: 3000, fT: 0.4, q: 1.5 }, wet: 0.7 })),
+      v_('Laugh', 'Echoing low laugh', (v) => {
+        for (let i = 0; i < 4; i++) tone(v, { type: 'sawtooth', f: 110 - i * 6, d: 0.14, gain: 0.07, at: i * 0.16, filter: { type: 'bandpass', f: 700, q: 2 }, wet: 0.8 });
+      }),
+    ],
+  },
+  'falz.halves': {
+    group: 'Dark Falz', label: 'The altar splits (light and dark)', gap: 0.5, ref: 60,
+    variants: [
+      v_('Split', 'Two tones pulling apart', (v) => {
+        tone(v, { type: 'triangle', f: 440, f1: 880, a: 0.1, d: 1.2, gain: 0.06, wet: 0.7 });
+        tone(v, { type: 'sawtooth', f: 110, f1: 55, a: 0.1, d: 1.2, gain: 0.06, filter: { type: 'lowpass', f: 600 }, wet: 0.5 });
+      }),
+      v_('Gong', 'A deep gong', (v) => fm(v, { f: 98, ratio: 1.41, index: 4, index1: 0.5, d: 2, gain: 0.18, wet: 0.7 })),
+    ],
+  },
+  'falz.wash': {
+    group: 'Dark Falz', label: 'A half of the altar erupts', gap: 0.3, ref: 60,
+    variants: [
+      v_('Surge', 'Dark surge', (v) => {
+        rumble(v, 1.0, 0.6, 600, 0.02);
+        noise(v, { a: 0.02, d: 0.8, gain: 0.25, filter: { type: 'bandpass', f: 400, f1: 1500, q: 0.8 }, wet: 0.5 });
+      }),
+      v_('Roar', 'Roaring wave', (v) => {
+        growl(v, 55, 0.9, 0.2, 20);
+        swoosh(v, 200, 1500, 0.8, 0.4);
+      }),
+    ],
+  },
+  'falz.feathers': {
+    group: 'Dark Falz', label: 'Feather volley', gap: 0.2, ref: 50,
+    variants: [
+      v_('Volley', 'Volley of light darts', (v) => {
+        for (let i = 0; i < 5; i++) swoosh(v, 1500, 5000, 0.15, 0.15, i * 0.03);
+      }),
+      v_('Chimes', 'Rapid chimes', (v) => sparkle(v, [2637, 3136, 2349, 3520, 2794], 0.03, 0.05, 0.3, 2)),
+    ],
+  },
+  'falz.lance': {
+    group: 'Dark Falz', label: 'The lance strikes', gap: 0.3, ref: 60,
+    variants: [
+      v_('Beam', 'Searing beam of light', (v) => {
+        noise(v, { d: 0.05, gain: 0.6, filter: { type: 'highpass', f: 1500 } });
+        fm(v, { f: 330, ratio: 2, index: 4, index1: 0.5, d: 1.2, gain: 0.15, wet: 0.6 });
+        rumble(v, 1.0, 0.4, 500, 0.02);
+      }),
+      v_('Thunder', 'Holy thunder', (v) => {
+        explosion(v, 1.2, 0.6);
+        sparkle(v, [1047, 1319, 1568], 0.05, 0.05, 0.8, 2);
+      }),
+    ],
+  },
+  'falz.ascend': {
+    group: 'Dark Falz', label: 'The Angel enrages', gap: 1, ref: 60, len: 4,
+    variants: [
+      v_('Cry', 'Piercing angelic cry', (v) => {
+        for (const f of [880, 1109, 1319]) tone(v, { type: 'triangle', f, f1: f * 1.06, a: 0.3, d: 1.5, gain: 0.05, vib: [6, 30], wet: 0.8 });
+      }),
+      v_('Chord', 'Dissonant swell', (v) => {
+        for (const f of [196, 208, 294]) tone(v, { type: 'sawtooth', f, a: 0.8, d: 1, gain: 0.04, filter: { type: 'lowpass', f: 1200 }, wet: 0.7 });
+      }),
+    ],
+  },
+
   // ================================================================= World
   'gate.close': {
     group: 'World', label: 'Laser gates seal', gap: 0.5, ref: 40,
@@ -1575,4 +2041,4 @@ const DEFS = {
 export type SfxId = keyof typeof DEFS;
 export const SFX: Record<SfxId, SfxDef> = DEFS;
 
-export const SFX_GROUPS: SfxGroup[] = ['Combat', 'Techniques', 'Player', 'Enemies', 'Dragon', 'De Rol Le', 'Mines', 'Warden', 'World', 'Loot', 'UI', 'Jingles'];
+export const SFX_GROUPS: SfxGroup[] = ['Combat', 'Techniques', 'Player', 'Enemies', 'Dragon', 'De Rol Le', 'Mines', 'Warden', 'Ruins', 'Dark Falz', 'World', 'Loot', 'UI', 'Jingles'];

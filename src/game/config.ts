@@ -75,14 +75,20 @@ export const formulas = {
   /** Hit% = ATA * mods - EVP * evpFactor */
   evpFactor: 0.2,
   minDamage: 1,
-  /** Per grind level: ATP (both ends of the range) and ATA, on every weapon. */
-  atpPerGrind: 2,
-  ataPerGrind: 0.5,
   /**
-   * MST per grind level, only on weapons that already give MST (canes, rods, wands), so a Force's grinds
-   * matter as much as a Hunter's: max grind is roughly +15% technique damage, about what the ATP grind gives weapon damage.
+   * Each grind level is spent on Edge or on a race (Bane). Edge adds a share of the weapon's own ATP (both
+   * ends of the range) and ATA, so a level is worth about the same at every tier and on light or heavy
+   * weapons (~3% damage).
    */
-  mstPerGrind: 1.5,
+  edgeAtpPct: 0.04,
+  edgeAtaPct: 0.04,
+  /**
+   * Edge MST, as a share of the weapon's own MST (only canes, rods and wands have any), sized so a level
+   * is worth about as much technique damage as the ATP share gives weapon damage.
+   */
+  edgeMstPct: 0.15,
+  /** Bane: race % per level (one attribute roll step, ~5-6% damage against that race), up to the tier's roll cap. */
+  banePerGrind: 5,
   /** Enemy damage = (ATP - DFP) * enemyDamageScale */
   enemyDamageScale: 0.35,
   /** Passive TP regen per second (none: Fluid injectors and caster melee refill TP). */
@@ -235,7 +241,12 @@ export const feel = {
 };
 
 /** Which AI / body an archetype uses. */
-export type EnemyAi = 'brawler' | 'lily' | 'panarms' | 'hidoom' | 'migium' | 'gunbot' | 'garanz' | 'sinow' | 'node' | 'mite' | 'drone';
+export type EnemyAi =
+  | 'brawler' | 'lily' | 'panarms' | 'hidoom' | 'migium' | 'gunbot' | 'garanz' | 'sinow' | 'node' | 'mite' | 'drone'
+  | 'dimenian' | 'delsaber' | 'sorcerer' | 'belra' | 'bringer';
+
+/** Statuses enemy attacks can put on the player (Corruption: the Ruins, max HP lost per stack). */
+export type PlayerStatus = 'poison' | 'paralysis' | 'burn' | 'corrupt';
 
 export interface EnemyArchetype {
   name: string;
@@ -281,8 +292,11 @@ export interface EnemyArchetype {
   shotWindup?: number;
   shotRadius?: number;
   /** Status the ranged attack inflicts, and its chance. */
-  shotStatus?: 'poison' | 'paralysis' | 'burn';
+  shotStatus?: PlayerStatus;
   shotStatusChance?: number;
+  /** Status a landed melee strike inflicts, and its chance (its windup glows violet when it corrupts). */
+  strikeStatus?: PlayerStatus;
+  strikeStatusChance?: number;
 }
 
 export type EnemyId =
@@ -291,11 +305,14 @@ export type EnemyId =
   | 'PoisonLily' | 'NarLily'
   | 'PanArms' | 'Hidoom' | 'Migium'
   | 'Gillchic' | 'Garanz' | 'Sinow' | 'ControlNode'
-  | 'SparkMite' | 'RepairDrone';
+  | 'SparkMite' | 'RepairDrone'
+  | 'Dimenian' | 'LaDimenian' | 'SoDimenian' | 'Delsaber' | 'ChaosSorcerer' | 'DarkBelra' | 'ChaosBringer';
 
 const CAVE_RARES = ['lily_sting', 'spread_needle', 'coral_rod', 'red_saber', 'varista', 'club_of_laconium', 'flowens_sword'];
 /** Mines enemies drop from the cave rare pool too (the Warden carries its own signature drops). */
 const MINE_RARES = ['lily_sting', 'spread_needle', 'coral_rod', 'rol_lance', 'flowens_sword', 'dragon_slayer'];
+/** Ruins enemies: the Ruins rares, plus the older ones (Dark Falz carries its own signature drops). */
+const RUIN_RARES = ['brionac', 'holy_ray', 'psycho_wand', 'rol_lance', 'lily_sting', 'spread_needle'];
 
 export const enemies: Record<EnemyId, EnemyArchetype> = {
   Booma: {
@@ -303,7 +320,7 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'brawler',
     color: 0x8a5a2b,
     scale: 1.0,
-    race: 'abeast',
+    race: 'native',
     hp: 75,
     atp: 70,
     dfp: 10,
@@ -334,7 +351,7 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'brawler',
     color: 0x3f6b8a,
     scale: 1.12,
-    race: 'abeast',
+    race: 'native',
     hp: 120,
     atp: 95,
     dfp: 18,
@@ -365,7 +382,7 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'brawler',
     color: 0x6a2f7a,
     scale: 1.25,
-    race: 'abeast',
+    race: 'native',
     hp: 190,
     atp: 125,
     dfp: 26,
@@ -886,6 +903,263 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     rareRate: 0,
     dropTier: 6,
   },
+
+  // ---- Ruins (tuned for Lv 32-42; all Dark) ----
+  // The Dimenian family: sword-carrying grunts in packs. Each step up adds a cut to the chain;
+  // the gold So Dimenian's cuts corrupt (its windup glows violet).
+  Dimenian: {
+    name: 'Dimenian',
+    ai: 'dimenian',
+    color: 0x4a5ad0,
+    scale: 1.0,
+    race: 'dark',
+    hp: 350,
+    atp: 270,
+    dfp: 72,
+    ata: 172,
+    evp: 100,
+    moveSpeed: 3.0,
+    turnSpeed: 5,
+    aggroRange: 20,
+    attackRange: 2.0,
+    strikeRange: 2.5,
+    strikeArcDeg: 110,
+    windup: 0.9,
+    strikeActive: 0.16,
+    recovery: 0.95,
+    strikes: 1,
+    attackCooldown: 1,
+    poise: 2,
+    hitstun: 0.38,
+    lunge: 0.9,
+    xp: 120,
+    meseta: [90, 180],
+    dropRate: 0.42,
+    rareRate: 0.012,
+    dropTier: 7,
+    rarePool: RUIN_RARES,
+  },
+  LaDimenian: {
+    name: 'La Dimenian',
+    ai: 'dimenian',
+    color: 0xc0383e,
+    scale: 1.05,
+    race: 'dark',
+    hp: 425,
+    atp: 290,
+    dfp: 80,
+    ata: 180,
+    evp: 108,
+    moveSpeed: 3.2,
+    turnSpeed: 5.4,
+    aggroRange: 20,
+    attackRange: 2.1,
+    strikeRange: 2.6,
+    strikeArcDeg: 115,
+    windup: 0.85,
+    strikeActive: 0.16,
+    recovery: 0.95,
+    strikes: 2,
+    attackCooldown: 0.95,
+    poise: 2,
+    hitstun: 0.36,
+    lunge: 1.0,
+    xp: 150,
+    meseta: [110, 210],
+    dropRate: 0.45,
+    rareRate: 0.016,
+    dropTier: 7,
+    rarePool: RUIN_RARES,
+  },
+  SoDimenian: {
+    name: 'So Dimenian',
+    ai: 'dimenian',
+    color: 0xd8a830,
+    scale: 1.1,
+    race: 'dark',
+    hp: 515,
+    atp: 315,
+    dfp: 90,
+    ata: 188,
+    evp: 115,
+    moveSpeed: 3.3,
+    turnSpeed: 5.6,
+    aggroRange: 22,
+    attackRange: 2.2,
+    strikeRange: 2.7,
+    strikeArcDeg: 120,
+    windup: 0.82,
+    strikeActive: 0.18,
+    recovery: 1.05,
+    strikes: 3,
+    attackCooldown: 0.9,
+    poise: 3,
+    hitstun: 0.34,
+    lunge: 1.1,
+    xp: 185,
+    meseta: [130, 250],
+    dropRate: 0.5,
+    rareRate: 0.025,
+    dropTier: 7,
+    rarePool: RUIN_RARES,
+    strikeStatus: 'corrupt',
+    strikeStatusChance: 0.5,
+  },
+  // Shield knight: its guard blocks light hits from the front (a heavy hit breaks it and staggers it).
+  // Leaps in from attackRange with a three-cut combo (the crouch is its windup).
+  Delsaber: {
+    name: 'Delsaber',
+    ai: 'delsaber',
+    color: 0x3a4a6a,
+    scale: 1.0,
+    race: 'dark',
+    hp: 590,
+    atp: 305,
+    dfp: 95,
+    ata: 185,
+    evp: 95,
+    moveSpeed: 2.6,
+    turnSpeed: 4.5,
+    aggroRange: 22,
+    attackRange: 7.5,
+    strikeRange: 2.7,
+    strikeArcDeg: 120,
+    windup: 0.95,
+    strikeActive: 0.14,
+    recovery: 1.25,
+    strikes: 3,
+    attackCooldown: 1.5,
+    poise: 3,
+    hitstun: 0.36,
+    lunge: 0.45,
+    xp: 210,
+    meseta: [140, 260],
+    dropRate: 0.55,
+    rareRate: 0.025,
+    dropTier: 7,
+    rarePool: RUIN_RARES,
+  },
+  // Floating caster: keeps its distance, blinks away when you close in, casts corrupting Gi-techs
+  // (a fire ring around you, a lightning field, an ice line) and snuffs out lit pylons.
+  ChaosSorcerer: {
+    name: 'Chaos Sorcerer',
+    ai: 'sorcerer',
+    color: 0x6a2a8a,
+    scale: 1.0,
+    race: 'dark',
+    hp: 440,
+    atp: 315,
+    dfp: 70,
+    ata: 190,
+    evp: 125,
+    moveSpeed: 2.2,
+    turnSpeed: 5,
+    aggroRange: 22,
+    attackRange: 0,
+    strikeRange: 0,
+    strikeArcDeg: 0,
+    windup: 1,
+    strikeActive: 0.1,
+    recovery: 1.1,
+    strikes: 1,
+    attackCooldown: 1.2,
+    poise: 2,
+    hitstun: 0.4,
+    lunge: 0,
+    xp: 200,
+    meseta: [140, 260],
+    dropRate: 0.55,
+    rareRate: 0.025,
+    dropTier: 7,
+    rarePool: RUIN_RARES,
+    shotCooldown: 3.8,
+    shotRange: 18,
+    shotWindup: 1.3,
+    shotRadius: 1.8,
+    shotStatus: 'corrupt',
+    shotStatusChance: 1,
+  },
+  // Slow giant: a long-reach rock punch down a lane, and a corrupting ground slam if you crowd it.
+  DarkBelra: {
+    name: 'Dark Belra',
+    ai: 'belra',
+    color: 0x5a3a7a,
+    scale: 1.0,
+    race: 'dark',
+    hp: 950,
+    atp: 360,
+    dfp: 105,
+    ata: 178,
+    evp: 60,
+    moveSpeed: 1.7,
+    turnSpeed: 2.4,
+    aggroRange: 22,
+    attackRange: 3.0,
+    strikeRange: 3.3,
+    strikeArcDeg: 360,
+    windup: 1.2,
+    strikeActive: 0.2,
+    recovery: 1.4,
+    strikes: 1,
+    attackCooldown: 1.3,
+    poise: 6,
+    hitstun: 0.3,
+    lunge: 0,
+    strikeKnockback: 11,
+    xp: 300,
+    meseta: [180, 340],
+    dropRate: 0.65,
+    rareRate: 0.035,
+    dropTier: 7,
+    rarePool: RUIN_RARES,
+    shotCooldown: 4.2,
+    shotRange: 11,
+    shotWindup: 1.3,
+    shotRadius: 0.95, // half the punch lane's width
+    strikeStatus: 'corrupt',
+    strikeStatusChance: 1,
+  },
+  // Centaur mini-boss (Ruin 2): charges down a lane across the room (the whole threat budget),
+  // fires a fan of corrupting chest lasers, and stomps if you stand under it.
+  ChaosBringer: {
+    name: 'Chaos Bringer',
+    ai: 'bringer',
+    color: 0x2a2a3a,
+    scale: 1.0,
+    race: 'dark',
+    hp: 1300,
+    atp: 390,
+    dfp: 110,
+    ata: 186,
+    evp: 70,
+    moveSpeed: 2.5,
+    turnSpeed: 2.2,
+    aggroRange: 26,
+    attackRange: 3.0,
+    strikeRange: 3.1,
+    strikeArcDeg: 360,
+    windup: 0.95,
+    strikeActive: 0.2,
+    recovery: 1.6,
+    strikes: 1,
+    attackCooldown: 1.4,
+    poise: 8,
+    hitstun: 0.3,
+    lunge: 0,
+    strikeKnockback: 12,
+    xp: 450,
+    meseta: [220, 420],
+    dropRate: 0.85,
+    rareRate: 0.05,
+    dropTier: 7,
+    rarePool: RUIN_RARES,
+    shotCooldown: 5,
+    shotRange: 14,
+    shotWindup: 1.2,
+    shotRadius: 0.8, // half a laser's width
+    shotStatus: 'corrupt',
+    shotStatusChance: 1,
+  },
 };
 
 /** Elite spawns (Caves, Mines): tougher, tinted, better rewards. */
@@ -1002,17 +1276,20 @@ export interface HardBossScale {
 
 /**
  * Hard mode. Same maps and waves as Normal; enemies are scaled per expedition so each Hard
- * band (Forest 32-42, Caves 42-52, Mines 52-62) plays like the Normal Mines at their level.
+ * band (Forest 42-52, Caves 52-62, Mines 62-72, Ruins 72-82) plays like the Normal Ruins at their level.
+ * (Before the Ruins it was Forest 32-42, Caves 42-52, Mines 52-62, set against the Normal Mines.)
  */
 export const hard = {
   /** Field enemies per expedition. */
-  forest: { hp: 6, xp: 15, meseta: 8, atp: 195, dfp: 70, ata: 85, evp: 55, dropTier: 7, rares: ['verdant_edge', 'thornshot'] } as HardScale,
-  caves: { hp: 3.4, xp: 4.5, meseta: 3.5, atp: 190, dfp: 62, ata: 77, evp: 45, dropTier: 8, rares: ['magma_blade', 'glacier_wand'] } as HardScale,
-  mines: { hp: 2.2, xp: 2.6, meseta: 2.6, atp: 165, dfp: 50, ata: 65, evp: 50, dropTier: 9, rares: ['overcharge_gatling', 'reactor_rod'] } as HardScale,
+  forest: { hp: 6.8, xp: 22, meseta: 11, atp: 240, dfp: 82, ata: 105, evp: 70, dropTier: 8, rares: ['verdant_edge', 'thornshot'] } as HardScale,
+  caves: { hp: 4.7, xp: 5.7, meseta: 4.5, atp: 280, dfp: 82, ata: 107, evp: 65, dropTier: 9, rares: ['magma_blade', 'glacier_wand'] } as HardScale,
+  mines: { hp: 2.9, xp: 3.4, meseta: 3.3, atp: 255, dfp: 70, ata: 95, evp: 70, dropTier: 10, rares: ['overcharge_gatling', 'reactor_rod'] } as HardScale,
+  ruins: { hp: 2.6, xp: 3, meseta: 2.8, atp: 270, dfp: 77, ata: 100, evp: 70, dropTier: 11, rares: ['excalibur', 'heaven_punisher'] } as HardScale,
   bosses: {
-    dragon: { hp: 9, atp: 330, dfp: 60, ata: 80, evp: 40, flat: 2.6, xp: 2600 } as HardBossScale,
-    derolle: { hp: 6.5, atp: 300, dfp: 55, ata: 75, evp: 40, flat: 2, xp: 4800 } as HardBossScale,
-    warden: { hp: 1.9, atp: 270, dfp: 45, ata: 65, evp: 40, flat: 1.6, xp: 7200 } as HardBossScale,
+    dragon: { hp: 13.5, atp: 375, dfp: 72, ata: 100, evp: 50, flat: 3.2, xp: 3600 } as HardBossScale,
+    derolle: { hp: 7.8, atp: 345, dfp: 68, ata: 95, evp: 50, flat: 2.4, xp: 6400 } as HardBossScale,
+    warden: { hp: 2.45, atp: 320, dfp: 58, ata: 85, evp: 50, flat: 1.9, xp: 9000 } as HardBossScale,
+    falz: { hp: 2.4, atp: 310, dfp: 58, ata: 85, evp: 50, flat: 1.8, xp: 12000 } as HardBossScale,
   },
   // Busier, not shorter: recoveries and cooldowns shrink, telegraphs barely do.
   recoveryMult: 0.8,
@@ -1066,6 +1343,70 @@ export const statuses = {
   /** Seconds one stack lasts while standing still; moving sheds stacks burnMoveMult times faster. */
   burnStackTime: 3,
   burnMoveMult: 3.5,
+  /**
+   * Corruption (Ruins): each stack takes this share of max HP away (current HP follows), up to the cap.
+   * It never wears off on its own: pylon light sheds one stack per corruptLightTime s, and a cleared room,
+   * a Sol dose or Pioneer 2 clear it all.
+   */
+  corruptPctPerStack: 0.06,
+  corruptMaxStacks: 5,
+  corruptLightTime: 1,
+};
+
+/**
+ * Light pylons (Ruins rooms and the Dark Falz altar): the interact key lights one for `litTime` s, then it
+ * recharges. Inside its circle Corruption sheds and Dark enemies are slowed and take more damage.
+ * Chaos Sorcerers blink over and snuff a lit pylon (`snuffTime` s, any hit interrupts).
+ */
+export const pylonCfg = {
+  radius: 5,
+  litTime: 10,
+  recharge: 20,
+  /** Tempo (movement and attack speed) of Dark enemies standing in the light. */
+  enemySlow: 0.7,
+  /** Damage-taken multiplier on Dark enemies in the light. */
+  enemyDamage: 1.25,
+  snuffTime: 1.2,
+  /** Seconds a Sorcerer waits after a snuff (or a failed try) before going for a pylon again. */
+  snuffCooldown: 9,
+  /** Seal of Light / Falz Halo: pylons you light last this much longer. */
+  sealLitMult: 1.5,
+  /** Seal of Light / Falz Halo: Corruption takes this share of what it normally would. */
+  sealCorruptMult: 0.5,
+};
+
+/** Ruins enemies' special moves (field stats are in `enemies`). */
+export const ruinsCfg = {
+  /** Delsaber: damage a light hit to its guarded front still does, the guard's half-arc, and how long a broken guard stays down. */
+  guardMult: 0.12,
+  guardArcDeg: 70,
+  guardBreakStun: 1.3,
+  guardDown: 3.5,
+  /** Delsaber leap: seconds in the air. */
+  leapTime: 0.4,
+  /** Chaos Sorcerer: blinks away when you come this close (cooldown blinkCooldown s), reappearing about blinkTo m from you. */
+  blinkRange: 4,
+  blinkCooldown: 5,
+  blinkTo: 10,
+  /** Fire ring (around you): inner and outer radius; the ice line's width; lightning field: circles and radius. */
+  ringInner: 1.6,
+  ringOuter: 3.6,
+  iceWidth: 1.8,
+  fieldBolts: 3,
+  fieldRadius: 1.7,
+  /** Dark Belra slam radius comes from strikeRange; its punch lane length and width from shotRange / shotRadius. */
+  punchAtpMult: 1.0,
+  slamAtpMult: 0.9,
+  /** Chaos Bringer charge: windup, speed (m/s), lane width, damage and the cooldown between charges. */
+  chargeWindup: 1.4,
+  chargeSpeed: 13,
+  chargeWidth: 2.6,
+  chargeAtpMult: 1.15,
+  chargeCooldown: 7,
+  /** Chaos Bringer lasers: lanes in the fan and the angle between them. */
+  laserLanes: 3,
+  laserSpreadDeg: 24,
+  laserAtpMult: 1.0,
 };
 
 /** Mines machinery. Power switches turn crushers, lasers and conveyors on or off. */
@@ -1113,7 +1454,7 @@ export const dragon = {
   ata: 120,
   xp: 300,
   /** Injector doses its whole HP bar is worth (see injectorCfg). */
-  charge: 5,
+  charge: 3,
   radius: 2.6,
   moveSpeed: 2.4,
   turnSpeed: 1.3,
@@ -1149,7 +1490,7 @@ export const deRolLe = {
   evp: 50,
   xp: 900,
   /** Injector doses its whole HP bar is worth (see injectorCfg). */
-  charge: 8,
+  charge: 4.5,
   /** Shell plates: HP each, and the share of damage the boss itself takes through a plate. */
   plateHp: 150,
   plateMult: 0.3,
@@ -1203,7 +1544,7 @@ export const warden = {
   evp: 45,
   xp: 1600,
   /** Injector doses its whole HP bar is worth. */
-  charge: 9,
+  charge: 4.5,
   phase2At: 0.5,
   enrageAt: 0.25,
   /** Windup multiplier when enraged. */
@@ -1263,6 +1604,101 @@ export const warden = {
   droneHealPct: 0.004,
 };
 
+/**
+ * Dark Falz (Ruins boss), on a round altar over the void, in three forms on both difficulties:
+ *  1. the husk at the centre while Darvant flights dive along lanes and close in as rings (each flight
+ *     leaves the husk open for `openTime` s);
+ *  2. Dark Falz itself, walking the altar: scythe sweeps, Grants (light pillars that leave cleansing light),
+ *     slow homing Megid orbs and a teleport slam (a dash check);
+ *  3. the Angel at the centre: the altar splits into a light and a dark half along a line close to you
+ *     (the dark half fires, then the other), feather volleys and a lance across the altar (a dash check).
+ */
+export const darkFalz = {
+  hp: 14000,
+  atp: 450,
+  ata: 165,
+  dfp: 80,
+  evp: 50,
+  xp: 2600,
+  /** Injector doses its whole HP bar is worth. */
+  charge: 5,
+  /** HP shares where the second and third forms take over, and where it enrages. */
+  form2At: 0.7,
+  form3At: 0.35,
+  enrageAt: 0.15,
+  /** Windup multiplier when enraged. */
+  enrageSpeed: 0.8,
+  /** Seconds it is untouchable while changing form. */
+  morphTime: 2.6,
+  /** The altar's walkable radius (m). */
+  altarRadius: 14,
+  /** Seconds between attacks per form. */
+  attackGap: [2.2, 1.8, 1.6] as [number, number, number],
+  // ---- Form 1: the husk and the Darvants ----
+  huskRadius: 2.4,
+  /** After each flight the husk opens: this long, taking this much more damage. */
+  openTime: 3,
+  openMult: 1.5,
+  /** Lane dives: lanes per wave, width, warning, waves and damage (× ATP). */
+  lanes: 3,
+  laneWidth: 2.6,
+  laneWindup: 1.5,
+  laneWaves: 3,
+  laneAtpMult: 0.9,
+  /** Ring dive: a circle closing on you. */
+  ringRadius: 3.2,
+  ringWindup: 1.6,
+  ringAtpMult: 0.9,
+  /** Husk pulse when you stand close: a corrupting shockwave around it. */
+  pulseRange: 6,
+  pulseRadius: 5.5,
+  pulseWindup: 1.2,
+  pulseAtpMult: 1.0,
+  // ---- Form 2: Dark Falz ----
+  bodyRadius: 1.5,
+  moveSpeed: 2.6,
+  scytheRange: 5,
+  scytheArcDeg: 110,
+  scytheWindup: 1.0,
+  scytheAtpMult: 1.1,
+  grantsWindup: 1.3,
+  grantsRadius: 2.2,
+  grantsCount: 3,
+  grantsAtpMult: 0.9,
+  /** Seconds a landed Grants pillar stays as light (Corruption sheds inside, like a pylon). */
+  grantsLight: 4,
+  megidOrbs: 2,
+  megidSpeed: 3.1,
+  megidLife: 6,
+  megidRadius: 0.9,
+  megidAtpMult: 0.8,
+  /** Corruption stacks a Megid orb adds. */
+  megidStacks: 2,
+  /**
+   * Teleport slam (a dash check): a 4.2 m circle on you the moment it starts to vanish, crashing down slamWindup s
+   * later. Walking clears ~4.4 m of the 4.65 needed; walk + one dash ~6.9 m, with the dash started by ~1.1 s.
+   * (It was 1.0 s from the circle appearing after a 0.45 s vanish with no warning; the user found it near impossible.)
+   */
+  slamWindup: 1.3,
+  slamRadius: 4.2,
+  slamAtpMult: 1.3,
+  // ---- Form 3: the Angel ----
+  /** Light and dark halves: the line runs this far from you; the dark half fires, then the other after halfFlip s. */
+  halfOffset: 1.6,
+  halfWindup: 1.7,
+  halfFlip: 1.5,
+  halfAtpMult: 0.9,
+  featherLanes: 5,
+  featherSpreadDeg: 14,
+  featherWidth: 1.2,
+  featherWindup: 1.1,
+  featherAtpMult: 0.85,
+  /** Lance (a dash check): a 7 m lane across the altar through you, 1 s warning. */
+  lanceWidth: 7,
+  lanceWindup: 1.0,
+  lanceAtpMult: 1.4,
+};
+
 export const drops = {
   /** Global multiplier on drop chance (debug). */
   rateMult: 1,
@@ -1270,49 +1706,90 @@ export const drops = {
   boxDropRate: 0.6,
 };
 
-/** Mag feeding. Feeds are earned by kills (not time or Meseta), so buying items can't speed it up. */
-/** The Mag's talent grid (see mag.ts) and its passives. */
+/**
+ * Bump when the attribute or Mag tree rules change in a way that breaks existing builds: every character
+ * gets all its attribute points and Mag squares back to spend again (the only way they are ever refunded).
+ */
+export const BUILD_VERSION = 1;
+
+/** Attribute points (POW / DEX / MIND / DEF, see data/stats.ts). Permanent once spent. */
+export const attributeCfg = {
+  /** Points per level gained (none at Lv 1). */
+  pointsPerLevel: 3,
+};
+
+/** The Mag's talent grid (see mag.ts) and its passives. Squares are permanent once learned. */
 export const magCfg = {
   /** Mag points per character level (Lv 1 already has one). */
   pointsPerLevel: 1,
-  /** Squares that must be learned before a keystone (arm tip) can be taken. */
-  keystoneMinSpent: 12,
-  /** Refunding the grid is free below this character level... */
-  freeRespecBelow: 10,
-  /** ...then costs this much Meseta per square refunded. */
-  respecCostPerPoint: 40,
+  /**
+   * Keystone I (ring 5) and II (the tip): squares of the arm's colour learned first, and points in the arm's
+   * attribute. Three points a level all in one attribute reach 45 at Lv 16 and 115 at Lv 39; two a level at
+   * Lv 23 and 58; half at Lv 31 and 78.
+   */
+  keystoneReq: [
+    { squares: 8, points: 45 },
+    { squares: 16, points: 115 },
+  ],
+  /** The four two-arm notables need this many points in each of their two attributes. */
+  hybridReqPoints: 20,
   /** Bulwark: damage multiplier on area attacks, boss attacks and hazards. */
   bulwarkMult: 0.85,
   /** Last Stand: seconds before it can save you again. */
   lastStandCooldown: 120,
   /** Follow-through: damage multiplier on combo finishers. */
   followThroughMult: 1.15,
-  /** Crush: fraction of enemy DFP heavy attacks ignore. */
+  /** Breaker: melee hits fill enemy stagger meters this much faster. */
+  breakerMult: 1.25,
+  /** Crush: fraction of enemy DFP heavy melee attacks ignore. */
   crushDfpIgnore: 0.3,
-  /** Rhythm: seconds added to the perfect window. */
-  rhythmBonus: 0.03,
+  /** Fleet: extra dash charges. */
+  fleetCharges: 1,
   /** Deadeye: heavy hit-chance cap. */
   deadeyeMaxHit: 95,
+  /** Rhythm: seconds added to the perfect window, and the run speed multiplier. */
+  rhythmBonus: 0.03,
+  rhythmRunMult: 1.1,
   /** Efficiency: attack technique TP cost multiplier. */
   efficiencyTpMult: 0.85,
   /** Bulwark / Efficiency: Mate / Fluid injector doses restore this much more. */
   injectorBoost: 0.2,
-  /** Rhythm: injector doses each perfect chain adds to every equipped injector. */
-  rhythmCharge: 0.04,
   /** Clarity: seconds after a Fluid dose during which attack techniques cost no TP. */
   clarityTime: 4,
+  /** Swift Cast: technique cast time (wind-up and recovery) multiplier. */
+  swiftCastMult: 0.8,
+  /** Steadfast: knockback taken multiplier (melee swings also carry Poise). */
+  steadfastKnockback: 0.5,
+  /** Slipstream: seconds after dashing out of an enemy telegraph during which the next attack or cast lands perfect. */
+  slipstreamTime: 3,
+  /** Longshot: guns and techniques deal this much more to enemies farther than longshotRange metres. */
+  longshotMult: 1.12,
+  longshotRange: 8,
+  /** Barrier: Resta overheal becomes a shield up to this fraction of max HP, fading to nothing over barrierFade s. */
+  barrierCap: 0.2,
+  barrierFade: 4,
+  /** Retaliate: after taking a hit, the next melee swing within retaliateTime s deals this much more. */
+  retaliateMult: 1.25,
+  retaliateTime: 2,
 };
 
-/** Injectors (Mate = HP, Fluid = TP): doses refill from damage dealt, not from the shop. */
+/**
+ * Injectors (Mate = HP, Fluid = TP), one slot: doses refill from damage dealt and in Pioneer 2, nothing
+ * else. A floor (~35 enemies) is worth about 3 + 5 Mate doses (plus charge orbs): a budget a sloppy run burns through.
+ */
 export const injectorCfg = {
-  /** Doses every equipped injector gains for taking a normal enemy from full HP to 0 (partial damage gives part). */
-  chargePerEnemy: 0.3,
+  /** Doses the injector gains for taking a normal enemy from full HP to 0 (partial damage gives part). */
+  chargePerEnemy: 0.15,
   /** Fluid injectors charge at this fraction of that rate (from damage, bosses and Rhythm alike). */
   fluidChargeMult: 0.5,
   /** Elites count this many times over. */
   eliteChargeMult: 2,
-  /** Between fights an injector below one dose refills to one at this many seconds per dose. */
-  trickleSecPerDose: 15,
+  /**
+   * Out of combat (no room fight, no boss engaged) the injector refills at calmRate doses a second, either kind,
+   * once calmDelay seconds have passed since the fight: empty to full (3 doses) in about half a minute.
+   */
+  calmDelay: 3,
+  calmRate: 0.1,
   /** Seconds the hands are busy after a dose (a hit cancels the lock, not the dose). */
   useLock: 0.45,
   /** Steady: seconds a dose takes and how much more it restores in total. */
@@ -1321,8 +1798,18 @@ export const injectorCfg = {
   /** Emergency: gauge fraction below which a dose restores emergencyMult more. */
   emergencyBelow: 0.35,
   emergencyMult: 1.6,
-  /** Reserve: doses it refills to between fights (instead of 1). */
-  reserveTrickle: 2,
+  /** Reserve: extra doses it holds. */
+  reserveDoses: 1,
+  /**
+   * Charge orbs: walk-over drops worth this many doses of the equipped injector (either kind, at full rate).
+   * Not taken while the injector is full; they fade after orbLife seconds.
+   */
+  orbDoses: 1,
+  /** Chance a normal enemy drops one (elites and champions always do; bosses never). About 1.4 a floor. */
+  orbChance: 0.04,
+  /** Chance a crate holds one. */
+  orbBoxChance: 0.03,
+  orbLife: 25,
   /** Absorbent: charge gain multiplier. */
   absorbentMult: 1.5,
   /** Sol: paralysis ward after a dose (seconds). */

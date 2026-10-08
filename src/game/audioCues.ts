@@ -11,6 +11,8 @@ interface Seen {
   state: EnemyState;
 }
 
+const RUINS_AI = new Set<string>(['dimenian', 'delsaber', 'sorcerer', 'belra', 'bringer']);
+
 export class AudioCues {
   private enemies = new WeakMap<Enemy, Seen>();
   private vents = new WeakMap<LavaVent, { warn: boolean; erupt: boolean }>();
@@ -48,6 +50,12 @@ export class AudioCues {
     if (e.arch.race === 'machine') {
       if (cur === 'frozen') sfx('status.freeze', at);
       if (cur === 'dead' && !e.vanished) sfx(ai === 'node' ? 'node.die' : 'machine.die', at);
+      return;
+    }
+    // Ruins enemies raise their own attack cues; they dissolve when they die.
+    if (RUINS_AI.has(ai)) {
+      if (cur === 'frozen') sfx('status.freeze', at);
+      if (cur === 'dead' && !e.vanished) sfx('ruins.die', at);
       return;
     }
     switch (cur) {

@@ -19,34 +19,36 @@ import { StylistMenu } from '../ui/stylist';
 import { nightmareOpen, TitleMenu, type Difficulty } from '../ui/title';
 import { AudioCues } from './audioCues';
 import { CameraRig } from './CameraRig';
-import { Character, dropVerdict, INJECTOR_SLOTS, itemName, makeItem, sellPrice, type DropVerdict, type GearSlot, type ItemInstance } from './character';
+import { Character, dropVerdict, itemName, makeItem, sellPrice, type DropVerdict, type GrindTrack, type ItemInstance } from './character';
 import { angleDelta, yawTo } from './collision';
 import { Combat } from './combat/Combat';
 import type { Hittable } from './combat/types';
 import type { ComboEvent } from './combo';
 import { expeditionFoe, type Foe } from './dps';
-import { affixes as affixCfg, hard as hardCfg, camera as camCfg, dash as dashCfg, debug, formulas, injectorCfg, lockOn, magCfg, player as playerCfg, telepipeCfg, warden as wardenCfg, type AttackType } from './config';
+import { affixes as affixCfg, hard as hardCfg, camera as camCfg, comboDamage, darkFalz as falzCfg, dash as dashCfg, debug, formulas, injectorCfg, lockOn, magCfg, player as playerCfg, pylonCfg, telepipeCfg, warden as wardenCfg, type AttackType } from './config';
 import { AFFIXES } from './data/affixes';
 import { areas, DEFAULT_LIGHT, expeditionOf, expeditions, isCounter, type AreaId, type ExpeditionId } from './data/areas';
 import { areaDef } from './data/looks';
-import type { PaletteEdit, PaletteRow, QuickAction } from './data/classes';
-import { getDef, INJECTOR_MODS, specials, type ClassId, type WeaponKind } from './data/items';
+import { type AttributeId, type KitId, type PaletteEdit, type PaletteRow, type QuickAction } from './data/stats';
+import { ATTR_LABEL, getDef, INJECTOR_MODS, specials, type WeaponKind } from './data/items';
 import { isAttackTech, techniques } from './data/techniques';
+import { DarkFalz } from './enemies/DarkFalz';
 import { DeRolLe } from './enemies/DeRolLe';
 import { Enemy, type EnemyContext } from './enemies/Enemy';
 import { Warden } from './enemies/Warden';
 import {
-  buyPrice, rollBoxDrop, rollChampionBonus, rollDeRolLeDrops, rollDragonDrops, rollEliteBonus, rollEnemyDrop, rollHardBossDrops, rollRare, rollWardenDrops, rollWeapon,
-  shopStock, type Drop, type HardShop, type ShopKind,
+  buyPrice, rollBoxDrop, rollChampionBonus, rollDeRolLeDrops, rollDragonDrops, rollEliteBonus, rollEnemyDrop, rollFalzDrops, rollHardBossDrops, rollRare, rollWardenDrops, rollWeapon,
+  shopStock, type Drop, type HardBossId, type ShopKind, type ShopUnlocks,
 } from './loot';
 import { addCharge, chargeOf, doseAmount, fillInjector, injectorDef, injectorStats, spendDose } from './injectors';
-import { learnCells, magForm, respecCost } from './mag';
+import { learnCells, magForm } from './mag';
 import { playerLook } from './models/heroine';
 import { Player } from './Player';
 import { deleteSlot, listSlots, saveSlot } from './save';
 import { Breakable } from './world/Breakable';
 import { Atmosphere } from './world/Atmosphere';
 import { DashTrail, Lob, Pillar, Ring, Tracer } from './world/Effects';
+import { inShape, type Telegraph } from './world/Telegraph';
 import { Interactable } from './world/Interactable';
 import type { Pickup } from './world/Pickup';
 import { newRun, World, type RunState } from './world/World';
@@ -72,6 +74,9 @@ const AREA_AUDIO: Record<AreaId, { track: TrackId | null; after?: TrackId; space
   mine1: { track: 'mines', space: 'cave', step: 'step.metal' },
   mine2: { track: 'mines', space: 'cave', step: 'step.metal' },
   warden: { track: null, after: 'mines', space: 'cave', step: 'step.metal' },
+  ruin1: { track: 'ruins', space: 'cave', step: 'step.stone' },
+  ruin2: { track: 'ruins', space: 'cave', step: 'step.stone' },
+  falz: { track: null, after: 'ruins', space: 'open', step: 'step.stone' },
 };
 
 const SHOT_SFX: Partial<Record<WeaponKind, SfxId>> = {
@@ -100,7 +105,7 @@ export class Game implements GameApi {
   private rng = Math.random;
   private combat: Combat;
 
-  char: Character = Character.create('Nobody', 'hunter');
+  char: Character = Character.create('Nobody', 'vanguard');
   private slot = -1;
   // Autosave: the character is written after important events (throttled),
   // every AUTOSAVE_PERIOD seconds in the field, and when the page is hidden.
@@ -122,6 +127,8 @@ export class Game implements GameApi {
   private portal: Interactable | null = null;
   /** Boss HP last frame (damage to the boss charges injectors). */
   private bossHpSeen = -1;
+  /** Seconds since the last fight ended (out-of-combat injector recharge starts after injectorCfg.calmDelay). */
+  private calmT = 0;
   private stock: Record<ShopKind, ItemInstance[]> = { weapon: [], armor: [], item: [] };
   private playing = false;
 
@@ -130,6 +137,10 @@ export class Game implements GameApi {
   private lockTarget: Hittable | null = null;
   /** Space went down and hasn't dashed yet (it waits for a direction while held). */
   private dashArmed = false;
+  /** Enemy telegraphs the current dash started in (Slipstream checks them when it ends). */
+  private slipFrom: Telegraph[] | null = null;
+  /** The swing that just started lands perfect (Slipstream): its hit gets one more streak step. */
+  private slipHit = false;
   private lastDashHint = -Infinity;
   private lastHit: Hittable | null = null;
   private lastHitT = 0;
@@ -266,6 +277,14 @@ export class Game implements GameApi {
         this.world?.addEffect(new Ring(x, z, color, r * 1.15, 0.4));
         this.world?.addEffect(new Pillar(x, z, color, 0.3, 0.9, 4));
       },
+      blinkSpot: (e, x, z, d) => this.world?.blinkSpot(e, x, z, d) ?? null,
+      reach: (x, z, yaw, max) => this.world?.reach(x, z, yaw, max) ?? max,
+      litPylon: (e) => this.world?.litPylon(e) ?? null,
+      snuffPylon: (id, k) => this.world?.snuffPylon(id, k),
+      blinkFx: (x, z) => {
+        this.world?.addEffect(new Ring(x, z, 0xa040ff, 1.6, 0.3));
+        this.world?.addEffect(new Pillar(x, z, 0x8030d0, 0.25, 0.7, 4));
+      },
       rng: this.rng,
     };
 
@@ -274,7 +293,7 @@ export class Game implements GameApi {
       giveMeseta: (n) => {
         this.char.data.meseta += n;
       },
-      giveWeapon: () => this.giveItem(rollWeapon(1 + Math.floor(this.rng() * 3), this.rng, this.char.data.classId)),
+      giveWeapon: () => this.giveItem(rollWeapon(1 + Math.floor(this.rng() * 3), this.rng, this.char.lootBias())),
       giveRare: () => this.giveItem(rollRare(this.rng)),
       heal: () => {
         this.player.fullRestore();
@@ -292,12 +311,20 @@ export class Game implements GameApi {
         st.deRolLeKills = Math.max(1, st.deRolLeKills ?? 0);
         this.hud.toast('The Mines are unlocked for this character.', 'good');
       },
+      unlockRuins: () => {
+        const st = this.char.data.stats;
+        st.dragonKills = Math.max(1, st.dragonKills);
+        st.deRolLeKills = Math.max(1, st.deRolLeKills ?? 0);
+        st.wardenKills = Math.max(1, st.wardenKills ?? 0);
+        this.hud.toast('The Ruins are unlocked for this character.', 'good');
+      },
       unlockHard: () => {
         const st = this.char.data.stats;
         st.dragonKills = Math.max(1, st.dragonKills);
         st.deRolLeKills = Math.max(1, st.deRolLeKills ?? 0);
         st.wardenKills = Math.max(1, st.wardenKills ?? 0);
-        st.hardKills = { dragon: 1, derolle: 1, warden: 1, ...st.hardKills };
+        st.falzKills = Math.max(1, st.falzKills ?? 0);
+        st.hardKills = { dragon: 1, derolle: 1, warden: 1, falz: 1, ...st.hardKills };
         this.hud.toast('Nightmare is unlocked for this character (every expedition): pick it at login.', 'good');
       },
     });
@@ -349,8 +376,8 @@ export class Game implements GameApi {
           const data = listSlots()[slot];
           if (data) this.startCharacter(slot, new Character(data), difficulty);
         },
-        create: (slot, name, cls: ClassId, appearance) => {
-          const ch = Character.create(name, cls, appearance);
+        create: (slot, name, kit: KitId, appearance) => {
+          const ch = Character.create(name, kit, appearance);
           saveSlot(slot, ch.data);
           this.startCharacter(slot, ch);
         },
@@ -375,6 +402,7 @@ export class Game implements GameApi {
     this.menus.close();
     this.enterArea('city', 'start');
     this.input.requestLock();
+    if (ch.refunded) this.hud.toast('The attribute and Mag rules changed: every point is back to spend again (Menu → Status and Mag).', 'good');
   }
 
   private openMenu(menu: Menu): void {
@@ -491,14 +519,15 @@ export class Game implements GameApi {
         paralyse: (chance) => {
           if (this.rng() < chance) this.combat.applyPlayerStatus('paralysis');
         },
+        corruptPlayer: (n) => this.combat.applyPlayerStatus('corrupt', n),
         body: () => this.player,
         spawnAdd: (type, x, z) => this.world!.spawnEnemy(type, x, z, null, { noReward: true }),
         effect: (e) => this.world?.addEffect(e),
         shake: (m) => this.rig.shake(m),
         announce: (t) => {
           this.hud.banner(t, 'boss');
-          // Enraged / shattered / overclocked phases bring in the boss track's battle layer.
-          if (/enraged|shatters|overclocks/.test(t)) music.setBattle(true);
+          // Enraged / shattered / overclocked phases (and the Angel) bring in the boss track's battle layer.
+          if (/enraged|shatters|overclocks|ascends/.test(t)) music.setBattle(true);
         },
         isSolid: (x, z) => this.world?.level.isSolidAt(x, z) ?? true,
       },
@@ -528,6 +557,7 @@ export class Game implements GameApi {
       },
       onRoomCleared: () => {
         this.roomInfo = null;
+        this.cleanse();
         this.hud.toast('Room cleared. The gates open.', 'good');
         sfx('gate.open');
         sfx('jingle.clear');
@@ -571,16 +601,20 @@ export class Game implements GameApi {
     setSpace(AREA_AUDIO[id].space);
 
     if (def.kind === 'city') {
-      // Tier 5 joins the shops once De Rol Le has fallen, tier 6 once the Warden has.
-      const t5 = (this.char.data.stats.deRolLeKills ?? 0) > 0;
-      const t6 = (this.char.data.stats.wardenKills ?? 0) > 0;
-      // Hard bosses open tiers 7 / 8 / 9.
-      const hk = this.char.data.stats.hardKills ?? {};
-      const hs: HardShop = { dragon: (hk.dragon ?? 0) > 0, derolle: (hk.derolle ?? 0) > 0, warden: (hk.warden ?? 0) > 0 };
+      // Tier 5 joins the shops once De Rol Le has fallen, 6 once the Warden has, 7 once Dark Falz has;
+      // the Nightmare bosses open 8 / 9 / 10 / 11.
+      const st = this.char.data.stats;
+      const hk = st.hardKills ?? {};
+      const u: ShopUnlocks = {
+        derolle: (st.deRolLeKills ?? 0) > 0,
+        warden: (st.wardenKills ?? 0) > 0,
+        falz: (st.falzKills ?? 0) > 0,
+        hard: { dragon: (hk.dragon ?? 0) > 0, derolle: (hk.derolle ?? 0) > 0, warden: (hk.warden ?? 0) > 0, falz: (hk.falz ?? 0) > 0 },
+      };
       this.stock = {
-        weapon: shopStock('weapon', this.char.level, this.char.data.classId, this.rng, t5, t6, hs),
-        armor: shopStock('armor', this.char.level, this.char.data.classId, this.rng, t5, t6, hs),
-        item: shopStock('item', this.char.level, this.char.data.classId, this.rng, t5, t6, hs),
+        weapon: shopStock('weapon', this.char.level, this.char.lootBias(), this.rng, u),
+        armor: shopStock('armor', this.char.level, this.char.lootBias(), this.rng, u),
+        item: shopStock('item', this.char.level, this.char.lootBias(), this.rng, u),
       };
       this.player.clearBuffs();
       this.save();
@@ -696,12 +730,11 @@ export class Game implements GameApi {
     if (!p.alive) return;
     // While paralysed only an injector (a Sol one cures it) can be used.
     if (p.paralyzed) {
-      if (inp.wasPressed('Digit1')) this.useInjector(0);
-      if (inp.wasPressed('Digit2')) this.useInjector(1);
+      if (inp.wasPressed('Digit1')) this.useInjector();
       const row = this.char.data.palette[this.paletteIndex];
       SLOT_KEYS.forEach((key, i) => {
         const q = i >= 2 ? row.quick[i - 2] : null;
-        if (q?.kind === 'injector' && inp.wasPressed(key)) this.useInjector(q.slot);
+        if (q?.kind === 'injector' && inp.wasPressed(key)) this.useInjector();
       });
       return;
     }
@@ -717,8 +750,7 @@ export class Game implements GameApi {
     if (inp.wasPressed('KeyF')) this.toggleLock();
     if (inp.wasPressed('Tab')) this.cycleLock();
     if (inp.wasPressed('KeyC')) this.rig.snapBehind(p.yaw);
-    if (inp.wasPressed('Digit1')) this.useInjector(0);
-    if (inp.wasPressed('Digit2')) this.useInjector(1);
+    if (inp.wasPressed('Digit1')) this.useInjector();
     // Space also interacts when something is in reach (even mid-move); otherwise it arms a dash.
     let spaceUsed = false;
     if (inp.wasPressed('KeyR')) {
@@ -769,7 +801,9 @@ export class Game implements GameApi {
       orbit = { x: lock.pos.x, z: lock.pos.z, fwd: fwd / n, side: side / n };
     }
     const from = p.pos.clone();
+    const inside = this.char.hasMagPassive('slipstream') ? this.telegraphsAround() : [];
     if (!p.startDash(this.moveDir.x, this.moveDir.z, orbit)) return;
+    this.slipFrom = inside.length ? inside : null;
     const st = this.char.data.stats;
     st.dashes = (st.dashes ?? 0) + 1;
     sfx('player.dash');
@@ -778,6 +812,23 @@ export class Game implements GameApi {
       this.hud.toast('Telepipe cancelled.', 'warn');
       p.channelBroken = null;
     }
+  }
+
+  /** Enemy telegraphs (not the player's own technique flashes) the player stands in. */
+  private telegraphsAround(): Telegraph[] {
+    const p = this.player;
+    return (this.world?.telegraphs ?? []).filter((t) => !t.friendly && !t.done && inShape(t.shape, p.pos.x, p.pos.z, p.radius));
+  }
+
+  /** Slipstream (Mag): a dash that started inside enemy telegraphs and ended outside one makes the next attack or cast perfect. */
+  private checkSlipstream(): void {
+    const p = this.player;
+    if (!this.slipFrom || p.dash) return;
+    const escaped = this.slipFrom.some((t) => !inShape(t.shape, p.pos.x, p.pos.z, p.radius));
+    this.slipFrom = null;
+    if (!escaped || !p.alive) return;
+    p.slipstream = magCfg.slipstreamTime;
+    this.hud.float(this.tmpA.copy(p.pos).setY(2.6), 'SLIPSTREAM', 'proc');
   }
 
   /** A dash check appeared: until she has dashed a few times, say which key gets her out. */
@@ -822,7 +873,7 @@ export class Game implements GameApi {
         break;
       }
       case 'injector':
-        this.useInjector(a.slot);
+        this.useInjector();
         break;
       case 'empty':
         break;
@@ -835,6 +886,7 @@ export class Game implements GameApi {
     const p = this.player;
     const world = this.world!;
     const { events, castDone, channelDone } = p.update(dt, this.moveDir);
+    this.checkSlipstream();
     if (formulas.tpRegen > 0 && p.alive) p.tp = Math.min(p.maxTp, p.tp + formulas.tpRegen * dt);
     this.handleCombo(events);
     if (castDone) this.combat.finishCast(castDone);
@@ -846,7 +898,7 @@ export class Game implements GameApi {
     this.combat.tickPlayerStatus(dt);
 
     world.update(dt, p);
-    this.tickInjectors(dt, world);
+    this.tickInjectors(world, dt);
     this.cues.update(world);
     if (p.stepped) sfx(AREA_AUDIO[world.areaId].step);
     const inWindow = p.combo.inWindow || p.castChain.inWindow;
@@ -855,7 +907,7 @@ export class Game implements GameApi {
     const boss = world.boss;
     if (boss && boss.engaged && boss.alive && !this.bossMusic) {
       this.bossMusic = true;
-      music.play(boss instanceof DeRolLe ? 'derolle' : boss instanceof Warden ? 'warden' : 'dragon', { battle: false, fade: 0.3 });
+      music.play(boss instanceof DeRolLe ? 'derolle' : boss instanceof Warden ? 'warden' : boss instanceof DarkFalz ? 'falz' : 'dragon', { battle: false, fade: 0.3 });
     }
     if (this.victoryT >= 0) {
       this.victoryT -= dt;
@@ -868,10 +920,17 @@ export class Game implements GameApi {
     this.lastHitT += dt;
 
     this.refreshDropVerdicts();
-    // Auto-pickup meseta.
+    // Walk-over pickups: meseta, and charge orbs while the injector has room (they fade after a while).
     for (const pk of [...world.pickups]) {
-      if (pk.content.kind !== 'meseta') continue;
-      if (Math.hypot(pk.pos.x - p.pos.x, pk.pos.z - p.pos.z) < 1.2 && p.alive) this.takePickup(pk);
+      const orb = pk.content.kind === 'charge';
+      if (orb && pk.expired) {
+        world.removePickup(pk);
+        continue;
+      }
+      if (!orb && pk.content.kind !== 'meseta') continue;
+      const open = !orb || this.injectorRoom();
+      if (orb) pk.setCharge(injectorDef(this.char.injector())?.kind ?? null, open);
+      if (open && p.alive && Math.hypot(pk.pos.x - p.pos.x, pk.pos.z - p.pos.z) < 1.2) this.takePickup(pk);
     }
 
     // Death sequencing.
@@ -892,18 +951,15 @@ export class Game implements GameApi {
     return !!w && !w.roomActive && !(w.boss?.engaged && w.boss.alive);
   }
 
-  private equippedInjectors(): ItemInstance[] {
-    return INJECTOR_SLOTS.map((s) => this.char.equippedItem(s)).filter((i): i is ItemInstance => !!i);
-  }
-
   private refillInjectors(): void {
-    for (const inj of this.equippedInjectors()) fillInjector(inj);
+    const inj = this.char.injector();
+    if (inj) fillInjector(inj);
   }
 
-  /** Give every equipped injector some doses (scaled by each one's charge rate). */
+  /** Give the equipped injector some doses (scaled by its charge rate). */
   private chargeInjectors(doses: number): void {
-    if (doses <= 0) return;
-    for (const inj of this.equippedInjectors()) addCharge(inj, doses, this.char);
+    const inj = this.char.injector();
+    if (inj && doses > 0) addCharge(inj, doses, this.char);
   }
 
   /** The player's damage on a field enemy: its share of the enemy's HP bar, in doses. Bosses are tracked by HP below. */
@@ -912,7 +968,13 @@ export class Game implements GameApi {
     this.chargeInjectors((dealt / t.maxHp) * injectorCfg.chargePerEnemy * (t.elite ? injectorCfg.eliteChargeMult : 1));
   }
 
-  private tickInjectors(dt: number, world: World): void {
+  private tickInjectors(world: World, dt: number): void {
+    // Out of combat the injector refills slowly (both kinds at the same rate); Pioneer 2 refills it at once.
+    if (this.calm && this.player.alive && world.def.kind !== 'city') {
+      this.calmT += dt;
+      const inj = this.char.injector();
+      if (inj && this.calmT >= injectorCfg.calmDelay) addCharge(inj, injectorCfg.calmRate * dt, this.char, true);
+    } else this.calmT = 0;
     // Boss HP lost since last frame (any source the player caused: hits, techs, burns).
     const boss = world.boss;
     if (boss) {
@@ -921,28 +983,20 @@ export class Game implements GameApi {
       }
       this.bossHpSeen = boss.hp;
     }
-    // Between fights an injector creeps back up to one dose (Reserve: two), never further.
-    if (this.calm && this.player.alive) {
-      for (const inj of this.equippedInjectors()) {
-        const c = chargeOf(inj, this.char);
-        const to = injectorStats(inj, this.char).trickleTo;
-        if (c < to) addCharge(inj, Math.min(to - c, dt / injectorCfg.trickleSecPerDose), this.char, true);
-      }
-    }
   }
 
-  /** Keys 1 / 2 (or a quick slot): take a dose from an equipped injector. */
-  private useInjector(slot: 0 | 1): void {
+  /** Key 1 (or a quick slot): take a dose from the equipped injector. */
+  private useInjector(): void {
     const p = this.player;
     const at = () => this.tmpA.copy(p.pos).setY(2.3);
-    const inst = this.char.injector(slot);
+    const inst = this.char.injector();
     if (!inst) {
-      this.hud.float(at(), `No injector in slot ${slot + 1}`, 'early');
+      this.hud.float(at(), 'No injector equipped', 'early');
       return;
     }
     const s = injectorStats(inst, this.char);
     const sol = s.mod === 'sol';
-    const status = p.poison > 0 || p.paralyzed || p.burnStacks > 0;
+    const status = p.poison > 0 || p.paralyzed || p.burnStacks > 0 || p.corruption > 0;
     if (!p.alive || (p.paralyzed ? !sol : !p.canUseItem)) return;
     const hp = s.kind === 'mate';
     const [cur, max] = hp ? [p.hp, p.maxHp] : [p.tp, p.maxTp];
@@ -964,6 +1018,7 @@ export class Game implements GameApi {
       p.poison = 0;
       p.burnStacks = 0;
       p.cureParalysis(injectorCfg.solWard);
+      this.cleanse();
     }
     if (s.mod === 'bracing') p.brace = injectorCfg.braceTime;
     if (!hp && this.char.hasMagPassive('clarity')) {
@@ -974,10 +1029,20 @@ export class Game implements GameApi {
     p.onItemUse(injectorCfg.useLock);
   }
 
-  /** Last Stand (Mag DEF keystone): a free dose from the first Mate injector, on top of the 1 HP. */
+  /** Clear Corruption (a cleared room, a Sol dose, a boss kill). Max HP comes back; HP doesn't. */
+  private cleanse(): void {
+    const p = this.player;
+    if (p.corruption <= 0) return;
+    p.corruption = 0;
+    p.corruptDecay = 0;
+    this.hud.float(this.tmpA.copy(p.pos).setY(2.4), 'CLEANSED', 'heal');
+    sfx('status.cleanse');
+  }
+
+  /** Last Stand (Mag DEF keystone): a free dose from a Mate injector, on top of the 1 HP. */
   private lastStandDose(): void {
-    const inst = this.equippedInjectors().find((i) => injectorDef(i)?.kind === 'mate');
-    if (!inst) return;
+    const inst = this.char.injector();
+    if (!inst || injectorDef(inst)?.kind !== 'mate') return;
     const p = this.player;
     const amount = doseAmount(injectorStats(inst, this.char), p.maxHp, 1);
     p.addRegen('hp', amount, 0.3);
@@ -1017,10 +1082,16 @@ export class Game implements GameApi {
   private chainFeedback(events: ComboEvent[], what: string): void {
     const p = this.player;
     for (const ev of events) {
-      if (ev.kind === 'start' && ev.perfect) {
+      // Slipstream (Mag): the first swing or cast after dashing out of a telegraph lands perfect.
+      const slip = ev.kind === 'start' && p.slipstream > 0;
+      if (slip) {
+        p.slipstream = 0;
+        if (what === 'combo') this.slipHit = true;
+        else if (p.cast) p.cast.streak = Math.min(p.cast.streak + 1, comboDamage.length - 1);
+      }
+      if (ev.kind === 'start' && (ev.perfect || slip)) {
         sfx('combo.perfect');
         p.onPerfect();
-        if (this.char.hasMagPassive('rhythm')) this.chargeInjectors(magCfg.rhythmCharge);
         this.hud.float(this.tmpA.copy(p.pos).setY(2.3), 'perfect', 'perfect');
       } else if (ev.kind === 'early') {
         sfx('combo.early');
@@ -1044,10 +1115,13 @@ export class Game implements GameApi {
           else p.aimYaw = null;
           break;
         }
-        case 'hit':
+        case 'hit': {
           this.attackSound(ev.type as AttackType, ev.hitIndex);
-          this.combat.playerAttack(ev.type as AttackType, ev.hitIndex, ev.streak);
+          const streak = this.slipHit ? Math.min(ev.streak + 1, comboDamage.length - 1) : ev.streak;
+          this.slipHit = false;
+          this.combat.playerAttack(ev.type as AttackType, ev.hitIndex, streak);
           break;
+        }
         case 'early':
         case 'end':
           break;
@@ -1103,15 +1177,22 @@ export class Game implements GameApi {
     if (!b.smash()) return;
     sfx('box.break', { x: b.pos.x, z: b.pos.z });
     this.world!.breakBox(b);
-    this.spawnDrop(rollBoxDrop(this.rng, this.char.data.classId), b.pos.x, b.pos.z);
+    this.spawnDrop(rollBoxDrop(this.rng, this.char.lootBias()), b.pos.x, b.pos.z);
+    if (this.rng() < injectorCfg.orbBoxChance) this.spawnDrop({ kind: 'charge' }, b.pos.x, b.pos.z);
   }
 
-  /** Junk / upgrade looks of the drops: re-read after a level-up, Mag point, equip or grind. */
+  /** Does the equipped injector have room for a charge orb? */
+  private injectorRoom(): boolean {
+    const inj = this.char.injector();
+    return !!inj && chargeOf(inj, this.char) < injectorStats(inj, this.char).doses;
+  }
+
+  /** Junk / upgrade looks of the drops: re-read after a level-up, attribute or Mag point, equip or grind. */
   private refreshDropVerdicts(): void {
     const d = this.char.data;
     // Injectors stay out of the key: their charge changes every hit, and their verdict only needs the stats.
     const worn = (['weapon', 'frame', 'barrier'] as const).map((s) => JSON.stringify(this.char.equippedItem(s) ?? null));
-    const key = `${d.level}|${d.mag?.cells.join(',') ?? ''}|${worn.join('|')}`;
+    const key = `${d.level}|${JSON.stringify(d.attributes)}|${d.mag.cells.join(',')}|${worn.join('|')}`;
     if (key === this.dropKey) return;
     this.dropKey = key;
     for (const pk of this.world?.pickups ?? []) this.judgeDrop(pk);
@@ -1127,6 +1208,7 @@ export class Game implements GameApi {
     let best: Pickup | null = null;
     let bestD = playerCfg.pickupRange;
     for (const pk of this.world.pickups) {
+      if (pk.content.kind === 'charge') continue; // walk-over only
       const d = Math.hypot(pk.pos.x - p.x, pk.pos.z - p.z);
       if (d < bestD) {
         best = pk;
@@ -1164,6 +1246,16 @@ export class Game implements GameApi {
       world.removePickup(pk);
       return;
     }
+    if (pk.content.kind === 'charge') {
+      const inj = this.char.injector();
+      if (!inj) return;
+      addCharge(inj, injectorCfg.orbDoses, this.char, true);
+      sfx('pickup.item', { pitch: 1.35 });
+      const dose = injectorCfg.orbDoses === 1 ? '1 dose' : `${injectorCfg.orbDoses} doses`;
+      this.hud.float(this.tmpA.copy(pk.pos).setY(1.4), `+${dose}`, injectorDef(inj)?.kind === 'mate' ? 'heal' : 'tp');
+      world.removePickup(pk);
+      return;
+    }
     const item = pk.content.item;
     if (!this.char.addItem(item)) {
       this.hud.toast('Inventory full!', 'warn');
@@ -1186,8 +1278,6 @@ export class Game implements GameApi {
         weapon: w ? (getDef(w.id) as { kind: WeaponKind }).kind : null,
         apply: (look) => {
           this.char.data.appearance = look;
-          delete this.char.data.look;
-          delete this.char.data.colors;
           this.player.rebuildModel();
           this.closeMenu();
           this.autosave();
@@ -1248,6 +1338,19 @@ export class Game implements GameApi {
         this.rig.shake(0.15);
         this.hud.toast('A gate has been unlocked somewhere.', 'good');
         break;
+      case 'pylon': {
+        const pylon = this.world?.pylonOf(it);
+        if (!pylon) return;
+        // The Seal of Light and the Falz Halo keep pylons you light burning longer.
+        const seal = this.char.hasEquipped('seal_of_light') || this.char.hasEquipped('falz_halo');
+        if (!pylon.light(pylonCfg.litTime * (seal ? pylonCfg.sealLitMult : 1))) return;
+        sfx('ruins.pylon', { x: pylon.pos.x, z: pylon.pos.z });
+        this.world?.addEffect(new Ring(pylon.pos.x, pylon.pos.z, 0xffe8a0, pylonCfg.radius, 0.5));
+        const st = this.char.data.stats;
+        if (!st.pylonsLit) this.hud.toast('The pylon blazes: its light cleanses Corruption and weakens the Dark.', 'good');
+        st.pylonsLit = (st.pylonsLit ?? 0) + 1;
+        break;
+      }
       case 'power': {
         if (!it.lock) return;
         this.world!.togglePower(it.lock);
@@ -1314,15 +1417,16 @@ export class Game implements GameApi {
     const opts: ChoiceOption[] = [];
     const tag = hard ? ' (Nightmare)' : '';
     for (const exp of Object.values(expeditions)) {
-      // Normal: the previous expedition's boss. Nightmare: the Warden for the Forest, then the previous Nightmare boss.
+      // Normal: the previous expedition's boss. Nightmare: Dark Falz on Normal for the Forest, then the previous Nightmare boss.
       let locked: boolean;
-      let why: string;
-      if (!hard) {
-        locked = exp.needs === 'dragon' ? st.dragonKills <= 0 : exp.needs === 'derolle' ? (st.deRolLeKills ?? 0) <= 0 : false;
-        why = `Defeat ${exp.needs === 'derolle' ? 'De Rol Le' : 'the Dragon'} to unlock`;
-      } else {
-        locked = exp.needs === 'dragon' ? (hk.dragon ?? 0) <= 0 : exp.needs === 'derolle' ? (hk.derolle ?? 0) <= 0 : (st.wardenKills ?? 0) <= 0;
-        why = `Defeat ${exp.needs === 'derolle' ? 'De Rol Le' : 'the Dragon'} on Nightmare to unlock`;
+      const needName = exp.needs === 'derolle' ? 'De Rol Le' : exp.needs === 'warden' ? 'the Warden' : 'the Dragon';
+      const normalKills = { dragon: st.dragonKills, derolle: st.deRolLeKills ?? 0, warden: st.wardenKills ?? 0 };
+      let why = `Defeat ${needName}${hard ? ' on Nightmare' : ''} to unlock`;
+      if (!hard) locked = exp.needs ? normalKills[exp.needs] <= 0 : false;
+      else if (exp.needs) locked = (hk[exp.needs] ?? 0) <= 0;
+      else {
+        locked = !nightmareOpen(this.char.data);
+        why = 'Defeat Dark Falz to unlock';
       }
       if (locked) {
         opts.push({ label: exp.name + tag, disabled: true, sub: why, run: () => {} });
@@ -1362,10 +1466,12 @@ export class Game implements GameApi {
       if (t.noReward) return;
       this.char.data.stats.kills++;
       this.gainXp(t.xp);
-      const cls = this.char.data.classId;
+      const cls = this.char.lootBias();
       this.spawnDrop(rollEnemyDrop(t.arch, this.rng, cls), t.pos.x, t.pos.z);
       if (t.champion) for (const d of rollChampionBonus(t.arch, this.rng, cls)) this.spawnDrop(d, t.pos.x, t.pos.z);
       else if (t.elite) this.spawnDrop(rollEliteBonus(t.arch, this.rng, cls), t.pos.x, t.pos.z);
+      // Charge orb: elites and champions always, others sometimes (never from bots that reboot, so no farming).
+      if (!t.noCharge && (t.elite || t.champion || this.rng() < injectorCfg.orbChance)) this.spawnDrop({ kind: 'charge' }, t.pos.x, t.pos.z);
       return;
     }
     const boss = world.boss;
@@ -1374,16 +1480,19 @@ export class Game implements GameApi {
       if (boss.alive) return;
       const drl = boss instanceof DeRolLe;
       const wdn = boss instanceof Warden;
+      const flz = boss instanceof DarkFalz;
       const stats = this.char.data.stats;
       const hard = this.run.hard;
-      const bossId = drl ? 'derolle' : wdn ? 'warden' : 'dragon';
+      const bossId: HardBossId = drl ? 'derolle' : wdn ? 'warden' : flz ? 'falz' : 'dragon';
       stats.kills++;
       if (hard) {
         const hk = (stats.hardKills ??= {});
         hk[bossId] = (hk[bossId] ?? 0) + 1;
       } else if (drl) stats.deRolLeKills = (stats.deRolLeKills ?? 0) + 1;
       else if (wdn) stats.wardenKills = (stats.wardenKills ?? 0) + 1;
+      else if (flz) stats.falzKills = (stats.falzKills ?? 0) + 1;
       else stats.dragonKills++;
+      this.cleanse();
       this.run.bossDefeated = true;
       this.lockTarget = null;
       music.stop(0.4);
@@ -1394,28 +1503,33 @@ export class Game implements GameApi {
       this.hud.toast('Quest complete! A teleporter to Pioneer 2 has appeared.', 'good');
       if (hard) {
         const first = stats.hardKills?.[bossId] === 1;
-        const tier = drl ? 8 : wdn ? 9 : 7;
-        if (first) this.hud.toast(`Pioneer 2 shops will now stock tier ${tier} gear (from Lv ${drl ? 52 : wdn ? 62 : 42}).`, 'rare');
-        if (first && !wdn) this.hud.toast(`A new Nightmare expedition is open: the ${drl ? 'Mines' : 'Caves'}.`, 'rare');
+        const shop = { dragon: [8, 52], derolle: [9, 62], warden: [10, 72], falz: [11, 82] }[bossId];
+        if (first) this.hud.toast(`Pioneer 2 shops will now stock tier ${shop[0]} gear (from Lv ${shop[1]}).`, 'rare');
+        const next = { dragon: 'Caves', derolle: 'Mines', warden: 'Ruins', falz: '' }[bossId];
+        if (first && next) this.hud.toast(`A new Nightmare expedition is open: the ${next}.`, 'rare');
       } else {
-        if (!drl && !wdn && stats.dragonKills === 1) this.hud.toast('A new expedition is open: the Caves.', 'rare');
+        if (!drl && !wdn && !flz && stats.dragonKills === 1) this.hud.toast('A new expedition is open: the Caves.', 'rare');
         if (drl && stats.deRolLeKills === 1) {
           this.hud.toast('Pioneer 2 shops will now stock tier 5 gear (from Lv 24).', 'rare');
           this.hud.toast('A new expedition is open: the Mines.', 'rare');
         }
         if (wdn && stats.wardenKills === 1) {
           this.hud.toast('Pioneer 2 shops will now stock tier 6 gear (from Lv 32).', 'rare');
-          this.hud.toast('Nightmare is open: Save &amp; quit (menu, I) and pick it when you start again.', 'rare');
+          this.hud.toast('A new expedition is open: the Ruins.', 'rare');
+        }
+        if (flz && stats.falzKills === 1) {
+          this.hud.toast('Pioneer 2 shops will now stock tier 7 gear (from Lv 42).', 'rare');
+          if (!stats.nightmareKept) this.hud.toast('Nightmare is open: Save &amp; quit (menu, I) and pick it when you start again.', 'rare');
         }
       }
-      this.gainXp(hard ? hardCfg.bosses[bossId].xp : drl ? 900 : wdn ? wardenCfg.xp : 250);
+      this.gainXp(hard ? hardCfg.bosses[bossId].xp : drl ? 900 : wdn ? wardenCfg.xp : flz ? falzCfg.xp : 250);
       // Loot lands on the deck / arena floor around the centre.
       const c = world.level.center();
-      const at = drl || wdn ? c : t.pos;
-      const cls = this.char.data.classId;
+      const at = drl || wdn || flz ? c : t.pos;
+      const cls = this.char.lootBias();
       const drops = hard
         ? rollHardBossDrops(bossId, this.rng, cls)
-        : drl ? rollDeRolLeDrops(this.rng, cls) : wdn ? rollWardenDrops(this.rng, cls) : rollDragonDrops(this.rng, cls);
+        : drl ? rollDeRolLeDrops(this.rng, cls) : wdn ? rollWardenDrops(this.rng, cls) : flz ? rollFalzDrops(this.rng, cls) : rollDragonDrops(this.rng, cls);
       drops.forEach((d, i) => {
         const a = (i / drops.length) * Math.PI * 2;
         const r = drl ? 2.6 : 3;
@@ -1447,6 +1561,8 @@ export class Game implements GameApi {
       this.hud.toast(
         `HP +${after.hp - before.hp} · TP +${after.tp - before.tp} · ATP +${after.atp - before.atp} · DFP +${after.dfp - before.dfp} · MST +${after.mst - before.mst} · ATA +${after.ata - before.ata} · EVP +${after.evp - before.evp}`,
       );
+      const ap = this.char.attributePoints;
+      if (ap > 0) this.hud.toast(`${ap} attribute point${ap > 1 ? 's' : ''} to spend (Menu → Status).`, 'good');
       const pts = this.char.magPoints;
       if (pts > 0) {
         this.hud.toast(`Your Mag can learn: ${pts} point${pts > 1 ? 's' : ''} to spend (Menu → Mag).`, 'good');
@@ -1594,19 +1710,12 @@ export class Game implements GameApi {
     if (def.fieldOnly && !this.inField) return `${def.name} only works outside the city`;
     const p = this.player;
     switch (def.effect) {
-      case 'refillMate':
-      case 'refillFluid': {
-        const kind = def.effect === 'refillMate' ? 'mate' : 'fluid';
-        const targets = this.equippedInjectors().filter((i) => injectorDef(i)?.kind === kind);
-        if (!targets.length) return `No ${kind === 'mate' ? 'Mate' : 'Fluid'} injector equipped`;
-        if (targets.every((i) => chargeOf(i, this.char) >= injectorStats(i, this.char).doses)) return 'Injectors are already full';
-        for (const i of targets) fillInjector(i);
-        this.hud.float(this.tmpA.copy(p.pos).setY(2.2), 'REFILLED', kind === 'mate' ? 'heal' : 'tp');
-        p.onItemUse(injectorCfg.useLock);
-        break;
-      }
       case 'telepipe':
-        if (this.moveDir.lengthSq() > 0) return 'Stand still to use a Telepipe';
+        if (this.menus.isOpen) {
+          // From the inventory: back to the game, already casting (a step, a dash or a hit still breaks it).
+          if (!p.canMove) return "You can't use it right now";
+          this.closeMenu();
+        } else if (this.moveDir.lengthSq() > 0) return 'Stand still to use a Telepipe';
         p.startChannel('telepipe', telepipeCfg.castTime);
         sfx('tech.charge', { pitch: 0.7 });
         return null; // consumed when the cast completes
@@ -1624,12 +1733,12 @@ export class Game implements GameApi {
 
   magLearn(ids: string[]): string | null {
     const ch = this.char;
-    const formBefore = magForm(ch.mag, ch.data.classId).name;
-    const err = learnCells(ch.mag, ch.level, ids);
+    const formBefore = magForm(ch.mag, ch.leadAttribute).name;
+    const err = learnCells(ch.mag, ch.level, ch.data.attributes, ids);
     if (err) return err;
     this.player.refreshMag();
     this.autosave();
-    const form = magForm(ch.mag, ch.data.classId).name;
+    const form = magForm(ch.mag, ch.leadAttribute).name;
     sfx(form !== formBefore ? 'jingle.magEvolve' : 'mag.feed');
     // A learned square shows on the grid (and plays a sound); only an evolution gets a banner.
     if (form !== formBefore) {
@@ -1639,24 +1748,25 @@ export class Game implements GameApi {
     return null;
   }
 
-  magRespec(): string | null {
+  /** Spend one attribute point (permanent): max HP and TP grow at once, and the title, outfit and Mag may follow. */
+  attrSpend(attr: AttributeId): string | null {
     const ch = this.char;
-    if (!ch.mag.cells.length) return 'Your Mag has nothing to forget';
-    const cost = respecCost(ch.mag, ch.level);
-    if (ch.data.meseta < cost) return `Not enough Meseta (${cost} M)`;
-    const formBefore = magForm(ch.mag, ch.data.classId).name;
-    ch.data.meseta -= cost;
-    ch.mag.cells = [];
-    this.player.refreshMag();
+    const p = this.player;
+    const before = ch.baseStats();
+    const err = ch.spendAttribute(attr);
+    if (err) return err;
+    const after = ch.baseStats();
+    p.hp += after.hp - before.hp;
+    p.tp += after.tp - before.tp;
+    p.refreshMag();
+    p.refreshLook();
     this.autosave();
     sfx('ui.confirm');
-    const form = magForm(ch.mag, ch.data.classId).name;
-    this.notify(`Your Mag forgot its training${cost ? ` (${cost} M)` : ''}. ${ch.magPoints} points to spend${form !== formBefore ? `; it is a plain ${form} again` : ''}.`, 'good');
     return null;
   }
 
-  equipItem(uid: string, slot?: GearSlot): string | null {
-    const r = this.char.equip(uid, slot);
+  equipItem(uid: string): string | null {
+    const r = this.char.equip(uid);
     this.player.refreshLook();
     this.player.refreshWeapon();
     this.player.combo.interrupt();
@@ -1679,11 +1789,12 @@ export class Game implements GameApi {
     }
   }
 
-  grindItem(weaponUid: string, grinderUid: string): string | null {
-    const r = this.char.grind(weaponUid, grinderUid);
+  grindItem(weaponUid: string, grinderUid: string, track: GrindTrack): string | null {
+    const r = this.char.grind(weaponUid, grinderUid, track);
     if (!r.ok) return r.reason ?? 'Failed';
     sfx('ui.equip', { pitch: 1.2 });
-    this.notify(`Grind successful! ${itemName(this.char.find(weaponUid)!)}`, 'good');
+    const where = track === 'edge' ? 'Edge' : ATTR_LABEL[track];
+    this.notify(`Grind successful! ${itemName(this.char.find(weaponUid)!)} · ${where} +${r.levels}${r.wasted ? ` (${r.wasted} lost)` : ''}`, 'good');
     return null;
   }
 
@@ -1696,7 +1807,7 @@ export class Game implements GameApi {
   buy(proto: ItemInstance): string | null {
     const price = buyPrice(proto);
     if (this.char.data.meseta < price) return 'Not enough Meseta';
-    const inst = makeItem(proto.id, { attrs: proto.attrs, grind: proto.grind, special: proto.special });
+    const inst = makeItem(proto.id, { attrs: proto.attrs, grind: proto.grind, bane: proto.bane, special: proto.special });
     if (!this.char.addItem(inst)) return 'Inventory full (or stack limit reached)';
     this.char.data.meseta -= price;
     sfx('ui.buy');
@@ -1759,11 +1870,11 @@ export class Game implements GameApi {
           return { key, label: def.name, icon: itemIcon(a.item), count: String(n), kind: 'item', disabled: n === 0 };
         }
         case 'injector': {
-          const inst = ch.injector(a.slot);
-          if (!inst) return { key, label: `Injector ${a.slot + 1}: empty slot`, icon: '', kind: 'item', disabled: true };
+          const inst = ch.injector();
+          if (!inst) return { key, label: 'Injector: none equipped', icon: '', kind: 'item', disabled: true };
           const doses = Math.floor(chargeOf(inst, ch));
           const kind = injectorDef(inst)!.kind;
-          return { key, label: `${itemName(inst)} (key ${a.slot + 1})`, icon: itemIcon(inst.id), count: String(doses), kind: 'item', disabled: doses < 1, restores: kind === 'mate' ? 'hp' : 'tp' };
+          return { key, label: `${itemName(inst)} (key 1)`, icon: itemIcon(inst.id), count: String(doses), kind: 'item', disabled: doses < 1, restores: kind === 'mate' ? 'hp' : 'tp' };
         }
         case 'empty':
           return { key, label: 'Empty', icon: '', kind: 'empty' };
@@ -1800,7 +1911,10 @@ export class Game implements GameApi {
         const talk = isCounter(it.kind);
         const sw = it.kind === 'switch' || it.kind === 'power';
         const verb = talk ? 'Talk' : it.kind === 'switch' ? (it.active ? '' : 'Press') : sw ? 'Pull' : 'Use';
-        if (verb) {
+        if (it.kind === 'pylon') {
+          prompt = `<b>[R]</b> ${it.label}`;
+          context = { icon: 'switch', label: it.label };
+        } else if (verb) {
           prompt = `<b>[R]</b> ${verb}: ${it.label}`;
           context = { icon: talk ? 'talk' : sw ? 'switch' : 'teleport', label: `${verb}: ${it.label}` };
         }
@@ -1814,23 +1928,26 @@ export class Game implements GameApi {
     if (p.buffs.atp.t > 0) buffs.push(`▲ATP ${Math.ceil(p.buffs.atp.t)}s`);
     if (p.buffs.dfp.t > 0) buffs.push(`▲DFP ${Math.ceil(p.buffs.dfp.t)}s`);
     const statuses: { label: string; cls: string }[] = [];
+    if (p.corruption > 0) statuses.push({ label: `CORRUPT ×${p.corruption}${p.inLight ? '' : ' · LIGHT'}`, cls: 'corrupt' });
     if (p.burnStacks > 0) statuses.push({ label: `BURN ×${p.burnStacks}${p.moving ? '' : ' · MOVE'}`, cls: 'burn' });
     if (p.poison > 0) statuses.push({ label: `POISON ${Math.ceil(p.poison)}s`, cls: 'poison' });
     if (p.paralysis > 0) statuses.push({ label: `PARALYSIS ${p.paralysis.toFixed(1)}s`, cls: 'para' });
     else if (p.paraImmune > 0) statuses.push({ label: `PARA WARD ${Math.ceil(p.paraImmune)}s`, cls: 'ward' });
 
     const c = p.castChain.committed ? p.castChain : p.combo;
-    const injectors = ([0, 1] as const).map((slot) => {
-      const inst = ch.injector(slot);
-      if (!inst) return null;
-      const st = injectorStats(inst, ch);
-      return { kind: st.kind, doses: st.doses, charge: chargeOf(inst, ch), name: itemName(inst), mod: st.mod ? INJECTOR_MODS[st.mod].name : null };
-    });
+    const inj = ch.injector();
+    const st = inj && injectorStats(inj, ch);
+    const injector = inj && st ? { kind: st.kind, doses: st.doses, charge: chargeOf(inj, ch), name: itemName(inj), mod: st.mod ? INJECTOR_MODS[st.mod].name : null } : null;
     if (p.brace > 0) buffs.push(`▼DMG ${Math.ceil(p.brace)}s`);
     if (p.clarity > 0) buffs.push(`FREE CAST ${Math.ceil(p.clarity)}s`);
+    if (p.shield > 0) buffs.push(`◆SHIELD ${Math.ceil(p.shield)}`);
+    if (p.slipstream > 0) buffs.push(`★PERFECT ${Math.ceil(p.slipstream)}s`);
+    if (p.retaliate > 0) buffs.push('▲RETALIATE');
     return {
       hp: p.hp,
       maxHp: p.maxHp,
+      trueMaxHp: p.trueMaxHp,
+      shield: p.shield,
       tp: p.tp,
       maxTp: p.maxTp,
       level: ch.level,
@@ -1862,8 +1979,8 @@ export class Game implements GameApi {
       buffs,
       statuses,
       cast: p.channel ? p.channel.t / p.channel.dur : p.cast && !p.cast.fired ? p.cast.t / p.cast.windup : null,
-      injectors,
-      dash: { charges: p.dashCharges, max: dashCfg.charges, refill: p.dashRefill },
+      injector,
+      dash: { charges: p.dashCharges, max: p.maxDashCharges, refill: p.dashRefill },
     };
   }
 }

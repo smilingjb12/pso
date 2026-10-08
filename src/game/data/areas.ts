@@ -1,10 +1,11 @@
 import type { EnemyId } from '../config';
+import { RUINS_AFFIXES, type Affix } from './affixes';
 
 // Areas are authored as rectangular rooms (in 2m tiles) joined by straight
 // corridors. The level builder carves corridors through the overlap of two
 // rooms and puts laser-fence gates at each end.
 
-export type AreaId = 'city' | 'forest1' | 'dragon' | 'cave1' | 'cave2' | 'derolle' | 'mine1' | 'mine2' | 'warden';
+export type AreaId = 'city' | 'forest1' | 'dragon' | 'cave1' | 'cave2' | 'derolle' | 'mine1' | 'mine2' | 'warden' | 'ruin1' | 'ruin2' | 'falz';
 
 export type FeatureKind =
   | 'start' | 'switch' | 'toBoss' | 'toNext' | 'toCity'
@@ -12,7 +13,9 @@ export type FeatureKind =
   /** A Telepipe portal (placed at runtime, never in area data). */
   | 'portal'
   /** Mines: a power switch (toggles the machinery wired to it). */
-  | 'power';
+  | 'power'
+  /** Ruins: a light pylon (placed from the room's `pylons`, never as a feature). */
+  | 'pylon';
 
 /** Features with an NPC behind a counter (talk, solid). */
 export const isCounter = (k: FeatureKind) => k.startsWith('shop') || k === 'medical' || k === 'stylist';
@@ -55,6 +58,8 @@ export interface RoomDef {
   lasers?: { ax: number; az: number; bx: number; bz: number; phase?: number; power?: string }[];
   /** Conveyor belts: a rectangle that carries whoever stands on it (dir: the way it runs). */
   conveyors?: { tx: number; tz: number; w: number; h: number; dir: 'n' | 's' | 'e' | 'w'; power?: string }[];
+  /** Ruins light pylons (room tiles): the interact key lights one (see config pylonCfg). */
+  pylons?: [number, number][];
   trees?: number;
   boxes?: number;
   features?: FeatureDef[];
@@ -77,7 +82,7 @@ export interface AreaTheme {
   fogFar: number;
   trees: boolean;
   /** Set dressing beyond the defaults (forest = trees, boss = Dragon's lair). */
-  scenery?: 'volcanic' | 'marsh' | 'river' | 'foundry' | 'control' | 'warden';
+  scenery?: 'volcanic' | 'marsh' | 'river' | 'foundry' | 'control' | 'warden' | 'temple' | 'sanctum' | 'altar';
   /** Ambient/sun override; defaults to neutral daylight. */
   light?: AreaLight;
   // ---- Look extras (data/looks.ts fills these for the Caves and Mines; others keep the flat sky). ----
@@ -111,7 +116,8 @@ export interface SkyDef {
   stars?: number;
   nebulae?: { color: number; dir: [number, number, number]; size: number; opacity?: number }[];
   aurora?: { color: number; color2: number; strength?: number; yaw?: number };
-  planet?: { color: number; color2?: number; ring?: number; glow?: number; dir: [number, number, number]; size: number; light?: [number, number, number] };
+  /** `glowOpacity`: the halo's strength (an eclipse: a near-black body with a bright corona). */
+  planet?: { color: number; color2?: number; ring?: number; glow?: number; glowOpacity?: number; dir: [number, number, number]; size: number; light?: [number, number, number] };
 }
 
 export interface AreaLight {
@@ -124,7 +130,7 @@ export interface AreaLight {
 
 export const DEFAULT_LIGHT: AreaLight = { hemiSky: 0xcfe4ff, hemiGround: 0x2a3a20, hemi: 1.1, sunColor: 0xffffff, sun: 1.6 };
 
-export type BossId = 'dragon' | 'derolle' | 'warden';
+export type BossId = 'dragon' | 'derolle' | 'warden' | 'falz';
 
 export interface AreaDef {
   id: AreaId;
@@ -134,8 +140,10 @@ export interface AreaDef {
   boss?: BossId;
   /** Field areas: elite and rare (Nar Lily) spawns can appear. */
   elites?: boolean;
-  /** Elites roll a machine affix (Overclocked / Volatile) instead of plain elite stats. */
+  /** Elites roll an affix from `affixPool` (Mines: Overclocked / Volatile) instead of plain elite stats. */
   affixes?: boolean;
+  /** Normal elites' affix pool where `affixes` is set (defaults to the Mines pair). */
+  affixPool?: Affix[];
   /** Facing on arrival at the start point (radians, 0 = +Z). */
   startYaw?: number;
   theme: AreaTheme;
@@ -145,7 +153,7 @@ export interface AreaDef {
 
 // ------------------------------------------------------------- expeditions
 
-export type ExpeditionId = 'forest' | 'caves' | 'mines';
+export type ExpeditionId = 'forest' | 'caves' | 'mines' | 'ruins';
 
 export interface ExpeditionDef {
   id: ExpeditionId;
@@ -156,13 +164,14 @@ export interface ExpeditionDef {
    */
   floors: AreaId[];
   /** Unlocked by killing this boss on this character. */
-  needs?: 'dragon' | 'derolle';
+  needs?: 'dragon' | 'derolle' | 'warden';
 }
 
 export const expeditions: Record<ExpeditionId, ExpeditionDef> = {
   forest: { id: 'forest', name: 'Forest', floors: ['forest1', 'dragon'] },
   caves: { id: 'caves', name: 'Caves', floors: ['cave1', 'cave2', 'derolle'], needs: 'dragon' },
   mines: { id: 'mines', name: 'Mines', floors: ['mine1', 'mine2', 'warden'], needs: 'derolle' },
+  ruins: { id: 'ruins', name: 'Ruins', floors: ['ruin1', 'ruin2', 'falz'], needs: 'warden' },
 };
 
 /** Which expedition an area belongs to (null for the city). */
@@ -170,6 +179,7 @@ export function expeditionOf(area: AreaId): ExpeditionId | null {
   if (area === 'forest1' || area === 'dragon') return 'forest';
   if (area === 'cave1' || area === 'cave2' || area === 'derolle') return 'caves';
   if (area === 'mine1' || area === 'mine2' || area === 'warden') return 'mines';
+  if (area === 'ruin1' || area === 'ruin2' || area === 'falz') return 'ruins';
   return null;
 }
 
@@ -187,6 +197,13 @@ const Gz: EnemyId = 'Garanz';
 const Sn: EnemyId = 'Sinow';
 /** A control node at a tile of the room: gunbots in its room reboot until it is destroyed. */
 const N = (tx: number, tz: number): SpawnDef => ({ e: 'ControlNode', tx, tz });
+const D: EnemyId = 'Dimenian';
+const LD: EnemyId = 'LaDimenian';
+const SD: EnemyId = 'SoDimenian';
+const Ds: EnemyId = 'Delsaber';
+const Cs: EnemyId = 'ChaosSorcerer';
+const Br: EnemyId = 'DarkBelra';
+const Cb: EnemyId = 'ChaosBringer';
 
 export const areas: Record<AreaId, AreaDef> = {
   city: {
@@ -488,6 +505,115 @@ export const areas: Record<AreaId, AreaDef> = {
     rooms: [
       { id: 'arena', x: 0, z: 0, w: 14, h: 15,
         features: [{ kind: 'start', tx: 7, tz: 13 }] },
+    ],
+    links: [],
+  },
+
+  // ---- Expedition 4: the Ruins (Lv 32-42). Dark enemies, Corruption and light pylons. ----
+  // Ruin 1: the outer temple. Dimenian packs, Delsaber knights and the first Sorcerers.
+  ruin1: {
+    id: 'ruin1',
+    name: 'Ruin 1',
+    kind: 'field',
+    elites: true,
+    affixes: true,
+    affixPool: RUINS_AFFIXES,
+    startYaw: Math.PI / 2,
+    theme: {
+      floor: 0x5a5470, floorAlt: 0x524c68, wall: 0x3a3450, wallHeight: 5,
+      sky: 0x0c0818, fogNear: 28, fogFar: 92, trees: false, scenery: 'temple',
+      light: { hemiSky: 0xc0a8ff, hemiGround: 0x1a1028, hemi: 1.1, sunColor: 0xffe8c8, sun: 1.1 },
+    },
+    rooms: [
+      { id: 'r0', x: 0, z: 0, w: 10, h: 10, boxes: 2,
+        features: [{ kind: 'start', tx: 3, tz: 5 }, { kind: 'toCity', tx: 2.5, tz: 2.5, label: 'Teleporter to Pioneer 2' }] },
+      // A Dimenian pack and the first pylon.
+      { id: 'r1', x: 16, z: 0, w: 14, h: 12, boxes: 2, pylons: [[7, 6]],
+        waves: [[D, D, D], [D, D, LD, LD]] },
+      // Delsabers guard the hall; a Sorcerer joins the second wave.
+      { id: 'r2', x: 36, z: 0, w: 16, h: 14, boxes: 3, pylons: [[4, 4], [12, 10]],
+        waves: [[Ds, D, D], [Cs, D, D, LD]] },
+      // Gate switch side room.
+      { id: 'r3', x: 58, z: 2, w: 12, h: 12, boxes: 2, overlap: true, pylons: [[6, 6]],
+        waves: [[Ds, Ds], [Cs, LD, LD]],
+        features: [{ kind: 'switch', tx: 10, tz: 10.5, lock: 'L1', label: 'Gate switch' }] },
+      // The first Dark Belra, then a pack drops in behind you.
+      { id: 'r4', x: 36, z: 20, w: 14, h: 12, boxes: 2, ambush: [1], pylons: [[7, 6]],
+        waves: [[Br, D, D], [LD, LD, SD]] },
+      // The great hall: everything at once.
+      { id: 'r5', x: 34, z: 38, w: 20, h: 16, boxes: 3, overlap: true, ambush: [2], pylons: [[5, 8], [15, 8]],
+        waves: [[Br, Ds, D, D], [Cs, Cs, LD, LD], [SD, Ds, Br]] },
+      { id: 'r6', x: 60, z: 42, w: 8, h: 10, boxes: 2,
+        features: [{ kind: 'toNext', tx: 4, tz: 5, to: 'ruin2', label: 'Teleporter to Ruin 2' }] },
+    ],
+    links: [
+      { a: 'r0', b: 'r1' },
+      { a: 'r1', b: 'r2' },
+      { a: 'r2', b: 'r3' },
+      { a: 'r2', b: 'r4', lock: 'L1' },
+      { a: 'r4', b: 'r5' },
+      { a: 'r5', b: 'r6' },
+    ],
+  },
+
+  // Ruin 2: the inner sanctum. Chaos Bringers, Belras and Sorcerers; its first room has a
+  // teleporter to Pioneer 2.
+  ruin2: {
+    id: 'ruin2',
+    name: 'Ruin 2',
+    kind: 'field',
+    elites: true,
+    affixes: true,
+    affixPool: RUINS_AFFIXES,
+    theme: {
+      floor: 0x4e4a66, floorAlt: 0x47435e, wall: 0x302a46, wallHeight: 6,
+      sky: 0x080612, fogNear: 28, fogFar: 92, trees: false, scenery: 'sanctum',
+      light: { hemiSky: 0xb8a0ff, hemiGround: 0x140c22, hemi: 1.05, sunColor: 0xffe0c0, sun: 1.05 },
+    },
+    rooms: [
+      { id: 's0', x: 0, z: 0, w: 10, h: 10, boxes: 2,
+        features: [{ kind: 'start', tx: 5, tz: 6 }, { kind: 'toCity', tx: 5, tz: 2.5, label: 'Teleporter to Pioneer 2' }] },
+      { id: 's1', x: 0, z: 16, w: 14, h: 14, boxes: 2, pylons: [[7, 7]],
+        waves: [[Ds, Ds, D], [Cs, LD, LD]] },
+      // The first Chaos Bringer, alone; a Sorcerer and So Dimenians drop in behind you after it.
+      { id: 's2', x: 20, z: 16, w: 16, h: 14, boxes: 2, ambush: [1], pylons: [[4, 7], [12, 7]],
+        waves: [[Cb], [Cs, SD, SD]] },
+      // Gate switch side room: a Belra with a La Dimenian escort.
+      { id: 's3', x: 20, z: 36, w: 14, h: 12, boxes: 3, pylons: [[7, 6]],
+        waves: [[Br, LD, LD], [SD, SD, Cs]],
+        features: [{ kind: 'switch', tx: 12, tz: 10, lock: 'L2', label: 'Gate switch' }] },
+      { id: 's4', x: 42, z: 16, w: 14, h: 14, boxes: 2, overlap: true, pylons: [[7, 7]],
+        waves: [[Ds, Ds, Cs], [Br, LD, LD, SD]] },
+      // The sanctum: a Bringer leads, the rest follow.
+      { id: 's5', x: 42, z: 36, w: 20, h: 18, boxes: 3, overlap: true, ambush: [2], pylons: [[5, 9], [15, 9]],
+        waves: [[Cb, D, D, D], [Cs, Cs, Ds, Ds], [Br, SD, SD]] },
+      { id: 's6', x: 68, z: 40, w: 8, h: 10, boxes: 2,
+        features: [{ kind: 'toBoss', tx: 4, tz: 5, to: 'falz', label: 'Teleporter to the altar' }] },
+    ],
+    links: [
+      { a: 's0', b: 's1' },
+      { a: 's1', b: 's2' },
+      { a: 's2', b: 's3' },
+      { a: 's2', b: 's4', lock: 'L2' },
+      { a: 's4', b: 's5' },
+      { a: 's5', b: 's6' },
+    ],
+  },
+
+  // Dark Falz: a round altar over the void (darkFalz.altarRadius), four light pylons near its rim.
+  falz: {
+    id: 'falz',
+    name: 'The Altar',
+    kind: 'boss',
+    boss: 'falz',
+    theme: {
+      floor: 0x5a5470, floorAlt: 0x524c68, wall: 0x2a2440, wallHeight: 1,
+      sky: 0x06040c, fogNear: 40, fogFar: 130, trees: false, scenery: 'altar',
+      light: { hemiSky: 0xd0b8ff, hemiGround: 0x140a20, hemi: 1.0, sunColor: 0xfff0d8, sun: 1.15 },
+    },
+    rooms: [
+      { id: 'arena', x: 0, z: 0, w: 15, h: 15, pylons: [[3.6, 3.6], [11.4, 3.6], [3.6, 11.4], [11.4, 11.4]],
+        features: [{ kind: 'start', tx: 7.5, tz: 13.2 }] },
     ],
     links: [],
   },

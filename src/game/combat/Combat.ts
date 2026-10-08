@@ -36,6 +36,9 @@ export interface CombatHooks {
 }
 
 const tmp = new THREE.Vector3();
+
+/** Combat log label for a swing boosted by Retaliate. */
+const swingMultLabel = (label: string, mult: number) => (mult > 1 ? `${label} (Retaliate)` : label);
 /** Critical hits (weapons and techniques) multiply damage, healing and buff strength by this. */
 const CRIT_MULT = 1.5;
 /** Light Foie's flame cone, and light Zonde's chain (enemies hit, and the longest hop between them). */
@@ -98,6 +101,16 @@ export class Combat {
     return killed;
   }
 
+  /** Damage multiplier for the swing being resolved (Retaliate); 1 outside a melee swing. */
+  private swingMult = 1;
+
+  /** Longshot (Mag): guns and techniques hit harder past a distance. */
+  private longshot(target: Hittable): number {
+    if (!this.c.hasMagPassive('longshot')) return 1;
+    const d = Math.hypot(target.pos.x - this.p.pos.x, target.pos.z - this.p.pos.z);
+    return d > magCfg.longshotRange ? magCfg.longshotMult : 1;
+  }
+
   private playerAtp(): number {
     const [lo, hi] = this.c.weaponAtp();
     const base = this.c.stats().atp + randRange(lo, hi, this.h.rng);
@@ -140,10 +153,12 @@ export class Combat {
     const rangeMult = kind.ranged ? formulas.rangedDamageMult : formulas.meleeDamageMult;
     const comboMult = comboDamage[Math.min(streak, comboDamage.length - 1)];
     const finisher = hitIndex === 2;
-    // Mag passives: Crush ignores part of the enemy's DFP on heavies, Follow-through boosts finishers.
-    const dfp = type === 'heavy' && c.hasMagPassive('crush') ? target.dfp * (1 - magCfg.crushDfpIgnore) : target.dfp;
+    // Mag passives: Crush ignores part of the enemy's DFP on heavy melee hits, Follow-through boosts finishers,
+    // Longshot boosts far gun hits and Retaliate (swingMult) the swing after being hit.
+    const dfp = type === 'heavy' && !kind.ranged && c.hasMagPassive('crush') ? target.dfp * (1 - magCfg.crushDfpIgnore) : target.dfp;
     const finisherMult = finisher && c.hasMagPassive('followThrough') ? magCfg.followThroughMult : 1;
-    let dmg = playerDamage(atp, dfp, type) * kind.damageScale * scale * rangeMult * comboMult * finisherMult * target.damageMult(this.p.pos.x, this.p.pos.z);
+    const passiveMult = (kind.ranged ? this.longshot(target) : this.swingMult) * finisherMult;
+    let dmg = playerDamage(atp, dfp, type) * kind.damageScale * scale * rangeMult * comboMult * passiveMult * target.damageMult(this.p.pos.x, this.p.pos.z, type === 'heavy');
     const crit = this.rollCrit();
     if (crit) dmg *= CRIT_MULT;
     dmg = Math.max(formulas.minDamage, Math.round(dmg));
@@ -155,7 +170,7 @@ export class Combat {
     let staggerPts = (type === 'heavy' ? stagger.heavy : stagger.light) * kbMult * (finisher ? 2 : 1);
     if (kind.ranged) staggerPts *= stagger.rangedMult * kind.damageScale * scale;
     else if (finisher && type === 'heavy') staggerPts = Infinity;
-    else staggerPts *= weaponWeights[kind.weight ?? 'medium'].staggerMult;
+    else staggerPts *= weaponWeights[kind.weight ?? 'medium'].staggerMult * (c.hasMagPassive('breaker') ? magCfg.breakerMult : 1);
     let extra = '';
 
     // Dim: instant kill roll before damage.
@@ -173,7 +188,7 @@ export class Combat {
     this.h.float(tmp.copy(target.pos).setY(target.aimHeight + 0.6), crit ? `${dmg}!` : String(dmg), cls);
     if (target.damageMult() > 1) extra += ' <span class="l-proc">WEAK</span>';
 
-    // Caster melee feeds TP back so a Force can swing between casts instead of only chugging fluids.
+    // Caster melee feeds TP back so a caster can swing between casts instead of only chugging fluids.
     if (kind.tpOnHit && p.tp < p.maxTp) {
       const gain = Math.min(p.maxTp - p.tp, Math.round(kind.tpOnHit * (strong ? 2 : 1) * formulas.meleeTpMult));
       if (gain > 0) {
@@ -243,9 +258,19 @@ export class Combat {
   /** The combo produced a 'hit' event; streak is the perfect-chain streak behind it. */
   playerAttack(type: AttackType, hitIndex: number, streak: number): void {
     const kind = this.c.weaponKind();
+    const p = this.p;
     const label = `#${hitIndex + 1} ${type}${streak ? ` ★${streak}` : ''}`;
-    if (kind.ranged) this.fireWeapon(type, hitIndex, streak, label);
-    else this.meleeArc(type, hitIndex, streak, label);
+    if (kind.ranged) {
+      this.fireWeapon(type, hitIndex, streak, label);
+      return;
+    }
+    // Retaliate (Mag): the first melee swing after being hit lands harder, then it's spent.
+    if (p.retaliate > 0 && this.c.hasMagPassive('retaliate')) {
+      this.swingMult = magCfg.retaliateMult;
+      p.retaliate = 0;
+    }
+    this.meleeArc(type, hitIndex, streak, swingMultLabel(label, this.swingMult));
+    this.swingMult = 1;
   }
 
   /** Light sweeps the kind's arc (or line) and hits up to maxTargets; heavy hits the one aimed enemy. */
@@ -402,10 +427,10 @@ export class Combat {
     const applyTechHit = (target: Hittable, statusEffect: 'burn' | 'stun' | 'freeze' | null) => {
       if (!target.alive || target.invulnerable) return;
       const crit = this.rollCrit();
-      // The weapon's race % boosts techs too, so a Force's weapon attributes matter.
+      // The weapon's race % boosts techs too, so a caster's weapon attributes matter.
       const raceMult = target.race ? 1 + this.c.weaponAttr(target.race) / 100 : 1;
-      const power = this.c.techDamage(cast.tech) * form.powerMult * comboMult * raceMult;
-      const dmg = Math.max(1, Math.round(power * target.damageMult(p.pos.x, p.pos.z) * (crit ? CRIT_MULT : 1)));
+      const power = this.c.techDamage(cast.tech) * form.powerMult * comboMult * raceMult * this.longshot(target);
+      const dmg = Math.max(1, Math.round(power * target.damageMult(p.pos.x, p.pos.z, heavy) * (crit ? CRIT_MULT : 1)));
       const killed = this.deal(target, dmg, p.pos.x, p.pos.z, heavy ? 1.5 : 1, staggerPts);
       this.h.onHit(target);
       if (t.kind === 'projectile') sfx('tech.foie.hit', { x: target.pos.x, z: target.pos.z });
@@ -516,7 +541,10 @@ export class Combat {
       case 'heal': {
         const crit = this.rollCrit();
         const amount = Math.round(restaHeal(mst) * (crit ? CRIT_MULT : 1));
+        const before = p.hp;
         p.hp = Math.min(p.maxHp, p.hp + amount);
+        // Barrier (Mag): healing past full HP becomes a fading shield.
+        if (this.c.hasMagPassive('barrier')) p.addShield(amount - (p.hp - before));
         this.h.float(tmp.copy(p.pos).setY(2.2), crit ? `+${amount}!` : `+${amount}`, crit ? 'heal crit' : 'heal');
         sfx('tech.resta');
         this.h.log(`${label}: healed <b>${amount}</b>${crit ? ' <span class="l-kill">CRIT</span>' : ''}`);
@@ -553,7 +581,7 @@ export class Combat {
 
   /** Brief ground flash showing a technique's area. */
   private flashShape(shape: TelegraphShape, color: number): void {
-    this.h.world().addTelegraph(shape, 0.25, () => {}, color);
+    this.h.world().addTelegraph(shape, 0.25, () => {}, color).friendly = true;
   }
 
   // ---------------------------------------------------------- incoming
@@ -583,6 +611,7 @@ export class Combat {
     }
     const dmg = debug.invincible ? 0 : enemyDamage(e.atp, this.playerDfp(), this.h.rng);
     this.hurtPlayer(dmg, e.pos.x, e.pos.z, a.strikeKnockback ?? playerCfg.knockback, e.name);
+    if (a.strikeStatus && p.alive && this.h.rng() < (a.strikeStatusChance ?? 1)) this.applyPlayerStatus(a.strikeStatus);
     return true;
   }
 
@@ -621,10 +650,17 @@ export class Combat {
     return this.c.hasMagPassive('bulwark') ? magCfg.bulwarkMult : 1;
   }
 
-  /** Damage about to reach the player's HP, after Bracing. */
+  /** Damage about to reach the player's HP, after Bracing and a Barrier shield. */
   private soak(dmg: number): number {
-    if (dmg <= 0 || this.p.brace <= 0) return dmg;
-    return Math.max(1, Math.round(dmg * injectorCfg.braceMult));
+    const p = this.p;
+    if (dmg <= 0) return dmg;
+    if (p.brace > 0) dmg = Math.max(1, Math.round(dmg * injectorCfg.braceMult));
+    if (p.shield > 0) {
+      const absorbed = Math.min(p.shield, dmg);
+      p.shield -= absorbed;
+      dmg = Math.round(dmg - absorbed);
+    }
+    return dmg;
   }
 
   /** Seconds until Last Stand can save the player again. */
@@ -642,12 +678,20 @@ export class Combat {
     return p.hp - 1;
   }
 
-  /** Poison, paralyse or burn the player. `amount`: seconds (poison, paralysis) or stacks (burn). Returns true if it took hold. */
+  /** Poison, paralyse, burn or corrupt the player. `amount`: seconds (poison, paralysis) or stacks (burn, corrupt). Returns true if it took hold. */
   applyPlayerStatus(kind: PlayerStatusKind, amount?: number): boolean {
     const p = this.p;
     if (!p.alive || debug.invincible) return false;
     const at = tmp.copy(p.pos).setY(2.6);
     const seconds = amount;
+    if (kind === 'corrupt') {
+      const before = p.corruption;
+      if (p.corrupt(amount ?? 1) <= 0) return false;
+      this.h.float(at, p.corruption > 1 ? `CORRUPTION ×${p.corruption}` : 'CORRUPTION', 'corrupt');
+      sfx('status.corrupt');
+      if (before === 0) this.h.log('<span class="l-bad">Corruption is eating your max HP: stand in pylon light to cleanse it</span>');
+      return true;
+    }
     if (kind === 'burn') {
       // The Warden Core barrier halves Burn from facility hazards and machines alike.
       const stacks = Math.max(1, Math.round((amount ?? 2) * (this.c.hasEquipped('warden_core') ? 0.5 : 1)));
@@ -682,7 +726,7 @@ export class Combat {
 
   private burnTickT = 0;
 
-  /** Poison and Burn drain HP every half second; Burn stacks fall off over time, faster while moving. */
+  /** Poison and Burn drain HP every half second; Burn stacks fall off over time, faster while moving. Light sheds Corruption. */
   tickPlayerStatus(dt: number): void {
     const p = this.p;
     this.lastStandT = Math.max(0, this.lastStandT - dt);
@@ -691,6 +735,15 @@ export class Combat {
       this.burnTickT = 0;
       return;
     }
+    if (p.corruption > 0 && p.inLight) {
+      p.corruptDecay += dt;
+      if (p.corruptDecay >= statuses.corruptLightTime) {
+        p.corruptDecay -= statuses.corruptLightTime;
+        p.corruption--;
+        this.h.float(tmp.copy(p.pos).setY(2.4), p.corruption > 0 ? `CLEANSED · ×${p.corruption}` : 'CLEANSED', 'heal');
+        sfx('status.cleanse');
+      }
+    } else if (p.corruption > 0) p.corruptDecay = Math.max(0, p.corruptDecay - dt);
     if (p.burnStacks > 0) {
       p.burnDecay += dt * (p.moving ? statuses.burnMoveMult : 1);
       if (p.burnDecay >= statuses.burnStackTime) {

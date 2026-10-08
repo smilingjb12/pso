@@ -1,7 +1,7 @@
 import GUI from 'lil-gui';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { CLASS_ARM, LEAD_FORMS, MAG_STAT_LABEL, MAG_STATS, STAGE1, type MagStat } from './game/mag';
+import { LEAD_FORMS, MAG_STAT_LABEL, MAG_STATS, STAGE1, type MagStat } from './game/mag';
 import { MagModel } from './game/models/mag';
 import { MAG_DESIGNS, type MagTheme } from './game/models/magDesigns';
 
@@ -53,8 +53,8 @@ function specs(): Spec[] {
     const d = params.design;
     return [
       { title: 'Mag', sub: 'stage 0 · shared', stage: 0, color: 0xc8d4e8, design: d },
-      ...(['hunter', 'ranger', 'force'] as const).map((c) => ({
-        title: STAGE1[c][0], sub: `stage 1 · ${c} (${MAG_STAT_LABEL[CLASS_ARM[c]]})`, stage: 1, color: STAGE1[c][1], theme: CLASS_ARM[c], design: d,
+      ...MAG_STATS.map((a) => ({
+        title: STAGE1[a][0], sub: `stage 1 · ${MAG_STAT_LABEL[a]} leads`, stage: 1, color: STAGE1[a][1], theme: a, design: d,
       })),
       ...[2, 3].flatMap((stage) =>
         MAG_STATS.map((s) => ({ title: LEAD_FORMS[s][stage === 2 ? 0 : 1], sub: `stage ${stage} · ${MAG_STAT_LABEL[s]} lead`, stage, color: LEAD_FORMS[s][2], theme: s, design: d })),
@@ -62,15 +62,14 @@ function specs(): Spec[] {
     ];
   }
   const s = params.arm;
-  const cls = (Object.keys(CLASS_ARM) as (keyof typeof CLASS_ARM)[]).find((c) => CLASS_ARM[c] === s);
   return Object.keys(DESIGNS).flatMap((d) =>
     [1, 2, 3].map((stage) => {
       const stage1 = stage === 1;
       return {
-        title: `${DESIGNS[d].name}: ${stage1 ? (cls ? STAGE1[cls][0] : '(no class)') : LEAD_FORMS[s][stage === 2 ? 0 : 1]}`,
-        sub: `stage ${stage}${stage1 && !cls ? ' · not used: no class leads with DEF' : ''}`,
+        title: `${DESIGNS[d].name}: ${stage1 ? STAGE1[s][0] : LEAD_FORMS[s][stage === 2 ? 0 : 1]}`,
+        sub: `stage ${stage}`,
         stage,
-        color: stage1 && cls ? STAGE1[cls][1] : LEAD_FORMS[s][2],
+        color: stage1 ? STAGE1[s][1] : LEAD_FORMS[s][2],
         theme: s,
         design: d,
       };

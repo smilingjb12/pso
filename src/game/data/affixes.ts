@@ -24,12 +24,16 @@ export const AFFIXES: Record<Affix, AffixDef> = {
 };
 
 export const MINES_AFFIXES: Affix[] = ['overclocked', 'volatile'];
+/** Normal Ruins elites: dark magic (shields and mending) rather than machines. */
+export const RUINS_AFFIXES: Affix[] = ['shielding', 'regenerating'];
 export const HARD_AFFIXES = Object.keys(AFFIXES) as Affix[];
 
 /** Can this kind of enemy carry the affix? (Rooted Lilies don't walk; Pan Arms already splits.) */
 export function affixFits(a: Affix, arch: EnemyArchetype): boolean {
   if (a === 'molten') return arch.moveSpeed > 0;
-  if (a === 'splitting') return arch.ai === 'brawler' || arch.ai === 'gunbot' || arch.ai === 'garanz' || arch.ai === 'sinow';
+  if (a === 'splitting') {
+    return ['brawler', 'gunbot', 'garanz', 'sinow', 'dimenian', 'delsaber', 'belra'].includes(arch.ai);
+  }
   return true;
 }
 

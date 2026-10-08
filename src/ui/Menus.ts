@@ -1,17 +1,19 @@
 import {
-  armorStatText, compareEquip, describeItem, fitsSlot, GEAR_SLOTS, gearSlot, gearVerdict, grindBonus, itemName, itemSpecial, sellPrice, simulateEquip,
-  type Character, type GearSlot, type ItemInstance,
+  armorStatText, compareEquip, describeItem, edgeLevels, fitsSlot, GEAR_SLOTS, gearSlot, gearVerdict, grindBonus, grindPreview, itemName, itemSpecial,
+  sellPrice, simulateEquip, weaponRace, type Character, type GearSlot, type GrindTrack, type ItemInstance,
 } from '../game/character';
 import { estimateDamage, RACES, type Foe } from '../game/dps';
-import { chargeOf, injectorDef, injectorStats } from '../game/injectors';
-import { STAT_INFO, STAT_KEYS, STAT_LABEL, type PaletteEdit, type PaletteRow, type QuickAction } from '../game/data/classes';
-import { ATTR_LABEL, getDef, INVENTORY_SIZE, specials, weaponKinds } from '../game/data/items';
+import { chargeOf, injectorStats } from '../game/injectors';
+import {
+  ATTRIBUTE_INFO, ATTRIBUTES, STAT_INFO, STAT_KEYS, STAT_LABEL, type AttributeId, type PaletteEdit, type PaletteRow, type QuickAction, type StatKey,
+} from '../game/data/stats';
+import { ATTR_LABEL, getDef, grindCap, INVENTORY_SIZE, raceCap, specials, weaponKinds } from '../game/data/items';
 import { buffPct, isAttackTech, restaHeal, TECH_IDS, techniques } from '../game/data/techniques';
 import { buyPrice, type ShopKind } from '../game/loot';
-import { magCfg, spellForms, techScaling } from '../game/config';
+import { attributeCfg, formulas, spellForms, techScaling, telepipeCfg } from '../game/config';
 import {
   cellBlocked, CORE_ID, MAG_BONUS, MAG_CELLS, MAG_EVOLVE_AT, MAG_RADIUS, MAG_STAT_LABEL, MAG_STATS, magBonuses, magForm, magLevel,
-  PASSIVE_INFO, respecCost, type MagCell,
+  PASSIVE_INFO, reqText, type MagCell,
 } from '../game/mag';
 import { sfx, type SfxId } from '../audio';
 import { typeIcon, weaponIcon } from './icons';
@@ -24,15 +26,14 @@ export interface GameApi {
   /** Show a toast; action methods below return an error to show (or null on success, having toasted it). */
   notify(text: string, kind?: '' | 'good' | 'warn'): void;
   useItem(uid: string): string | null;
-  /** Learn Mag grid squares in order. */
+  /** Learn Mag grid squares in order (permanent). */
   magLearn(ids: string[]): string | null;
-  /** Forget every Mag square (costs Meseta past the free levels). */
-  magRespec(): string | null;
-  /** Equip; an injector goes into `slot` when it is an injector slot. */
-  equipItem(uid: string, slot?: GearSlot): string | null;
+  /** Spend one attribute point (permanent). */
+  attrSpend(attr: AttributeId): string | null;
+  equipItem(uid: string): string | null;
   unequipItem(uid: string): void;
   discardItem(uid: string): void;
-  grindItem(weaponUid: string, grinderUid: string): string | null;
+  grindItem(weaponUid: string, grinderUid: string, track: GrindTrack): string | null;
   setPalette(row: number, col: number, edit: PaletteEdit): void;
   buy(inst: ItemInstance): string | null;
   sell(uid: string): string | null;
@@ -49,7 +50,7 @@ function glyph(it: ItemInstance): string {
 }
 
 /** Menu clicks: the game plays its own sound for these (buy, equip...), or an error. */
-const GAME_SOUNDED = new Set(['buy', 'sell', 'equip', 'unequip', 'magCell', 'magRespec', 'use', 'learn', 'grindTarget']);
+const GAME_SOUNDED = new Set(['buy', 'sell', 'equip', 'unequip', 'magCell', 'attr', 'use', 'learn', 'grindTarget']);
 const ACT_SOUND: Record<string, SfxId> = {
   pick: 'ui.confirm', load: 'ui.confirm', new: 'ui.confirm', doDelete: 'ui.confirm',
   close: 'ui.cancel', cancelDelete: 'ui.cancel', cancelGrind: 'ui.cancel', quit: 'ui.cancel',
@@ -191,7 +192,7 @@ export class ChoiceMenu implements Menu {
 
 type InvTab = 'equip' | 'items' | 'mag' | 'status' | 'palette' | 'techs';
 const TAB_LABEL: Record<InvTab, string> = { equip: 'Equipment', items: 'Items', mag: 'Mag', status: 'Status', palette: 'Palette', techs: 'Techniques' };
-const SLOT_LABEL: Record<GearSlot, string> = { weapon: 'Weapon', frame: 'Frame', barrier: 'Barrier', inj1: 'Injector 1', inj2: 'Injector 2' };
+const SLOT_LABEL: Record<GearSlot, string> = { weapon: 'Weapon', frame: 'Frame', barrier: 'Barrier', injector: 'Injector' };
 
 const fmtDelta = (d: number) => `${Math.round(d)}`;
 
@@ -225,16 +226,16 @@ function pctDelta(v: number, was: number): string {
  * weapon itself. A weapon that isn't the equipped one shows the change against the equipped one.
  */
 function damageTableHtml(ch: Character, inst: ItemInstance, foe: Foe): string {
-  const caster = ch.data.classId === 'force';
+  const caster = ch.prefersMagic;
   const equipped = ch.isEquipped(inst.uid);
   const now = estimateDamage(ch, foe, caster);
   const est = equipped ? now : estimateDamage(simulateEquip(ch, inst, 'weapon'), foe, caster);
   const current = ch.weaponInstance();
   const cell = (v: number, was: number) => `<td>${Math.round(v)}${equipped ? '' : pctDelta(v, was)}</td>`;
   const rows = RACES.map((r) => {
-    const pct = inst.attrs?.[r] ?? 0;
+    const pct = weaponRace(inst, r);
     // Rows where neither weapon has a bonus only differ by ATP / MST: dim them so the bonuses stand out.
-    const on = pct || (!equipped && current?.attrs?.[r]);
+    const on = pct || (!equipped && current && weaponRace(current, r));
     return `<tr${on ? '' : ' class="off"'}><td class="attr-${r}">${ATTR_LABEL[r]}</td><td class="pct">${pct ? `+${pct}%` : '—'}</td>${
       est.spell && now.spell ? cell(est.spell[r], now.spell[r]) : ''
     }${cell(est.weapon[r], now.weapon[r])}</tr>`;
@@ -251,27 +252,32 @@ function weaponCardHtml(ch: Character, inst: ItemInstance, foe: Foe): string {
   const def = getDef(inst.id);
   if (def.type !== 'weapon') return '';
   const kind = weaponKinds[def.kind];
-  const g = grindBonus(def, inst.grind ?? 0);
+  const g = grindBonus(def, edgeLevels(inst));
   const stat = (label: string, value: string) => `<div class="wc-stat"><span>${label}</span><b>${value}</b></div>`;
   const stats = [
     stat('ATP', `${def.atpMin + g.atp}-${def.atpMax + g.atp}`),
     stat('ATA', `${def.ata + g.ata}`),
     def.mst ? stat('MST', `+${def.mst + g.mst}`) : '',
-    stat('Grind', `${inst.grind ?? 0}/${def.maxGrind}`),
+    stat('Grind', `${inst.grind ?? 0}/${grindCap(def)}`),
   ].join('');
+  // Where the grind levels went: Edge is already in the tiles above, race levels in the damage table's % column.
+  const ground = inst.grind
+    ? [edgeLevels(inst) ? `Edge ${edgeLevels(inst)}` : '', ...RACES.map((r) => (inst.bane?.[r] ? `${ATTR_LABEL[r]} ${inst.bane[r]}` : ''))].filter(Boolean).join(' · ')
+    : '';
   const check = ch.canEquip(inst);
   const sp = itemSpecial(inst);
   const tags = [
     sp ? `<span class="wc-tag special">${specials[sp].name}</span>` : '',
     inst.attrs?.hit ? `<span class="wc-tag">Hit +${inst.attrs.hit}%</span>` : '',
+    ground ? `<span class="wc-tag" title="Where the grind levels went">Ground: ${ground}</span>` : '',
     def.req ? `<span class="wc-tag${check.need ? ' bad' : ''}">Req ${kind.reqStat.toUpperCase()} ${def.req}</span>` : '',
   ].join('');
   let html = `<div class="wc-kind">${kind.label}${def.rare ? ' · ★ Rare' : ''}</div><div class="wc-stats">${stats}</div>`;
   if (tags) html += `<div class="wc-tags">${tags}</div>`;
   if (def.desc) html += `<div class="wc-desc">${esc(def.desc)}</div>`;
   if (!check.ok) html += `<div class="wc-warn">✖ ${esc(check.reason ?? "Can't equip")}</div>`;
-  // Damage only means something for a kind this class can wield (a stat requirement still shows it, to plan ahead).
-  return kind.classes.includes(ch.data.classId) ? html + damageTableHtml(ch, inst, foe) : html;
+  // A stat requirement still shows the damage, to plan ahead.
+  return html + damageTableHtml(ch, inst, foe);
 }
 
 /** The detail panel's description: the weapon card for weapons, plain lines for everything else. */
@@ -284,7 +290,7 @@ function itemInfoHtml(ch: Character, inst: ItemInstance, foe: Foe): string {
 function verdictMark(ch: Character, inst: ItemInstance): string {
   if (!gearSlot(inst) || ch.isEquipped(inst.uid)) return '';
   const check = ch.canEquip(inst);
-  // A stat requirement only locks it for now (amber, like the pickup prompt); ✖ is for gear the class can never use.
+  // A stat requirement only locks it for now (amber, like the pickup prompt); ✖ is for anything else in the way.
   if (check.need) return `<span class="verdict locked" title="${esc(check.reason ?? '')}">${check.need.stat.toUpperCase()} ${check.need.req}</span>`;
   if (!check.ok) return `<span class="verdict no" title="${esc(check.reason ?? "Can't equip")}">✖</span>`;
   const v = gearVerdict(ch, inst);
@@ -317,8 +323,8 @@ function quickLabel(a: QuickAction, ch: Character): string {
     case 'item':
       return `${getDef(a.item).name} (${ch.countOf(a.item)})`;
     case 'injector': {
-      const inst = ch.injector(a.slot);
-      return `Injector ${a.slot + 1}${inst ? `: ${itemName(inst)}` : ' (empty)'}`;
+      const inst = ch.injector();
+      return `Injector${inst ? `: ${itemName(inst)}` : ' (none equipped)'}`;
     }
     case 'empty':
       return '—';
@@ -332,11 +338,10 @@ export class InventoryMenu implements Menu {
   private slot: GearSlot = 'weapon';
   private sel: string | null = null;
   private grinding: string | null = null; // grinder uid awaiting a weapon pick
+  private grindWeapon: string | null = null; // then the weapon, awaiting a track pick (Edge or a race)
   private paletteEdit: [number, number] | null = null;
-  /** Mag squares picked but not learned yet (in click order). */
   /** Square shown in the Mag info box (last clicked). */
   private magFocus: string | null = null;
-  private magRespecArmed = false;
   /** Info box HTML per square, rebuilt each render (hover swaps it in without a re-render). */
   private magInfo: Record<string, string> = {};
 
@@ -347,13 +352,14 @@ export class InventoryMenu implements Menu {
   }
 
   render(): string {
-    // Unspent Mag points: a count badge, and the tab pulses until you open it.
-    const pts = this.ch.magPoints;
+    // Unspent Mag and attribute points: a count badge, and the tab pulses until you open it.
+    const unspent: Partial<Record<InvTab, [number, string]>> = { mag: [this.ch.magPoints, 'Mag point'], status: [this.ch.attributePoints, 'attribute point'] };
     const tabs = (Object.keys(TAB_LABEL) as InvTab[])
       .map((t) => {
-        const badge = t === 'mag' && pts > 0;
+        const [pts, what] = unspent[t] ?? [0, ''];
+        const badge = pts > 0;
         const cls = `tab${this.tab === t ? ' on' : ''}${badge && this.tab !== t ? ' pulse' : ''}`;
-        const title = badge ? ` title="${pts} Mag point${pts > 1 ? 's' : ''} to spend"` : '';
+        const title = badge ? ` title="${pts} ${what}${pts > 1 ? 's' : ''} to spend"` : '';
         return `<button class="${cls}" data-act="tab" data-arg="${t}"${title}>${TAB_LABEL[t]}${badge ? `<span class="tab-badge">${pts}</span>` : ''}</button>`;
       })
       .join('');
@@ -364,7 +370,7 @@ export class InventoryMenu implements Menu {
     else if (this.tab === 'status') body = this.renderStatus();
     else if (this.tab === 'palette') body = this.renderPalette();
     else body = this.renderTechs();
-    return `<div class="win-title">${esc(this.ch.data.name)} · Lv.${this.ch.level} ${this.ch.cls.name}</div>
+    return `<div class="win-title">${esc(this.ch.data.name)} · Lv.${this.ch.level} ${this.ch.title}</div>
       <div class="menu-head"><div class="tabs">${tabs}</div><span class="head-gap"></span><button class="btn small ghost" data-act="quit">Save &amp; quit</button><button class="btn small" data-act="close">Close <kbd>I</kbd></button></div>
       ${body}`;
   }
@@ -395,7 +401,7 @@ export class InventoryMenu implements Menu {
             return `<div class="row${rare}${this.sel === it.uid ? ' sel' : ''}" data-act="select" data-arg="${it.uid}">${glyph(it)}${eq}<span class="row-name">${esc(itemName(it))}</span>${verdictMark(ch, it)}</div>`;
           })
           .join('')
-      : `<div class="dim empty-note">No ${injectorDef(ch.data.inventory.find((i) => fitsSlot(i, this.slot))) || this.slot.startsWith('inj') ? 'injector' : SLOT_LABEL[this.slot].toLowerCase()}s in your bag.</div>`;
+      : `<div class="dim empty-note">No ${SLOT_LABEL[this.slot].toLowerCase()}s in your bag.</div>`;
     const sel = this.selected(this.slot) ?? ch.equippedItem(this.slot);
     let detail = '<div class="dim">Nothing equipped. Pick an item from the list.</div>';
     if (sel) {
@@ -405,7 +411,7 @@ export class InventoryMenu implements Menu {
       const btns = [
         here
           ? `<button class="btn" data-act="unequip" data-arg="${sel.uid}">Unequip</button>`
-          : `<button class="btn primary${ch.canEquip(sel).ok ? '' : ' disabled'}" data-act="equip" data-arg="${sel.uid}">${equipped ? `Move to ${SLOT_LABEL[this.slot]}` : 'Equip'}</button>`,
+          : `<button class="btn primary${ch.canEquip(sel).ok ? '' : ' disabled'}" data-act="equip" data-arg="${sel.uid}">Equip</button>`,
       ];
       if (!equipped) btns.push(`<button class="btn danger" data-act="discard" data-arg="${sel.uid}">${this.api.inField ? 'Drop' : 'Discard'}</button>`);
       detail = `<div class="detail-title${def.rare ? ' rare' : ''}">${esc(itemName(sel))}</div>${itemInfoHtml(ch, sel, this.api.damageFoe())}
@@ -444,7 +450,10 @@ export class InventoryMenu implements Menu {
       .join('');
     const sel = this.selected(null);
     let detail = '<div class="dim">Select an item.</div>';
-    if (this.grinding) {
+    const grindWeapon = this.grindWeapon ? ch.find(this.grindWeapon) : undefined;
+    if (this.grinding && grindWeapon) {
+      detail = this.renderGrindPicker(grindWeapon);
+    } else if (this.grinding) {
       const grinder = ch.find(this.grinding);
       // The equipped weapon first: it is nearly always the one being ground.
       const weapons = ch.data.inventory
@@ -452,19 +461,93 @@ export class InventoryMenu implements Menu {
         .sort((a, b) => Number(ch.isEquipped(b.uid)) - Number(ch.isEquipped(a.uid)));
       detail = `<div class="detail-title">${grinder ? esc(itemName(grinder)) : 'Grinder'}: choose a weapon</div>
         <div class="list short">${weapons
-          .map((w) => `<div class="row" data-act="grindTarget" data-arg="${w.uid}">${glyph(w)}${ch.isEquipped(w.uid) ? '<span class="eq">E</span>' : ''}<span class="row-name">${esc(itemName(w))}</span></div>`)
+          .map((w) => {
+            const def = getDef(w.id);
+            const full = def.type === 'weapon' && (w.grind ?? 0) >= grindCap(def);
+            const fill = def.type === 'weapon' ? `<span class="dim">${w.grind ?? 0}/${grindCap(def)}</span>` : '';
+            return `<div class="row${full ? ' dimmed' : ''}" data-act="grindTarget" data-arg="${w.uid}">${glyph(w)}${ch.isEquipped(w.uid) ? '<span class="eq">E</span>' : ''}<span class="row-name">${esc(itemName(w))}</span>${fill}</div>`;
+          })
           .join('')}</div><div class="choices inline"><button class="btn ghost" data-act="cancelGrind">Cancel</button></div>`;
     } else if (sel) {
       const def = getDef(sel.id);
       const lines = describeItem(sel, ch).map((l) => `<div>${esc(l)}</div>`).join('');
       const btns: string[] = [];
       if (def.type === 'grinder') btns.push(`<button class="btn primary" data-act="grind" data-arg="${sel.uid}">Use on weapon…</button>`);
+      // The Telepipe can be cast from here: the menu closes and the cast starts.
+      const usable = def.type === 'consumable' && def.effect === 'telepipe';
+      if (usable) {
+        const ok = !def.fieldOnly || this.api.inField;
+        const tip = ok ? 'Closes the menu and starts the cast' : 'Only works outside the city';
+        btns.push(`<button class="btn primary${ok ? '' : ' disabled'}" data-act="use" data-arg="${sel.uid}" title="${tip}">Use</button>`);
+      }
       btns.push(`<button class="btn danger" data-act="discard" data-arg="${sel.uid}">${this.api.inField ? 'Drop' : 'Discard'}</button>`);
-      const hint = def.type === 'consumable' ? '<div class="dim">Put it on a Q / E quick slot (Palette tab) to use it in the field. Nothing is used from a paused menu.</div>' : '';
+      const hint = usable
+        ? `<div class="dim">Use closes the menu and starts the ${telepipeCfg.castTime} s cast; a step, a dash or a hit breaks it. A Q / E quick slot (Palette tab) casts it too.</div>`
+        : def.type === 'consumable' ? '<div class="dim">Put it on a Q / E quick slot (Palette tab) to use it in the field.</div>' : '';
       detail = `<div class="detail-title${def.rare ? ' rare' : ''}">${esc(itemName(sel))}</div><div class="detail-lines">${lines}</div>${hint}
         <div class="detail-sell dim">Sells for ${sellPrice(sel)} M</div><div class="choices inline">${btns.join('')}</div>`;
     }
     return `<div class="split"><div class="list">${rows || '<div class="dim empty-note">No items.</div>'}</div><div class="detail">${detail}</div></div>${this.foot()}`;
+  }
+
+  /**
+   * Where a grinder's levels go on `weapon`: Edge or one race, each row with what it adds and the change in
+   * damage per second (the selected technique for casters) against the current expedition's typical enemy.
+   */
+  private renderGrindPicker(weapon: ItemInstance): string {
+    const ch = this.ch;
+    const grinder = this.grinding ? ch.find(this.grinding) : undefined;
+    const gdef = grinder ? getDef(grinder.id) : undefined;
+    const wdef = getDef(weapon.id);
+    if (!grinder || gdef?.type !== 'grinder' || wdef.type !== 'weapon') return '<div class="dim">Nothing to grind.</div>';
+    const foe = this.api.damageFoe();
+    const caster = ch.prefersMagic;
+    const dps = (inst: ItemInstance) => {
+      const e = estimateDamage(simulateEquip(ch, inst, 'weapon'), foe, caster);
+      return e.spell ?? e.weapon;
+    };
+    const now = dps(weapon);
+    const pct = (v: number, was: number) => Math.round((v / Math.max(0.001, was) - 1) * 100);
+    const g0 = grindBonus(wdef, edgeLevels(weapon));
+    const tracks: GrindTrack[] = ['edge', ...RACES];
+    const rows = tracks.map((t) => {
+      const p = grindPreview(weapon, t, gdef.amount);
+      const name = t === 'edge' ? 'Edge' : ATTR_LABEL[t];
+      let what = '';
+      if (t === 'edge') {
+        const g1 = grindBonus(wdef, edgeLevels(p.after));
+        const parts = [`ATP +${g1.atp - g0.atp}`, `ATA +${g1.ata - g0.ata}`];
+        if (wdef.mst) parts.push(`MST +${g1.mst - g0.mst}`);
+        if (p.levels) what = parts.join(' · ');
+      } else {
+        const was = weaponRace(weapon, t);
+        what = p.levels ? `${was}% → ${weaponRace(p.after, t)}%` : `${was}% (cap ${raceCap(wdef.tier)}%)`;
+      }
+      let gain = '';
+      if (now && p.levels) {
+        const after = dps(p.after);
+        const d = t === 'edge' ? Math.round(RACES.reduce((s, r) => s + pct(after[r], now[r]), 0) / RACES.length) : pct(after[t], now[t]);
+        gain = `<span class="gp-gain">▲${d}%${t === 'edge' ? ' vs all' : ` vs ${ATTR_LABEL[t]}`}</span>`;
+      }
+      const note = !p.levels
+        ? `<span class="gp-note">${esc(p.reason)}</span>`
+        : p.wasted
+          ? `<span class="gp-note warn">+${p.levels} only, ${p.wasted} lost</span>`
+          : '';
+      // Where this race is met in the current expedition: its regular enemies, its boss, or both (Mines).
+      const where = [foe.mainRace === t ? 'here' : '', foe.bossRace === t ? 'boss' : ''].filter(Boolean).join(' · ');
+      const here = where ? `<span class="gp-here" title="In the ${esc(foe.label)}: ${where === 'boss' ? 'the boss is' : 'most enemies are'} ${name}">${where}</span>` : '';
+      return `<div class="row grind-pick${p.levels ? '' : ' dimmed'}" ${p.levels ? `data-act="grindApply" data-arg="${t}"` : ''}>
+        <span class="gp-name">${name}${here}</span><span class="gp-what">${what}</span>${gain}${note}</div>`;
+    }).join('');
+    const left = grindCap(wdef) - (weapon.grind ?? 0);
+    const levels = gdef.amount > 1 ? `its ${gdef.amount} levels all go` : 'its level goes';
+    return `<div class="detail-title">${esc(itemName(grinder))} → ${esc(itemName(weapon))}</div>
+      <div class="dim grind-head">Grind ${weapon.grind ?? 0}/${grindCap(wdef)} (${left} left). Pick where ${levels}: Edge raises the weapon's own stats against everything;
+      a race adds ${formulas.banePerGrind}% per level against that race only, up to ${raceCap(wdef.tier)}% with what the weapon rolled.</div>
+      <div class="list grind-picks">${rows}</div>
+      <div class="dps-note">Damage / sec ${caster ? '(selected technique) ' : ''}vs. a typical ${esc(foe.label)} enemy</div>
+      <div class="choices inline"><button class="btn ghost" data-act="grindBack">Other weapon</button><button class="btn ghost" data-act="cancelGrind">Cancel</button></div>`;
   }
 
   private renderStatus(): string {
@@ -497,22 +580,47 @@ export class InventoryMenu implements Menu {
       .join('');
     const st = ch.data.stats;
     return `<div class="split"><div class="detail">
-        <div class="detail-title">${esc(ch.data.name)} — ${ch.cls.name} Lv.${ch.level}</div>
+        <div class="detail-title">${esc(ch.data.name)} — ${ch.title} Lv.${ch.level}</div>
         <div class="dim">EXP ${ch.data.xp} / ${ch.xpToNext()} to next level</div>
         <span class="ms-bar xp-bar"><i style="width:${Math.min(100, (100 * ch.data.xp) / Math.max(1, ch.xpToNext()))}%"></i></span>
         <table class="stats">${rows}</table></div>
-      <div class="detail"><div class="detail-title">Equipment</div><table class="stats">${eq}</table>
+      <div class="detail">${this.attributesHtml()}<div class="detail-title">Equipment</div><table class="stats">${eq}</table>
         ${w ? itemInfoHtml(ch, w, this.api.damageFoe()) : ''}
         <div class="detail-title" style="margin-top:12px">Record</div>
         <div class="dim">Kills ${st.kills} · Deaths ${st.deaths} · Dragons slain ${st.dragonKills}</div></div></div>${this.foot()}`;
   }
 
+  /**
+   * Attributes: points to spend, and per attribute its points, what they add and a + button. Every point is
+   * permanent; keystones in the Mag tree need points in their attribute.
+   */
+  private attributesHtml(): string {
+    const ch = this.ch;
+    const free = ch.attributePoints;
+    const rows = ATTRIBUTES.map((a) => {
+      const info = ATTRIBUTE_INFO[a];
+      const n = ch.data.attributes[a];
+      const gains = Object.entries(info.gain) as [StatKey, number][];
+      const total = gains.map(([k, v]) => `${STAT_LABEL[k]} +${Math.floor(v * n + 1e-6)}`).join(' · ');
+      const each = gains.map(([k, v]) => `${STAT_LABEL[k]} +${+v.toFixed(2)}`).join(', ');
+      const tip = `${info.desc} Each point: ${each}. Permanent.`;
+      return `<div class="attr-row a-${a}" title="${esc(tip)}"><span class="attr-name">${info.label}</span><b class="attr-val">${n}</b>
+        <span class="attr-gain">${n ? total : `<span class="dim">${esc(info.desc)}</span>`}</span>
+        <button class="btn small attr-add${free > 0 ? '' : ' disabled'}" data-act="attr" data-arg="${a}" title="${esc(`+1 ${info.label}: ${each}. Permanent.`)}">+</button></div>`;
+    }).join('');
+    const pts = free ? `<span class="attr-pts"><b>${free}</b> to spend</span>` : '';
+    return `<div class="detail-title">Attributes ${pts}</div><div class="attr-list">${rows}</div>
+      <div class="dim attr-note">${attributeCfg.pointsPerLevel} points a level, and every point is permanent. The attribute with the most points names you (${esc(ch.title)}). Mag keystones need points in their attribute.</div>`;
+  }
+
   /** What a Mag grid square gives, as a title and a line of text. */
   private magCellText(c: MagCell): [string, string] {
-    if (c.kind === 'core') return ['Your Mag', 'Every path starts here. Each character level gives one point to spend on a square next to one it already knows.'];
+    if (c.kind === 'core') return ['Your Mag', 'Every path starts here. Each character level gives one point to spend on a square next to one it already knows. Squares are permanent.'];
     if (c.passive) {
       const p = PASSIVE_INFO[c.passive];
-      return [`${p.name} · ${c.kind === 'keystone' ? `${MAG_STAT_LABEL[c.stats[0]]} keystone` : `${MAG_STAT_LABEL[c.stats[0]]} notable`}`, p.desc()];
+      const arms = c.stats.map((s) => MAG_STAT_LABEL[s]).join(' + ');
+      const what = c.kind === 'keystone' ? `${arms} keystone ${c.tier === 2 ? 'II' : 'I'}` : `${arms} notable`;
+      return [`${p.name} · ${what}`, p.desc()];
     }
     const bonus = Object.entries(c.bonus).map(([k, v]) => `${k.toUpperCase()} +${v}`).join('  ');
     return [c.stats.map((s) => MAG_STAT_LABEL[s]).join(' / '), bonus];
@@ -522,7 +630,7 @@ export class InventoryMenu implements Menu {
   private renderMag(): string {
     const ch = this.ch;
     const m = ch.mag;
-    const form = magForm(m, ch.data.classId);
+    const form = magForm(m, ch.leadAttribute);
     const owned = new Set(m.cells);
     const free = ch.magPoints;
 
@@ -535,19 +643,21 @@ export class InventoryMenu implements Menu {
           cells.push('<span class="mg-void"></span>');
           continue;
         }
-        const blocked = c.kind === 'core' || owned.has(c.id) ? null : cellBlocked(m.cells, c.id);
+        const blocked = c.kind === 'core' || owned.has(c.id) ? null : cellBlocked(m.cells, c.id, ch.data.attributes);
         const state = c.kind === 'core' || owned.has(c.id) ? 'owned' : !blocked && free > 0 ? 'open' : 'locked';
         const [title, text] = this.magCellText(c);
-        const why = state === 'owned' ? (c.kind === 'core' ? '' : 'Learned') : state === 'open' ? 'Click to learn' : (blocked ?? 'No points left');
-        this.magInfo[c.id] = `<div class="mi-title">${esc(title)}</div><div>${esc(text)}</div>${why ? `<div class="mi-state ${state}">${esc(why)}</div>` : ''}`;
-        const label = c.kind === 'core' ? 'MAG' : c.kind === 'keystone' ? '◆' : c.kind === 'notable' ? '★' : Object.values(c.bonus).map((v) => `+${v}`).join('/');
+        const why = state === 'owned' ? (c.kind === 'core' ? '' : 'Learned') : state === 'open' ? 'Click to learn (permanent)' : (blocked ?? 'No points left');
+        const req = reqText(c);
+        this.magInfo[c.id] = `<div class="mi-title">${esc(title)}</div><div>${esc(text)}</div>${req ? `<div class="mi-req">Needs ${esc(req)}</div>` : ''}${why ? `<div class="mi-state ${state}">${esc(why)}</div>` : ''}`;
+        const label = c.kind === 'core' ? 'MAG' : c.kind === 'keystone' ? (c.tier === 2 ? '◈' : '◆') : c.kind === 'notable' ? '★' : c.kind === 'hybrid' ? Object.values(c.bonus).join('/') : Object.values(c.bonus).map((v) => `+${v}`).join('/');
         const arms = c.stats.map((s) => `a-${s}`).join(' ');
-        cells.push(`<div class="mg-cell k-${c.kind} ${arms} ${state}${this.magFocus === c.id ? ' focus' : ''}" data-act="magCell" data-arg="${c.id}" data-cell="${c.id}">${label}</div>`);
+        const tier = c.tier ? ` t${c.tier}` : '';
+        cells.push(`<div class="mg-cell k-${c.kind}${tier} ${arms} ${state}${this.magFocus === c.id ? ' focus' : ''}" data-act="magCell" data-arg="${c.id}" data-cell="${c.id}">${label}</div>`);
       }
     }
     const grid = `<div class="mag-grid-wrap"><span class="mg-arm a-pow top">POW</span><span class="mg-arm a-dex right">DEX</span>
       <span class="mg-arm a-mind bottom">MIND</span><span class="mg-arm a-def left">DEF</span>
-      <div class="mag-grid">${cells.join('')}</div></div>`;
+      <div class="mag-grid" style="grid-template-columns: repeat(${2 * MAG_RADIUS + 1}, var(--cell))">${cells.join('')}</div></div>`;
 
     const now = magBonuses(m);
     const bonusRows = MAG_STATS.map((s) => {
@@ -557,22 +667,13 @@ export class InventoryMenu implements Menu {
 
     const lv = magLevel(m);
     const next = MAG_EVOLVE_AT.find((n) => n > lv);
-    const cost = respecCost(m, ch.level);
-    let buttons = '';
-    if (this.magRespecArmed) {
-      buttons = `<button class="btn danger${ch.data.meseta >= cost ? '' : ' disabled'}" data-act="magRespec">Forget all ${lv} squares${cost ? ` (${cost} M)` : ''}</button>
-        <button class="btn ghost" data-act="magRespecCancel">Keep them</button>`;
-    } else if (lv) {
-      buttons = `<button class="btn" data-act="magRespecArm">Respec${cost ? ` (${cost} M)` : ' (free)'}</button>`;
-    }
     const focus = this.magInfo[this.magFocus ?? ''] ?? '<div class="dim">Point at a square to see what it gives.</div>';
     const side = `<div class="mag-head"><span class="mag-name" style="color:#${form.color.toString(16).padStart(6, '0')}">${esc(form.name)}</span>
         <span class="dim">Lv.${lv}${next ? ` · evolves at Lv.${next}` : ' · final form'}</span></div>
       <div class="mag-points"><b>${free}</b> point${free === 1 ? '' : 's'} to spend</div>
       <div class="mag-info">${focus}</div>
       <div class="gear-totals mag-totals">${bonusRows}</div>
-      <div class="choices inline">${buttons}</div>
-      <div class="dim mag-note">One point per character level. Mag bonuses count toward weapon and armor requirements.${cost ? '' : ` Respec is free below Lv.${magCfg.freeRespecBelow}.`}</div>`;
+      <div class="dim mag-note">One point per character level, and every square is permanent. Keystones (◆ ◈) need squares of their colour and points in its attribute; two-arm notables need points in both. Mag bonuses count toward weapon and armor requirements.</div>`;
     return `<div class="split mag-split"><div class="detail mag-panel">${grid}</div><div class="detail">${side}</div></div>${this.foot()}`;
   }
 
@@ -589,9 +690,8 @@ export class InventoryMenu implements Menu {
   private magCellClick(id: string): void {
     const ch = this.ch;
     this.magFocus = id;
-    this.magRespecArmed = false;
     if (id === CORE_ID || ch.mag.cells.includes(id)) return void sfx('ui.cursor');
-    const why = cellBlocked(ch.mag.cells, id);
+    const why = cellBlocked(ch.mag.cells, id, ch.data.attributes);
     if (why) return this.fail(why);
     if (ch.magPoints <= 0) return this.fail('No Mag points left. Level up to earn more.');
     this.fail(this.api.magLearn([id]));
@@ -615,16 +715,16 @@ export class InventoryMenu implements Menu {
     let options = `<div class="dim">Click a slot to change it.</div>
       <div class="dim" style="margin-top:8px">LMB is the heavy attack (single target, weapon special), RMB the light one (hits an area).
       Weapon swings your weapon; Magic casts your selected attack technique (now ${esc(techniques[sel].name)}), chosen with the mouse wheel.
-      Q and E hold injectors, items and support techniques. Keys 1 and 2 always use injector 1 and 2.</div>`;
+      Q and E hold the injector, items and support techniques. Key 1 always uses the injector.</div>`;
     if (this.paletteEdit) {
       const opts: [string, PaletteEdit][] = [];
       if (this.paletteEdit[1] === 0) {
         opts.push(['Weapon', { kind: 'source', source: 'weapon' }], ['Magic', { kind: 'source', source: 'magic' }]);
       } else {
         for (const t of TECH_IDS) if (!isAttackTech(t)) opts.push([techniques[t].name, { kind: 'tech', tech: t }]);
-        for (const slot of [0, 1] as const) opts.push([quickLabel({ kind: 'injector', slot }, ch), { kind: 'injector', slot }]);
+        opts.push([quickLabel({ kind: 'injector' }, ch), { kind: 'injector' }]);
         const consumables = new Set(ch.data.inventory.filter((i) => getDef(i.id).type === 'consumable').map((i) => i.id));
-        for (const id of ['telepipe', 'trimate', 'trifluid']) consumables.add(id);
+        consumables.add('telepipe');
         for (const id of consumables) opts.push([getDef(id).name, { kind: 'item', item: id }]);
         opts.push(['Empty', { kind: 'empty' }]);
       }
@@ -653,7 +753,7 @@ export class InventoryMenu implements Menu {
       return `<tr><td>${def.name}</td><td>${effect}</td><td>${cost}</td><td>${def.desc}</td></tr>`;
     }).join('');
     return `<div class="detail"><table class="stats techs">${rows}</table>
-      <div class="dim" style="margin-top:8px">Every class knows every technique. Your MST (${mst}) decides how hard they hit, how much Resta heals and how strong buffs are; casts also cost a little more TP as MST grows. Attack techniques are cast from a Magic palette row (mouse wheel picks which); put Resta and buffs on Q / E.</div></div>`;
+      <div class="dim" style="margin-top:8px">Everyone knows every technique. Your MST (${mst}) decides how hard they hit, how much Resta heals and how strong buffs are; casts also cost a little more TP as MST grows. Attack techniques are cast from a Magic palette row (mouse wheel picks which); put Resta and buffs on Q / E.</div></div>`;
   }
 
   private fail(err: string | null): void {
@@ -670,8 +770,8 @@ export class InventoryMenu implements Menu {
         this.tab = arg as InvTab;
         this.sel = null;
         this.grinding = null;
+        this.grindWeapon = null;
         this.paletteEdit = null;
-        this.magRespecArmed = false;
         break;
       case 'close':
         this.api.closeMenu();
@@ -681,9 +781,15 @@ export class InventoryMenu implements Menu {
         break;
       case 'select':
         this.sel = arg;
+        // Picking another item leaves the grind flow (it would otherwise keep grinding with the old grinder).
+        this.grinding = null;
+        this.grindWeapon = null;
         break;
       case 'equip':
-        this.fail(this.api.equipItem(arg, this.slot));
+        this.fail(this.api.equipItem(arg));
+        break;
+      case 'use':
+        this.fail(this.api.useItem(arg));
         break;
       case 'unequip':
         this.api.unequipItem(arg);
@@ -691,15 +797,8 @@ export class InventoryMenu implements Menu {
       case 'magCell':
         this.magCellClick(arg);
         break;
-      case 'magRespecArm':
-        this.magRespecArmed = true;
-        break;
-      case 'magRespecCancel':
-        this.magRespecArmed = false;
-        break;
-      case 'magRespec':
-        this.fail(this.api.magRespec());
-        this.magRespecArmed = false;
+      case 'attr':
+        this.fail(this.api.attrSpend(arg as AttributeId));
         break;
       case 'discard':
         this.api.discardItem(arg);
@@ -709,14 +808,28 @@ export class InventoryMenu implements Menu {
         this.grinding = arg;
         break;
       case 'grindTarget':
-        if (this.grinding) {
-          this.fail(this.api.grindItem(arg, this.grinding));
-          if (!this.ch.find(this.grinding)) this.sel = null;
-          this.grinding = null;
+        if (this.grinding) this.grindWeapon = arg;
+        break;
+      case 'grindApply':
+        if (this.grinding && this.grindWeapon) {
+          const err = this.api.grindItem(this.grindWeapon, this.grinding, arg as GrindTrack);
+          this.fail(err);
+          if (!err) {
+            // Stay on the picker while grinders of this kind remain, so a stack can be spent level by level.
+            if (!this.ch.find(this.grinding)) {
+              this.sel = null;
+              this.grinding = null;
+              this.grindWeapon = null;
+            }
+          }
         }
+        break;
+      case 'grindBack':
+        this.grindWeapon = null;
         break;
       case 'cancelGrind':
         this.grinding = null;
+        this.grindWeapon = null;
         break;
       case 'palSlot': {
         const [r, c] = arg.split(',').map(Number);
@@ -819,7 +932,7 @@ export class ShopMenu implements Menu {
           err = this.api.buy(proto);
           if (err) break;
         }
-        if (bought) this.api.notify(`Bought ${getDef(proto.id).name}${bought > 1 ? ` x${bought}` : ''}.`, 'good');
+        if (bought) this.api.notify(`Bought ${itemName(proto)}${bought > 1 ? ` x${bought}` : ''}.`, 'good');
         if (err) this.api.notify(err, 'warn');
         // Equipment is unique stock; consumables stay available.
         const def = getDef(proto.id);

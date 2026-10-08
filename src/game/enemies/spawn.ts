@@ -3,6 +3,7 @@ import { BoomaModel } from '../models/booma';
 import { Hidoom, Lily, Migium, PanArms } from './caveEnemies';
 import { Brawler, type Enemy, type EnemyOptions } from './Enemy';
 import { ControlNode, Garanz, Gunbot, RepairDrone, Sinow, SparkMite } from './mineEnemies';
+import { ChaosBringer, DarkBelra, Delsaber, Dimenian, Sorcerer } from './ruinsEnemies';
 
 /** Build the right body + AI for an enemy type. */
 export function createEnemy(type: EnemyId, x: number, z: number, rng: () => number, opts: EnemyOptions = {}): Enemy {
@@ -28,6 +29,16 @@ export function createEnemy(type: EnemyId, x: number, z: number, rng: () => numb
       return new SparkMite(type, arch, x, z, rng, opts);
     case 'drone':
       return new RepairDrone(type, arch, x, z, rng, opts);
+    case 'dimenian':
+      return new Dimenian(type, arch, x, z, rng, opts);
+    case 'delsaber':
+      return new Delsaber(type, arch, x, z, rng, opts);
+    case 'sorcerer':
+      return new Sorcerer(type, arch, x, z, rng, opts);
+    case 'belra':
+      return new DarkBelra(type, arch, x, z, rng, opts);
+    case 'bringer':
+      return new ChaosBringer(type, arch, x, z, rng, opts);
     case 'brawler':
       return new Brawler(type, arch, x, z, rng, new BoomaModel(arch.color).rig, opts);
   }

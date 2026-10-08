@@ -1,7 +1,7 @@
 import { accuracy, attackTypes, casting, combo as comboCfg, enemies, formulas, magCfg, spellForms, type AttackTiming, type AttackType, type EnemyId, type Race } from './config';
 import { Combo, MAX_HITS, type AttackTypeMods, type ComboSettings } from './combo';
 import type { Character } from './character';
-import { areas, expeditions, type ExpeditionId } from './data/areas';
+import { areas, expeditions, type BossId, type ExpeditionId } from './data/areas';
 import { techniques, type TechId } from './data/techniques';
 import { hitChance, playerDamage } from './formulas';
 import { hardArch, hardScale } from './hard';
@@ -11,6 +11,8 @@ import { hardArch, hardScale } from './hard';
 // crits, perfect-chain streaks, specials, buffs and TP are left out (they scale every weapon alike).
 
 export const RACES: Race[] = ['native', 'abeast', 'machine', 'dark'];
+/** Each boss's race (as set on its class): none shares its expedition's usual race except the Warden. */
+export const BOSS_RACE: Record<BossId, Race> = { dragon: 'native', derolle: 'dark', warden: 'machine', falz: 'dark' };
 
 /** The enemy the estimates are measured against. */
 export interface Foe {
@@ -18,18 +20,35 @@ export interface Foe {
   evp: number;
   /** "Forest", "Caves (Nightmare)". */
   label: string;
+  /** The race most of the expedition's enemies are (by spawn count). */
+  mainRace: Race | null;
+  /** The race of the expedition's boss. */
+  bossRace: Race | null;
 }
 
 /** The average regular enemy of an expedition (each type counted once; Nightmare scaling applied). */
 export function expeditionFoe(exp: ExpeditionId, hard: boolean): Foe {
   const ids = new Set<EnemyId>();
+  const spawns: Partial<Record<Race, number>> = {};
+  let bossRace: Race | null = null;
   for (const floor of expeditions[exp].floors) {
-    for (const room of areas[floor].rooms) for (const wave of room.waves ?? []) for (const s of wave) ids.add(typeof s === 'string' ? s : s.e);
+    const boss = areas[floor].boss;
+    if (boss) bossRace = BOSS_RACE[boss];
+    for (const room of areas[floor].rooms) {
+      for (const wave of room.waves ?? []) {
+        for (const s of wave) {
+          const id = typeof s === 'string' ? s : s.e;
+          ids.add(id);
+          if (enemies[id].ai !== 'node') spawns[enemies[id].race] = (spawns[enemies[id].race] ?? 0) + 1;
+        }
+      }
+    }
   }
+  const mainRace = RACES.reduce<Race | null>((best, r) => ((spawns[r] ?? 0) > (best ? (spawns[best] ?? 0) : 0) ? r : best), null);
   // Control nodes are switches, not fights.
   const archs = [...ids].map((id) => enemies[id]).filter((a) => a.ai !== 'node').map((a) => (hard ? hardArch(a, hardScale(exp)) : a));
   const avg = (v: (a: (typeof archs)[number]) => number) => Math.round(archs.reduce((t, a) => t + v(a), 0) / Math.max(1, archs.length));
-  return { dfp: avg((a) => a.dfp), evp: avg((a) => a.evp), label: `${expeditions[exp].name}${hard ? ' (Nightmare)' : ''}` };
+  return { dfp: avg((a) => a.dfp), evp: avg((a) => a.evp), label: `${expeditions[exp].name}${hard ? ' (Nightmare)' : ''}`, mainRace, bossRace };
 }
 
 /** Seconds for one combo of these attacks chained at the earliest moment, plus the reset before the next. */
@@ -64,7 +83,7 @@ export function estimateDamage(ch: Character, foe: Foe, withSpell: boolean): Dam
   const rangeMult = kind.ranged ? formulas.rangedDamageMult : formulas.meleeDamageMult;
   const hitBonus = ch.weaponAttr('hit') + (kind.ranged ? 0 : accuracy.meleeBonus);
   const deadeye = ch.hasMagPassive('deadeye');
-  const crush = ch.hasMagPassive('crush');
+  const crush = !kind.ranged && ch.hasMagPassive('crush');
   const followThrough = ch.hasMagPassive('followThrough');
 
   /** Expected damage of one swing on one target: accuracy x hits per swing x damage per hit. */
@@ -82,7 +101,9 @@ export function estimateDamage(ch: Character, foe: Foe, withSpell: boolean): Dam
 
   const tech = ch.selectedTech();
   const t = techniques[tech];
-  const castSecs = chainSeconds(casting, spellForms, { windup: t.castTime, active: 0, recovery: t.recovery * casting.recoveryMult }, Array<AttackType>(MAX_HITS).fill('heavy'));
+  const swift = ch.hasMagPassive('swiftCast') ? magCfg.swiftCastMult : 1;
+  const castTiming = { windup: t.castTime * swift, active: 0, recovery: t.recovery * casting.recoveryMult * swift };
+  const castSecs = chainSeconds(casting, spellForms, castTiming, Array<AttackType>(MAX_HITS).fill('heavy'));
   const perCast = ch.techDamage(tech) * spellForms.heavy.powerMult;
 
   const weapon = {} as Record<Race, number>;

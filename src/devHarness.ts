@@ -1,6 +1,6 @@
 // Dev-only helpers for driving the game from the console or automated tests
 // without pointer lock or requestAnimationFrame (e.g. in a hidden tab).
-//   __h.start(slot, cls?, difficulty?)  load or create a character and enter the city ('nightmare' if open)
+//   __h.start(slot, kit?, difficulty?)  load or create a character (kit: vanguard / ranger / mystic) and enter the city ('nightmare' if open)
 //   __h.run(sec)     step the simulation with fixed 60 Hz frames
 //   __h.bot(sec)     fight nearby enemies with a naive combo bot (opts.late: chain this many s into the window)
 
@@ -50,16 +50,13 @@ export function installHarness(game: any): void {
         if (!game.lockTarget) key('KeyF');
       }
       const tg = game.lockTarget;
-      // Low HP: take a dose from the first Mate injector that has one.
+      // Low HP: take a dose from a Mate injector that has one.
       if (p.hp < p.maxHp * 0.35 && p.canMove) {
-        const slot = [0, 1].find((i) => {
-          const inj = game.char.injector(i);
-          return inj && inj.id.startsWith('mate') && (inj.charge ?? 99) >= 1;
-        });
-        if (slot !== undefined) {
-          key(`Digit${slot + 1}`);
+        const inj = game.char.injector();
+        if (inj && inj.id.startsWith('mate') && (inj.charge ?? 99) >= 1) {
+          key('Digit1');
           run(1 / 60);
-          key(`Digit${slot + 1}`, 'keyup');
+          key('Digit1', 'keyup');
         }
       }
       if (tg) {
@@ -86,7 +83,7 @@ export function installHarness(game: any): void {
     return t / 60;
   };
 
-  const start = (slot = 0, cls = 'hunter', difficulty = 'normal') => {
+  const start = (slot = 0, kit = 'vanguard', difficulty = 'normal') => {
     takeOver();
     const title = game.menus.menu;
     title.onAction('sel', String(slot));
@@ -97,7 +94,8 @@ export function installHarness(game: any): void {
     } else {
       title.onAction('new', '');
       title.editor.name = 'Bot';
-      title.onAction('cls', cls);
+      title.onAction('goStep', '0');
+      title.onAction('kit', kit);
       title.onAction('finish', '');
     }
     run(0.2);

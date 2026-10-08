@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Character } from './character';
-import { attackTypes, casting, combo as comboCfg, dash as dashCfg, magCfg, player as cfg, spellForms, statuses, weaponWeights, type AttackTiming, type AttackType } from './config';
+import { attackTypes, casting, combo as comboCfg, dash as dashCfg, magCfg, player as cfg, pylonCfg, spellForms, statuses, weaponWeights, type AttackTiming, type AttackType } from './config';
 import { Combo, type ComboEvent } from './combo';
 import { turnToward } from './collision';
 import { techniques, type TechId } from './data/techniques';
@@ -90,6 +90,13 @@ export class Player {
   brace = 0;
   /** Seconds of Clarity left (attack techniques cost no TP). */
   clarity = 0;
+  /** Barrier (Mag): shield HP from Resta overheal, absorbed before HP, fading at shieldFade per second. */
+  shield = 0;
+  private shieldFade = 0;
+  /** Retaliate (Mag): seconds left in which the next melee swing hits harder (set when an enemy hits her). */
+  retaliate = 0;
+  /** Slipstream (Mag): seconds left in which the next attack or cast lands perfect (set by dashing out of a telegraph). */
+  slipstream = 0;
   channel: ChannelState | null = null;
   /** Set when a channel ends early: 'hit' or 'moved'. Read and cleared by the game. */
   channelBroken: 'hit' | 'moved' | null = null;
@@ -101,6 +108,12 @@ export class Player {
   burnStacks = 0;
   /** Seconds toward losing the next Burn stack. */
   burnDecay = 0;
+  /** Corruption stacks (Ruins): each takes a share of max HP away until light, a cleared room or Sol clears it. */
+  corruption = 0;
+  /** Seconds spent in light toward shedding the next stack. */
+  corruptDecay = 0;
+  /** Standing in a lit pylon's circle (or a Grants light) this frame; set by the world. */
+  inLight = false;
   /** Seconds of paralysis immunity left. */
   paraImmune = 0;
   /** Movement multiplier from the ground underfoot (marsh); set by the world each frame. */
@@ -180,7 +193,7 @@ export class Player {
 
   /** Rebuild the Mag model if it evolved (or the character changed), and apply its Rhythm passive. */
   refreshMag(): void {
-    const form = magForm(this.char.mag, this.char.data.classId);
+    const form = magForm(this.char.mag, this.char.leadAttribute);
     this.mag.setForm(form.stage, form.color, { theme: form.theme, colors: this.model.pal });
     const bonus = this.char.hasMagPassive('rhythm') ? magCfg.rhythmBonus : 0;
     this.combo.perfectBonus = bonus;
@@ -210,13 +223,47 @@ export class Player {
   }
 
   get maxHp(): number {
+    if (this.corruption <= 0) return this.char.maxHp;
+    return Math.max(1, Math.round(this.char.maxHp * (1 - statuses.corruptPctPerStack * this.corruption * this.corruptMult)));
+  }
+  /** Max HP without Corruption (the HP bar's full width). */
+  get trueMaxHp(): number {
     return this.char.maxHp;
+  }
+  /** The Seal of Light and the Falz Halo halve what Corruption takes. */
+  get corruptMult(): number {
+    return this.char.hasEquipped('seal_of_light') || this.char.hasEquipped('falz_halo') ? pylonCfg.sealCorruptMult : 1;
+  }
+  /** Add Corruption stacks (current HP drops with the lowered max). Returns stacks actually added. */
+  corrupt(stacks: number): number {
+    const before = this.corruption;
+    this.corruption = Math.min(statuses.corruptMaxStacks, this.corruption + stacks);
+    if (this.corruption === before) return 0;
+    if (before === 0) this.corruptDecay = 0;
+    this.hp = Math.min(this.hp, this.maxHp);
+    this.shield = Math.min(this.shield, this.maxHp * magCfg.barrierCap);
+    return this.corruption - before;
   }
   get maxTp(): number {
     return this.char.maxTp;
   }
   get alive(): boolean {
     return this.hp > 0;
+  }
+  /** Dash charges when full (Fleet adds one). */
+  get maxDashCharges(): number {
+    return dashCfg.charges + (this.char.hasMagPassive('fleet') ? magCfg.fleetCharges : 0);
+  }
+  /** Run speed (Rhythm is faster). */
+  get runSpeed(): number {
+    return cfg.moveSpeed * (this.char.hasMagPassive('rhythm') ? magCfg.rhythmRunMult : 1);
+  }
+
+  /** Barrier: turn healing past full HP into a shield (capped at a share of max HP) that fades over a few seconds. */
+  addShield(overheal: number): void {
+    if (overheal <= 0) return;
+    this.shield = Math.min(this.maxHp * magCfg.barrierCap, this.shield + overheal);
+    this.shieldFade = this.shield / magCfg.barrierFade;
   }
 
   /** Can the player start moving / take a non-attack action right now? */
@@ -365,6 +412,8 @@ export class Player {
     this.paraImmune = 0;
     this.burnStacks = 0;
     this.burnDecay = 0;
+    this.corruption = 0;
+    this.corruptDecay = 0;
   }
 
   /** Did she walk this frame (sheds Burn faster)? */
@@ -388,6 +437,9 @@ export class Player {
     this.channelBroken = null;
     this.brace = 0;
     this.clarity = 0;
+    this.shield = 0;
+    this.retaliate = 0;
+    this.slipstream = 0;
     this.regen.hp.left = this.regen.tp.left = 0;
     this.castChain.interrupt();
     this.knock.set(0, 0, 0);
@@ -399,7 +451,7 @@ export class Player {
     this.slowMult = 1;
     this.dash = null;
     this.dashRecover = 0;
-    this.dashCharges = dashCfg.charges;
+    this.dashCharges = this.maxDashCharges;
     this.dashRefill = 0;
   }
 
@@ -440,7 +492,9 @@ export class Player {
     const form = support ? 'light' : type;
     const chain = this.castChain;
     if (chain.committed ? support : !this.canMove) return [];
-    this.castTiming = { windup: t.castTime, active: 0, recovery: t.recovery * casting.recoveryMult };
+    // Swift Cast (Mag keystone) shortens the wind-up and the recovery.
+    const swift = this.char.hasMagPassive('swiftCast') ? magCfg.swiftCastMult : 1;
+    this.castTiming = { windup: t.castTime * swift, active: 0, recovery: t.recovery * casting.recoveryMult * swift };
     const events = chain.press(form);
     if (!events.some((e) => e.kind === 'start')) return events;
     if (support) chain.seal();
@@ -473,15 +527,21 @@ export class Player {
     this.lungeLeft = kind.ranged ? 0 : this.combo.type === 'light' ? w.lunge : w.lungeHeavy;
   }
 
-  /** Heavy-weapon Poise: from the start of a swing until its strike ends, hits don't interrupt it. */
+  /**
+   * Poise: from the start of a melee swing until its strike ends, hits don't interrupt it. Heavy weapons
+   * always have it; Steadfast (Mag keystone) gives it to every melee weapon.
+   */
   get poised(): boolean {
     const c = this.combo;
     const kind = this.char.weaponKind();
-    return c.committed && !kind.ranged && weaponWeights[kind.weight ?? 'medium'].poise && c.t < c.times.activeEnd;
+    if (!c.committed || kind.ranged || c.t >= c.times.activeEnd) return false;
+    return weaponWeights[kind.weight ?? 'medium'].poise || this.char.hasMagPassive('steadfast');
   }
 
   takeHit(damage: number, fromX: number, fromZ: number, knockback = cfg.knockback): void {
     this.hp = Math.max(0, this.hp - damage);
+    if (damage > 0 && this.char.hasMagPassive('retaliate')) this.retaliate = magCfg.retaliateTime;
+    if (this.char.hasMagPassive('steadfast')) knockback *= magCfg.steadfastKnockback;
     if (this.poised && this.hp > 0) {
       // Full damage and the usual post-hit invulnerability, but no flinch, knockback or cancel.
       this.iframes = cfg.iframes;
@@ -512,6 +572,9 @@ export class Player {
     const events = this.alive ? this.combo.update(dt) : [];
     this.brace = Math.max(0, this.brace - dt);
     this.clarity = Math.max(0, this.clarity - dt);
+    this.retaliate = Math.max(0, this.retaliate - dt);
+    this.slipstream = Math.max(0, this.slipstream - dt);
+    if (this.shield > 0) this.shield = Math.max(0, this.shield - this.shieldFade * dt);
     if (this.alive) {
       for (const k of ['hp', 'tp'] as const) {
         const r = this.regen[k];
@@ -535,12 +598,13 @@ export class Player {
     this.hitstun = Math.max(0, this.hitstun - dt);
     this.iframes = Math.max(0, this.iframes - dt);
     this.dashRecover = Math.max(0, this.dashRecover - dt);
-    if (this.dashCharges >= dashCfg.charges) {
-      this.dashCharges = dashCfg.charges;
+    const maxDash = this.maxDashCharges;
+    if (this.dashCharges >= maxDash) {
+      this.dashCharges = maxDash;
       this.dashRefill = 0;
     } else if (this.alive && (this.dashRefill += dt / dashCfg.recharge) >= 1) {
       this.dashCharges++;
-      this.dashRefill = this.dashCharges < dashCfg.charges ? this.dashRefill - 1 : 0;
+      this.dashRefill = this.dashCharges < maxDash ? this.dashRefill - 1 : 0;
     }
     this.itemLock = Math.max(0, this.itemLock - dt);
     this.drinkT = Math.max(0, this.drinkT - dt);
@@ -582,14 +646,15 @@ export class Player {
       this.moved = this.canMove && moveDir.lengthSq() > 1e-4;
       this.runT = this.moved ? this.runT + dt : 0;
       if (this.moved) {
-        this.pos.x += moveDir.x * cfg.moveSpeed * this.slowMult * dt;
-        this.pos.z += moveDir.z * cfg.moveSpeed * this.slowMult * dt;
+        const speed = this.runSpeed;
+        this.pos.x += moveDir.x * speed * this.slowMult * dt;
+        this.pos.z += moveDir.z * speed * this.slowMult * dt;
         const want = Math.atan2(moveDir.x, moveDir.z);
         this.yaw = turnToward(this.yaw, want, cfg.turnSpeed * dt);
         // One full stride cycle (two steps) per ~2.8 m: a brisk jog at walking pace.
         // Advance by distance so planted feet move at exactly ground speed.
         const before = this.runU;
-        this.runU = (this.runU + (cfg.moveSpeed * this.slowMult * dt) / scaleGait(RUN_GAIT, cfg.moveSpeed).cycleLength) % 1;
+        this.runU = (this.runU + (speed * this.slowMult * dt) / scaleGait(RUN_GAIT, speed).cycleLength) % 1;
         // Touchdowns at 0 and 0.5 (also catches the wrap past 1).
         this.stepped = Math.floor(before * 2) !== Math.floor(this.runU * 2);
       }
@@ -672,7 +737,7 @@ export class Player {
       // Ease in for the first moments, then follow the IK cycle exactly:
       // any smoothing lag here makes planted feet slide.
       const rate = this.runT < 0.18 ? 14 : Infinity;
-      return { pose: gaitPose(this.runU, RUN_GAIT, this.model.legs, grip, cfg.moveSpeed), rate };
+      return { pose: gaitPose(this.runU, RUN_GAIT, this.model.legs, grip, this.runSpeed), rate };
     }
     return { pose: humanPoses.idle(this.time, grip), rate: 8 };
   }
@@ -696,6 +761,8 @@ export class Player {
 
     this.model.rig.root.visible = !(this.iframes > 0 && Math.floor(this.iframes * 20) % 2 === 0);
     let emissive = this.buffs.atp.t > 0 ? 0x2a0808 : 0x000000;
+    // Corruption: a slow violet throb, deeper with more stacks.
+    if (this.corruption > 0) emissive = Math.sin(this.time * 2.5) > 0.2 ? 0x2a0838 + this.corruption * 0x060008 : 0x10041a;
     if (this.poison > 0) emissive = Math.sin(this.time * 6) > 0 ? 0x1c4410 : 0x0c2008;
     if (this.paralysis > 0) emissive = Math.sin(this.time * 40) > 0 ? 0x807010 : 0x302a08;
     if (this.burnStacks > 0) emissive = Math.sin(this.time * (8 + this.burnStacks * 3)) > 0 ? 0x803808 : 0x401804;

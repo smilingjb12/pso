@@ -8,7 +8,7 @@ import {
 // crossfades between them when a room's gates close / open. Boss tracks use
 // the battle layer for their enraged phase.
 
-export type TrackId = 'pioneer2' | 'forest' | 'caves' | 'dragon' | 'derolle' | 'mines' | 'warden';
+export type TrackId = 'pioneer2' | 'forest' | 'caves' | 'dragon' | 'derolle' | 'mines' | 'warden' | 'ruins' | 'falz';
 
 export interface Track {
   id: TrackId;
@@ -304,6 +304,81 @@ function warden(): Track {
   };
 }
 
+// ---------------------------------------------------------------- Ruins
+
+function ruins(): Track {
+  const bars = 16;
+  // D lydian (E over D): wonder and old light rather than dread; the temple glows, it doesn't loom.
+  const prog = progression([
+    'Dmaj7', 'E/D', 'Dmaj7', 'E/D', 'Bm7', 'Gmaj7', 'Asus4', 'A',
+    'Gmaj7', 'A/G', 'F#m7', 'Bm7', 'Gmaj7', 'E/G#', 'Asus2', 'A',
+  ]);
+  const mel = melody(`
+    F#5 - A5 - C#6 - A5 - | G#5 - - - E5 - B4 - | A5 - F#5 - D5 - E5 - | B4 - - - - - . . |
+    D5 - F#5 - A5 - - - | B5 - A5 - F#5 - D5 - | E5 - - - D5 - E5 - | C#5 - - - - - . . |
+    B4 - D5 - F#5 - B5 - | A5 - - - E5 - C#5 - | E5 - F#5 - A5 - C#6 - | B5 - - - F#5 - - - |
+    G5 - B5 - D6 - B5 - | G#5 - - - E5 - B4 - | E5 - - - B4 - E5 - | C#5 - - - - - . . |`, 2, 0.7);
+  return {
+    id: 'ruins',
+    name: 'Ruins',
+    desc: 'Synth (no recording yet). Calm: beatless pads, a slow harp and temple bells in D lydian. Battle: a flute theme over strings, a pulsing bass, choir and a light kit.',
+    bpm: 96,
+    bars,
+    parts: [
+      p('pad', 'base', padPart(prog, 50, 0.45)),
+      p('softbass', 'base', bassPart(prog, 'r-------r-------', 38, 0.5), 0.7),
+      // Calm: ambient, no beat and no lead.
+      p('harp', 'calm', arpPart(prog, [0, 2, 4, 3], 4, 62, 0.3), 0.6, 0.2),
+      p('bell', 'calm', compPart(prog, 'x...............  ........x.......', 69, 0.25, 2), 0.5, -0.25),
+      // Battle
+      p('pumpbass', 'battle', bassPart(prog, 'r..r..r.r..r.r5.', 38, 0.7)),
+      p('strings', 'battle', arpPart(prog, [0, 1, 2, 1], 2, 55, 0.4), 0.7, -0.2),
+      p('choir', 'battle', padPart(prog, 60, 0.35), 0.5),
+      p('flute', 'battle', mel, 1, 0.1),
+      p('kick', 'battle', hits('X.......X.......', bars), 0.7),
+      p('rim', 'battle', hits('....x.......x...', bars), 0.5, -0.2),
+      p('shaker', 'battle', hits('..x...x...x...x.', bars), 0.45, 0.25),
+    ],
+  };
+}
+
+// -------------------------------------------------------------- Dark Falz
+
+function falz(): Track {
+  const bars = 16;
+  const prog = progression([
+    'Dm', 'Bbmaj7', 'Gm7', 'A', 'Dm', 'F', 'C', 'A7',
+    'Bb', 'C', 'Am7', 'Dm', 'Gm', 'Bb', 'Asus4', 'A',
+  ]);
+  const mel = melody(`
+    D5! - - - F5 - A5 - | D6 - - - C6 - A5 - | A#5 - - - A5 - G5 - | A5 - - - E5 - C#5 - |
+    D5! - - - A5 - D6 - | C6 - - - A5 - F5 - | E5 - - - G5 - C6 - | C#6 - - - - - . . |
+    D6! - - - F6 - D6 - | E6 - - - C6 - G5 - | A5 - - - C6 - E6 - | D6 - - - A5 - F5 - |
+    G5! - - - A#5 - D6 - | F6 - - - D6 - A#5 - | A5 - - - D6 - E6 - | C#6 - - - - - . . |`, 2, 0.85);
+  return {
+    id: 'falz',
+    name: 'Dark Falz',
+    desc: 'Boss. Synth (no recording yet): the last fight, synth-orchestral in D minor with a brass theme over string ostinatos, timpani and a pumping bass. The Angel (and the enrage) bring in choir, taiko and a fast arpeggio.',
+    bpm: 132,
+    gain: 0.75,
+    bars,
+    parts: [
+      p('strings', 'base', arpPart(prog, [0, 1, 2, 1], 2, 50, 0.5), 0.85, -0.2),
+      p('darkpad', 'base', padPart(prog, 50, 0.45), 0.7),
+      p('pumpbass', 'base', bassPart(prog, 'r-r-r-r-o-r-r-5-', 38, 0.8)),
+      p('brass', 'base', mel, 1.1, 0.1),
+      p('timpani', 'base', hits('X.......X...X...', bars, 38), 0.7),
+      p('kick', 'base', hits('X...X...X...X...', bars), 0.9),
+      p('snare', 'base', hits('....X.......X...', bars, 60, [], { every: 4, pattern: '....X.......X.XX' }), 0.9),
+      p('crash', 'base', onBars([0, 8]), 0.8),
+      // The Angel / enraged
+      p('choir', 'battle', padPart(prog, 60, 0.55)),
+      p('taiko', 'battle', hits('X..X..X.X..X..X.', bars, 38), 0.8),
+      p('arp', 'battle', arpPart(prog, [0, 1, 2, 3, 4, 3, 2, 1], 1, 62, 0.45), 0.65, 0.3),
+    ],
+  };
+}
+
 export const TRACKS: Record<TrackId, Track> = {
   pioneer2: pioneer2(),
   forest: forest(),
@@ -312,4 +387,6 @@ export const TRACKS: Record<TrackId, Track> = {
   derolle: derolle(),
   mines: mines(),
   warden: warden(),
+  ruins: ruins(),
+  falz: falz(),
 };

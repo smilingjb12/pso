@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { itemDefs, type ArmorItemDef, type ArmorLine, type ClassId } from '../data/items';
+import { itemDefs, type ArmorItemDef, type ArmorLine } from '../data/items';
+import { leadAttribute, type AttributeId, type AttributePoints, type KitId } from '../data/stats';
 import { limbGeo, mat, part, Rig } from './Rig';
 import type { LegDims } from './gait';
 
@@ -63,7 +64,7 @@ export const HAIRS: Record<string, { name: string; desc: string }> = {
 };
 
 export const OUTFITS: Record<string, { name: string; desc: string }> = {
-  O1: { name: 'Coat & knit', desc: 'Open long coat over a turtleneck sweater, short shorts and buckled ankle boots.' },
+  O1: { name: 'Swallowtail coat', desc: 'Fitted long coat closed under a high collar, cut away at the front into split tails; slim trousers, gloves and tall boots.' },
   O2: { name: 'Blouse & pleated skirt', desc: 'Puff-sleeve blouse with a bow, flared pleated skirt, thigh-high stockings.' },
   O3: { name: 'HUnewearl armour', desc: 'PSO hunter: leotard, tall shoulder plates, gauntlets, armour skirt, tall boots.' },
   O4: { name: 'Ranger jacket', desc: 'Bodysuit, cropped high-collar jacket, belt with pouches, coat tails, armoured boots.' },
@@ -172,12 +173,12 @@ export interface Look {
 
 // ------------------------------------------------------------ armour evolutions
 
-/** The outfit each class wears in a Standard frame (or none). */
-export const CLASS_OUTFIT: Record<ClassId, string> = { hunter: 'O4', ranger: 'O1', force: 'O5' };
+/** The outfit worn in a Standard frame (or none), by the character's leading attribute. */
+export const ATTRIBUTE_OUTFIT: Record<AttributeId, string> = { pow: 'O4', def: 'O4', dex: 'O1', mind: 'O5' };
 /** The outfit each armour line dresses her in: the frame decides the clothes. */
 export const LINE_OUTFIT: Partial<Record<ArmorLine, string>> = { guard: 'O4', combat: 'O1', psy: 'O5' };
-/** Evolution stage per frame tier (index = tier 1-9): Normal tops out at stage 3, Nightmare frames reach 4. */
-export const TIER_STAGE = [0, 0, 1, 2, 2, 3, 3, 4, 4, 4];
+/** Evolution stage per frame tier (index = tier 1-11): Normal (up to the Ruins' T7) tops out at stage 3, Nightmare frames (T8+) reach 4. */
+export const TIER_STAGE = [0, 0, 1, 2, 2, 3, 3, 3, 4, 4, 4, 4];
 
 export interface Evolution {
   name: string;
@@ -190,20 +191,20 @@ export const EVOLUTIONS: Record<string, Evolution> = {
     name: 'Vanguard',
     stages: [
       { name: 'Jacket', desc: 'The plain ranger jacket.' },
-      { name: 'Pauldrons', desc: 'Layered shoulder guards and forearm bracers.' },
-      { name: 'Breastplate', desc: 'Chest plate with a core, hip plates, plated coat tails; glow trim lights up.' },
-      { name: 'Thrusters', desc: 'Finned thruster pods behind the shoulders, knee and shin plates, heel jets; circuit lines.' },
-      { name: 'Bastion', desc: 'Thruster blades fan from the pods and two hex photon shields guard her sides; the glow pulses.' },
+      { name: 'Pauldrons', desc: 'Spiked pauldrons and forearm bracers.' },
+      { name: 'Warplate', desc: 'Chest plate with a core, hip plates, plated coat tails; the spikes grow glowing tips and the bracers grow spikes; glow trim lights up.' },
+      { name: 'Crown', desc: 'A crown of light blades floats above her head; knee and shin plates, heel jets; circuit lines.' },
+      { name: 'Sovereign', desc: 'The crown grows a taller outer ring, a wheel of photon blades turns behind her back and two hex shields guard her sides; the glow pulses.' },
     ],
   },
   O1: {
-    name: 'Overwatch',
+    name: 'Ember',
     stages: [
-      { name: 'Coat', desc: 'The plain long coat.' },
-      { name: 'Drone', desc: 'A support drone hovers at her side.' },
-      { name: 'Targeting', desc: 'A second drone and a holo-reticle gauntlet; glow trim lights up.' },
-      { name: 'Ordnance', desc: 'A sensor pod and a missile pod over the shoulders; circuit lines.' },
-      { name: 'Funnels', desc: 'Six fin funnels float behind her in two V formations; the glow pulses.' },
+      { name: 'Coat', desc: 'The plain swallowtail coat.' },
+      { name: 'Pinions', desc: 'Dark feathers over the shoulders; forearm guards with a swept feather.' },
+      { name: 'Plumage', desc: 'The feathers gain edges of light; a breastplate with a furnace core, feather tassets, feathers on the coat tails; glow trim lights up.' },
+      { name: 'Firewing', desc: 'Small folded wings, a feather ruff at the collar, thigh feathers and vents, greaves and talons; circuit lines.' },
+      { name: 'Ember', desc: 'Full wings shedding sparks: spread when she stands, folded back and fluttering when she runs; the glow pulses.' },
     ],
   },
   O5: {
@@ -218,10 +219,10 @@ export const EVOLUTIONS: Record<string, Evolution> = {
   },
 };
 
-/** Outfit and evolution stage for a class wearing `frame` (its own outfit at stage 0 without one). */
-export function armorLook(cls: ClassId, frame?: ArmorItemDef | null): { outfit: string; evo: number } {
-  if (!frame) return { outfit: CLASS_OUTFIT[cls], evo: 0 };
-  return { outfit: LINE_OUTFIT[frame.line] ?? CLASS_OUTFIT[cls], evo: TIER_STAGE[clamp(Math.round(frame.tier), 1, 9)] };
+/** Outfit and evolution stage for a character led by `attr` wearing `frame` (the attribute's outfit at stage 0 without one). */
+export function armorLook(attr: AttributeId, frame?: ArmorItemDef | null): { outfit: string; evo: number } {
+  if (!frame) return { outfit: ATTRIBUTE_OUTFIT[attr], evo: 0 };
+  return { outfit: LINE_OUTFIT[frame.line] ?? ATTRIBUTE_OUTFIT[attr], evo: TIER_STAGE[clamp(Math.round(frame.tier), 1, TIER_STAGE.length - 1)] };
 }
 
 const COAT: Look = { body: 'P3', hair: 'H1', outfit: 'O1', accessory: 'A2', palette: 'C1', glow: 'G0', armor: 'R0', back: 'B0', face: 'F0' };
@@ -248,7 +249,7 @@ export const CREATION_CHOICES: { key: ChosenKey; label: string; options: string[
   { key: 'palette', label: 'Colours', options: Object.keys(PALETTES), names: PALETTES },
 ];
 
-/** Starting appearance on the creation screen (the outfit and its gear come from the class's armour). */
+/** Starting appearance on the creation screen (the outfit and its gear come from the armour). */
 export const DEFAULT_APPEARANCE: Look = { body: 'P3', hair: 'H1', outfit: 'O1', accessory: 'A1', palette: 'C1', glow: 'G0', armor: 'R0', back: 'B0', face: 'F6' };
 
 /** Legacy looks: saves made before full customisation stored one of these ids. */
@@ -266,7 +267,8 @@ export function playerLook(data: {
   appearance?: Look;
   look?: string;
   colors?: LookColors;
-  classId?: ClassId;
+  kit?: KitId;
+  attributes?: AttributePoints;
   equipped?: { frame?: string };
   inventory?: { uid: string; id: string }[];
 }): Look {
@@ -274,7 +276,8 @@ export function playerLook(data: {
   const look = data.appearance ? { ...DEFAULT_APPEARANCE, ...data.appearance } : { ...legacy.look, colors: data.colors };
   const frameId = data.equipped?.frame && data.inventory?.find((it) => it.uid === data.equipped!.frame)?.id;
   const def = frameId ? itemDefs[frameId] : undefined;
-  const gear = armorLook(data.classId ?? 'hunter', def?.type === 'armor' ? def : null);
+  const lead = data.attributes ? leadAttribute(data.kit ?? 'vanguard', data.attributes) : 'pow';
+  const gear = armorLook(lead, def?.type === 'armor' ? def : null);
   // The frame decides the outfit and its evolution; players don't get head accessories (Character Lab only).
   return { ...look, ...gear, accessory: 'A1', armor: 'R0', glow: 'G0', back: 'B0' };
 }
@@ -480,6 +483,8 @@ export class Heroine implements CharacterModel {
   private readonly m: Mats;
   private readonly chains: Chain[] = [];
   private readonly panels: Panel[] = [];
+  /** How many of `panels` are the outfit's own coat tails (built first). */
+  private coatTails = 0;
   /** Leg capsules the panels must stay outside of. */
   private panelLegs: 'thigh' | 'full' = 'thigh';
   /** Hovering parts (bits, halo) animated in update(). */
@@ -490,6 +495,8 @@ export class Heroine implements CharacterModel {
   private time = 0;
   private lastAnchor = new Map<object, THREE.Vector3>();
   private vel = new Map<object, THREE.Vector3>();
+  /** Smoothed ground speed (m/s), for parts that react to running. */
+  private speed = 0;
 
   constructor(look: Look) {
     this.look = look;
@@ -1143,13 +1150,12 @@ export class Heroine implements CharacterModel {
   private shellDepth(): { chest: number; waist: number } {
     const { s } = this.d;
     const sw = this.d.shoulderW / s / 0.155;
-    if (this.look.outfit === 'O1') return { chest: 0.158 * sw * s * 0.74, waist: 0.128 * s * 0.8 };
     return { chest: 0.142 * sw * s * 0.68, waist: 0.108 * s * 0.76 };
   }
 
   /** Extra thickness of the boot over the calf, per outfit. */
   private bootPad(): number {
-    return ({ O1: 0.012, O3: 0.006, O4: 0.008, O5: 0.006 } as Record<string, number>)[this.look.outfit] ?? 0;
+    return ({ O1: 0.006, O3: 0.006, O4: 0.008, O5: 0.006 } as Record<string, number>)[this.look.outfit] ?? 0;
   }
 
   private buildTech(): void {
@@ -1175,23 +1181,18 @@ export class Heroine implements CharacterModel {
   private buildEvolution(stage: number): void {
     const o = this.look.outfit;
     if (o === 'O4') {
-      if (stage >= 1) this.armorLight(true);
+      if (stage >= 1) this.armorLight(true, stage);
       if (stage >= 2) this.armorMedium();
       if (stage >= 3) {
         this.armorHeavy();
-        this.shoulderPods(stage >= 4);
+        this.floatingCrown(stage >= 4);
       }
-      if (stage >= 4) this.hexShields();
+      if (stage >= 4) {
+        this.bladeWheel();
+        this.hexShields();
+      }
     } else if (o === 'O1') {
-      const hs = this.d.H / 1.68;
-      const s = this.d.s;
-      if (stage >= 1) this.drone(V(0.34 * s, 1.12 * hs, -0.14 * s), 0);
-      if (stage >= 2) {
-        this.drone(V(-0.34 * s, 0.95 * hs, -0.2 * s), 2.1);
-        this.reticleGauntlet();
-      }
-      if (stage >= 3) this.ordnancePods();
-      if (stage >= 4) this.finFunnels();
+      this.buildEmber(stage);
     } else if (o === 'O5') {
       if (stage >= 1) this.halo(stage >= 4 ? 3 : stage >= 3 ? 2 : 1);
       if (stage >= 2) this.armlets();
@@ -1216,7 +1217,7 @@ export class Heroine implements CharacterModel {
     // Boots: a line down the outer side.
     const pad = this.bootPad();
     if (pad > 0) {
-      const [t0, t1] = o === 'O1' ? [0.76, 0.97] : [0.12, 0.92];
+      const [t0, t1] = [0.12, 0.92];
       for (const [knee, side] of [[j.kneeL, 1], [j.kneeR, -1]] as const) {
         const pts = [t0, (t0 + t1) / 2, t1].map((t) => V(side * (this.calfR(t) + pad * s + 0.003 * s), -shin * t, 0));
         for (let i = 0; i < 2; i++) this.gline(knee, pts[i], pts[i + 1], 0.006, V(side, 0, 0));
@@ -1229,17 +1230,15 @@ export class Heroine implements CharacterModel {
     }
 
     if (o === 'O1') {
-      // Coat opening edges and the collar rim.
-      const half = 0.55;
+      // Princess seams down the front, the belt and the collar rim.
       for (const sx of [-1, 1]) {
-        const at = (r: number, y: number, d: number, h = half) => V(sx * Math.sin(h) * r, y, Math.cos(h) * r * d + 0.003 * s);
-        this.gline(j.chest, at(0.13 * s, 0, 0.74), at(0.158 * s * sw, neckRel * 0.6, 0.74), 0.006, V(0, 0, 1));
-        this.gline(j.chest, at(0.158 * s * sw, neckRel * 0.6, 0.74), at(0.13 * s * sw, neckRel * 0.96, 0.74), 0.006, V(0, 0, 1));
-        this.gline(j.spine, at(0.142 * s, 0, 0.8, half + 0.075), at(0.132 * s, chestRel, 0.8, half + 0.075), 0.006, V(0, 0, 1));
-        // Shorts side seams.
-        part(sx > 0 ? j.hipL : j.hipR, new THREE.BoxGeometry(0.004 * s, 0.06 * s, 0.012 * s), this.m.glow, [sx * 0.081 * limb, -0.02 * s, 0]);
+        const at = (r: number, y: number, d: number, h = 0.5) => V(sx * Math.sin(h) * r, y, Math.cos(h) * r * d + 0.003 * s);
+        this.gline(j.chest, at(0.116 * s, 0, 0.68), at(0.142 * s * sw, neckRel * 0.6, 0.68), 0.005, V(0, 0, 1));
+        this.gline(j.chest, at(0.142 * s * sw, neckRel * 0.6, 0.68), at(0.11 * s * sw, neckRel * 0.95, 0.68), 0.005, V(0, 0, 1));
+        this.gline(j.spine, at(0.125 * s, 0.014 * s, 0.76), at(0.116 * s, chestRel, 0.76), 0.005, V(0, 0, 1));
       }
-      part(j.chest, new THREE.TorusGeometry(0.084 * s, 0.003 * s, 4, 12, Math.PI * 1.3), this.m.glow, [0, neckRel * 1.02 + 0.035 * s, -0.01 * s], [Math.PI / 2, 0, Math.PI * 0.35 + Math.PI / 2]);
+      part(j.spine, new THREE.TorusGeometry(0.128 * s, 0.003 * s, 4, 20), this.m.glow, [0, 0.016 * s, 0], [Math.PI / 2, 0, 0], [1, 0.77, 1]);
+      part(j.chest, new THREE.TorusGeometry(0.06 * s, 0.003 * s, 4, 16, Math.PI * 2 - 0.6), this.m.glow, [0, neckRel * 1.07 + 0.048 * s, 0], [Math.PI / 2, 0, Math.PI / 2 + 0.3]);
     } else if (o === 'O5') {
       // Collar rim, chest straps and the sash.
       part(j.head, new THREE.TorusGeometry(0.043 * limb, 0.003 * s, 4, 12), this.m.glow, [0, this.d.headCenter * 0.4, 0], [Math.PI / 2, 0, 0]);
@@ -1272,8 +1271,8 @@ export class Heroine implements CharacterModel {
     }
   }
 
-  /** Shoulder guards and forearm bracers. */
-  private armorLight(big = false): void {
+  /** Shoulder guards and forearm bracers; `spikes` (the Vanguard stage) adds spikes, longer and glow-tipped as it grows. */
+  private armorLight(big = false, spikes = 0): void {
     const { s, limb, fore } = this.d;
     const j = this.rig.joints;
     const plate = this.m.plate;
@@ -1297,6 +1296,14 @@ export class Heroine implements CharacterModel {
         part(crest, taperBox(0.06 * s, 0.014 * s, 0.085 * s, 0.012 * s).rotateX(Math.PI), this.m.main);
         part(crest, new THREE.BoxGeometry(0.014 * s, 0.06 * s, 0.006 * s), this.lit, [0, 0.035 * s, -0.004 * s]);
       }
+      if (spikes > 0) {
+        // Swept up, out and back so they break the silhouette from the game camera behind her.
+        const k = [1, 1.2, 1.45, 1.6, 1.75][Math.min(spikes, 4)] * s;
+        const tip = spikes >= 2;
+        this.spike(g, 0.022 * k, 0.12 * k, V(side * R * 0.45, R * 0.5, -R * 0.15), V(side * 0.6, 1, -0.45), tip);
+        this.spike(g, 0.018 * k, 0.09 * k, V(side * R * 0.05, R * 0.55, -R * 0.55), V(side * 0.2, 0.9, -1), tip);
+        this.spike(g, 0.016 * k, 0.075 * k, V(side * R * 0.85, R * 0.1, -R * 0.1), V(side, 0.25, -0.35), tip);
+      }
       if (this.look.outfit === 'O5') {
         // Wrist cuff below the bell sleeve.
         part(el, limbGeo(0.033 * limb, 0.031 * limb, fore * 0.13), plate, [0, -fore * 0.86, 0]);
@@ -1306,12 +1313,18 @@ export class Heroine implements CharacterModel {
         part(el, limbGeo(r0, r0 * 0.95, fore * 0.32), plate, [0, -fore * 0.6, 0]);
         part(el, new THREE.BoxGeometry(0.01 * s, fore * 0.3, 0.036 * limb), this.m.main, [side * (r0 + 0.004 * s), -fore * 0.75, 0]);
         part(el, new THREE.BoxGeometry(0.004 * s, fore * 0.22, 0.008 * s), this.lit, [side * (r0 + 0.01 * s), -fore * 0.75, 0]);
+        if (spikes >= 2) {
+          // Two spikes swept back along the outside of the bracer.
+          for (const [y, len] of [[0.55, 0.075], [0.75, 0.06]]) {
+            this.spike(el, 0.014 * s, len * s, V(side * (r0 + 0.006 * s), -fore * y, -0.01 * s), V(side * 0.8, 0.35, -1), true);
+          }
+        }
       }
     }
   }
 
-  /** Chest plate with a glowing core, and two front hip plates. */
-  private armorMedium(): void {
+  /** Chest plate with a glowing core, and (unless `hipPlates` is off) two front hip plates. */
+  private armorMedium(hipPlates = true): void {
     const { s, neckRel } = this.d;
     const j = this.rig.joints;
     const sw = this.d.shoulderW / s / 0.155;
@@ -1328,7 +1341,7 @@ export class Heroine implements CharacterModel {
     part(j.chest, new THREE.CylinderGeometry(0.014 * s, 0.014 * s, 0.012 * s, 6), this.m.glow, [0, neckRel * 0.76, coreZ], [Math.PI / 2 - 0.25, 0, 0]);
     for (const sx of [-1, 1]) this.gline(j.chest, V(sx * 0.03 * s, neckRel * 0.6, coreZ - 0.008 * s), V(sx * 0.08 * s, neckRel * 0.66, coreZ - 0.016 * s), 0.004);
     // Front hip plates: hinged, so the thighs push them out like the skirt.
-    this.skirt({ y: 0.025 * this.d.s, rx: 0.175 * s, rz: 0.14 * s, len: 0.12 * s, count: 2, from: -0.32, to: 0.32, base: 0.32, mat: this.m.plate, matB: this.m.plate, t: 0.014 * s, trim: this.m.main, w: 0.07 * s });
+    if (hipPlates) this.skirt({ y: 0.025 * this.d.s, rx: 0.175 * s, rz: 0.14 * s, len: 0.12 * s, count: 2, from: -0.32, to: 0.32, base: 0.32, mat: this.m.plate, matB: this.m.plate, t: 0.014 * s, trim: this.m.main, w: 0.07 * s });
   }
 
   /** Knee guards, shin plates and heel thrusters. */
@@ -1546,6 +1559,260 @@ export class Heroine implements CharacterModel {
     }
   }
 
+  // ---------------------------------------------------------- Ember (Ranger) parts
+
+  /** Ember: the Combat line's evolution up to `stage`; dark plated feathers edged with light. */
+  private buildEmber(stage: number): void {
+    const { s } = this.d;
+    const dark = this.m.main;
+    const edged = stage >= 2;
+    if (stage >= 1) {
+      this.featherPauldrons(dark, dark, edged, stage >= 2 ? 4 : 2);
+      this.featherFins(dark, dark, edged, stage >= 2 ? 2 : 1);
+    }
+    if (stage >= 2) {
+      this.armorMedium(false);
+      this.furnaceCore();
+      this.tassets(4, 0.45, dark, true);
+      this.tailTips((tilt, len, halfW) => this.feather(tilt, halfW * 1.7, 0.11 * s, V(0, -len * 0.98, -0.005 * s), 0, dark, true));
+    }
+    if (stage >= 3) {
+      this.featherRuff(dark, true);
+      this.thighFeathers(dark, true);
+      this.thighVents();
+      this.greaves();
+      this.talons();
+    }
+    if (stage === 3) this.raptorWings({ lens: [0.3, 0.38, 0.42, 0.38, 0.3], w: 0.085, sweep: 0.6, pitch: 0.2, fan: [2.45, 0.3], m: () => dark, edge: true });
+    if (stage >= 4) {
+      const wings = this.raptorWings({ lens: [0.42, 0.52, 0.6, 0.62, 0.58, 0.5, 0.42, 0.34], w: 0.1, sweep: 0.45, pitch: 0.15, fan: [2.55, 0.22], m: () => dark, edge: true });
+      for (const w of wings) this.embers(w);
+      this.wreath();
+    }
+  }
+
+  /** Ember: a laurel wreath of small light-edged feathers floating over her head, open at the front. */
+  private wreath(): void {
+    const { r, headCenter, s } = this.d;
+    const base = new THREE.Group();
+    base.rotation.x = -0.12; // tipped back a little, like a worn wreath
+    this.rig.joints.head.add(base);
+    const y0 = headCenter + r * 1.45;
+    this.anim(base, (t) => (base.position.y = y0 + Math.sin(t * 1.5) * r * 0.05));
+    const R = r * 0.95;
+    part(base, new THREE.TorusGeometry(R, r * 0.03, 3, 28, Math.PI * 2 - 0.9), this.m.glow, [0, 0, 0], [Math.PI / 2, 0, Math.PI / 2 + 0.45]);
+    // Two branches from the back to the front, leaves paired along them, pointing forward and up.
+    const n = 7;
+    for (const sx of [-1, 1])
+      for (let k = 0; k < n; k++) {
+        const a = Math.PI - sx * (0.15 + (k / (n - 1)) * (Math.PI - 0.6)); // from the back round to the front
+        const at = V(Math.sin(a) * R, 0, Math.cos(a) * R);
+        for (const out of [-1, 1]) {
+          const leaf = new THREE.Group();
+          leaf.position.copy(at);
+          leaf.rotation.order = 'YXZ';
+          // Along the branch toward the front, splayed in and out of the ring, lifted.
+          leaf.rotation.set(-0.9, a + sx * Math.PI / 2, out * 0.55);
+          base.add(leaf);
+          const size = 1 - k * 0.06;
+          this.feather(leaf, 0.034 * s * size, 0.075 * s * size, V(0, 0, 0), Math.PI, this.m.main, true);
+        }
+      }
+  }
+
+  /** Something hung from the hem of panels `from`..`to` (by default the coat tails). */
+  private tailTips(build: (tilt: THREE.Group, len: number, halfW: number) => void, from = 0, to = this.coatTails): void {
+    for (const p of this.panels.slice(from, to)) build(p.tilt, p.len, p.halfW);
+  }
+
+  /**
+   * A plated feather (narrow root, wide middle, pointed tip) hanging from `pos` along -y with a
+   * glowing spine; `edge` also traces its outline in light.
+   */
+  private feather(parent: THREE.Object3D, w: number, L: number, pos: THREE.Vector3, rotZ: number, m: THREE.Material = this.m.plate, edge = false): THREE.Group {
+    const { s } = this.d;
+    const g = new THREE.Group();
+    g.position.copy(pos);
+    g.rotation.z = rotZ;
+    parent.add(g);
+    part(g, taperBox(w * 0.35, w, L * 0.45, 0.007 * s), m);
+    part(g, taperBox(w, w * 0.05, L * 0.55, 0.007 * s), m, [0, -L * 0.45, 0]);
+    part(g, new THREE.BoxGeometry(0.004 * s, L * 0.85, 0.01 * s), this.m.glow, [0, -L * 0.45, 0]);
+    if (edge) {
+      for (const e of [-1, 1]) {
+        const pts = [V(e * w * 0.175, 0, 0), V(e * w * 0.5, -L * 0.45, 0), V(0, -L, 0)];
+        for (const z of [-0.005 * s, 0.005 * s])
+          for (let i = 0; i < 2; i++) piece(g, pts[i].clone().setZ(z), pts[i + 1].clone().setZ(z), 0.004 * s, 0.003 * s, 0.004 * s, V(0, 0, Math.sign(z)), this.m.glow);
+      }
+    }
+    return g;
+  }
+
+  /** Ember: `n` overlapping feathers over each shoulder, falling back over the upper arm. */
+  private featherPauldrons(a: THREE.Material, b: THREE.Material, edge = false, n = 4): void {
+    const { s, limb } = this.d;
+    const j = this.rig.joints;
+    for (const [sh, side] of [[j.shoulderL, 1], [j.shoulderR, -1]] as const) {
+      const g = new THREE.Group();
+      g.position.set(side * 0.015 * s, 0.03 * s, -0.005 * s);
+      sh.add(g);
+      part(g, new THREE.SphereGeometry(0.062 * limb, 9, 4, 0, Math.PI * 2, 0, Math.PI * 0.42), this.m.plate, [0, -0.015 * s, 0], [0, 0, side * -0.35], [1.1, 0.8, 1]);
+      for (let k = 0; k < n; k++) {
+        const f = this.feather(g, 0.05 * s, (0.2 - k * 0.025) * s, V(side * (0.01 + k * 0.012) * s, -k * 0.012 * s, (0.03 - k * 0.025) * s), side * (0.35 + k * 0.12), k % 2 ? b : a, edge);
+        f.rotation.x = 0.25 + k * 0.1;
+      }
+    }
+  }
+
+  /** Ember: a ruff of feathers rising round the back of the collar. */
+  private featherRuff(m: THREE.Material, edge = false): void {
+    const { s, neckRel } = this.d;
+    const n = 7;
+    for (let k = 0; k < n; k++) {
+      const phi = (k / (n - 1) - 0.5) * 2.3;
+      const g = new THREE.Group();
+      g.rotation.order = 'YXZ';
+      g.rotation.set(0.5, Math.PI + phi, 0);
+      g.position.set(Math.sin(Math.PI + phi) * 0.06 * s, neckRel * 1.02, Math.cos(Math.PI + phi) * 0.06 * s);
+      this.rig.joints.chest.add(g);
+      // Feathers point up: built hanging, then flipped.
+      this.feather(g, 0.04 * s, (0.15 - Math.abs(phi) * 0.025) * s, V(0, 0, 0), Math.PI, m, edge);
+    }
+  }
+
+  /** Ember: feather tassets hanging from the belt over the front of the thighs, each with a pointed tip. */
+  private tassets(n: number, lenK: number, m: THREE.Material, edge: boolean, spread = 0.8): void {
+    const { s, thigh } = this.d;
+    const hw = this.d.hipW / s / 0.082;
+    const from = this.panels.length;
+    const len = thigh * lenK;
+    this.skirt({ y: 0.015 * s, rx: 0.162 * s * hw, rz: 0.132 * s, len, count: n, from: -spread, to: spread, base: 0.14, mat: m, matB: m, t: 0.01 * s, trim: this.m.main, w: 0.055 * s });
+    this.tailTips((tilt, l, halfW) => this.feather(tilt, halfW * 1.9, 0.08 * s, V(0, -l * 0.96, 0.004 * s), 0, m, edge), from, this.panels.length);
+  }
+
+  /** Ember: overlapping feathers down the outside of each thigh. */
+  private thighFeathers(m: THREE.Material, edge: boolean): void {
+    const { s, limb, thigh } = this.d;
+    const j = this.rig.joints;
+    for (const [hip, side] of [[j.hipL, 1], [j.hipR, -1]] as const) {
+      for (let k = 0; k < 3; k++) {
+        const f = this.feather(hip, 0.05 * s, (0.15 - k * 0.02) * s, V(side * (0.075 - k * 0.007) * limb, -thigh * (0.05 + k * 0.24), 0.005 * s), side * 0.1, m, edge);
+        f.rotation.y = side * Math.PI / 2;
+      }
+    }
+  }
+
+  /** Ember: forearm guards with `n` plated feathers swept back from each. */
+  private featherFins(a: THREE.Material, b: THREE.Material, edge: boolean, n = 2): void {
+    const { s, limb, fore } = this.d;
+    const j = this.rig.joints;
+    for (const [el, side] of [[j.elbowL, 1], [j.elbowR, -1]] as const) {
+      const r0 = 0.04 * limb;
+      part(el, limbGeo(r0, r0 * 0.9, fore * 0.5), this.m.plate, [0, -fore * 0.35, 0]);
+      for (let k = 0; k < n; k++) {
+        const g = new THREE.Group();
+        g.position.set(side * r0 * 0.7, -fore * (0.25 + k * 0.25), -r0 * 0.5);
+        g.rotation.set(1.95 - k * 0.15, side * 0.35, 0);
+        el.add(g);
+        this.feather(g, 0.035 * s, (0.13 - k * 0.025) * s, V(0, 0, 0), 0, k ? b : a, edge);
+      }
+    }
+  }
+
+  /**
+   * Ember: wings of feathers from the upper back. Standing, they spread and breathe slowly;
+   * running, they fold back toward the spine, close up and flutter. Returns the two wing groups.
+   */
+  private raptorWings(o: { lens: number[]; w: number; sweep: number; pitch: number; fan: [number, number]; m?: (k: number) => THREE.Material; edge?: boolean; y?: number }): THREE.Group[] {
+    const { s, neckRel } = this.d;
+    return [-1, 1].map((sx) => {
+      const root = new THREE.Group();
+      root.position.set(sx * 0.07 * s, neckRel * (o.y ?? 0.78), -0.13 * s);
+      this.rig.joints.chest.add(root);
+      part(root, new THREE.SphereGeometry(0.03 * s, 8, 6), this.m.main, [0, 0, 0], [0, 0, 0], [1, 1.3, 0.8]);
+      const wing = new THREE.Group();
+      root.add(wing);
+      const feathers = o.lens.map((len, k) => {
+        const m = o.m ? o.m(k) : k % 3 === 1 ? this.m.main : this.m.plate;
+        const f = this.feather(wing, o.w * s, len * 1.1 * s, V(0, 0, -k * 0.004 * s), 0, m, o.edge);
+        f.rotation.y = sx * k * 0.02;
+        return f;
+      });
+      this.anim(wing, (t) => {
+        const run = this.runK;
+        root.rotation.set(o.pitch + run * 0.25, sx * (o.sweep + run * 0.9), 0);
+        // Up and out, fanning down; running closes the fan and lays it back, streamlined.
+        feathers.forEach((f, k) => (f.rotation.z = sx * (o.fan[0] - run * 0.85 - k * o.fan[1] * (1 - run * 0.5))));
+        wing.rotation.y = sx * (0.1 * Math.sin(t * 1.1) * (1 - run) + 0.1 * Math.sin(t * 9) * run);
+      });
+      return wing;
+    });
+  }
+
+  /** Ember: sparks drifting up off a wing and shrinking away; running, they stream out behind. */
+  private embers(wing: THREE.Group): void {
+    const { s } = this.d;
+    const n = 9;
+    const sx = wing.parent!.position.x > 0 ? 1 : -1;
+    for (let i = 0; i < n; i++) {
+      const spark = part(wing, new THREE.OctahedronGeometry(0.008 * s), this.m.glow);
+      const x = (0.08 + ((i * 37) % 50) / 100) * s * sx;
+      this.anim(spark, (t) => {
+        const run = this.runK;
+        const u = (t * (0.25 + run * 0.35) + i / n) % 1;
+        spark.position.set(x * (1 - u * 0.2), (-0.15 + u * 0.55 * (1 - run * 0.6)) * s, (-0.02 - u * 0.45 * run) * s);
+        spark.scale.setScalar(Math.sin(u * Math.PI) * 1.2 + 0.01);
+      });
+    }
+  }
+
+  /** Ember: a glowing core in the breastplate with lines of light raying out across it. */
+  private furnaceCore(): void {
+    const { s, neckRel } = this.d;
+    const sw = this.d.shoulderW / s / 0.155;
+    const z = 0.158 * sw * s * 0.72 + 0.008 * s;
+    const c = V(0, neckRel * 0.76, z);
+    part(this.rig.joints.chest, new THREE.OctahedronGeometry(0.03 * s), this.m.glow, [c.x, c.y, c.z], [0, 0, 0], [0.8, 1.2, 0.5]);
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2 + Math.PI / 6;
+      const end = V(Math.cos(a) * 0.075 * s, neckRel * 0.76 + Math.sin(a) * 0.055 * s, z - 0.012 * s - Math.abs(Math.cos(a)) * 0.012 * s);
+      piece(this.rig.joints.chest, c.clone().add(V(Math.cos(a) * 0.02 * s, Math.sin(a) * 0.02 * s, 0)), end, 0.006 * s, 0.003 * s, 0.004 * s, V(0, 0, 1), this.m.glow);
+    }
+  }
+
+  /** Ember: dark plates on the front of the thighs with glowing vents. */
+  private thighVents(): void {
+    const { s, limb, thigh } = this.d;
+    for (const hip of [this.rig.joints.hipL, this.rig.joints.hipR]) {
+      const z = 0.064 * limb;
+      part(hip, new THREE.BoxGeometry(0.065 * limb, thigh * 0.38, 0.012 * s), this.m.main, [0, -thigh * 0.5, z], [-0.08, 0, 0]);
+      for (let k = 0; k < 3; k++) part(hip, new THREE.BoxGeometry(0.045 * limb, 0.006 * s, 0.006 * s), this.m.glow, [0, -thigh * (0.38 + k * 0.1), z + 0.007 * s - k * 0.002 * s]);
+    }
+  }
+
+  /** Ember: shin plates with a light line. */
+  private greaves(): void {
+    const { s, limb, shin } = this.d;
+    const pad = this.bootPad() * s;
+    for (const knee of [this.rig.joints.kneeL, this.rig.joints.kneeR]) {
+      const z = this.calfR(0.4) + pad + 0.006 * s;
+      part(knee, new THREE.BoxGeometry(0.052 * limb, shin * 0.4, 0.014 * s), this.m.plate, [0, -shin * 0.42, z], [0.06, 0, 0]);
+      part(knee, new THREE.BoxGeometry(0.004 * s, shin * 0.32, 0.006 * s), this.m.glow, [0, -shin * 0.42, z + 0.009 * s], [0.06, 0, 0]);
+    }
+  }
+
+  /** Ember: knee guards with a forward talon and a spur at each heel. */
+  private talons(): void {
+    const { s, limb, shin, ankle } = this.d;
+    const pad = this.bootPad() * s;
+    for (const knee of [this.rig.joints.kneeL, this.rig.joints.kneeR]) {
+      const kz = this.calfR(0) + pad + 0.01 * s;
+      part(knee, new THREE.BoxGeometry(0.06 * limb, 0.075 * s, 0.018 * s), this.m.plate, [0, 0.005 * s, kz], [-0.15, 0, 0]);
+      this.spike(knee, 0.014 * s, 0.07 * s, V(0, 0.02 * s, kz + 0.008 * s), V(0, 0.55, 1), true);
+      this.spike(knee, 0.012 * s, 0.06 * s, V(0, -shin - ankle * 0.3, -0.05 * s), V(0, -0.15, -1), true);
+    }
+  }
+
   /** Fin funnels: six blades floating in two V formations behind her. */
   private finFunnels(): void {
     const { s } = this.d;
@@ -1614,6 +1881,76 @@ export class Heroine implements CharacterModel {
     this.spinAxis(spin, 0.6);
   }
 
+  /** A plate-metal spike of radius `r` and length `len` from `base` along `dir`; `tip` gives it a glowing point. */
+  private spike(parent: THREE.Object3D, r: number, len: number, base: THREE.Vector3, dir: THREE.Vector3, tip = false): void {
+    const g = new THREE.Group();
+    g.position.copy(base);
+    g.quaternion.setFromUnitVectors(V(0, 1, 0), dir.clone().normalize());
+    parent.add(g);
+    part(g, new THREE.ConeGeometry(r, len, 5).translate(0, len / 2, 0), this.m.metal);
+    if (tip) part(g, new THREE.ConeGeometry(r * 0.36, len * 0.36, 5).translate(0, len * 0.18, 0), this.m.glow, [0, len * 0.68, 0]);
+  }
+
+  /** Vanguard: a crown of light blades floating above her head; `grand` adds a taller outer ring turning the other way. */
+  private floatingCrown(grand: boolean): void {
+    const { r, headCenter } = this.d;
+    const base = new THREE.Group();
+    base.rotation.x = -0.15; // tipped back a little, like a worn crown
+    this.rig.joints.head.add(base);
+    const y0 = headCenter + r * 1.5;
+    this.anim(base, (t) => (base.position.y = y0 + Math.sin(t * 1.6) * r * 0.06));
+    const ring = (R: number, n: number, tall: number, speed: number): void => {
+      const spin = new THREE.Group();
+      base.add(spin);
+      part(spin, new THREE.TorusGeometry(R, r * 0.055, 4, 28), this.m.metal, [0, 0, 0], [Math.PI / 2, 0, 0]);
+      part(spin, new THREE.TorusGeometry(R * 1.01, r * 0.03, 4, 28), this.m.glow, [0, r * 0.1, 0], [Math.PI / 2, 0, 0]);
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2;
+        const big = k % 2 === 0;
+        const len = r * (big ? tall : tall * 0.5);
+        const blade = new THREE.Group();
+        blade.position.set(Math.cos(a) * R, r * 0.05, Math.sin(a) * R);
+        blade.rotation.y = Math.PI / 2 - a; // flat face out
+        spin.add(blade);
+        // A flat, diamond-section blade leaning slightly outward.
+        part(blade, new THREE.OctahedronGeometry(1, 0).scale(r * (big ? 0.16 : 0.12), len / 2, r * 0.05), big ? this.m.glow : this.m.metal, [0, len / 2, 0], [0.16, 0, 0]);
+      }
+      this.spinAxis(spin, speed);
+    };
+    ring(r * 0.9, 6, 1.15, 0.4);
+    if (grand) ring(r * 1.3, 10, 1.7, -0.25);
+  }
+
+  /** Vanguard: a wheel of photon blades turning behind her back. */
+  private bladeWheel(): void {
+    const { s, shoulderRel } = this.d;
+    const wheel = new THREE.Group();
+    wheel.position.set(0, shoulderRel - 0.03 * s, -0.26 * s);
+    wheel.rotation.x = 0.1;
+    this.rig.joints.chest.add(wheel);
+    const spin = new THREE.Group();
+    wheel.add(spin);
+    part(spin, new THREE.TorusGeometry(0.17 * s, 0.011 * s, 4, 32), this.m.glow);
+    part(spin, new THREE.TorusGeometry(0.135 * s, 0.007 * s, 4, 32), this.m.metal);
+    // Hub emblem: a plated disc with a glowing four-point star, so the hair doesn't show through.
+    part(spin, new THREE.CircleGeometry(0.135 * s, 32), doubleSided(this.m.plate));
+    for (let k = 0; k < 2; k++) {
+      part(spin, new THREE.OctahedronGeometry(1, 0).scale(0.022 * s, 0.11 * s, 0.012 * s), this.m.glow, [0, 0, -0.006 * s], [0, 0, (k * Math.PI) / 2]);
+    }
+    const n = 8;
+    for (let k = 0; k < n; k++) {
+      const arm = new THREE.Group();
+      arm.rotation.z = (k / n) * Math.PI * 2;
+      spin.add(arm);
+      const L = (k % 2 ? 0.22 : 0.32) * s;
+      // A guard, then a long diamond blade with a glowing core, pointing out.
+      part(arm, new THREE.BoxGeometry(0.08 * s, 0.016 * s, 0.018 * s), this.m.metal, [0, 0.19 * s, 0]);
+      part(arm, new THREE.OctahedronGeometry(1, 0).scale(0.042 * s, L / 2, 0.01 * s), this.m.plate, [0, 0.2 * s + L / 2, 0]);
+      part(arm, new THREE.OctahedronGeometry(1, 0).scale(0.018 * s, L * 0.46, 0.014 * s), this.m.glow, [0, 0.2 * s + L / 2, 0]);
+    }
+    this.spinner(spin, 0.3);
+  }
+
   /** Vanguard: two hex photon shields hovering at her sides. */
   private hexShields(): void {
     const { s } = this.d;
@@ -1641,92 +1978,6 @@ export class Heroine implements CharacterModel {
     }
   }
 
-  /** Overwatch: a support drone hovering at `base` (model space). */
-  private drone(base: THREE.Vector3, phase: number): void {
-    const { s } = this.d;
-    const g = new THREE.Group();
-    g.scale.setScalar(1.4);
-    this.rig.root.add(g);
-    part(g, new THREE.SphereGeometry(0.042 * s, 9, 6), this.m.plate, [0, 0, 0], [0, 0, 0], [1, 0.78, 1.15]);
-    part(g, new THREE.TorusGeometry(0.045 * s, 0.007 * s, 4, 14), this.m.main, [0, 0, 0], [Math.PI / 2, 0, 0], [1, 1.15, 1]);
-    part(g, new THREE.CylinderGeometry(0.017 * s, 0.021 * s, 0.022 * s, 8), this.m.dark, [0, 0.002 * s, 0.045 * s], [Math.PI / 2, 0, 0]);
-    part(g, new THREE.CircleGeometry(0.013 * s, 8), this.m.glow, [0, 0.002 * s, 0.0565 * s]);
-    for (const sx of [-1, 1]) {
-      const fin = new THREE.Group();
-      fin.position.set(sx * 0.04 * s, 0, -0.012 * s);
-      fin.rotation.z = sx * 1.25;
-      g.add(fin);
-      part(fin, taperBox(0.034 * s, 0.012 * s, 0.055 * s, 0.006 * s), this.m.main);
-      part(fin, new THREE.BoxGeometry(0.004 * s, 0.04 * s, 0.008 * s), this.lit, [0, -0.025 * s, 0]);
-    }
-    part(g, new THREE.ConeGeometry(0.011 * s, 0.03 * s, 6), this.m.glow, [0, -0.046 * s, 0], [Math.PI, 0, 0]);
-    part(g, new THREE.CylinderGeometry(0.002 * s, 0.002 * s, 0.05 * s, 4), this.m.metal, [0.012 * s, 0.055 * s, -0.01 * s], [-0.3, 0, -0.2]);
-    this.hover(g, base, phase);
-  }
-
-  /** Overwatch: a slim bracer on the left forearm with a holo reticle turning off the wrist. */
-  private reticleGauntlet(): void {
-    const { s, limb, fore } = this.d;
-    const el = this.rig.joints.elbowL;
-    const r0 = 0.047 * limb;
-    part(el, limbGeo(r0, r0 * 0.94, fore * 0.34), this.m.plate, [0, -fore * 0.5, 0]);
-    part(el, new THREE.BoxGeometry(0.006 * s, fore * 0.26, 0.012 * s), this.lit, [r0 + 0.002 * s, -fore * 0.66, 0]);
-    const ret = new THREE.Group();
-    ret.position.set(r0 + 0.045 * s, -fore * 0.64, 0.005 * s);
-    ret.rotation.y = Math.PI / 2; // faces out from the arm
-    el.add(ret);
-    const spin = new THREE.Group();
-    ret.add(spin);
-    const R = 0.034 * s;
-    part(spin, new THREE.TorusGeometry(R, 0.0025 * s, 3, 22), this.m.glow);
-    for (let k = 0; k < 4; k++) {
-      const a = (k / 4) * Math.PI * 2;
-      part(spin, new THREE.BoxGeometry(0.004 * s, 0.016 * s, 0.003 * s), this.m.glow, [Math.cos(a) * R * 0.78, Math.sin(a) * R * 0.78, 0], [0, 0, a - Math.PI / 2]);
-    }
-    part(ret, new THREE.OctahedronGeometry(0.005 * s), this.m.glow);
-    this.spinner(spin, 0.8);
-  }
-
-  /** Overwatch: a sensor pod with a sweeping dish (left) and a missile pod (right) over the shoulders. */
-  private ordnancePods(): void {
-    const { s, shoulderRel } = this.d;
-    const sw = this.d.shoulderW / s;
-    for (const side of [1, -1]) {
-      const pod = new THREE.Group();
-      pod.position.set(side * (sw + 0.025 * s), shoulderRel + 0.085 * s, -0.08 * s);
-      pod.rotation.set(0.15, side * 0.25, side * -0.15);
-      this.rig.joints.chest.add(pod);
-      if (side > 0) {
-        part(pod, new THREE.BoxGeometry(0.06 * s, 0.07 * s, 0.09 * s), this.m.plate);
-        part(pod, new THREE.BoxGeometry(0.064 * s, 0.02 * s, 0.094 * s), this.m.main, [0, -0.025 * s, 0]);
-        part(pod, new THREE.BoxGeometry(0.004 * s, 0.03 * s, 0.05 * s), this.m.glow, [side * 0.032 * s, 0.008 * s, 0]);
-        const dish = new THREE.Group();
-        dish.position.set(0, 0.05 * s, -0.005 * s);
-        pod.add(dish);
-        part(dish, new THREE.CylinderGeometry(0.006 * s, 0.006 * s, 0.03 * s, 5), this.m.metal);
-        const cup = new THREE.Group();
-        cup.position.y = 0.02 * s;
-        cup.rotation.x = 1.0; // faces forward and up
-        dish.add(cup);
-        part(cup, new THREE.CylinderGeometry(0.045 * s, 0.012 * s, 0.014 * s, 12, 1, true), doubleSided(this.m.plate));
-        part(cup, new THREE.SphereGeometry(0.007 * s, 5, 4), this.m.glow, [0, 0.01 * s, 0]);
-        part(cup, new THREE.CylinderGeometry(0.002 * s, 0.002 * s, 0.03 * s, 4), this.m.metal, [0, 0.012 * s, 0]);
-        this.anim(dish, (t) => (dish.rotation.y = Math.sin(t * 0.8) * 1.1));
-        // Antenna whip behind.
-        part(pod, new THREE.CylinderGeometry(0.0025 * s, 0.0025 * s, 0.16 * s, 4), this.m.metal, [-0.018 * s, 0.1 * s, -0.04 * s], [-0.35, 0, 0]);
-        part(pod, new THREE.SphereGeometry(0.007 * s, 5, 4), this.m.glow, [-0.018 * s, 0.175 * s, -0.068 * s]);
-      } else {
-        part(pod, new THREE.BoxGeometry(0.07 * s, 0.075 * s, 0.11 * s), this.m.plate);
-        part(pod, new THREE.BoxGeometry(0.074 * s, 0.018 * s, 0.114 * s), this.m.main, [0, 0.03 * s, 0]);
-        part(pod, new THREE.BoxGeometry(0.062 * s, 0.052 * s, 0.004 * s), this.m.dark, [0, -0.008 * s, 0.056 * s]);
-        for (let i = 0; i < 2; i++)
-          for (let k = 0; k < 2; k++)
-            part(pod, new THREE.CylinderGeometry(0.009 * s, 0.009 * s, 0.006 * s, 6), this.m.glow, [(-0.015 + i * 0.03) * s, (-0.02 + k * 0.024) * s, 0.058 * s], [Math.PI / 2, 0, 0]);
-        part(pod, new THREE.BoxGeometry(0.05 * s, 0.01 * s, 0.03 * s), this.m.glow, [0, -0.04 * s, -0.035 * s]); // exhaust
-      }
-    }
-  }
-
   /** A part that hovers around a base position, drifting and turning a little. */
   private hover(obj: THREE.Object3D, base: THREE.Vector3, phase: number, sway = true): void {
     obj.position.copy(base);
@@ -1750,6 +2001,11 @@ export class Heroine implements CharacterModel {
 
   private anim(obj: object, tick: (t: number, dt: number) => void): void {
     this.floaters.push({ obj, tick });
+  }
+
+  /** 0 standing still .. 1 at a full run. */
+  private get runK(): number {
+    return clamp(this.speed / 4, 0, 1);
   }
 
   /** Animate hovering / spinning parts. */
@@ -1867,41 +2123,38 @@ export class Heroine implements CharacterModel {
     const j = this.rig.joints;
     const { s, limb, neckRel, chestRel, thigh } = this.d;
     if (key === 'O1') {
-      // Open long coat over a turtleneck knit, short shorts, ankle boots.
-      this.torso(m.legwear, m.second, m.second);
-      this.arms(m.main, m.main, m.skin);
-      this.legsGeo(m.skin, m.skin);
-      this.shoes('ankle');
-      for (const hip of [j.hipL, j.hipR]) part(hip, limbGeo(0.08 * limb, 0.077 * limb, 0.07 * s), m.legwear, [0, 0.01, 0]); // shorts legs
-      // Turtleneck with ribbing.
-      part(j.head, limbGeo(0.05 * limb, 0.056 * limb, this.d.headCenter * 0.3).translate(0, this.d.headCenter * 0.3, 0), m.second);
-      part(j.head, limbGeo(0.058 * limb, 0.06 * limb, this.d.headCenter * 0.12).translate(0, this.d.headCenter * 0.12, 0), shadeMat(m.second, 0.9)); // fold
-      // Cable-knit hint down the front.
-      for (const sx of [-1, 1]) part(j.chest, new THREE.BoxGeometry(0.012 * s, neckRel * 0.8, 0.01 * s), shadeMat(m.second, 0.82), [sx * 0.022 * s, neckRel * 0.45, 0.1 * s]);
-      // Pendant on a long chain.
-      part(j.chest, new THREE.TorusGeometry(0.018 * s, 0.004 * s, 4, 10), m.metal, [0, neckRel * 0.25, 0.115 * s]);
-      part(j.chest, new THREE.BoxGeometry(0.003 * s, neckRel * 0.6, 0.003 * s), m.metal, [0.025 * s, neckRel * 0.58, 0.11 * s], [0, 0, 0.12]);
-      part(j.chest, new THREE.BoxGeometry(0.003 * s, neckRel * 0.6, 0.003 * s), m.metal, [-0.025 * s, neckRel * 0.58, 0.11 * s], [0, 0, -0.12]);
-      // Coat body: an open shell on chest, waist and hips.
-      const gap = 1.1;
+      // Swallowtail coat: fitted and closed to the waist under a high collar, cut away at the
+      // front and falling in long split tails at the back; slim trousers, gloves, tall boots.
+      this.torso(m.legwear, m.main, m.main);
+      this.arms(m.main, m.main, m.dark);
+      this.legsGeo(m.legwear, m.legwear);
+      this.shoes('tall');
+      // The fitted torso is the coat; only the peplum, collar and trim sit on top of it.
       const coat = doubleSided(m.main);
-      const sw = this.d.shoulderW / s / 0.155;
-      part(j.chest, shellGeo([[0.13 * s, -0.01 * s], [0.145 * s, neckRel * 0.3], [0.158 * s * sw, neckRel * 0.6], [0.164 * s * sw, neckRel * 0.8], [0.13 * s * sw, neckRel * 0.96], [0.07 * s, neckRel * 1.06]], 0.74, gap), coat);
-      part(j.spine, shellGeo([[0.142 * s, -0.01 * s], [0.128 * s, chestRel * 0.55], [0.132 * s, chestRel + 0.01 * s]], 0.8, gap + 0.15), coat);
-      part(j.hips, shellGeo([[0.168 * s, 0.0], [0.155 * s, 0.05 * s], [0.142 * s, 0.09 * s]], 0.8, gap + 0.25), coat);
-      // Lapels and buttons along the opening.
-      for (const sx of [-1, 1]) {
-        part(j.chest, new THREE.BoxGeometry(0.045 * s, neckRel * 0.75, 0.012 * s), m.mainDark, [sx * 0.075 * s, neckRel * 0.6, 0.105 * s], [0.12, sx * 0.5, sx * -0.25]);
-        for (let i = 0; i < 2; i++) part(j.spine, new THREE.SphereGeometry(0.009 * s, 5, 3), m.accent, [sx * 0.07 * s, chestRel * (0.25 + i * 0.45), 0.098 * s]);
-        // Pocket flaps.
-        part(j.hips, new THREE.BoxGeometry(0.07 * s, 0.012 * s, 0.03 * s), m.mainDark, [sx * 0.135 * s, -0.04 * s, 0.07 * s], [0, sx * 0.9, 0]);
+      const hw = this.d.hipW / s / 0.082; // hip width factor, as in torso()
+      // Short peplum hugging the hips, open at the front.
+      part(j.hips, shellGeo([[0.158 * s * hw, 0.0], [0.143 * s, 0.05 * s], [0.127 * s, 0.088 * s]], 0.8, 1.9), coat);
+      // Slim belt with a clasp at the waist seam, and clasps closing the front.
+      part(j.spine, shellGeo([[0.128 * s, -0.012 * s], [0.125 * s, 0.014 * s]], 0.77), m.mainDark);
+      part(j.spine, new THREE.BoxGeometry(0.028 * s, 0.02 * s, 0.008 * s), m.metal, [0, 0.001 * s, 0.1 * s]);
+      for (const [p, y, z] of [[j.spine, chestRel * 0.55, 0.085], [j.chest, neckRel * 0.25, 0.089], [j.chest, neckRel * 0.6, 0.1]] as const) {
+        part(p, new THREE.OctahedronGeometry(0.008 * s), m.metal, [0, y, z * s], [0, 0, 0], [1.3, 1, 0.5]);
       }
-      // Coat collar standing up at the back of the neck.
-      part(j.chest, new THREE.CylinderGeometry(0.075 * s, 0.085 * s, 0.07 * s, 9, 1, true, Math.PI * 0.35, Math.PI * 1.3), coat, [0, neckRel * 1.02, -0.01 * s]);
-      // Sleeve cuffs.
-      for (const el of [j.elbowL, j.elbowR]) part(el, limbGeo(0.036 * limb, 0.04 * limb, 0.05 * s), m.mainDark, [0, -this.d.fore + 0.05 * s, 0]);
-      // Coat skirt to mid-thigh, open at the front.
-      this.skirt({ y: 0.0, rx: 0.17 * s, rz: 0.135 * s, len: 0.13 * s + thigh * 0.5, count: 10, from: 0.6, to: Math.PI * 2 - 0.6, base: 0.08, mat: coat, matB: coat, t: 0.012 * s, trim: m.mainDark });
+      // High standing collar, just open at the throat, with a pale rim.
+      part(j.chest, new THREE.CylinderGeometry(0.058 * s, 0.066 * s, 0.085 * s, 12, 1, true, 0.3, Math.PI * 2 - 0.6), coat, [0, neckRel * 1.07, 0]);
+      part(j.chest, new THREE.CylinderGeometry(0.0595 * s, 0.0595 * s, 0.01 * s, 12, 1, true, 0.3, Math.PI * 2 - 0.6), doubleSided(m.second), [0, neckRel * 1.07 + 0.042 * s, 0]);
+      // Sleeve cuffs over the gloves.
+      for (const el of [j.elbowL, j.elbowR]) part(el, limbGeo(0.034 * limb, 0.037 * limb, 0.045 * s), m.second, [0, -this.d.fore + 0.045 * s, 0]);
+      // Swallowtails: a long inner pair and a shorter outer pair each side, split at the spine.
+      const L = 0.1 * s + thigh * 0.95;
+      for (const side of [-1, 1]) {
+        const at = (a: number, b: number): [number, number] => (side > 0 ? [Math.PI + a, Math.PI + b] : [Math.PI - b, Math.PI - a]);
+        const [i0, i1] = at(0.13, 0.6);
+        const [o0, o1] = at(0.88, 1.33);
+        this.skirt({ y: 0.0, rx: 0.158 * s * hw, rz: 0.125 * s, len: L, count: 2, from: i0, to: i1, base: 0.06, mat: coat, matB: coat, t: 0.01 * s, trim: m.second });
+        this.skirt({ y: 0.0, rx: 0.158 * s * hw, rz: 0.125 * s, len: L * 0.62, count: 2, from: o0, to: o1, base: 0.1, mat: coat, matB: coat, t: 0.01 * s, trim: m.second });
+      }
+      this.coatTails = this.panels.length;
     } else if (key === 'O2') {
       // Puff-sleeve blouse, bow, high-waisted pleated skirt, thigh-high stockings.
       this.torso(m.main, m.main, m.second);
@@ -2083,6 +2336,8 @@ export class Heroine implements CharacterModel {
    */
   update(dt: number, extraVel?: THREE.Vector3): void {
     if (dt <= 0) return;
+    const v = this.anchorVel(this.rig, this.rig.root, dt, extraVel);
+    this.speed += (Math.hypot(v.x, v.z) - this.speed) * (1 - Math.exp(-dt * 5));
     if (this.floaters.length) this.updateFloaters(dt);
     this.rig.root.updateMatrixWorld(true);
     const steps = Math.min(4, Math.ceil(dt / (1 / 60)));

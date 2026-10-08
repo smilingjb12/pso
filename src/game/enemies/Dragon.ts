@@ -40,7 +40,7 @@ export class Dragon implements Hittable, Boss {
   readonly pos = this.group.position;
   readonly name = 'Dragon';
   readonly radius = cfg.radius;
-  readonly race: Race = 'abeast';
+  readonly race: Race = 'native';
   readonly injectorCharge = cfg.charge;
   readonly maxHp: number;
   hp: number;

@@ -26,6 +26,8 @@ export interface BossContext {
   burnPlayer(stacks: number): void;
   /** Paralyse with this chance (ward and immunity apply). */
   paralyse(chance: number): void;
+  /** Add Corruption stacks (Dark Falz). */
+  corruptPlayer(stacks: number): void;
   /** The player's body (for arena machinery, and pulling her around). */
   body(): Body;
   /** Summon a field enemy into the fight (no rewards when it dies). */
@@ -66,4 +68,8 @@ export interface Boss {
   onDot: ((target: Hittable, damage: number) => void) | null;
   /** Extra text after the name on the boss bar (the Warden's lockdown count). */
   readonly hudNote?: string;
+  /** Light it leaves on the floor (Dark Falz's Grants): cleanses Corruption like a pylon. */
+  lightAt?(x: number, z: number, r: number): boolean;
+  /** Standing in pylon light right now (set by the world): a Dark boss takes more damage there. */
+  setLit?(lit: boolean): void;
 }

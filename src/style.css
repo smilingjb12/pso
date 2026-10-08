@@ -313,6 +313,12 @@ canvas {
   color: #9aff50;
   font-size: 15px;
 }
+.float.corrupt {
+  color: #c070ff;
+  font-size: 17px;
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 8px rgba(160, 60, 255, 0.9), 0 1px 2px #000;
+}
 .float.para {
   color: #ffe040;
   font-size: 18px;

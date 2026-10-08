@@ -159,7 +159,7 @@ export class SkyDome {
         ring.renderOrder = -6;
         holder.add(ring);
       }
-      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: p.glow ?? p.color, transparent: true, opacity: 0.35, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: p.glow ?? p.color, transparent: true, opacity: p.glowOpacity ?? 0.35, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
       halo.scale.setScalar(p.size * 3.4);
       halo.renderOrder = -8;
       holder.add(halo);

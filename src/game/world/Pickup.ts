@@ -1,11 +1,12 @@
 import * as THREE from 'three';
-import { type DropVerdict, type ItemInstance } from '../character';
+import { itemName, type DropVerdict, type ItemInstance } from '../character';
+import { injectorCfg } from '../config';
 import { getDef } from '../data/items';
 import { glowDecal, glowSprite, markerTexture } from './glow';
 
-// Items and meseta lying on the ground.
+// Items, meseta and charge orbs lying on the ground.
 
-export type PickupContent = { kind: 'item'; item: ItemInstance } | { kind: 'meseta'; amount: number };
+export type PickupContent = { kind: 'item'; item: ItemInstance } | { kind: 'meseta'; amount: number } | { kind: 'charge' };
 
 const COLORS = {
   weapon: 0xff8a30,
@@ -17,6 +18,10 @@ const COLORS = {
   meseta: 0xffd040,
   upgrade: 0x30f060,
 };
+/** Charge orbs wear the colour of the injector they would fill (as on the HUD). */
+const ORB = { mate: 0x5aff7a, fluid: 0x5ac8ff };
+/** Seconds of blinking before a charge orb fades. */
+const ORB_BLINK = 4;
 /** Junk gems fade toward this grey. */
 const JUNK_GREY = new THREE.Color(0x5a5e66);
 
@@ -34,6 +39,8 @@ export class Pickup {
   readonly group = new THREE.Group();
   readonly pos = this.group.position;
   t = Math.random() * 10;
+  /** Seconds on the ground. */
+  age = 0;
   taken = false;
   /** What the drop means for the player (set by the game; null for meseta and until first set). */
   verdict: DropVerdict | null = null;
@@ -46,6 +53,8 @@ export class Pickup {
   private junk = false;
   /** Green ▲ over upgrades, built on first use. */
   private marker: THREE.Group | null = null;
+  /** Last setCharge() look, to skip repaints. */
+  private orbKey = '';
 
   constructor(readonly content: PickupContent, x: number, z: number) {
     this.pos.set(x, 0, z);
@@ -59,10 +68,13 @@ export class Pickup {
     }
     const rare = this.rare;
     this.color = new THREE.Color(color);
+    if (content.kind === 'charge') color = COLORS.injector;
     const geo =
       content.kind === 'meseta'
         ? new THREE.CylinderGeometry(0.25, 0.25, 0.08, 16).rotateX(Math.PI / 2)
-        : rare
+        : content.kind === 'charge'
+          ? new THREE.SphereGeometry(0.22, 16, 12)
+          : rare
           ? new THREE.BoxGeometry(0.55, 0.55, 0.55)
           : new THREE.OctahedronGeometry(0.3);
     this.gem = new THREE.Mesh(
@@ -73,7 +85,7 @@ export class Pickup {
     this.group.add(this.gem);
 
     // Soft halo around the gem plus a glow pool on the floor, so drops read from a distance.
-    this.haloSize = content.kind === 'meseta' ? 1.1 : rare ? 2.4 : grinder ? 2 : 1.6;
+    this.haloSize = content.kind === 'meseta' ? 1.1 : content.kind === 'charge' ? 1.4 : rare ? 2.4 : grinder ? 2 : 1.6;
     this.halo = glowSprite(color, this.haloSize, 0.7);
     this.halo.position.y = 0.6;
     this.pool = glowDecal(color, rare ? 2.6 : 1.8, 0.5);
@@ -90,16 +102,7 @@ export class Pickup {
   setVerdict(v: DropVerdict): void {
     this.verdict = v;
     const junk = v.look === 'junk' && !this.rare;
-    if (junk !== this.junk) {
-      this.junk = junk;
-      const c = this.color.clone();
-      if (junk) c.lerp(JUNK_GREY, 0.75);
-      this.gem.material.color.copy(c);
-      this.gem.material.emissive.copy(c);
-      this.gem.material.emissiveIntensity = junk ? 0.3 : 0.9;
-      this.halo.material.color.copy(c);
-      this.pool.material.color.copy(c);
-    }
+    if (junk !== this.junk) this.paint(junk, 0.75);
     const up = v.look === 'upgrade';
     if (up && !this.marker) {
       this.marker = new THREE.Group();
@@ -114,17 +117,49 @@ export class Pickup {
     if (this.marker) this.marker.visible = up;
   }
 
+  /**
+   * A charge orb takes the worn injector's colour, and dims like junk while it can't be taken (the
+   * injector is full, or none is worn): walking over it then leaves it lying.
+   */
+  setCharge(kind: 'mate' | 'fluid' | null, open: boolean): void {
+    const key = `${kind}|${open}`;
+    if (key === this.orbKey) return;
+    this.orbKey = key;
+    this.color.setHex(kind ? ORB[kind] : COLORS.injector);
+    this.paint(!open, 0.6);
+  }
+
+  /** A charge orb that has lain long enough (the game removes it). */
+  get expired(): boolean {
+    return this.content.kind === 'charge' && this.age >= injectorCfg.orbLife;
+  }
+
+  /** Colour the gem, halo and pool; `dim` greys it out with no pulse. */
+  private paint(dim: boolean, grey: number): void {
+    this.junk = dim;
+    const c = this.color.clone();
+    if (dim) c.lerp(JUNK_GREY, grey);
+    this.gem.material.color.copy(c);
+    this.gem.material.emissive.copy(c);
+    this.gem.material.emissiveIntensity = dim ? 0.3 : 0.9;
+    this.halo.material.color.copy(c);
+    this.pool.material.color.copy(c);
+  }
+
   get label(): string {
     if (this.content.kind === 'meseta') return `${this.content.amount} Meseta`;
-    const def = getDef(this.content.item.id);
-    let s = def.name;
-    if (this.content.item.grind) s += ` +${this.content.item.grind}`;
-    if ((this.content.item.qty ?? 1) > 1) s += ` x${this.content.item.qty}`;
-    return s;
+    if (this.content.kind === 'charge') return 'Charge orb';
+    return itemName(this.content.item);
   }
 
   update(dt: number): void {
     this.t += dt;
+    this.age += dt;
+    if (this.content.kind === 'charge') {
+      // Blink faster and faster before it fades.
+      const left = injectorCfg.orbLife - this.age;
+      this.group.visible = left > ORB_BLINK || Math.floor(left * (left < 1.5 ? 12 : 6)) % 2 === 0;
+    }
     const bob = Math.sin(this.t * 3) * 0.1;
     this.gem.rotation.y += dt * (this.junk ? 0.6 : 2);
     this.gem.position.y = 0.6 + bob * (this.junk ? 0.4 : 1);

@@ -1,13 +1,13 @@
-import { classes, STAT_LABEL, statsAtLevel, type StatKey } from '../game/data/classes';
-import { getDef, type ClassId, type WeaponKind } from '../game/data/items';
+import { KITS, noAttributes, STAT_LABEL, statsAtLevel, type KitId, type StatKey } from '../game/data/stats';
+import { getDef, type WeaponKind } from '../game/data/items';
 import { armorLook, CREATION_CHOICES, EVOLUTIONS, OUTFITS, PALETTES, type ChosenKey, type Look, type LookColors } from '../game/models/heroine';
 import { esc } from './Menus';
 import { MenuStage, type StageView } from './MenuStage';
 
 // Step-by-step appearance editor over the 3D stage. Used by character
-// creation (with class and name steps) and by the stylist in Pioneer 2.
+// creation (with kit and name steps) and by the stylist in Pioneer 2.
 
-export type StepId = 'class' | 'body' | 'hair' | 'colors' | 'face' | 'name' | 'review';
+export type StepId = 'kit' | 'body' | 'hair' | 'colors' | 'face' | 'name' | 'review';
 
 interface StepDef {
   title: string;
@@ -16,7 +16,7 @@ interface StepDef {
   spin?: boolean;
 }
 const STEP_DEFS: Record<StepId, StepDef> = {
-  class: { title: 'Class', hint: 'Choose how you fight. Your armour dresses you: each armour line has its own outfit, and better frames add gear and glow.', view: 'body' },
+  kit: { title: 'Kit', hint: 'There are no classes: every level gives attribute points (POW, DEX, MIND, DEF) and a Mag square, and where they go decides how you fight. The kit only sets your starting gear and Lv 1 stats. Your armour dresses you.', view: 'body' },
   body: { title: 'Body', hint: 'Pick her proportions.', view: 'body' },
   hair: { title: 'Hair', hint: 'Style and colour.', view: 'upper' },
   colors: { title: 'Colours', hint: 'Colour scheme. Your clothes come from your armour; preview its better frames below to see the glow colour. She turns so you can see her back.', view: 'body', spin: true },
@@ -38,8 +38,8 @@ const STAGE_STATS: StatKey[] = ['hp', 'tp', 'atp', 'dfp', 'mst', 'ata', 'evp'];
 export const hex6 = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 const choice = (key: ChosenKey) => CREATION_CHOICES.find((c) => c.key === key)!;
 
-export function classWeapon(cls: ClassId): WeaponKind {
-  return (getDef(classes[cls].startWeapon) as { kind: WeaponKind }).kind;
+export function kitWeapon(kit: KitId): WeaponKind {
+  return (getDef(KITS[kit].startWeapon) as { kind: WeaponKind }).kind;
 }
 
 let stage: MenuStage | null = null;
@@ -60,9 +60,9 @@ export class LookEditor {
 
   constructor(
     readonly steps: StepId[],
-    init: { look: Look; cls?: ClassId; name?: string },
+    init: { look: Look; kit?: KitId; name?: string },
     readonly finishLabel: string,
-    public cls: ClassId = init.cls ?? 'hunter',
+    public kit: KitId = init.kit ?? 'vanguard',
   ) {
     this.look = { ...init.look };
     this.colors = { ...init.look.colors };
@@ -84,9 +84,9 @@ export class LookEditor {
     return look;
   }
 
-  /** The outfit and stage shown: the class's starter armour at creation, else the frame worn (from the initial look). */
+  /** The outfit and stage shown: the kit's starter armour at creation, else the frame worn (from the initial look). */
   private gear(): { outfit: string; evo: number } {
-    return this.steps.includes('class') ? armorLook(this.cls) : { outfit: this.look.outfit, evo: this.look.evo ?? 0 };
+    return this.steps.includes('kit') ? armorLook(KITS[this.kit].attribute) : { outfit: this.look.outfit, evo: this.look.evo ?? 0 };
   }
 
   /** What the 3D stage shows: the look in its armour, or the previewed armour stage. */
@@ -130,8 +130,8 @@ export class LookEditor {
 
   private body(): string {
     switch (this.stepId) {
-      case 'class':
-        return this.classCards();
+      case 'kit':
+        return this.kitCards();
       case 'body':
         return this.options('body', 'cards');
       case 'hair':
@@ -151,19 +151,20 @@ export class LookEditor {
     }
   }
 
-  private classCards(): string {
-    const ids = Object.keys(classes) as ClassId[];
-    const max = Object.fromEntries(STAGE_STATS.map((k) => [k, Math.max(...ids.map((id) => statsAtLevel(classes[id], 20)[k]))])) as Record<StatKey, number>;
+  private kitCards(): string {
+    const ids = Object.keys(KITS) as KitId[];
+    const lv1 = (id: KitId) => statsAtLevel(KITS[id], 1, noAttributes());
+    const max = Object.fromEntries(STAGE_STATS.map((k) => [k, Math.max(...ids.map((id) => lv1(id)[k]))])) as Record<StatKey, number>;
     return `<div class="opt-grid one">${ids
       .map((id) => {
-        const c = classes[id];
-        const s20 = statsAtLevel(c, 20);
-        const bars = STAGE_STATS.map((k) => `<div class="sbar"><span>${STAT_LABEL[k]}</span><i style="--v:${(s20[k] / max[k]).toFixed(3)}"></i></div>`).join('');
-        return `<div class="opt class-opt${this.cls === id ? ' sel' : ''}" data-act="cls" data-arg="${id}" style="--c:${hex6(c.color)}">
-          <div class="opt-name">${c.name} <span class="opt-tag">${c.title}</span></div>
-          <div class="opt-desc">${c.desc}</div><div class="sbars">${bars}</div></div>`;
+        const k = KITS[id];
+        const s1 = lv1(id);
+        const bars = STAGE_STATS.map((st) => `<div class="sbar"><span>${STAT_LABEL[st]}</span><i style="--v:${(s1[st] / max[st]).toFixed(3)}"></i></div>`).join('');
+        return `<div class="opt class-opt${this.kit === id ? ' sel' : ''}" data-act="kit" data-arg="${id}" style="--c:${hex6(k.color)}">
+          <div class="opt-name">${k.name} <span class="opt-tag">kit</span></div>
+          <div class="opt-desc">${k.desc}</div><div class="sbars">${bars}</div></div>`;
       })
-      .join('')}</div><div class="dim small-note">Bars: stats at level 20, relative to the best class.</div>`;
+      .join('')}</div><div class="dim small-note">Bars: Lv 1 stats, relative to the best kit. After Lv 1 only your attribute points, Mag and gear count.</div>`;
   }
 
   /** Chips that show the outfit at each armour stage (preview only). */
@@ -209,9 +210,8 @@ export class LookEditor {
       `<div class="sum-row" data-act="goStep" data-arg="${step}"><span>${label}</span><b>${value}</b><i>edit</i></div>`;
     const name = (key: ChosenKey) => esc(choice(key).names[this.look[key]].name);
     const dots = (Object.keys(this.colors) as ColorKey[]).map((k) => `<i class="dotc" style="--sw:${hex6(this.colors[k]!)}"></i>`).join('');
-    const c = classes[this.cls];
     return `<div class="summary">
-      ${at('class') >= 0 ? line('Class', `${c.name} <span class="dim">${c.title}</span>`, at('class')) : ''}
+      ${at('kit') >= 0 ? line('Kit', KITS[this.kit].name, at('kit')) : ''}
       ${line('Body', name('body'), at('body'))}
       ${line('Hair', name('hair'), at('hair'))}
       ${line('Colours', `${name('palette')} ${dots}`, at('colors'))}
@@ -269,8 +269,8 @@ export class LookEditor {
         if (this.step === 0) return 'cancel';
         this.goto(this.step - 1);
         break;
-      case 'cls':
-        this.cls = arg as ClassId;
+      case 'kit':
+        this.kit = arg as KitId;
         break;
       case 'evo':
         this.previewEvo = Number(arg) === this.gear().evo ? null : Number(arg);

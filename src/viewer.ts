@@ -11,7 +11,7 @@ import {
 import { DragonModel, type DragonPoseParams } from './game/models/dragon';
 import { Heroine, PLAYER_LOOK, type CharacterModel } from './game/models/heroine';
 import { Humanoid, humanPoses, STYLES, type Grip } from './game/models/humanoid';
-import { CLASS_ARM, LEAD_FORMS, MAG_STATS, STAGE1, type MagStat } from './game/mag';
+import { LEAD_FORMS, MAG_STATS, STAGE1, type MagStat } from './game/mag';
 import { MagCompanion } from './game/models/mag';
 import { buildProp, type PropKind } from './game/models/props';
 import type { Pose, Rig } from './game/models/Rig';
@@ -20,6 +20,10 @@ import { gaitPose, PLAYER_GAIT, scaleGait } from './game/models/gait';
 import { PLAYER_SWING, swingFrame, WeaponHold, type HoldRequest } from './game/models/swings';
 import { LEFT_HAND_AT, type HiltTarget } from './game/models/twoHand';
 import { player as playerCfg } from './game/config';
+import {
+  BelraModel, belraPoses, BringerModel, bringerPoses, darvantModel, DelsaberModel, delsaberPoses, DimenianModel, dimenianPoses, SorcererModel, sorcererPoses,
+} from './game/models/ruins';
+import { AngelModel, FalzModel, falzPoses, HuskModel } from './game/models/falz';
 
 // Standalone model viewer: inspect and pose the procedural models without
 // running the game. Open /viewer.html on the dev server.
@@ -79,10 +83,17 @@ type Entry =
   | { kind: 'garanz' }
   | { kind: 'sinow' }
   | { kind: 'node' }
-  | { kind: 'warden' };
+  | { kind: 'warden' }
+  | { kind: 'dimenian'; color: number; scale: number }
+  | { kind: 'delsaber' }
+  | { kind: 'sorcerer' }
+  | { kind: 'belra' }
+  | { kind: 'bringer' }
+  | { kind: 'darvant' }
+  | { kind: 'falz'; form: 1 | 2 | 3 };
 
 const CATALOGUE: Record<string, Entry> = {
-  'Player (all classes)': { kind: 'human', style: 'player' },
+  Player: { kind: 'human', style: 'player' },
   'Old: HUmar': { kind: 'human', style: 'hunter' },
   'Old: RAmarl': { kind: 'human', style: 'ranger' },
   'Old: FOmarl': { kind: 'human', style: 'force' },
@@ -108,6 +119,17 @@ const CATALOGUE: Record<string, Entry> = {
   'Sinow Beat': { kind: 'sinow' },
   'Control Node': { kind: 'node' },
   'Warden': { kind: 'warden' },
+  Dimenian: { kind: 'dimenian', color: 0x4a5ad0, scale: 1 },
+  'La Dimenian': { kind: 'dimenian', color: 0xc0383e, scale: 1.05 },
+  'So Dimenian': { kind: 'dimenian', color: 0xd8a830, scale: 1.1 },
+  Delsaber: { kind: 'delsaber' },
+  'Chaos Sorcerer': { kind: 'sorcerer' },
+  'Dark Belra': { kind: 'belra' },
+  'Chaos Bringer': { kind: 'bringer' },
+  Darvant: { kind: 'darvant' },
+  'Dark Falz 1: husk': { kind: 'falz', form: 1 },
+  'Dark Falz 2: Falz': { kind: 'falz', form: 2 },
+  'Dark Falz 3: Angel': { kind: 'falz', form: 3 },
   'Prop: Pine': { kind: 'prop', prop: 'pine' },
   'Prop: Broadleaf': { kind: 'prop', prop: 'broadleaf' },
   'Prop: Tall pine (in-room)': { kind: 'prop', prop: 'tallpine' },
@@ -132,12 +154,12 @@ const CATALOGUE: Record<string, Entry> = {
 };
 
 /**
- * Every Mag form, one row per stage (top to bottom): Mag and the three class forms, then the
+ * Every Mag form, one row per stage (top to bottom): Mag and the four stage-1 forms (by leading attribute), then the
  * DEF / POW / DEX / MIND forms of stages 2, 3 and 4 (the twins). The plain Mag's stripes are lit.
  */
 const MAG_LINEUP: { stage: number; name: string; color: number; theme?: MagStat; glow: boolean; col: number; row: number }[] = [
   { stage: 0, name: 'Mag', color: 0xc8d4e8, glow: true, col: 0, row: 0 },
-  ...(['hunter', 'ranger', 'force'] as const).map((c, i) => ({ stage: 1, name: STAGE1[c][0], color: STAGE1[c][1], theme: CLASS_ARM[c], glow: false, col: i + 1, row: 0 })),
+  ...MAG_STATS.map((a, i) => ({ stage: 1, name: STAGE1[a][0], color: STAGE1[a][1], theme: a, glow: false, col: i + 1, row: 0 })),
   ...[2, 3, 4].flatMap((stage) =>
     MAG_STATS.map((s, i) => ({ stage, name: stage === 4 ? 'Ashvinau' : LEAD_FORMS[s][stage === 2 ? 0 : 1], color: LEAD_FORMS[s][2], theme: s, glow: false, col: i, row: stage - 1 })),
   ),
@@ -178,16 +200,27 @@ const GARANZ_ANIMS = ['idle', 'walk', 'plant', 'fire', 'stomp windup', 'stomp', 
 const SINOW_ANIMS = ['idle', 'run', 'crouch', 'leap', 'slash 1', 'slash 2', 'slash 3 (burns)', 'combo loop', 'hurt'];
 const NODE_ANIMS = ['live', 'destroyed'];
 const WARDEN_ANIMS = ['idle', 'slam', 'floor pattern', 'lockdown (reach)', 'vent (core open)', 'enraged', 'dead'];
+const DIMENIAN_ANIMS = ['idle', 'walk', 'windup', 'strike', 'attack loop', 'hurt'];
+const DELSABER_ANIMS = ['idle (guard)', 'walk', 'crouch', 'leap', 'slash 1', 'slash 2', 'slash 3', 'guard broken', 'hurt'];
+const SORCERER_ANIMS = ['idle', 'glide', 'cast', 'release', 'drain', 'blink', 'hurt'];
+const BELRA_ANIMS = ['idle', 'walk', 'punch windup', 'punch', 'punch loop', 'slam windup', 'slam', 'hurt'];
+const BRINGER_ANIMS = ['idle', 'gallop', 'rear', 'charge', 'laser', 'stomp', 'hurt'];
+const HUSK_ANIMS = ['idle', 'charge', 'open'];
+const FALZ_ANIMS = ['idle', 'glide', 'scythe windup', 'scythe', 'cast', 'release', 'slam', 'hurt'];
+const ANGEL_ANIMS = ['idle', 'charge', 'cast'];
 const NO_ANIMS = ['\u2014'];
 const ANIMS: Record<Entry['kind'], string[]> = {
   human: HUMAN_ANIMS, booma: BOOMA_ANIMS, brute: BOOMA_ANIMS, lily: LILY_ANIMS, migium: MIGIUM_ANIMS,
   derolle: DRL_ANIMS, dragon: DRAGON_ANIMS, prop: NO_ANIMS, weapon: NO_ANIMS, mag: NO_ANIMS,
   gunbot: GUNBOT_ANIMS, garanz: GARANZ_ANIMS, sinow: SINOW_ANIMS, node: NODE_ANIMS, warden: WARDEN_ANIMS,
+  dimenian: DIMENIAN_ANIMS, delsaber: DELSABER_ANIMS, sorcerer: SORCERER_ANIMS, belra: BELRA_ANIMS, bringer: BRINGER_ANIMS,
+  darvant: NO_ANIMS, falz: FALZ_ANIMS,
 };
+const FALZ_FORM_ANIMS = [HUSK_ANIMS, FALZ_ANIMS, ANGEL_ANIMS];
 const GRIPS = WEAPON_GRIP;
 
 const params = {
-  model: 'Player (all classes)',
+  model: 'Player',
   animation: 'idle',
   weapon: 'saber' as WeaponKind | 'none',
   playing: true,
@@ -213,6 +246,10 @@ let garanz: GaranzModel | null = null;
 let sinow: SinowModel | null = null;
 let node: NodeModel | null = null;
 let warden: WardenModel | null = null;
+/** Ruins rigs: the model and how to pose it (the viewer's animation name in, a pose out). */
+let ruins: { rig: Rig; pose: () => { pose: Pose; rate: number }; update?: () => void } | null = null;
+let husk: HuskModel | null = null;
+let angel: AngelModel | null = null;
 let time = 0;
 
 function frame(obj: THREE.Object3D): void {
@@ -252,6 +289,9 @@ function build(): void {
   sinow = null;
   node = null;
   warden = null;
+  ruins = null;
+  husk = null;
+  angel = null;
   brute = null;
   mags = [];
   const e = CATALOGUE[params.model];
@@ -307,6 +347,66 @@ function build(): void {
       warden = new WardenModel();
       root = warden.root;
       break;
+    case 'dimenian': {
+      const m = new DimenianModel(e.color);
+      m.rig.root.scale.setScalar(e.scale);
+      ruins = { rig: m.rig, pose: dimenianPose };
+      root = m.rig.root;
+      break;
+    }
+    case 'delsaber': {
+      const m = new DelsaberModel();
+      ruins = { rig: m.rig, pose: delsaberPose, update: () => (m.ward.emissiveIntensity = params.animation === 'idle (guard)' || params.animation === 'walk' ? 0.9 : 0.1) };
+      root = m.rig.root;
+      break;
+    }
+    case 'sorcerer': {
+      const m = new SorcererModel();
+      ruins = {
+        rig: m.rig,
+        pose: sorcererPose,
+        update: () => m.update(time, params.animation === 'cast' ? phase(1.3) : params.animation === 'drain' ? 0.8 : 0, params.animation === 'blink' ? Math.sin(phase(1) * Math.PI) : 0, true),
+      };
+      root = m.rig.root;
+      break;
+    }
+    case 'belra': {
+      const m = new BelraModel();
+      ruins = {
+        rig: m.rig,
+        pose: belraPose,
+        update: () => m.setReach(params.animation === 'punch' ? 8 : params.animation === 'punch loop' ? Math.max(0, Math.sin(phase(1.6) * Math.PI * 2)) * 8 : 0),
+      };
+      root = m.rig.root;
+      break;
+    }
+    case 'bringer': {
+      const m = new BringerModel();
+      ruins = {
+        rig: m.rig,
+        pose: bringerPose,
+        update: () => m.legs(time * 7, params.animation === 'gallop' || params.animation === 'charge' ? 1 : 0, params.animation === 'rear' ? phase(1.4) : 0),
+      };
+      root = m.rig.root;
+      break;
+    }
+    case 'darvant':
+      root = new THREE.Group().add(darvantModel());
+      root.children[0].position.y = 1.2;
+      break;
+    case 'falz':
+      if (e.form === 1) {
+        husk = new HuskModel();
+        root = husk.root;
+      } else if (e.form === 2) {
+        const m = new FalzModel();
+        ruins = { rig: m.rig, pose: falzPose, update: () => m.update(time, params.animation === 'cast' ? 1 : 0.3, 1) };
+        root = m.rig.root;
+      } else {
+        angel = new AngelModel();
+        root = angel.root;
+      }
+      break;
     case 'prop':
       root = buildProp(e.prop);
       break;
@@ -336,7 +436,7 @@ function build(): void {
     if (o instanceof THREE.Mesh) o.castShadow = true;
   });
   applyWireframe();
-  const anims = ANIMS[e.kind];
+  const anims = e.kind === 'falz' ? FALZ_FORM_ANIMS[e.form - 1] : ANIMS[e.kind];
   animCtrl.options(anims);
   if (!anims.includes(params.animation)) params.animation = anims[0];
   animCtrl.setValue(params.animation);
@@ -661,6 +761,129 @@ function poseWarden(w: WardenModel): void {
   });
 }
 
+function dimenianPose(): { pose: Pose; rate: number } {
+  switch (params.animation) {
+    case 'walk':
+      return { pose: dimenianPoses.walk(time * 6), rate: 10 };
+    case 'windup':
+      return { pose: dimenianPoses.windup(phase(1)), rate: 20 };
+    case 'strike':
+      return { pose: dimenianPoses.strike(), rate: 35 };
+    case 'attack loop': {
+      const k = phase(2);
+      if (k < 0.42) return { pose: dimenianPoses.windup(k / 0.42), rate: 20 };
+      if (k < 0.55) return { pose: dimenianPoses.strike(), rate: 35 };
+      return { pose: dimenianPoses.idle(time), rate: 5 };
+    }
+    case 'hurt':
+      return { pose: dimenianPoses.hurt(), rate: 20 };
+    default:
+      return { pose: dimenianPoses.idle(time), rate: 6 };
+  }
+}
+
+function delsaberPose(): { pose: Pose; rate: number } {
+  const k = phase(0.46);
+  switch (params.animation) {
+    case 'walk':
+      return { pose: delsaberPoses.walk(time * 5), rate: 10 };
+    case 'crouch':
+      return { pose: delsaberPoses.crouch(phase(1)), rate: 14 };
+    case 'leap':
+      return { pose: delsaberPoses.leap(), rate: 20 };
+    case 'slash 1':
+    case 'slash 2':
+    case 'slash 3':
+      return { pose: delsaberPoses.slash(Number(params.animation.slice(-1)) - 1, Math.min(1, k * 2)), rate: 30 };
+    case 'guard broken':
+      return { pose: delsaberPoses.broken(), rate: 14 };
+    case 'hurt':
+      return { pose: delsaberPoses.hurt(), rate: 20 };
+    default:
+      return { pose: delsaberPoses.idle(time), rate: 6 };
+  }
+}
+
+function sorcererPose(): { pose: Pose; rate: number } {
+  switch (params.animation) {
+    case 'glide':
+      return { pose: sorcererPoses.glide(1), rate: 6 };
+    case 'cast':
+      return { pose: sorcererPoses.cast(phase(1.3)), rate: 10 };
+    case 'release':
+      return { pose: sorcererPoses.release(), rate: 25 };
+    case 'drain':
+      return { pose: sorcererPoses.drain(time), rate: 12 };
+    case 'hurt':
+      return { pose: sorcererPoses.hurt(), rate: 18 };
+    default:
+      return { pose: sorcererPoses.idle(time), rate: 5 };
+  }
+}
+
+function belraPose(): { pose: Pose; rate: number } {
+  switch (params.animation) {
+    case 'walk':
+      return { pose: belraPoses.walk(time * 3), rate: 8 };
+    case 'punch windup':
+      return { pose: belraPoses.punchWindup(phase(1.3)), rate: 10 };
+    case 'punch':
+      return { pose: belraPoses.punch(), rate: 30 };
+    case 'punch loop': {
+      const k = phase(1.6);
+      return { pose: k < 0.5 ? belraPoses.punch() : belraPoses.punchWindup((k - 0.5) * 2), rate: 14 };
+    }
+    case 'slam windup':
+      return { pose: belraPoses.slamWindup(phase(1.2)), rate: 10 };
+    case 'slam':
+      return { pose: belraPoses.slam(), rate: 30 };
+    case 'hurt':
+      return { pose: belraPoses.hurt(), rate: 16 };
+    default:
+      return { pose: belraPoses.idle(time), rate: 5 };
+  }
+}
+
+function bringerPose(): { pose: Pose; rate: number } {
+  switch (params.animation) {
+    case 'gallop':
+      return { pose: bringerPoses.gallop(time * 7), rate: 10 };
+    case 'rear':
+      return { pose: bringerPoses.rear(phase(1.4)), rate: 10 };
+    case 'charge':
+      return { pose: bringerPoses.charge(time * 9), rate: 14 };
+    case 'laser':
+      return { pose: bringerPoses.laser(phase(1.2)), rate: 10 };
+    case 'stomp':
+      return { pose: bringerPoses.stomp(), rate: 30 };
+    case 'hurt':
+      return { pose: bringerPoses.hurt(), rate: 16 };
+    default:
+      return { pose: bringerPoses.idle(time), rate: 5 };
+  }
+}
+
+function falzPose(): { pose: Pose; rate: number } {
+  switch (params.animation) {
+    case 'glide':
+      return { pose: falzPoses.glide(1), rate: 6 };
+    case 'scythe windup':
+      return { pose: falzPoses.scytheWindup(phase(1)), rate: 12 };
+    case 'scythe':
+      return { pose: falzPoses.scythe(), rate: 30 };
+    case 'cast':
+      return { pose: falzPoses.cast(phase(1)), rate: 10 };
+    case 'release':
+      return { pose: falzPoses.release(), rate: 25 };
+    case 'slam':
+      return { pose: falzPoses.slam(), rate: 20 };
+    case 'hurt':
+      return { pose: falzPoses.hurt(), rate: 16 };
+    default:
+      return { pose: falzPoses.idle(time), rate: 5 };
+  }
+}
+
 function poseRig(rig: Rig, pr: { pose: Pose; rate: number }, dt: number, snap: boolean): void {
   rig.apply(pr.pose, snap ? 1 : dt, snap ? Infinity : pr.rate);
 }
@@ -686,6 +909,12 @@ function tick(dt: number, snap = false): void {
     node.update(time, params.animation === 'destroyed' ? 0 : 1);
   }
   if (warden) poseWarden(warden);
+  if (ruins) {
+    poseRig(ruins.rig, ruins.pose(), dt, snap);
+    ruins.update?.();
+  }
+  if (husk) husk.pose({ open: params.animation === 'open' ? 1 : 0, charge: params.animation === 'charge' ? 1 : 0, time, flash: false, shatter: 0 });
+  if (angel) angel.pose({ charge: params.animation === 'charge' ? 1 : 0, cast: params.animation === 'cast' ? 1 : 0, time, flash: false, presence: 1 });
   if (dragon) dragon.pose(dragonPose());
   // Owners stand facing the camera (+Z) so each Mag sits at its usual shoulder offset.
   mags.forEach((m, i) => m.update(snap ? 0 : dt, magOwner(i), Math.PI, false));

@@ -390,6 +390,27 @@
 .vbar .trail {
   background: #ffffff;
 }
+/* Barrier shield (Mag): a pale striped layer over the fill, as wide as the shield is a share of max HP. */
+.vbar .shield {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: repeating-linear-gradient(135deg, rgba(200, 240, 255, 0.75) 0 4px, rgba(120, 200, 255, 0.45) 4px 8px);
+  box-shadow: 0 0 6px rgba(140, 220, 255, 0.8);
+}
+/* Corruption (Ruins): the max HP it takes away, a cracked violet block at the right end of the bar. */
+.vbar .corrupt {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: repeating-linear-gradient(120deg, rgba(120, 40, 200, 0.95) 0 5px, rgba(60, 10, 110, 0.95) 5px 9px);
+  box-shadow: inset 2px 0 0 #d080ff, 0 0 8px rgba(170, 70, 255, 0.7);
+  transition: width 0.25s;
+}
 /* Quarter ticks (75 / 50 / 25 %). */
 .vbar .ticks {
   position: absolute;
@@ -459,7 +480,7 @@
   0%, 50% { border-color: #ff5a40; box-shadow: 0 0 8px #ff5a40; }
 }
 
-/* Injector doses (keys 1 / 2): a column per injector to the left of the gauges, doses stacked
+/* Injector doses (key 1): a column to the left of the gauges, doses stacked
    bottom-up. A dose comes off the top; the cell above the full ones fills from below as you fight. */
 .vinj {
   position: absolute;
@@ -479,15 +500,6 @@
   border: 1px solid #3f86f0;
   border-radius: 3px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
-}
-.inj-key {
-  order: 2;
-  font-size: 10px;
-  line-height: 12px;
-  padding: 0 3px;
-  border: 1px solid #5a7ab8;
-  border-radius: 2px;
-  color: #cfe0ff;
 }
 .inj-cells {
   display: flex;
@@ -512,8 +524,7 @@
 .inj-fluid {
   --inj: #5ac8ff;
 }
-.inj.empty .inj-key {
-  color: #ff8a70;
+.inj.empty {
   border-color: #a04030;
 }
 
@@ -560,6 +571,10 @@
 }
 .vchips .chip.ward {
   color: #8ad8ff;
+}
+.vchips .chip.corrupt {
+  color: #c88aff;
+  box-shadow: 0 0 6px rgba(160, 60, 255, 0.6);
 }
 @keyframes chip-blink {
   50% {
