@@ -1,11 +1,12 @@
 import { accuracy, attackTypes, casting, combo as comboCfg, enemies, formulas, magCfg, spellForms, type AttackTiming, type AttackType, type EnemyId, type Race } from './config';
-import { Combo, MAX_HITS, type AttackTypeMods, type ComboSettings } from './combo';
+import { Combo, hastened, MAX_HITS, type AttackTypeMods, type ComboSettings } from './combo';
 import type { Character } from './character';
 import { areas, expeditions, type ExpeditionId } from './data/areas';
 import { BOSSES } from './data/bosses';
 import { techniques, type TechId } from './data/techniques';
 import { hitChance, playerDamage } from './formulas';
 import { hardArch, hardScale } from './hard';
+import { asDifficulty, difficultyTag, type Difficulty } from './difficulty';
 
 // Rough damage-per-second figures for the weapon card, so two weapons can be compared per enemy race.
 // Same terms as Combat.hitTarget / finishCast and the real Combo timings, against one average enemy;
@@ -26,7 +27,9 @@ export interface Foe {
 }
 
 /** The average regular enemy of an expedition (each type counted once; Nightmare scaling applied). */
-export function expeditionFoe(exp: ExpeditionId, hard: boolean): Foe {
+export function expeditionFoe(exp: ExpeditionId, d: Difficulty | boolean): Foe {
+  const diff = asDifficulty(d);
+  const hard = diff !== 'normal';
   const ids = new Set<EnemyId>();
   const spawns: Partial<Record<Race, number>> = {};
   let bossRace: Race | null = null;
@@ -45,9 +48,9 @@ export function expeditionFoe(exp: ExpeditionId, hard: boolean): Foe {
   }
   const mainRace = RACES.reduce<Race | null>((best, r) => ((spawns[r] ?? 0) > (best ? (spawns[best] ?? 0) : 0) ? r : best), null);
   // Control nodes are switches, not fights.
-  const archs = [...ids].map((id) => enemies[id]).filter((a) => a.ai !== 'node').map((a) => (hard ? hardArch(a, hardScale(exp)) : a));
+  const archs = [...ids].map((id) => enemies[id]).filter((a) => a.ai !== 'node').map((a) => (hard ? hardArch(a, hardScale(exp, diff === 'hell')) : a));
   const avg = (v: (a: (typeof archs)[number]) => number) => Math.round(archs.reduce((t, a) => t + v(a), 0) / Math.max(1, archs.length));
-  return { dfp: avg((a) => a.dfp), evp: avg((a) => a.evp), label: `${expeditions[exp].name}${hard ? ' (Nightmare)' : ''}`, mainRace, bossRace };
+  return { dfp: avg((a) => a.dfp), evp: avg((a) => a.evp), label: `${expeditions[exp].name}${difficultyTag(diff)}`, mainRace, bossRace };
 }
 
 /** Seconds for one combo of these attacks chained at the earliest moment, plus the reset before the next. */
@@ -96,11 +99,11 @@ export function estimateDamage(ch: Character, foe: Foe, withSpell: boolean): Dam
     const dmg = Math.max(formulas.minDamage, playerDamage(atp * raceMult, dfp, type) * kind.damageScale * scale * rangeMult * finisher);
     return chance * n * dmg;
   };
-  const swingSecs = PATTERNS.map((p) => chainSeconds(comboCfg, attackTypes, kind.timing, p));
+  const swingSecs = PATTERNS.map((p) => chainSeconds(comboCfg, attackTypes, hastened(kind.timing, ch.hasteMult()), p));
 
   const tech = ch.selectedTech();
   const t = techniques[tech];
-  const swift = ch.hasMagPassive('swiftCast') ? magCfg.swiftCastMult : 1;
+  const swift = (ch.hasMagPassive('swiftCast') ? magCfg.swiftCastMult : 1) * ch.hasteMult();
   const castTiming = { windup: t.castTime * swift, active: 0, recovery: t.recovery * casting.recoveryMult * swift };
   const castSecs = chainSeconds(casting, spellForms, castTiming, Array<AttackType>(MAX_HITS).fill('heavy'));
   const perCast = ch.techDamage(tech) * spellForms.heavy.powerMult;

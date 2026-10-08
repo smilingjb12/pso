@@ -5,6 +5,9 @@
 //   __h.bot(sec)     fight nearby enemies with a naive combo bot (opts.late: chain this many s into the window)
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { mix } from './audio';
+import { engine } from './audio/engine';
+
 export function installHarness(game: any): void {
   // Pointer lock can't be granted to scripted input; failed requests would re-show the pause overlay.
   // Only stub it once a script starts driving the game, so normal play keeps working.
@@ -13,6 +16,9 @@ export function installHarness(game: any): void {
     if (scripted) return;
     scripted = true;
     game.input.requestLock = () => {};
+    // Scripted sessions run in tool browsers: keep them silent (real play never calls the harness).
+    mix.master = 0;
+    engine.applyMix();
   };
   const canvas = () => document.querySelector('canvas') as HTMLCanvasElement;
   const key = (code: string, type: 'keydown' | 'keyup' = 'keydown') => window.dispatchEvent(new KeyboardEvent(type, { code }));

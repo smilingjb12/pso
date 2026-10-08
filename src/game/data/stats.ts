@@ -198,7 +198,8 @@ export const KITS: Record<KitId, KitDef> = {
   },
 };
 
-export const MAX_LEVEL = 100;
+/** Hell's bands run to Lv 122. */
+export const MAX_LEVEL = 130;
 
 /** XP needed to go from `level` to `level + 1`. */
 export function xpToNext(level: number): number {

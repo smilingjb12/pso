@@ -33,13 +33,15 @@ export const statuses = {
   burnStackTime: 3,
   burnMoveMult: 3.5,
   /**
-   * Corruption (Ruins): each stack takes this share of max HP away (current HP follows), up to the cap.
-   * It never wears off on its own: pylon light sheds one stack per corruptLightTime s, and a cleared room,
-   * a Sol dose or Pioneer 2 clear it all.
+   * Corruption (Ruins, every Hell enemy): each stack takes this share of max HP away (current HP follows), up to the cap.
+   * Every application resets a corruptDuration s timer; once it runs out a stack wears off every corruptWearTime s.
+   * Pylon light sheds one stack per corruptLightTime s, and a cleared room, a Sol dose or Pioneer 2 clear it all.
    */
   corruptPctPerStack: 0.06,
   corruptMaxStacks: 5,
   corruptLightTime: 1,
+  corruptDuration: 30,
+  corruptWearTime: 2,
 };
 
 /**

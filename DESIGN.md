@@ -8,7 +8,7 @@ Living spec agreed during the kickoff interview. Gameplay first, graphics later.
   see their sections below.
 - Target run length for a fresh character: **~15–20 min**; each floor is a checkpoint (see Death & Saves).
 - **Single-player only.** No networking plans.
-- **Normal and Nightmare**, chosen at login, Diablo style (Nightmare opens after Dark Falz; see "Nightmare"). More later. No Section IDs yet.
+- **Normal, Nightmare and Hell**, chosen at login, Diablo style (Nightmare opens after Dark Falz on Normal, Hell after it falls on Nightmare; see "Nightmare" and "Hell"). No Section IDs yet.
 
 ## Tech
 - **TypeScript + Vite + three.js**.
@@ -409,15 +409,25 @@ player deep in an expedition without them had no way back up; and the consumable
   **equipped frame** decides them (`armorLook`, `playerLook`), like a Mag evolving. The frame's line picks the
   outfit: Guard (melee) = Ranger jacket, Combat (ranged) = Coat & knit, Psy (caster) = Force robe; a Standard
   frame (or none) gives the leading attribute's outfit (POW / DEF jacket, DEX coat, MIND robe). Its tier picks an **evolution stage** (`TIER_STAGE`): T1 = 0,
-  T2 = 1, T3-4 = 2, T5-7 = 3, T8-11 (Nightmare) = 4, so Normal tops out at stage 3 (the Ruins' T7 included). Each stage keeps the parts
-  before it (`EVOLUTIONS`): glow trim from stage 2, circuit lines from 3, a slow pulse at 4.
-  - **Vanguard** (Guard): pauldrons + bracers → breastplate, hip plates, plated coat tails → finned
-    thruster pods, knee/shin plates, heel jets → thruster blades + two hex photon shields.
-  - **Overwatch** (Combat): a support drone → a second drone + holo-reticle gauntlet → sensor pod and
-    missile pod over the shoulders → six fin funnels.
-  - **Halo** (Psy): a halo ring → floating armlets round the upper arms → an orbit ring with crystals
-    round the hips, halo rune plates → seraph wings of light and a mandala halo.
-  Barriers don't change the look. Creation and the Stylist show an armour preview row (stages 0-4) on the
+  T2 = 1, T3-4 = 2, T5-7 = 3, T8-11 (Nightmare) = 4, T12-15 (Hell) = 5, so Normal tops out at stage 3 (the Ruins' T7 included). Each stage keeps the parts
+  before it (`EVOLUTIONS`, whose descriptions are the reference): glow trim from stage 2, circuit lines from 3, a slow pulse at 4.
+  - **Vanguard** (Guard): spiked pauldrons + bracers → warplate with a core, hip plates, plated coat tails →
+    a floating crown of light blades, knee / shin plates, heel jets → a taller crown ring, a wheel of photon
+    blades behind her back, two hex shields → **Imperator** (Hell): the wheel's hub becomes an eclipse ringed by
+    an outer circle of lances turning the other way, and a two-part cape of light that bends back when she runs.
+  - **Ember** (Combat): dark feathers over the shoulders → light-edged plumage, furnace core, feather tassets →
+    small folded wings, ruff, talons → full wings shedding sparks and a feather wreath → **Phoenix** (Hell): a
+    tail of five feathered plumes with glowing eyes, fanned standing and streaming out running; the core becomes an eclipse.
+  - **Halo** (Psy): a halo ring → floating armlets → an orbit ring with crystals round the hips, halo rune
+    plates → seraph wings of light and a mandala halo → **Archon** (Hell): six-feathered wings, an eclipse at the
+    halo's heart, and floating pauldrons of three nested plates crowned with tall crystal spires (above her head).
+    (Two great crossing rings were tried first and turned down: no more hoops.)
+  - **Every Hell frame** (stage 5) also gets: **burning eyes** (the iris glows in the glow colour with a white
+    core; wisps of light stream off the outer corners, trailing back as she runs), **glowing veins** down the
+    outer forearms, outer thighs and the backs of the calves (the robe hides the legs) with a pulse of light
+    climbing from the feet every couple of seconds, and **motes of light** spiralling up around her. The shared
+    Hell motif is the **eclipse**: a dark disc with a lit rim and a breathing corona.
+  Barriers don't change the look. Creation and the Stylist show an armour preview row (stages 0-5) on the
   Colours step so the glow colour can be judged. Previews: **`/armorlab.html`** (all lines, or one line from
   the front and from behind; optional Mag to check clutter), sheets in `armor-previews/`.
 - **Character Lab:** `/charlab.html` compares those variations side by side (idle, run, turntable).
@@ -698,14 +708,18 @@ asked for the environment to be **darker and more ominous** than the first, brig
 
 ### Corruption (player status)
 - Each stack takes **6% of max HP** away, up to **5** (−30%); current HP drops with it and heals fill only to the
-  lowered max. It never wears off by itself: **pylon light** (or a Grants pool) sheds one stack a second, and a
-  **cleared room**, a **Sol** dose, a boss kill or Pioneer 2 clear it all.
-- Only attacks that **telegraph in violet** corrupt (a melee windup that corrupts heats up violet, not orange): So
+  lowered max. It wears off by itself after a while (below); **pylon light** (or a Grants pool) sheds one stack a
+  second, and a **cleared room**, a **Sol** dose, a boss kill or Pioneer 2 clear it all.
+- Only attacks that **telegraph in violet** corrupt (on Hell any landed hit may; see "Hell") (a melee windup that corrupts heats up violet, not orange): So
   Dimenian cuts (50%), Chaos Sorcerer spells, the Dark Belra slam, Chaos Bringer lasers, Dark Falz's husk pulse, the
   Angel's halves and Megid orbs (two stacks).
 - HUD: the HP bar keeps its full width and the lost share shows as a cracked violet block at its right end; a chip
   reads `CORRUPT ×n · LIGHT` (the hint goes once you stand in light).
 - **Seal of Light** (Dark Falz signature barrier) and **Falz Halo** (its Nightmare twin) halve what Corruption takes.
+- **Corruption wears off by itself** (2026-10-08, with Hell; all difficulties). Every application, even at the cap,
+  resets a shared **30 s** timer (`statuses.corruptDuration`); when it runs out, the stacks shed one every **2 s**
+  (`corruptWearTime`), so there is no sudden +30% HP refill. Pylons, Grants pools, cleared rooms, Sol, boss kills and
+  Pioneer 2 still clean it faster. The HUD chip shows the timer (`CORRUPT ×3 · 24s`, then `FADING`, or `LIGHT`).
 
 ### Light pylons (`world/Pylon.ts`)
 - 1–2 per room (`pylons` in the room data), solid obelisks with a crystal. **R lights one**: a **5 m** circle for
@@ -915,8 +929,123 @@ expeditions on up the level curve, PSO style, and gets harder through mechanics 
   Le Lv 50 tier 8: 159 s / 2.3 (Normal Lv 20: 61 s / 0.3). Hard Warden Lv 60 tier 9 with the bot killing drones:
   165 s / 8.3 (Normal Lv 30: 174 s / 10.7).
 
+## Hell
+Planned in an ideas round and built on 2026-10-08. The user's picks: every enemy corrupts, a third boss phase with
+triple telegraphs, a new armour tier with new visuals (stage 5, see "Armour looks"), a **Haste** stat, far more
+affixed enemies, and Corruption wearing off by itself everywhere. Turned down: Corruption as a power upside, a Shade
+that hunts heavily corrupted players, Darkened drops, pylons in every area, Falz-spawn incursions, immunities,
+Hell-only affixes, named monsters, a Dark Falz 4th form, Sealed weapons, death penalties. Numbers live in `config/`
+(`hell`, `hasteCfg`, `statuses.corrupt*`); the run state's `hell` flag (with `hard`, since Hell uses Nightmare's
+mechanics); `src/game/difficulty.ts` names the three difficulties.
+
+### Structure
+- A third difficulty after Nightmare, **unlocked by killing Dark Falz on Nightmare** (`hellOpen`), picked at login
+  like the others (the picker starts on the hardest one open). Inside it the boss chain repeats (Hell Caves needs
+  the Hell Dragon, and so on; `stats.hellKills`). Area names read "(Hell)". Debug panel: "unlock Hell".
+- **Level bands:** Forest 82–92, Caves 92–102, Mines 102–112, Ruins 112–122. `MAX_LEVEL` went from 100 to 130.
+- **Same maps and waves.** Field enemies scale per expedition the Nightmare way, carrying on about one band per
+  expedition from the Nightmare Ruins with HP growing a little less steeply (~×1.15 a band instead of ~×1.25):
+  Forest HP ×15.2 / ATP +569, Caves ×7.7 / +577, Mines ×5.2 / +551, Ruins ×4.3 / +545 (DFP about +165-170, ATA
+  about +220, EVP about +130). Tempo is Nightmare's. XP ×56 / 21 / 9.6 / 5.7 keeps roughly 24 regular kills a level
+  (elites and champions make it faster). No XP falloff.
+
+### Every enemy corrupts
+- On Hell any landed enemy or boss hit (melee strikes and area attacks, not beam ticks) corrupts at **30%**
+  (`hell.corruptChance`; `Combat.hellCorrupt`, set when an area loads); attacks that already corrupt (violet)
+  don't roll twice. It is a trait of the difficulty, not an affix, so elites and champions keep their full affixes.
+- With Corruption wearing off by itself, no pylons are added outside the Ruins. Expect to sit near the cap in
+  long fights: the hit chance and the % per stack are the tuning knobs.
+
+### More affixes
+- Elites: **40%** of spawns in the Hell Forest, 48% Caves, 56% Mines, **65%** Ruins (`hell.<exp>.elite`;
+  Nightmare: 25%), one affix from the whole pool as on Nightmare.
+- Champions: **every room** has one; rooms with at least 9 spawns in the Hell Ruins (the last room of each floor)
+  get two (`hell.bigRoomSpawns`).
+- Guard rails for that density (Hell only):
+  - At most **2 affix area attacks** warning at once (Stormcaller circles, Volatile vents, Molten globs;
+    `World.claimAffixArea`): one that can't start retries 0.4 s later.
+  - At most **one Splitting** enemy per room.
+  - Shielding and Regenerating enemies don't tether or heal each other.
+
+### Haste (player stat)
+- Swing wind-ups and recoveries and technique casts and their recoveries take **1 / (1 + Haste%)** as long
+  (`hastened` in `combo.ts`); the poses follow because they are driven by combo time. Not movement, dash,
+  injectors, or the chain window's grace. The damage table counts it.
+- **Rolls on dropped weapons, frames and barriers** from **tier 11** (the Nightmare Ruins) up, on 75% of them,
+  1% up to the tier's cap: T11 3%, T12 5%, T13 7%, T14 9%, T15 12% (`hasteCfg`); what is worn adds up (~9% at the
+  end of Nightmare, ~36% at the top of Hell; 25% cancels Nightmare's enemy recovery ×0.8). Shop stock never has it.
+  Shown on the item card ("Haste +7%"), in the compare table and the pickup note; not in the name.
+- Weight classes keep their gap: Haste multiplies a heavy weapon's already longer timings.
+
+### Loot
+- **Tiers 12–15** of every weapon kind (Galaxy Saber ... Omega Saber), armour line and barrier (Sovereign Frame /
+  Phantom Frame / Oracle Garment ... Imperator Frame / Phoenix Frame / Archon Garment), carrying on each table's
+  steps: weapon reqs ATP 365-455, ATA 240-285, MST 410-500; armour reqs at the line's class stat for Lv 84 / 92 / 100 / 108.
+  Hell enemies drop the top three tiers up to their expedition's (Forest T10–12 ... Ruins T13–15).
+- **No Hell rares or signature drops yet** (an empty rare pool never rolls one). Hell bosses drop their tier
+  twice over instead: two weapons and two armour pieces of the top two tiers, a modded tier 6 injector, three
+  grinders and 30k / 40k / 52k / 66k Meseta.
+- Shops stock tier 12 / 13 / 14 / 15 from Lv 92 / 102 / 112 / 122 once the matching Hell boss is dead.
+
+### Bosses
+- Built 2026-10-08 (one agent per boss, each checked with scripted rolls: the safe spot is picked first and the
+  rest built around it; every roll left exactly one safe pocket, reachable on foot in time, and a walker following
+  it took no hits while standing still always got hit). Hell bosses scale the Nightmare way: HP ×23.6 / 13 / 4 / 3.6
+  and ATP +530 / +540 / +540 / +520 (Dragon / De Rol Le / Warden / Dark Falz), flat damage ×5.4 / 3.9 / 2.95 / 2.7,
+  XP 8500 / 13800 / 17600 / 22400 (`hell.bosses`, whose `hell: true` opens what follows).
+- **Third phase** (Dragon, De Rol Le, Warden) at **1/3 HP** on Hell, with a banner, the battle layer and a violet
+  cue on the body; it keeps everything from the phases before (Nightmare's pairs included). **Every second attack
+  is a triple** (the Warden: its first, then every third), alternating kinds; the attacks between are normal ones.
+  Triples: **three telegraphs warned at once** (the third starts ~0.3 s after the first two and fires with them),
+  **exactly one safe route**, never shortened by enrage below the floors noted.
+  - **Dragon** ("The Dragon burns with Hellfire!"; hide and head pulse violet). The **Hellfire** is a violet,
+    corrupting ring reaching past anywhere she can walk, warned 0.3 s after the others and landing 1.8 s later.
+    - **Wing** (within ~8 m): breath + a 7 m tail sweep all round except a 60° wedge ~60° off her nose + Hellfire
+      from 7 m out. Safe: tucked under one shoulder.
+    - **Gap**: breath + the 6 m tail quake + Hellfire with one 4 m gap at her range, just clear of the cone.
+    - **Lane**: charge + tail quake + Hellfire with the gap beside the charge lane.
+    - Front warnings 1.7 s. A triple's breath holds its aim, and a triple's charge stops if it grazes a rock or
+      wall (so it can't slide off its warned lane into the pocket). If no layout leaves a reachable pocket she
+      attacks normally and tries again next time.
+  - **De Rol Le** (after the shell is gone; "De Rol Le turns to the dark!"; its body pulses violet).
+    - **Slam + mines + poison**: the lane on where you stand; a mine row leaves a 2.5 m strip after the lane on one
+      side (the pocket); two rows of puddles seal the other side. One slam, full rest after.
+    - **Beam + poison + mines**: the head rears 2.6 m in from your side; the beam covers all but a 2.6 m strip along
+      your flank; puddles run down that strip toward the head; a mine row past you seals the far end. The pocket
+      is the strip beside you.
+    - Lane / beam and poison 1.6 s, mines 1.85 s. Known gap: run far down the raft while the beam sets up and it
+      falls back to the Nightmare beam + poison pair.
+  - **Warden** ("The Warden breaks its limits!"; visor, vents and projectors violet). The safe cell is picked first:
+    never your cell, never burning, never in front of the core (its collider would shove you off), within 4.5 m.
+    - **Diagonals + wall + slam**: the wall's gap is one cell wide (the usual 5 m gap left slivers) on the safe
+      cell's column; the diagonal wave leaves the safe cell and one lane cell dark, and a hand slams that one.
+    - **Holes + lockdown + slam**: the whole deck lights but three holes: the safe cell, your cell (locked down)
+      and one more (slammed).
+    - **Bands + wall + lockdown**: the bands leave every other lane cell dark and all but the safe one lock down.
+    - First two warn 2.0 s (1.6 s enraged), the third 0.3 s later; the wall sweeps as usual and the core vents after.
+- **Dark Falz**: no fourth form. On Hell its **third form** (the Angel; "empowered by Hell!") makes every second
+  attack a triple, the two taking turns, each opening with a violet ring and pillar flare:
+  - **Eclipse** (first one says "The dark swallows the altar: only the light is safe"): the safe Grants pillar lands
+    4–6.5 m from you (5–11 m from the centre), two more at ±120° round the altar; they land at 1.3 s and leave light.
+    At 2.8 s both halves go dark at once (violet, corrupting) and anyone in a light pool is spared; feathers fire with
+    the dark, fanned so the two other pools have no gap. Walk to the near pool, step in when its pillar lands.
+  - **Judgement**: the altar splits and your half goes violet; a 100° feather wing covers the far quarter of the
+    other half and a 7 m lance runs from the Angel across it. All fire at 2.1 s (×0.8 enraged). Safe: the near
+    quarter of the other half, past the lance.
+- Numbers in each boss's block of `config/bosses.ts` (`phase3At` / `hellPhaseAt`, `tripleEvery`, the windups and
+  widths). Smoke test (bot, HP lowered): all four reach the Hell phase, Nightmare bosses never show more than their pairs.
+
+### Balance reference (bot, never dodges; `.claude/simsetup.js` SETUPS hXF / rXF / hXC / hXM / hXR, last arg 'hell')
+- Each band entered with the band-before's gear and no Haste: Hell Forest Hunter Lv 86 tier 11: 375-500 s /
+  8.8-12 bars (Nightmare Forest Lv 44 tier 7 for comparison: 348 s / 5.7). Hell Cave 1 Lv 96 tier 12: 366 s / 8.2.
+  Hell Mine 2 Lv 106 tier 13: 503 s / 8.3. Hell Ruin 2 Lv 116 tier 14 (before ×4.55 / +570 was cut to ×4.3 / +545):
+  rooms s1-s4 610 s / ~16 bars, and the bot couldn't finish s5 (it can't pin down a blinking Overclocked Chaos
+  Sorcerer; the Sorcerer does take damage). Nightmare Ruin 2 Lv 76 for comparison: 726 s / 14.4.
+  About 50-80 Corruption stacks taken per run (the sim counts them instead of applying them).
+- Bars count damage against true max HP: Corruption's lowered max isn't in them, so Hell is harder than they say.
+
 ## Deferred / Later Milestones
-- Very Hard/Ultimate, Section IDs, Mag photon blasts (planned as grid keystones), bank, tekker, guild quests, more enemy types (Rappy, Wolves,
+- Hell rares and signature drops (Hell has none yet), Section IDs, Mag photon blasts (planned as grid keystones), bank, tekker, guild quests, more enemy types (Rappy, Wolves,
   Mothmant/Monest, Hildebear, Shark family, Nano Dragon, Canadine drones, cloaking Sinows), gamepad support,
   ElevenLabs recordings for the Mines, Warden, Ruins and Dark Falz themes, a tier 7 injector and the new injector
   mods for Nightmare.

@@ -1,12 +1,14 @@
 import * as THREE from 'three';
-import { dragon as cfg, type HardBossScale } from '../config';
+import { dragon as cfg, player as playerCfg, type HardBossScale } from '../config';
 import { angleDelta, separateCircles, turnToward, yawTo } from '../collision';
 import type { Hittable } from '../combat/types';
 import type { Level } from '../world/Level';
-import type { TelegraphShape } from '../world/Telegraph';
+import { Pillar } from '../world/Effects';
+import { inShape, type TelegraphShape } from '../world/Telegraph';
 import { DragonModel } from '../models/dragon';
 import type { BossContext } from './Boss';
 import { BossBase } from './BossBase';
+import { CORRUPT_COLOR } from './Enemy';
 
 /** Breath cone apex, metres ahead of the body centre. */
 const BREATH_OFFSET = 3;
@@ -32,6 +34,23 @@ const HARD_PAIR_AT = 0.5;
 /** The quake lands this long after the breath starts. */
 const HARD_QUAKE_DELAY = 0.5;
 
+/**
+ * Hell phase 3 triples (see startTriple): the pocket close in under a wing, or a gap in the Hellfire ring
+ * beside the breath ('gap') or the charge ('lane').
+ */
+type Triple = 'wing' | 'gap' | 'lane';
+
+/** A triple laid out around its one safe pocket (see planTriple). */
+interface TriplePlan {
+  yaw: number;
+  front: TelegraphShape;
+  tail: TelegraphShape;
+  fire: TelegraphShape;
+}
+
+/** Hell phase 3: the glow under its hide. */
+const HELL_GLOW = 0x4a1270;
+
 export class Dragon extends BossBase<DragonState> implements Hittable {
   readonly id = 'dragon' as const;
   readonly group = new THREE.Group();
@@ -53,6 +72,16 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
   private chargeHit = false;
   private breathTick = 0;
   private eruptAt: [number, number] = [0, 0];
+  /** Hell: in its third phase (triple telegraphs). */
+  private hellPhase = false;
+  /** Phase 3 attacks to go before the next triple. */
+  private tripleDue = 0;
+  /** The breath or charge under way is a triple's (its own windup, aim held). */
+  private triple = false;
+  /** A triple's Hellfire, warned a moment after the other two. */
+  private pendingFire: TelegraphShape | null = null;
+  /** A triple's charge brushed a rock or wall (it stops there). */
+  private grazed = false;
 
   constructor(x: number, z: number, hard: HardBossScale | null = null) {
     // It takes Burn uncapped (Poison is capped like every boss's).
@@ -100,7 +129,10 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
   collide(playerPos: THREE.Vector3, playerRadius: number, level: Level): void {
     if (!this.alive || !this.group.visible) return;
     separateCircles(playerPos, playerRadius, 1, this.pos, this.radius, 1000);
+    const { x, z } = this.pos;
     level.resolveCircle(this.pos, this.radius);
+    // A triple's charge that grazes a rock or wall stops there instead of sliding off its lane (maybe into the pocket).
+    if (this.triple && this.state === 'charging' && (this.pos.x !== x || this.pos.z !== z)) this.grazed = true;
   }
 
   // ------------------------------------------------------------ Hittable
@@ -141,6 +173,16 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
 
     this.announceEnrage(ctx, true, 'The Dragon is enraged!', 'dragon.roar');
 
+    // Hell: its third phase, triple telegraphs.
+    if (this.hard?.hell && !this.hellPhase && this.hp <= this.maxHp * cfg.hellPhaseAt) {
+      this.hellPhase = true;
+      this.escalate(ctx, 'The Dragon burns with Hellfire!');
+      ctx.shake(0.5);
+      this.sound('dragon.roar');
+      this.model.headMat.emissive.setHex(HELL_GLOW);
+    }
+    if (this.pendingFire && this.stateT >= cfg.tripleFireDelay) this.hellfire(ctx);
+
     switch (this.state) {
       case 'dormant':
         if (ctx.playerAlive && dist < 22) this.awaken(ctx, 'DRAGON', 0.4, 'dragon.roar');
@@ -172,7 +214,12 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
           }
           const facing = Math.abs(angleDelta(this.yaw, toPlayer)) < 0.6;
           if (!facing) break;
-          this.chooseAttack(dist, ctx);
+          // Hell phase 3: every so often a triple instead (when it leaves her a pocket she can reach).
+          if (this.hellPhase && this.tripleDue <= 0 && this.startTriple(dist, ctx)) this.tripleDue = cfg.tripleEvery - 1;
+          else {
+            this.chooseAttack(dist, ctx);
+            this.tripleDue--;
+          }
         }
         break;
       }
@@ -189,7 +236,7 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
 
       case 'breathWindup':
         // Aim is locked when the telegraph appears, so stepping out of the cone dodges it.
-        if (this.stateT >= cfg.breathWindup * sm) {
+        if (this.stateT >= this.windup(cfg.breathWindup)) {
           this.enter('breathing');
           this.breathTick = 0;
           this.sound('dragon.breath', undefined, undefined, cfg.breathDuration);
@@ -197,8 +244,8 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
         break;
 
       case 'breathing': {
-        // Enraged: the breath sweeps toward the player.
-        if (this.enraged) this.yaw = turnToward(this.yaw, toPlayer, 0.7 * dt);
+        // Enraged: the breath sweeps toward the player (not a triple's: its pocket must stay clear).
+        if (this.enraged && !this.triple) this.yaw = turnToward(this.yaw, toPlayer, 0.7 * dt);
         this.breathTick -= dt;
         if (this.breathTick <= 0) {
           this.breathTick = 0.3;
@@ -216,10 +263,11 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
       }
 
       case 'chargeWindup':
-        if (this.stateT >= cfg.chargeWindup * sm) {
+        if (this.stateT >= this.windup(cfg.chargeWindup)) {
           this.enter('charging');
           this.chargeLeft = cfg.chargeDistance;
           this.chargeHit = false;
+          this.grazed = false;
         }
         break;
 
@@ -227,7 +275,7 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
         const step = cfg.chargeSpeed * dt;
         const nx = this.pos.x + Math.sin(this.yaw) * step;
         const nz = this.pos.z + Math.cos(this.yaw) * step;
-        const blocked = ctx.isSolid(nx + Math.sin(this.yaw) * this.radius, nz + Math.cos(this.yaw) * this.radius);
+        const blocked = this.grazed || ctx.isSolid(nx + Math.sin(this.yaw) * this.radius, nz + Math.cos(this.yaw) * this.radius);
         if (!blocked) {
           this.pos.x = nx;
           this.pos.z = nz;
@@ -308,6 +356,7 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
   private stompR: number = cfg.stompRadius;
 
   private endAttack(recover: number): void {
+    this.triple = false;
     this.recoverFor = recover;
     this.cooldown = cfg.attackGap * this.sm();
     this.enter('recover');
@@ -362,6 +411,158 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
     }
   }
 
+  /** Windup of the breath or charge under way: a triple's is its own (the enrage doesn't cut it). */
+  private windup(base: number): number {
+    return this.triple ? cfg.tripleWindup : base * this.sm();
+  }
+
+  // ------------------------------------------------------- Hell triples
+
+  /**
+   * Hell phase 3: three attacks warned at once, with one safe pocket. Its breath (or a charge) covers her;
+   * its tail and a Hellfire ring (violet: corrupts) cover everything else she could walk to but the pocket:
+   * close in under a wing, or a gap in the ring beside the breath or the charge. False if no layout leaves
+   * her a pocket she can reach in time (a normal attack then).
+   */
+  private startTriple(dist: number, ctx: BossContext): boolean {
+    const r = ctx.rng();
+    let order: Triple[];
+    if (dist < cfg.tripleWingRange) order = r < 0.5 ? ['wing', 'gap', 'lane'] : r < 0.75 ? ['gap', 'wing', 'lane'] : ['lane', 'wing', 'gap'];
+    else order = r < 0.5 ? ['gap', 'lane', 'wing'] : ['lane', 'gap', 'wing'];
+    const side = ctx.rng() < 0.5 ? 1 : -1;
+    for (const kind of order) {
+      for (const s of [side, -side]) {
+        const plan = this.planTriple(kind, s, ctx);
+        if (!plan) continue;
+        this.runTriple(kind, plan, ctx);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Lay a triple out around its pocket (on `side` of the front), or null if the pocket is off the floor or
+   * out of her walking reach. The ring reaches past anywhere she could walk before it lands, so the pocket
+   * is the one way out.
+   */
+  private planTriple(kind: Triple, side: number, ctx: BossContext): TriplePlan | null {
+    const { x, z } = this.pos;
+    const px = ctx.playerX;
+    const pz = ctx.playerZ;
+    const pr = playerCfg.radius;
+    const yaw = yawTo(x, z, px, pz);
+    const at = (r: number, a: number): [number, number] => [x + Math.sin(a) * r, z + Math.cos(a) * r];
+    const outer = Math.hypot(px - x, pz - z) + playerCfg.moveSpeed * (cfg.tripleFireDelay + cfg.tripleFireWindup) + 2;
+
+    let front: TelegraphShape;
+    // What the front really hits (a charging body is a little wider than its lane).
+    let frontHit: TelegraphShape;
+    if (kind === 'lane') {
+      front = { kind: 'line', x, z, yaw, length: cfg.chargeDistance, width: this.radius * 2 };
+      frontHit = { ...front, width: (this.radius + 0.6) * 2 };
+    } else {
+      const [hx, hz] = at(BREATH_OFFSET, yaw);
+      front = frontHit = { kind: 'cone', x: hx, z: hz, yaw, range: cfg.breathRange, arcDeg: cfg.breathArcDeg };
+    }
+
+    // The pocket: radii [r0, r1] by `half` either side of the direction `a0`.
+    let tail: TelegraphShape;
+    let fire: TelegraphShape;
+    let a0: number;
+    let half: number;
+    let r0: number;
+    let r1: number;
+    if (kind === 'wing') {
+      // Its tail sweeps all round it but under one wing; the Hellfire covers everything farther out.
+      a0 = yaw + side * THREE.MathUtils.degToRad(cfg.tripleWingAngle);
+      half = THREE.MathUtils.degToRad(cfg.tripleWingDeg) / 2;
+      tail = { kind: 'arc', x, z, yaw: a0 + Math.PI, inner: 0, outer: cfg.tripleWingR, arcDeg: 360 - cfg.tripleWingDeg };
+      fire = { kind: 'arc', x, z, yaw, inner: cfg.tripleWingR, outer, arcDeg: 360 };
+      r0 = this.radius + pr;
+      r1 = cfg.tripleWingR;
+    } else {
+      // Its tail quakes the ground around it; the Hellfire ring beyond has one gap, at her range, turned
+      // just far enough off the front to be clear of it.
+      tail = { kind: 'circle', x, z, radius: cfg.stompRadius };
+      const rg = Math.max(Math.hypot(px - x, pz - z), cfg.stompRadius + 2);
+      half = cfg.tripleGap / rg / 2;
+      a0 = NaN;
+      for (let deg = 0; deg <= 120 && Number.isNaN(a0); deg += 2) {
+        const a = yaw + side * THREE.MathUtils.degToRad(deg);
+        if (!inShape(frontHit, ...at(rg, a - side * half), pr)) a0 = a;
+      }
+      if (Number.isNaN(a0)) return null;
+      fire = { kind: 'arc', x, z, yaw: a0 + Math.PI, inner: cfg.stompRadius, outer, arcDeg: 360 - THREE.MathUtils.radToDeg(half * 2) };
+      r0 = cfg.stompRadius;
+      r1 = outer;
+    }
+
+    // Her nearest way in: the closest point of the pocket clear of all three (with a margin), on open floor.
+    const shapes = [frontHit, tail, fire];
+    let best = Infinity;
+    for (let r = r0 + 0.25; r < r1; r += 0.5) {
+      for (let i = -6; i <= 6; i++) {
+        const [sx, sz] = at(r, a0 + (half * i) / 6);
+        const d = Math.hypot(sx - px, sz - pz);
+        if (d >= best || shapes.some((s) => inShape(s, sx, sz, pr + 0.4)) || !this.open(ctx, sx, sz)) continue;
+        best = d;
+      }
+    }
+    if (best > playerCfg.moveSpeed * (cfg.tripleWindup - cfg.tripleReact)) return null;
+    return { yaw, front, tail, fire };
+  }
+
+  /** Open floor a body's width around. */
+  private open(ctx: BossContext, x: number, z: number): boolean {
+    return !ctx.isSolid(x, z) && !ctx.isSolid(x + 1, z) && !ctx.isSolid(x - 1, z) && !ctx.isSolid(x, z + 1) && !ctx.isSolid(x, z - 1);
+  }
+
+  private runTriple(kind: Triple, plan: TriplePlan, ctx: BossContext): void {
+    const { front, tail } = plan;
+    this.triple = true;
+    this.yaw = plan.yaw;
+    if (kind === 'lane') {
+      this.enter('chargeWindup');
+      this.sound('dragon.growl');
+      this.warn(ctx, front, cfg.tripleWindup, undefined);
+    } else {
+      this.enter('breathWindup');
+      this.sound('dragon.inhale');
+      this.warn(ctx, front, cfg.tripleWindup, 0xff8a20);
+    }
+    // Beside a charge the tail slams down as it launches; beside the breath a moment after the fire starts.
+    this.warn(ctx, tail, cfg.tripleWindup + (kind === 'lane' ? 0 : cfg.tripleTailDelay), undefined, () => {
+      ctx.hitPlayer(tail, 1.0, tail.x, tail.z, 10);
+      ctx.shake(0.4);
+      this.sound('boss.slam', tail.x, tail.z);
+    });
+    this.pendingFire = plan.fire;
+  }
+
+  /** The triple's Hellfire, warned a moment after the other two. */
+  private hellfire(ctx: BossContext): void {
+    const shape = this.pendingFire!;
+    this.pendingFire = null;
+    if (shape.kind !== 'arc') return;
+    this.sound('lava.warn', ctx.playerX, ctx.playerZ);
+    this.warn(ctx, shape, cfg.tripleFireWindup, CORRUPT_COLOR, () => {
+      ctx.hitPlayer(shape, 1.0, shape.x, shape.z, 8, 'corrupt');
+      ctx.shake(0.35);
+      this.sound('lava.erupt', ctx.playerX, ctx.playerZ);
+      // Columns of it along the ring (none in the gap).
+      for (const r of [shape.inner + 2, shape.inner + 6]) {
+        const n = Math.round(r * 0.9);
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2;
+          const fx = shape.x + Math.sin(a) * r;
+          const fz = shape.z + Math.cos(a) * r;
+          if (inShape(shape, fx, fz, 0)) ctx.effect(new Pillar(fx, fz, CORRUPT_COLOR, 0.4, 0.35, 7));
+        }
+      }
+    });
+  }
+
   // ---------------------------------------------------------- animation
 
   private animate(dt: number): void {
@@ -401,7 +602,7 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
         break;
       }
       case 'breathWindup': {
-        const k = Math.min(1, this.stateT / (cfg.breathWindup * sm));
+        const k = Math.min(1, this.stateT / this.windup(cfg.breathWindup));
         neckPitch = -0.5 * k;
         jaw = 0.4 * k;
         headColor = 0xff6020;
@@ -447,6 +648,7 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
       neckPitch, jaw, bodyLift, bodyPitch, wingFlap, flame, weak, headColor,
       flash: this.flashT > 0, enraged: this.enraged, walk: this.walkPhase, time: t,
     });
+    if (this.hellPhase && this.alive && this.flashT <= 0) this.model.bodyMat.emissive.setHex(HELL_GLOW).multiplyScalar(0.75 + 0.25 * Math.sin(t * 3));
     if (this.mound.visible) this.mound.rotation.y += dt * 4;
   }
 }

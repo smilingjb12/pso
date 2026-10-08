@@ -612,7 +612,16 @@ export class Combat {
     const dmg = debug.invincible ? 0 : enemyDamage(e.atp, this.playerDfp(), this.h.rng);
     this.hurtPlayer(dmg, e.pos.x, e.pos.z, a.strikeKnockback ?? playerCfg.knockback, e.name);
     if (a.strikeStatus && p.alive && this.h.rng() < (a.strikeStatusChance ?? 1)) this.applyPlayerStatus(a.strikeStatus);
+    this.hellCorruption(a.strikeStatus);
     return true;
+  }
+
+  /** Hell: chance that any landed enemy or boss hit corrupts (0 elsewhere); set when an area loads. */
+  hellCorrupt = 0;
+
+  /** Hell: every landed hit may corrupt (an attack that already corrupts doesn't roll twice). */
+  private hellCorruption(status?: PlayerStatusKind): void {
+    if (this.hellCorrupt > 0 && status !== 'corrupt' && this.p.alive && this.h.rng() < this.hellCorrupt) this.applyPlayerStatus('corrupt');
   }
 
   /** Telegraphed area attack from a field enemy (Lily spit, Migium lightning, petal burst). */
@@ -642,6 +651,7 @@ export class Combat {
     const dmg = debug.invincible ? 0 : Math.max(1, Math.round(enemyDamage(atp, this.playerDfp(), this.h.rng) * this.bulwark()));
     this.hurtPlayer(dmg, fromX, fromZ, knockback, source);
     if (status && p.alive && this.h.rng() < statusChance) this.applyPlayerStatus(status);
+    this.hellCorruption(status);
     return true;
   }
 
@@ -689,7 +699,7 @@ export class Combat {
       if (p.corrupt(amount ?? 1) <= 0) return false;
       this.h.float(at, p.corruption > 1 ? `CORRUPTION ×${p.corruption}` : 'CORRUPTION', 'corrupt');
       sfx('status.corrupt');
-      if (before === 0) this.h.log('<span class="l-bad">Corruption is eating your max HP: stand in pylon light to cleanse it</span>');
+      if (before === 0) this.h.log('<span class="l-bad">Corruption is eating your max HP: it fades once you stop taking it, and pylon light cleanses it faster</span>');
       return true;
     }
     if (kind === 'burn') {
@@ -735,15 +745,22 @@ export class Combat {
       this.burnTickT = 0;
       return;
     }
-    if (p.corruption > 0 && p.inLight) {
-      p.corruptDecay += dt;
-      if (p.corruptDecay >= statuses.corruptLightTime) {
-        p.corruptDecay -= statuses.corruptLightTime;
-        p.corruption--;
-        this.h.float(tmp.copy(p.pos).setY(2.4), p.corruption > 0 ? `CLEANSED · ×${p.corruption}` : 'CLEANSED', 'heal');
-        sfx('status.cleanse');
-      }
-    } else if (p.corruption > 0) p.corruptDecay = Math.max(0, p.corruptDecay - dt);
+    if (p.corruption > 0) {
+      // Light sheds a stack a second; otherwise, once the timer runs out, it wears off a stack at a time.
+      p.corruptTimer = Math.max(0, p.corruptTimer - dt);
+      const step = p.inLight ? statuses.corruptLightTime : p.corruptTimer <= 0 ? statuses.corruptWearTime : 0;
+      if (step > 0) {
+        p.corruptDecay += dt;
+        if (p.corruptDecay >= step) {
+          p.corruptDecay -= step;
+          p.corruption--;
+          if (p.inLight) {
+            this.h.float(tmp.copy(p.pos).setY(2.4), p.corruption > 0 ? `CLEANSED · ×${p.corruption}` : 'CLEANSED', 'heal');
+            sfx('status.cleanse');
+          } else if (p.corruption === 0) this.h.float(tmp.copy(p.pos).setY(2.4), 'CORRUPTION FADES', 'heal');
+        }
+      } else p.corruptDecay = Math.max(0, p.corruptDecay - dt);
+    }
     if (p.burnStacks > 0) {
       p.burnDecay += dt * (p.moving ? statuses.burnMoveMult : 1);
       if (p.burnDecay >= statuses.burnStackTime) {

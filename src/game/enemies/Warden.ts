@@ -9,7 +9,7 @@ import type { Level, Rect } from '../world/Level';
 import { inShape, type TelegraphShape } from '../world/Telegraph';
 import type { BossContext } from './Boss';
 import { BossBase, BossPart } from './BossBase';
-import type { Enemy } from './Enemy';
+import { CORRUPT_COLOR, type Enemy } from './Enemy';
 import { RepairDrone, SparkMite } from './mineEnemies';
 
 // The Warden: the Mines boss. A colossus built into the north end of its hall; it
@@ -32,15 +32,23 @@ import { RepairDrone, SparkMite } from './mineEnemies';
 //  - Hand slam: on anyone within `slamRange` of its alcove (phase 2: a pair, and
 //    a dash check).
 // Phase 2 at 50% HP (faster, longer patterns); enraged below 25% (shorter windups).
+// Hell: phase 3 from a third of its HP (its glow turns violet). Every few attacks is a
+// triple: a floor wave, laser wall, hand slam or lockdown, three at once, planned
+// around one safe cell near you; then its core vents.
 
 type WState =
   | 'dormant' | 'intro' | 'idle' | 'slamPrep' | 'slam' | 'pattern' | 'vent' | 'wallPrep' | 'wall' | 'lockPrep'
-  | 'intakePrep' | 'intake' | 'summon' | 'overclock' | 'dead';
+  | 'intakePrep' | 'intake' | 'summon' | 'overclock' | 'triple' | 'dead';
 type Attack = 'slam' | 'pattern' | 'wall' | 'lockdown' | 'intake' | 'summon';
+/** Hell triples: diagonals + wall + slam, three holes + lockdown + slam, bands + wall + lockdown. */
+type Triple = 'diagonals' | 'holes' | 'bands';
+const TRIPLES: Triple[] = ['diagonals', 'holes', 'bands'];
 type Pattern = (c: number, r: number, wave: number, cols: number, rows: number) => boolean;
 
 const CELL_INSET = 0.15;
 const INTAKE_MOTES = 110;
+/** A triple's safe cell counts as reached this far inside its edges. */
+const SAFE_INSET = 0.5;
 
 /** Is cell (c, r) lit on this wave? Row 0 is the one against the alcove. */
 const PATTERNS: Record<string, Pattern> = {
@@ -54,6 +62,19 @@ const PATTERNS: Record<string, Pattern> = {
 const PHASE1_PATTERNS = ['checker', 'stripes', 'bands', 'rings'];
 const PHASE2_PATTERNS = ['checker', 'stripes', 'bands', 'rings', 'diagonals', 'diagonals'];
 
+/**
+ * A triple, built around its one safe cell: the floor wave lights `lit`, the laser wall's gap lines up
+ * with the safe cell (`gap`: its x), a hand slams the cell `slam` and `locks` are locked down.
+ */
+interface TriplePlan {
+  kind: Triple;
+  safe: number;
+  lit: number[];
+  gap: number | null;
+  slam: number | null;
+  locks: number[];
+}
+
 /** A locked-down cell: burning floor until the zones reset. */
 interface Zone {
   group: THREE.Group;
@@ -65,7 +86,7 @@ interface Zone {
 export class Warden extends BossBase<WState, Attack> {
   readonly id = 'warden' as const;
   readonly objects: THREE.Object3D[] = [];
-  phase: 1 | 2 = 1;
+  phase: 1 | 2 | 3 = 1;
 
   private model = new WardenModel();
   /** The core: the one part you can hit. */
@@ -112,6 +133,8 @@ export class Warden extends BossBase<WState, Attack> {
   private wallFrom = 0;
   private wallTo = 0;
   private wallGap = 0;
+  /** The gap's width: cfg.wallGap, or one cell in a triple (so its lane is exactly the safe cell's column). */
+  private wallGapW = 0;
   private wallPrevZ = 0;
   private wallHit = false;
   private wallsLeft = 0;
@@ -133,6 +156,14 @@ export class Warden extends BossBase<WState, Attack> {
   /** Hard pairs: a hand slam riding on a laser wall, and a lockdown called during a pattern. */
   private pairSlam: { x: number; z: number; side: number; downT: number } | null = null;
   private pairLock = false;
+  // Hell triples.
+  private triple: TriplePlan | null = null;
+  private lastTriple: Triple | null = null;
+  private sinceTriple = 0;
+  private thirdOut = false;
+  private waveFired = false;
+  /** Seconds since the triple's wall set off (-1: not running). */
+  private wallT = -1;
   private holdT = 0;
   private zoneTickT = 0;
   private zoneTicks = 0;
@@ -297,7 +328,8 @@ export class Warden extends BossBase<WState, Attack> {
     this.updateMotes(dt);
 
     if (this.phase === 1 && this.hp <= this.maxHp * cfg.phase2At && this.state === 'idle') this.startOverclock(ctx);
-    this.announceEnrage(ctx, this.phase === 2, 'The Warden is enraged!', 'warden.boot');
+    else if (this.phase === 2 && this.hard?.hell && this.hp <= this.maxHp * cfg.phase3At && this.state === 'idle') this.startPhase3(ctx);
+    this.announceEnrage(ctx, this.phase >= 2, 'The Warden is enraged!', 'warden.boot');
 
     let charge = 0;
     let cast = 0;
@@ -370,32 +402,41 @@ export class Warden extends BossBase<WState, Attack> {
         charge = 1;
         this.posePairSlam(dt, (h) => (handRate = h));
         break; // the telegraph moves us on
-      case 'wall': {
+      case 'wall':
         charge = 0.6;
         this.posePairSlam(dt, (h) => (handRate = h));
-        const k = Math.min(1, this.stateT / cfg.wallTime);
-        const z = this.wallFrom + (this.wallTo - this.wallFrom) * k;
-        this.showWall(z, this.wallGap);
-        // It moves several metres a frame: test the whole stretch it swept.
-        const lo = Math.min(this.wallPrevZ, z) - 0.5;
-        const hi = Math.max(this.wallPrevZ, z) + 0.5;
-        this.wallPrevZ = z;
-        if (!this.wallHit && ctx.playerAlive && ctx.playerZ >= lo && ctx.playerZ <= hi && Math.abs(ctx.playerX - this.wallGap) > cfg.wallGap / 2 - 0.3) {
-          this.wallHit = true;
-          // Shoved along the way the wall travels.
-          ctx.hazardHit(this.flat(cfg.wallDamage), ctx.playerX, ctx.playerZ - 1, 9, 'Laser wall');
-          ctx.burnPlayer(cfg.wallBurn);
-        }
-        if (k >= 1) {
-          this.wallGroup.visible = false;
-          ctx.shake(0.2);
+        if (this.sweepWall(ctx, this.stateT)) {
           if (this.wallsLeft > 0) {
             this.wallsLeft--;
             this.startWall(ctx, true);
           } else this.endAttack();
         }
         break;
-      }
+
+      // ------------------------------------------------------- Hell triple
+      case 'triple':
+        cast = 1;
+        charge = 0.8;
+        this.goalL.set(-7.5, 6.5 + Math.sin(this.time * 3) * 0.3, 4.5);
+        this.goalR.set(7.5, 6.5 - Math.sin(this.time * 3) * 0.3, 4.5);
+        this.posePairSlam(dt, (h) => (handRate = h));
+        this.waveT += dt;
+        if (!this.thirdOut && this.waveT >= cfg.tripleStagger) this.startThird(ctx);
+        if (!this.waveFired && this.waveT >= this.waveW) {
+          this.waveFired = true;
+          this.fireWave(ctx);
+        }
+        if (this.wallT >= 0) {
+          this.wallT += dt;
+          if (this.sweepWall(ctx, this.wallT)) this.wallT = -1;
+        }
+        // Vent once the wall has run its course and the hand is back up.
+        if (this.waveFired && this.wallT < 0 && this.waveT >= this.waveW + 0.6) {
+          this.triple = null;
+          this.pairSlam = null;
+          this.startVent(ctx);
+        }
+        break;
 
       // ------------------------------------------------------------- intake
       case 'intakePrep':
@@ -417,7 +458,7 @@ export class Warden extends BossBase<WState, Attack> {
           const dx = this.cx - pl.pos.x;
           const dz = this.front - pl.pos.z;
           const d = Math.hypot(dx, dz) || 1;
-          const step = (this.phase === 2 ? cfg.intakePull2 : cfg.intakePull) * dt;
+          const step = (this.phase >= 2 ? cfg.intakePull2 : cfg.intakePull) * dt;
           pl.pos.x += (dx / d) * step;
           pl.pos.z += (dz / d) * step;
         }
@@ -472,13 +513,17 @@ export class Warden extends BossBase<WState, Attack> {
   }
 
   private endAttack(): void {
-    this.gap = (this.phase === 2 ? cfg.attackGap2 : cfg.attackGap) * this.sm();
+    this.gap = (this.phase >= 2 ? cfg.attackGap2 : cfg.attackGap) * this.sm();
     this.tele.forget();
     this.pairSlam = null;
     this.enter('idle');
   }
 
   private chooseAttack(ctx: BossContext): void {
+    if (this.phase === 3 && ++this.sinceTriple >= cfg.tripleEvery && this.startTriple(ctx)) {
+      this.sinceTriple = 0;
+      return;
+    }
     let pick: Attack;
     // Too close to its alcove: it swats you away.
     if (ctx.playerZ - this.front < cfg.slamRange && this.lastAttack !== 'slam' && ctx.rng() < 0.6) {
@@ -493,7 +538,7 @@ export class Warden extends BossBase<WState, Attack> {
     }
     switch (pick) {
       case 'slam':
-        this.slamsLeft = this.phase === 2 ? 1 : 0;
+        this.slamsLeft = this.phase >= 2 ? 1 : 0;
         this.startSlam(ctx);
         break;
       case 'pattern':
@@ -501,7 +546,7 @@ export class Warden extends BossBase<WState, Attack> {
         this.pairLock = this.hardPair && this.zones.size < cfg.lockMax;
         break;
       case 'wall':
-        this.wallsLeft = this.phase === 2 ? 1 : 0;
+        this.wallsLeft = this.phase >= 2 ? 1 : 0;
         this.startWall(ctx, false);
         if (this.hardPair) this.startPairSlam(ctx);
         break;
@@ -530,7 +575,7 @@ export class Warden extends BossBase<WState, Attack> {
     this.slamX = THREE.MathUtils.clamp(ctx.playerX, lo, hi);
     this.slamZ = THREE.MathUtils.clamp(ctx.playerZ, this.front + 1.5, this.front + cfg.slamRange);
     const shape: TelegraphShape = { kind: 'circle', x: this.slamX, z: this.slamZ, radius: cfg.slamRadius };
-    const p2 = this.phase === 2;
+    const p2 = this.phase >= 2;
     this.sound('warden.charge', this.slamX, this.slamZ);
     this.warn(ctx, shape, (p2 ? cfg.slamWindup2 : cfg.slamWindup) * this.sm(), 0xff3a20, () => {
       if (this.state !== 'slamPrep') return;
@@ -544,12 +589,12 @@ export class Warden extends BossBase<WState, Attack> {
   }
 
   private startPattern(ctx: BossContext): void {
-    const names = (this.phase === 2 ? PHASE2_PATTERNS : PHASE1_PATTERNS).filter((n) => n !== this.patternName);
+    const names = (this.phase >= 2 ? PHASE2_PATTERNS : PHASE1_PATTERNS).filter((n) => n !== this.patternName);
     this.patternName = names[Math.floor(ctx.rng() * names.length)];
     this.pattern = PATTERNS[this.patternName];
     this.patternShift = ctx.rng() < 0.5 ? 0 : 1;
-    this.waves = this.phase === 2 ? cfg.patternWaves2 : cfg.patternWaves;
-    this.waveW = (this.phase === 2 ? cfg.patternWindup2 : cfg.patternWindup) * this.sm();
+    this.waves = this.phase >= 2 ? cfg.patternWaves2 : cfg.patternWaves;
+    this.waveW = (this.phase >= 2 ? cfg.patternWindup2 : cfg.patternWindup) * this.sm();
     this.wave = 0;
     this.enter('pattern');
     this.sound('warden.charge', this.cx, this.front + 6, 0.8);
@@ -610,14 +655,15 @@ export class Warden extends BossBase<WState, Attack> {
     }
   }
 
+  /** How far from the hall's centre line the laser wall's gap can sit. */
+  private get gapRange(): number {
+    return (this.x1 - this.x0) / 2 - cfg.wallGap / 2 - 0.5;
+  }
+
   /** A wall from the Warden's side; `follow`: phase 2's second one, its gap 5-8 m from the first. */
   private startWall(ctx: BossContext, follow: boolean): void {
     this.enter('wallPrep');
-    this.wallHit = false;
-    this.wallFrom = this.front + 0.5;
-    this.wallTo = this.back - 0.5;
-    this.wallPrevZ = this.wallFrom;
-    const half = (this.x1 - this.x0) / 2 - cfg.wallGap / 2 - 0.5;
+    const half = this.gapRange;
     const lo = this.cx - half;
     const hi = this.cx + half;
     if (follow) {
@@ -629,24 +675,55 @@ export class Warden extends BossBase<WState, Attack> {
     } else {
       this.wallGap = lo + ctx.rng() * (hi - lo);
     }
-    this.showWall(this.wallFrom, this.wallGap);
-    for (const seg of this.wallSegs) seg.material.opacity = 0.25;
-    // Warning: the wall's starting line, with the gap marked by its absence.
-    const ga = this.wallGap - cfg.wallGap / 2;
-    const gb = this.wallGap + cfg.wallGap / 2;
-    const dur = (follow ? cfg.wallWindup2 : cfg.wallWindup) * this.sm();
-    const zLine = this.wallFrom;
-    this.warn(ctx, { kind: 'line', x: this.x0, z: zLine, yaw: Math.PI / 2, length: ga - this.x0, width: 1.2 }, dur, 0xff3020);
-    this.warn(ctx, { kind: 'line', x: gb, z: zLine, yaw: Math.PI / 2, length: this.x1 - gb, width: 1.2 }, dur, 0xff3020, () => {
+    this.armWall(ctx, this.wallGap, (follow ? cfg.wallWindup2 : cfg.wallWindup) * this.sm(), () => {
       if (this.state !== 'wallPrep') return;
       this.enter('wall');
     });
+  }
+
+  /** Set the wall up at the alcove's edge with its gap on `gap` and warn for `dur`; `onFire` sets it off. */
+  private armWall(ctx: BossContext, gap: number, dur: number, onFire: () => void, width = cfg.wallGap): void {
+    this.wallGap = gap;
+    this.wallGapW = width;
+    this.wallHit = false;
+    this.wallFrom = this.front + 0.5;
+    this.wallTo = this.back - 0.5;
+    this.wallPrevZ = this.wallFrom;
+    this.showWall(this.wallFrom, this.wallGap);
+    for (const seg of this.wallSegs) seg.material.opacity = 0.25;
+    // Warning: the wall's starting line, with the gap marked by its absence.
+    const ga = this.wallGap - this.wallGapW / 2;
+    const gb = this.wallGap + this.wallGapW / 2;
+    const zLine = this.wallFrom;
+    this.warn(ctx, { kind: 'line', x: this.x0, z: zLine, yaw: Math.PI / 2, length: ga - this.x0, width: 1.2 }, dur, 0xff3020);
+    this.warn(ctx, { kind: 'line', x: gb, z: zLine, yaw: Math.PI / 2, length: this.x1 - gb, width: 1.2 }, dur, 0xff3020, onFire);
     this.sound('warden.grid', this.cx, zLine);
+  }
+
+  /** Run the wall `t` s down the hall, hitting anyone off the gap's lane it sweeps past. True once it reached the back. */
+  private sweepWall(ctx: BossContext, t: number): boolean {
+    const k = Math.min(1, t / cfg.wallTime);
+    const z = this.wallFrom + (this.wallTo - this.wallFrom) * k;
+    this.showWall(z, this.wallGap);
+    // It moves several metres a frame: test the whole stretch it swept.
+    const lo = Math.min(this.wallPrevZ, z) - 0.5;
+    const hi = Math.max(this.wallPrevZ, z) + 0.5;
+    this.wallPrevZ = z;
+    if (!this.wallHit && ctx.playerAlive && ctx.playerZ >= lo && ctx.playerZ <= hi && Math.abs(ctx.playerX - this.wallGap) > this.wallGapW / 2 - 0.3) {
+      this.wallHit = true;
+      // Shoved along the way the wall travels.
+      ctx.hazardHit(this.flat(cfg.wallDamage), ctx.playerX, ctx.playerZ - 1, 9, 'Laser wall');
+      ctx.burnPlayer(cfg.wallBurn);
+    }
+    if (k < 1) return false;
+    this.wallGroup.visible = false;
+    ctx.shake(0.2);
+    return true;
   }
 
   /** Hard, phase 2: attacks come in pairs. */
   private get hardPair(): boolean {
-    return !!this.hard && this.phase === 2;
+    return !!this.hard && this.phase >= 2;
   }
 
   /**
@@ -658,12 +735,16 @@ export class Warden extends BossBase<WState, Attack> {
     let x = ctx.playerX;
     if (Math.abs(x - this.wallGap) < keep) x = this.wallGap + (x < this.wallGap ? -keep : keep);
     if (x < this.x0 + 1.5 || x > this.x1 - 1.5) return; // no room beside the lane: the wall comes alone
-    const z = THREE.MathUtils.clamp(ctx.playerZ, this.front + 2, this.back - 2);
+    this.slamAt(ctx, x, THREE.MathUtils.clamp(ctx.playerZ, this.front + 2, this.back - 2), cfg.slamWindup * this.sm());
+  }
+
+  /** A hand slam (posed by posePairSlam) on (x, z) after `dur`, alongside another attack. */
+  private slamAt(ctx: BossContext, x: number, z: number, dur: number): void {
     const side = x < this.cx ? -1 : 1;
     this.pairSlam = { x, z, side, downT: -1 };
     const shape: TelegraphShape = { kind: 'circle', x, z, radius: cfg.slamRadius };
     this.sound('warden.charge', x, z);
-    this.warn(ctx, shape, cfg.slamWindup * this.sm(), 0xff3a20, () => {
+    this.warn(ctx, shape, dur, 0xff3a20, () => {
       if (!this.pairSlam) return;
       this.pairSlam.downT = 0;
       (side < 0 ? this.handL : this.handR).y = 2;
@@ -694,16 +775,21 @@ export class Warden extends BossBase<WState, Attack> {
     this.pairLock = false;
     const cell = this.cellAt(ctx.playerX, ctx.playerZ);
     if (this.zones.has(cell) || this.zones.size >= cfg.lockMax) return;
+    this.lockCell(ctx, cell, cfg.lockWindup * this.sm());
+  }
+
+  /** Lock a cell down alongside another attack: it ignites on its own after `dur`. */
+  private lockCell(ctx: BossContext, cell: number, dur: number): void {
     const [x, z] = this.cellCentre(cell);
     this.sound('warden.charge', x, z, 0.8);
-    this.warn(ctx, this.cellShape(cell), cfg.lockWindup * this.sm(), 0xff8a20, () => {
+    this.warn(ctx, this.cellShape(cell), dur, 0xff8a20, () => {
       if (this.alive) this.ignite(cell, ctx);
     });
   }
 
   /** Place the laser wall at depth `z` with its gap centred on `g`. */
   private showWall(z: number, g: number): void {
-    const half = cfg.wallGap / 2;
+    const half = this.wallGapW / 2;
     this.wallGroup.visible = true;
     this.wallGroup.position.set(0, 0, z);
     const spans: [number, number][] = [[this.x0, g - half], [g + half, this.x1]];
@@ -711,7 +797,7 @@ export class Warden extends BossBase<WState, Attack> {
       const [a, b] = spans[i];
       seg.scale.x = Math.max(0.05, b - a);
       seg.position.x = (a + b) / 2;
-      if (this.state === 'wall') seg.material.opacity = 0.5 + Math.sin(this.time * 30 + i) * 0.1;
+      if (this.state === 'wall' || this.wallT >= 0) seg.material.opacity = 0.5 + Math.sin(this.time * 30 + i) * 0.1;
     });
   }
 
@@ -733,7 +819,7 @@ export class Warden extends BossBase<WState, Attack> {
       }
     }
     this.lockCells = [first];
-    if (this.phase === 2 && this.zones.size + 2 <= cfg.lockMax) {
+    if (this.phase >= 2 && this.zones.size + 2 <= cfg.lockMax) {
       const others: number[] = [];
       for (let i = 0; i < this.cols * this.rows; i++) if (free(i) && i !== first) others.push(i);
       if (others.length) this.lockCells.push(others[Math.floor(ctx.rng() * others.length)]);
@@ -826,6 +912,120 @@ export class Warden extends BossBase<WState, Attack> {
     this.zones.clear();
   }
 
+  // -------------------------------------------------------- Hell triples
+
+  /** A triple (not the last one again) around a safe cell near you; false if none fits (it attacks normally). */
+  private startTriple(ctx: BossContext): boolean {
+    const kinds = TRIPLES.filter((k) => k !== this.lastTriple);
+    if (ctx.rng() < 0.5) kinds.reverse();
+    if (this.lastTriple) kinds.push(this.lastTriple);
+    for (const kind of kinds) {
+      const plan = this.planTriple(ctx, kind);
+      if (!plan) continue;
+      this.lastTriple = kind;
+      // It counts as a pattern (it vents too) for the no-repeat pick.
+      this.lastAttack = 'pattern';
+      this.triple = plan;
+      this.thirdOut = false;
+      this.waveFired = false;
+      this.wallT = -1;
+      this.pairSlam = null;
+      this.wave = 0;
+      this.waveT = 0;
+      this.waveW = cfg.tripleWindup * this.sm();
+      this.enter('triple');
+      this.sound('warden.charge', this.cx, this.front + 6, 1.2);
+      // The first two: the floor wave, and the wall (or the lockdown). The slam (or the lockdown) follows.
+      this.lit = plan.lit;
+      for (const i of plan.lit) this.warn(ctx, this.cellShape(i), this.waveW, 0xff4020);
+      if (plan.gap !== null) {
+        this.armWall(ctx, plan.gap, this.waveW, () => {
+          if (this.state === 'triple') this.wallT = 0;
+        }, this.cw);
+      } else for (const c of plan.locks) this.lockCell(ctx, c, this.waveW);
+      return true;
+    }
+    return false;
+  }
+
+  /** The third attack, a moment after the first two; it fires with them. */
+  private startThird(ctx: BossContext): void {
+    this.thirdOut = true;
+    const plan = this.triple;
+    if (!plan) return;
+    const dur = this.waveW - this.waveT;
+    if (plan.slam !== null) {
+      const [x, z] = this.cellCentre(plan.slam);
+      this.slamAt(ctx, x, z, dur);
+    } else for (const c of plan.locks) this.lockCell(ctx, c, dur);
+  }
+
+  /** Pick the safe cell first (not yours, within reach, not burning, not under its core), then build the triple around it. */
+  private planTriple(ctx: BossContext, kind: Triple): TriplePlan | null {
+    const here = this.cellAt(ctx.playerX, ctx.playerZ);
+    const plans: TriplePlan[] = [];
+    for (let s = 0; s < this.cols * this.rows; s++) {
+      if (s === here || this.zones.has(s) || this.toCell(s, ctx.playerX, ctx.playerZ) > cfg.tripleReach) continue;
+      // The core juts into the cells in front of it and would shove you off the lane.
+      if (this.toCell(s, this.body.pos.x, this.body.pos.z) < cfg.bodyRadius + 1) continue;
+      const plan = this.planAround(kind, s, here);
+      if (plan) plans.push(plan);
+    }
+    return plans.length ? plans[Math.floor(ctx.rng() * plans.length)] : null;
+  }
+
+  /**
+   * Build a triple around safe cell `s` (you stand on `here`), or null if it can't be:
+   *  - diagonals: the wall's gap lines up with s; a diagonals wave leaves s and the cell three rows off it
+   *    dark in that lane, and a hand slams that one;
+   *  - bands: the same wall; a bands wave leaves every other cell of the lane dark, and those besides s lock down;
+   *  - holes: the whole deck lights up but three holes: s, your cell (locked down) and one at least a cell
+   *    clear of s (slammed).
+   */
+  private planAround(kind: Triple, s: number, here: number): TriplePlan | null {
+    const cols = this.cols;
+    const rows = this.rows;
+    const all = Array.from({ length: cols * rows }, (_, i) => i);
+    const sc = s % cols;
+    const sr = Math.floor(s / cols);
+    const room = cfg.lockMax - this.zones.size;
+    if (kind === 'holes') {
+      if (room < 1) return null;
+      const far = (i: number) => Math.max(Math.abs((i % cols) - sc), Math.abs(Math.floor(i / cols) - sr)) >= 2;
+      const steps = (i: number) => Math.max(Math.abs((i % cols) - (here % cols)), Math.abs(Math.floor(i / cols) - Math.floor(here / cols)));
+      // Your cell (already burning: a free one next to it).
+      const lock = this.zones.has(here) ? all.find((i) => i !== s && !this.zones.has(i) && steps(i) === 1) : here;
+      if (lock === undefined) return null;
+      let slam = -1;
+      for (const i of all) {
+        if (i === lock || this.zones.has(i) || !far(i)) continue;
+        if (slam < 0 || steps(i) < steps(slam)) slam = i;
+      }
+      if (slam < 0) return null;
+      return { kind, safe: s, lit: all.filter((i) => i !== s && i !== lock && i !== slam), gap: null, slam, locks: [lock] };
+    }
+    // The wall's gap on the safe cell's column (the edge columns are out of its reach).
+    const gap = this.cellCentre(s)[0];
+    if (Math.abs(gap - this.cx) > this.gapRange) return null;
+    const lane = all.filter((i) => i % cols === sc);
+    const pattern = PATTERNS[kind];
+    // The wave whose pattern leaves s dark.
+    const w = kind === 'diagonals' ? (3 - ((sc + sr) % 3)) % 3 : (sr + 1) % 2;
+    const lit = all.filter((i) => pattern(i % cols, Math.floor(i / cols), w, cols, rows));
+    const dark = lane.filter((i) => i !== s && !lit.includes(i));
+    if (kind === 'diagonals') return dark.length === 1 ? { kind, safe: s, lit, gap, slam: dark[0], locks: [] } : null;
+    const locks = dark.filter((i) => !this.zones.has(i));
+    return locks.length && locks.length <= room ? { kind, safe: s, lit, gap, slam: null, locks } : null;
+  }
+
+  /** Distance from (x, z) to the inner part of cell i (SAFE_INSET in from its edges). */
+  private toCell(i: number, x: number, z: number): number {
+    const [cx, cz] = this.cellCentre(i);
+    const dx = Math.max(0, Math.abs(x - cx) - (this.cw / 2 - SAFE_INSET));
+    const dz = Math.max(0, Math.abs(z - cz) - (this.ch / 2 - SAFE_INSET));
+    return Math.hypot(dx, dz);
+  }
+
   // ------------------------------------------------------------- intake
 
   private startIntake(ctx: BossContext): void {
@@ -904,7 +1104,7 @@ export class Warden extends BossBase<WState, Attack> {
       const x = this.cx + (i - (mites - 1) / 2) * 7 + (ctx.rng() - 0.5) * 2;
       this.adds.push(ctx.spawnAdd('SparkMite', x, this.front + 1.2));
     }
-    const wantDrone = this.phase === 2 || this.summons % 2 === 0;
+    const wantDrone = this.phase >= 2 || this.summons % 2 === 0;
     if (wantDrone && this.droneRoom() > 0) {
       const taken = this.adds.filter((e): e is RepairDrone => e instanceof RepairDrone && e.alive).map((d) => Math.sign(d.post.x - this.cx));
       const side = !taken.includes(-1) ? (taken.includes(1) || ctx.rng() < 0.5 ? -1 : 1) : 1;
@@ -947,6 +1147,20 @@ export class Warden extends BossBase<WState, Attack> {
     this.enter('overclock');
   }
 
+  /** Hell: phase 3. Its glow turns violet and triples join the rotation, the first one straight away. */
+  private startPhase3(ctx: BossContext): void {
+    this.phase = 3;
+    this.sinceTriple = cfg.tripleEvery - 1;
+    this.escalate(ctx, 'The Warden breaks its limits!');
+    ctx.shake(0.6);
+    this.sound('warden.reroute');
+    // The core keeps its own colours (the model sets them each frame).
+    this.model.root.traverse((o) => {
+      if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial && o.material.userData.glow) o.material.emissive.setHex(CORRUPT_COLOR);
+    });
+    this.enter('overclock');
+  }
+
   // ------------------------------------------------------------- posing
 
   private place(): void {
@@ -959,7 +1173,7 @@ export class Warden extends BossBase<WState, Attack> {
       handR: this.handR,
       dead: this.state === 'dead' ? Math.min(1, this.deadT / 1.5) : 0,
       flash: this.flashT > 0,
-      enraged: this.enraged && this.phase === 2,
+      enraged: this.enraged && this.phase >= 2,
       time: this.time,
     });
   }

@@ -13,6 +13,8 @@ export interface HardScale {
   dropTier: number;
   /** The expedition's Hard rares. */
   rares: string[];
+  /** Hell: share of spawns that come in as elites (Nightmare uses `hard.eliteChance` everywhere). */
+  elite?: number;
 }
 
 /** Hard mode boss scaling. */
@@ -25,6 +27,8 @@ export interface HardBossScale {
   /** Multiplier on flat (non-ATP) damage: breath and beam ticks, the laser wall, burning zones. */
   flat: number;
   xp: number;
+  /** Hell: the boss gets its third phase (triple telegraphs; Dark Falz's third form takes them). */
+  hell?: boolean;
 }
 
 /**

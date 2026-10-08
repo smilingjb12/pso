@@ -24,6 +24,10 @@
     ch.data.stats.deRolLeKills = 1;
     ch.data.stats.wardenKills = 1;
     ch.data.stats.falzKills = 1;
+    ch.data.stats.bossKills = { dragon: 1, derolle: 1, warden: 1, falz: 1 };
+    // Nightmare and Hell open too (every boss beaten on each).
+    ch.data.stats.hardKills = { dragon: 1, derolle: 1, warden: 1, falz: 1 };
+    ch.data.stats.hellKills = { dragon: 1, derolle: 1, warden: 1, falz: 1 };
     return ch;
   };
   window.goRoom = (id) => {
@@ -115,11 +119,18 @@
     hHC: ['hunter', 54, 'saber_8', 'frame_guard_8', 'barrier_guard_8', 'cave1', ['c1', 'c2', 'c3', 'c4', 'c5'], true],
     hHM: ['hunter', 66, 'saber_9', 'frame_guard_9', 'barrier_guard_9', 'mine2', ['n1', 'n2', 'n3', 'n4', 'n5'], true],
     hHR: ['hunter', 76, 'saber_10', 'frame_guard_10', 'barrier_guard_10', 'ruin2', ['s1', 's2', 's3', 's4', 's5'], true],
+    // Hell (last arg 'hell'): each band entered with the gear of the band before (no Haste: shop-clean items).
+    hXF: ['hunter', 86, 'saber_11', 'frame_guard_11', 'barrier_guard_11', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], 'hell'],
+    rXF: ['ranger', 86, 'handgun_11', 'frame_combat_11', 'barrier_combat_11', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], 'hell'],
+    hXC: ['hunter', 96, 'saber_12', 'frame_guard_12', 'barrier_guard_12', 'cave1', ['c1', 'c2', 'c3', 'c4', 'c5'], 'hell'],
+    hXM: ['hunter', 106, 'saber_13', 'frame_guard_13', 'barrier_guard_13', 'mine2', ['n1', 'n2', 'n3', 'n4', 'n5'], 'hell'],
+    hXR: ['hunter', 116, 'saber_14', 'frame_guard_14', 'barrier_guard_14', 'ruin2', ['s1', 's2', 's3', 's4', 's5'], 'hell'],
   };
   window.simClass = (cls, lvl, w, f, b, area, rooms, hard = false) => {
-    g.startCharacter(-1, mkChar(cls, lvl, w, f, b));
+    // hard: true = Nightmare, 'hell' = Hell.
+    g.startCharacter(-1, mkChar(cls, lvl, w, f, b), hard === 'hell' ? 'hell' : hard ? 'nightmare' : 'normal');
     window.__h.run(0.1);
-    g.newExpedition(area === 'forest1' ? 'forest' : area.startsWith('mine') ? 'mines' : area.startsWith('ruin') ? 'ruins' : 'caves', hard);
+    g.newExpedition(area === 'forest1' ? 'forest' : area.startsWith('mine') ? 'mines' : area.startsWith('ruin') ? 'ruins' : 'caves');
     g.enterArea(area, 'start');
     window.__h.run(0.5);
     noRender();

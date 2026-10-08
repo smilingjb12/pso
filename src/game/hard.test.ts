@@ -62,19 +62,19 @@ describe('Affixes', () => {
 });
 
 describe('Hard loot', () => {
-  it('has tiers 7-11 for every weapon kind and armour line', () => {
+  it('has tiers 7-15 for every weapon kind and armour line (12-15: Hell)', () => {
     for (const kind of Object.keys(weaponKinds) as WeaponKind[]) {
-      for (const t of [7, 8, 9, 10, 11]) expect(itemDefs[`${kind}_${t}`]?.type).toBe('weapon');
-      expect(itemDefs[`${kind}_12`]).toBeUndefined();
+      for (const t of [7, 8, 9, 10, 11, 12, 13, 14, 15]) expect(itemDefs[`${kind}_${t}`]?.type).toBe('weapon');
+      expect(itemDefs[`${kind}_16`]).toBeUndefined();
     }
     for (const line of Object.keys(armorLines).filter((l) => l !== 'basic')) {
-      for (const slot of ['frame', 'barrier']) for (const t of [7, 8, 9, 10, 11]) expect(itemDefs[`${slot}_${line}_${t}`]?.type).toBe('armor');
+      for (const slot of ['frame', 'barrier']) for (const t of [7, 8, 9, 10, 11, 12, 13, 14, 15]) expect(itemDefs[`${slot}_${line}_${t}`]?.type).toBe('armor');
     }
   });
 
   it('raises requirements and stats with every tier', () => {
     for (const kind of Object.keys(weaponKinds) as WeaponKind[]) {
-      for (let t = 2; t <= 11; t++) {
+      for (let t = 2; t <= 15; t++) {
         const a = getDef(`${kind}_${t - 1}`);
         const b = getDef(`${kind}_${t}`);
         if (a.type !== 'weapon' || b.type !== 'weapon') throw new Error('not a weapon');

@@ -11,7 +11,7 @@ import { MagCompanion } from './game/models/mag';
 import { buildWeapon, WEAPON_GRIP } from './game/models/weapons';
 
 // Armor Lab: the armour evolutions side by side. Each armour line dresses the
-// heroine in its own outfit; the frame's tier picks the evolution stage (0-4).
+// heroine in its own outfit; the frame's tier picks the evolution stage (0-5).
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -64,8 +64,8 @@ function tierText(line: Line, stage: number): string {
   const tiers = TIER_STAGE.map((st, t) => (t >= 1 && st === stage ? t : 0)).filter(Boolean);
   const range = tiers.length > 1 ? `T${tiers[0]}–T${tiers[tiers.length - 1]}` : `T${tiers[0]}`;
   const names = tiers.map((t) => itemDefs[`frame_${line}_${t}`]?.name).filter(Boolean);
-  const nm = stage === 4 ? ' (Nightmare)' : '';
-  return `${range}${nm} · ${names.join(', ')}`;
+  const nm = stage === 5 ? ' (Hell)' : stage === 4 ? ' (Nightmare)' : '';
+  return names.length ? `${range}${nm} · ${names.join(', ')}` : `${range}${nm}`;
 }
 
 interface Spec {
@@ -75,13 +75,15 @@ interface Spec {
   view?: string;
 }
 
+const STAGES = [0, 1, 2, 3, 4, 5];
+
 function specs(): Spec[] {
   if (params.mode !== 'All lines' && params.frontBack) {
     const line = params.mode;
-    return ['front 3/4', 'behind (game view)'].flatMap((view) => [0, 1, 2, 3, 4].map((stage) => ({ line, stage, view })));
+    return ['front 3/4', 'behind (game view)'].flatMap((view) => STAGES.map((stage) => ({ line, stage, view })));
   }
   const lines = params.mode === 'All lines' ? LINES : [params.mode];
-  return lines.flatMap((line) => [0, 1, 2, 3, 4].map((stage) => ({ line, stage })));
+  return lines.flatMap((line) => STAGES.map((stage) => ({ line, stage })));
 }
 
 function stripeTexture(): THREE.CanvasTexture {
@@ -115,7 +117,7 @@ interface Cell {
   u: number;
 }
 
-const cells: Cell[] = Array.from({ length: 15 }, (_, i) => {
+const cells: Cell[] = Array.from({ length: 18 }, (_, i) => {
   const origin = new THREE.Vector3(i * 40, 0, 0);
   const tex = stripeTexture();
   tex.repeat.set(1, 20);
@@ -192,7 +194,7 @@ function rebuild(): void {
 
 function grid(): { cols: number; rows: number; w: number; h: number } {
   if (params.solo >= 0) return { cols: 1, rows: 1, w: window.innerWidth, h: window.innerHeight };
-  const cols = 5;
+  const cols = STAGES.length;
   const rows = Math.ceil(specs().length / cols);
   return { cols, rows, w: window.innerWidth / cols, h: window.innerHeight / rows };
 }
@@ -299,7 +301,7 @@ look.add(params, 'palette', { 'Per line': 'per line', ...Object.fromEntries(Obje
 look.add(params, 'hair', Object.fromEntries(Object.entries(HAIRS).map(([k, p]) => [p.name, k]))).onChange(rebuild);
 look.add(params, 'body', Object.fromEntries(Object.entries(BODIES).map(([k, p]) => [p.name, k]))).name('proportions').onChange(rebuild);
 look.add(params, 'face', Object.fromEntries(Object.entries(FACES).map(([k, p]) => [p.name, k]))).name('face gear').onChange(rebuild);
-gui.add(params, 'solo', -1, 14, 1).name('solo cell (-1 = grid)').onChange(layout);
+gui.add(params, 'solo', -1, 17, 1).name('solo cell (-1 = grid)').onChange(layout);
 
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);

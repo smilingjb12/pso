@@ -322,18 +322,18 @@ export const MAX_STACK = 10;
 export const INVENTORY_SIZE = 30;
 
 const TIER_NAMES: Record<WeaponKind, string[]> = {
-  saber: ['Saber', 'Brand', 'Buster', 'Pallasch', 'Gladius', 'Galatine', 'Astra Saber', 'Nova Blade', 'Stellar Saber', 'Quasar Saber', 'Cosmic Saber'],
-  sword: ['Sword', 'Gigush', 'Breaker', 'Claymore', 'Calibur', 'Zanbato', 'Titan Cleaver', 'Meteor Sword', 'Colossus', 'Behemoth', 'Worldsplitter'],
-  dagger: ['Dagger', 'Knife', 'Blade', 'Edge', 'Ripper', 'Vibro Edge', 'Nebula Fang', 'Phase Knife', 'Void Stiletto', 'Rift Dagger', 'Horizon Fang'],
-  partisan: ['Partisan', 'Halbert', 'Glaive', 'Berdys', 'Gungnir', 'Vjaya', 'Comet Pike', 'Star Lance', 'Zenith Spear', 'Nadir Glaive', 'Aurora Halberd'],
-  slicer: ['Slicer', 'Spinner', 'Cutter', 'Sawcer', 'Diska', 'Arc Disc', 'Halo Disc', 'Orbit Slicer', 'Eclipse Ring', 'Corona Disc', 'Solar Wheel'],
-  handgun: ['Handgun', 'Autogun', 'Lockgun', 'Railgun', 'Raygun', 'Hypergun', 'Plasma Pistol', 'Ion Gun', 'Pulsar Gun', 'Quasar Gun', 'Nova Pistol'],
-  rifle: ['Rifle', 'Sniper', 'Blaster', 'Beam', 'Laser', 'Photon Lancer', 'Ion Rifle', 'Meteor Beam', 'Horizon Rifle', 'Zenith Beam', 'Infinity Rifle'],
-  mechgun: ['Mechgun', 'Assault', 'Repeater', 'Gatling', 'Vulcan', 'Typhoon', 'Storm', 'Cyclone', 'Maelstrom', 'Tempest', 'Hurricane'],
-  shot: ['Shot', 'Spread', 'Cannon', 'Arms', 'Launcher', 'Hyper Cannon', 'Nova Cannon', 'Supernova', 'Starburst', 'Hypernova', 'Big Bang'],
-  cane: ['Cane', 'Stick', 'Mace', 'Club', 'Maul', 'Quasar Mace', 'Pulsar Mace', 'Nebula Club', 'Singularity', 'Event Mace', 'Genesis Club'],
-  rod: ['Rod', 'Pole', 'Pillar', 'Striker', 'Obelisk', 'Monolith', 'Spire', 'Zenith Rod', 'Eternal Pillar', 'Sky Pillar', 'Axis Rod'],
-  wand: ['Wand', 'Staff', 'Baton', 'Scepter', 'Diadem', 'Aurora Staff', 'Celestial Staff', 'Starlight Wand', 'Halo Scepter', 'Seraph Staff', 'Empyrean Wand'],
+  saber: ['Saber', 'Brand', 'Buster', 'Pallasch', 'Gladius', 'Galatine', 'Astra Saber', 'Nova Blade', 'Stellar Saber', 'Quasar Saber', 'Cosmic Saber', 'Galaxy Saber', 'Eclipse Saber', 'Infinity Saber', 'Omega Saber'],
+  sword: ['Sword', 'Gigush', 'Breaker', 'Claymore', 'Calibur', 'Zanbato', 'Titan Cleaver', 'Meteor Sword', 'Colossus', 'Behemoth', 'Worldsplitter', 'Titanomachy', 'Ragnarok Blade', 'Apocalypse', 'Omega Cleaver'],
+  dagger: ['Dagger', 'Knife', 'Blade', 'Edge', 'Ripper', 'Vibro Edge', 'Nebula Fang', 'Phase Knife', 'Void Stiletto', 'Rift Dagger', 'Horizon Fang', 'Abyss Fang', 'Eclipse Dagger', 'Oblivion Edge', 'Omega Fang'],
+  partisan: ['Partisan', 'Halbert', 'Glaive', 'Berdys', 'Gungnir', 'Vjaya', 'Comet Pike', 'Star Lance', 'Zenith Spear', 'Nadir Glaive', 'Aurora Halberd', 'Eclipse Lance', 'Ragnarok Pike', 'Infinity Spear', 'Omega Halberd'],
+  slicer: ['Slicer', 'Spinner', 'Cutter', 'Sawcer', 'Diska', 'Arc Disc', 'Halo Disc', 'Orbit Slicer', 'Eclipse Ring', 'Corona Disc', 'Solar Wheel', 'Galaxy Disc', 'Event Horizon', 'Infinity Wheel', 'Omega Disc'],
+  handgun: ['Handgun', 'Autogun', 'Lockgun', 'Railgun', 'Raygun', 'Hypergun', 'Plasma Pistol', 'Ion Gun', 'Pulsar Gun', 'Quasar Gun', 'Nova Pistol', 'Magnetar Gun', 'Eclipse Pistol', 'Infinity Gun', 'Omega Pistol'],
+  rifle: ['Rifle', 'Sniper', 'Blaster', 'Beam', 'Laser', 'Photon Lancer', 'Ion Rifle', 'Meteor Beam', 'Horizon Rifle', 'Zenith Beam', 'Infinity Rifle', 'Gamma Ray', 'Eclipse Beam', 'Starfall Rifle', 'Omega Rifle'],
+  mechgun: ['Mechgun', 'Assault', 'Repeater', 'Gatling', 'Vulcan', 'Typhoon', 'Storm', 'Cyclone', 'Maelstrom', 'Tempest', 'Hurricane', 'Cataclysm', 'Armageddon', 'Ragnarok', 'Omega Storm'],
+  shot: ['Shot', 'Spread', 'Cannon', 'Arms', 'Launcher', 'Hyper Cannon', 'Nova Cannon', 'Supernova', 'Starburst', 'Hypernova', 'Big Bang', 'Hyperion', 'Eclipse Cannon', 'Infinity Cannon', 'Omega Cannon'],
+  cane: ['Cane', 'Stick', 'Mace', 'Club', 'Maul', 'Quasar Mace', 'Pulsar Mace', 'Nebula Club', 'Singularity', 'Event Mace', 'Genesis Club', 'Abyss Mace', 'Eclipse Club', 'Oblivion Mace', 'Omega Club'],
+  rod: ['Rod', 'Pole', 'Pillar', 'Striker', 'Obelisk', 'Monolith', 'Spire', 'Zenith Rod', 'Eternal Pillar', 'Sky Pillar', 'Axis Rod', 'World Pillar', 'Eclipse Rod', 'Infinity Pillar', 'Omega Rod'],
+  wand: ['Wand', 'Staff', 'Baton', 'Scepter', 'Diadem', 'Aurora Staff', 'Celestial Staff', 'Starlight Wand', 'Halo Scepter', 'Seraph Staff', 'Empyrean Wand', 'Archon Staff', 'Eclipse Wand', 'Ascension Staff', 'Omega Wand'],
 };
 
 /** Tier-1 base [atpMin, atpMax, ata] for each kind. */
@@ -359,14 +359,15 @@ const KIND_MST: Partial<Record<WeaponKind, number>> = { cane: 4, wand: 6, rod: 8
 // Lv 26-30 base, so a well-fed Mag pulls it into the low 20s. Tier 6 drops in the Mines
 // (shops after the Warden): about Lv 34-38 base, so a Mag built for it reaches it near 30.
 // Tier 7 drops in the Ruins (shops after Dark Falz), reqs about Lv 44 base. Tiers 8-11 drop on Nightmare
-// (Forest, Caves, Mines, Ruins), reqs reachable near the Lv 52 / 62 / 72 / 82 band tops.
-const TIER_ATP = [1, 1.7, 2.5, 3.4, 4.4, 5.5, 6.7, 8.0, 9.4, 10.9, 12.5];
-const TIER_ATA = [1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0];
-const TIER_PRICE = [250, 900, 2800, 7500, 16000, 30000, 50000, 80000, 120000, 170000, 230000];
+// (Forest, Caves, Mines, Ruins), reqs reachable near the Lv 52 / 62 / 72 / 82 band tops; tiers 12-15 on Hell
+// (Lv 92 / 102 / 112 / 122), carrying on the same steps.
+const TIER_ATP = [1, 1.7, 2.5, 3.4, 4.4, 5.5, 6.7, 8.0, 9.4, 10.9, 12.5, 14.2, 16.0, 17.9, 19.9];
+const TIER_ATA = [1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4];
+const TIER_PRICE = [250, 900, 2800, 7500, 16000, 30000, 50000, 80000, 120000, 170000, 230000, 300000, 380000, 470000, 570000];
 const TIER_REQ: Record<'atp' | 'ata' | 'mst', number[]> = {
-  atp: [0, 60, 90, 130, 160, 185, 215, 245, 275, 305, 335],
-  ata: [0, 75, 95, 120, 135, 150, 165, 180, 195, 210, 225],
-  mst: [0, 80, 120, 170, 200, 230, 260, 290, 320, 350, 380],
+  atp: [0, 60, 90, 130, 160, 185, 215, 245, 275, 305, 335, 365, 395, 425, 455],
+  ata: [0, 75, 95, 120, 135, 150, 165, 180, 195, 210, 225, 240, 255, 270, 285],
+  mst: [0, 80, 120, 170, 200, 230, 260, 290, 320, 350, 380, 410, 440, 470, 500],
 };
 
 export const itemDefs: Record<string, ItemDef> = {};
@@ -434,7 +435,8 @@ add({ id: 'arc_welder', type: 'weapon', name: 'Arc Welder', kind: 'handgun', tie
 // 1 MST ≈ 0.4% more tech damage, 1 EVP ≈ 0.3% fewer hits taken (Forest numbers).
 // Melee eats far more hits than ranged, so DFP is worth more to a Hunter and
 // offense more to a Ranger; each line should win for its own class only.
-// Requirements equal the line's main class stat at levels 6 / 12 / 20 / 28 / 36 / 44 (Ruins), then 52 / 60 / 68 / 76 (Nightmare).
+// Requirements equal the line's main class stat at levels 6 / 12 / 20 / 28 / 36 / 44 (Ruins), then 52 / 60 / 68 / 76 (Nightmare),
+// then 84 / 92 / 100 / 108 (Hell, carrying on the same steps).
 add({ id: 'frame_1', type: 'armor', slot: 'frame', line: 'basic', name: 'Frame', tier: 1, dfp: 5, evp: 5, req: 0, price: 200 });
 add({ id: 'barrier_1', type: 'armor', slot: 'barrier', line: 'basic', name: 'Barrier', tier: 1, dfp: 4, evp: 6, req: 0, price: 200 });
 
@@ -454,6 +456,10 @@ const ARMOR_TABLE: Record<'frame' | 'barrier', Record<Exclude<ArmorLine, 'basic'
       { name: 'Aegis Frame', dfp: 105, evp: 28, atp: 15 },
       { name: 'Bulwark Frame', dfp: 123, evp: 32, atp: 17 },
       { name: 'Paragon Frame', dfp: 142, evp: 36, atp: 19 },
+      { name: 'Sovereign Frame', dfp: 162, evp: 40, atp: 21 },
+      { name: 'Dominion Plate', dfp: 183, evp: 44, atp: 23 },
+      { name: 'Eclipse Armor', dfp: 205, evp: 48, atp: 25 },
+      { name: 'Imperator Frame', dfp: 228, evp: 52, atp: 27 },
     ],
     combat: [
       { name: 'Combat Frame', dfp: 4, evp: 6, atp: 2, ata: 2 },
@@ -467,6 +473,10 @@ const ARMOR_TABLE: Record<'frame' | 'barrier', Record<Exclude<ArmorLine, 'basic'
       { name: 'Warlord Frame', dfp: 64, evp: 76, atp: 43, ata: 23 },
       { name: 'Champion Frame', dfp: 75, evp: 90, atp: 50, ata: 26 },
       { name: 'Legend Frame', dfp: 87, evp: 105, atp: 58, ata: 29 },
+      { name: 'Phantom Frame', dfp: 100, evp: 121, atp: 66, ata: 32 },
+      { name: 'Valkyrie Frame', dfp: 113, evp: 138, atp: 75, ata: 35 },
+      { name: 'Inferno Frame', dfp: 127, evp: 156, atp: 84, ata: 38 },
+      { name: 'Phoenix Frame', dfp: 141, evp: 175, atp: 94, ata: 41 },
     ],
     psy: [
       { name: 'Psy Frame', dfp: 3, evp: 5, mst: 6, tp: 5 },
@@ -480,6 +490,10 @@ const ARMOR_TABLE: Record<'frame' | 'barrier', Record<Exclude<ArmorLine, 'basic'
       { name: 'Divine Garment', dfp: 49, evp: 63, mst: 97, tp: 90 },
       { name: 'Seraphic Garment', dfp: 58, evp: 75, mst: 114, tp: 106 },
       { name: 'Empyrean Garment', dfp: 68, evp: 88, mst: 132, tp: 123 },
+      { name: 'Oracle Garment', dfp: 79, evp: 102, mst: 151, tp: 141 },
+      { name: 'Ascendant Garment', dfp: 90, evp: 117, mst: 171, tp: 160 },
+      { name: 'Eternal Garment', dfp: 102, evp: 133, mst: 192, tp: 180 },
+      { name: 'Archon Garment', dfp: 115, evp: 150, mst: 214, tp: 201 },
     ],
   },
   barrier: {
@@ -495,6 +509,10 @@ const ARMOR_TABLE: Record<'frame' | 'barrier', Record<Exclude<ArmorLine, 'basic'
       { name: 'Aegis Shield', dfp: 86, evp: 40, atp: 8 },
       { name: 'Bulwark Shield', dfp: 101, evp: 47, atp: 9 },
       { name: 'Paragon Shield', dfp: 117, evp: 55, atp: 10 },
+      { name: 'Sovereign Shield', dfp: 134, evp: 63, atp: 11 },
+      { name: 'Dominion Shield', dfp: 152, evp: 72, atp: 12 },
+      { name: 'Eclipse Shield', dfp: 171, evp: 81, atp: 13 },
+      { name: 'Imperator Shield', dfp: 191, evp: 91, atp: 14 },
     ],
     combat: [
       { name: 'Combat Barrier', dfp: 3, evp: 7, atp: 1, ata: 1 },
@@ -508,6 +526,10 @@ const ARMOR_TABLE: Record<'frame' | 'barrier', Record<Exclude<ArmorLine, 'basic'
       { name: 'Warlord Shield', dfp: 56, evp: 78, atp: 28, ata: 16 },
       { name: 'Champion Shield', dfp: 67, evp: 92, atp: 33, ata: 18 },
       { name: 'Legend Shield', dfp: 79, evp: 107, atp: 38, ata: 20 },
+      { name: 'Phantom Shield', dfp: 92, evp: 123, atp: 43, ata: 22 },
+      { name: 'Valkyrie Shield', dfp: 106, evp: 140, atp: 49, ata: 24 },
+      { name: 'Inferno Shield', dfp: 121, evp: 158, atp: 55, ata: 26 },
+      { name: 'Phoenix Shield', dfp: 137, evp: 177, atp: 61, ata: 28 },
     ],
     psy: [
       { name: 'Psy Barrier', dfp: 2, evp: 6, mst: 4, tp: 3 },
@@ -521,15 +543,19 @@ const ARMOR_TABLE: Record<'frame' | 'barrier', Record<Exclude<ArmorLine, 'basic'
       { name: 'Divine Shield', dfp: 43, evp: 71, mst: 63, tp: 55 },
       { name: 'Seraphic Shield', dfp: 52, evp: 84, mst: 75, tp: 66 },
       { name: 'Empyrean Shield', dfp: 61, evp: 98, mst: 88, tp: 78 },
+      { name: 'Oracle Shield', dfp: 71, evp: 113, mst: 102, tp: 91 },
+      { name: 'Ascendant Shield', dfp: 82, evp: 129, mst: 117, tp: 105 },
+      { name: 'Eternal Shield', dfp: 94, evp: 146, mst: 133, tp: 120 },
+      { name: 'Archon Shield', dfp: 107, evp: 164, mst: 150, tp: 136 },
     ],
   },
 };
 export const ARMOR_REQ: Record<'atp' | 'ata' | 'mst', number[]> = {
-  atp: [0, 60, 84, 116, 148, 180, 212, 244, 276, 308, 340],
-  ata: [0, 79, 89, 104, 119, 133, 147, 161, 175, 189, 203],
-  mst: [0, 80, 104, 136, 168, 200, 232, 264, 296, 328, 360],
+  atp: [0, 60, 84, 116, 148, 180, 212, 244, 276, 308, 340, 372, 404, 436, 468],
+  ata: [0, 79, 89, 104, 119, 133, 147, 161, 175, 189, 203, 217, 231, 245, 259],
+  mst: [0, 80, 104, 136, 168, 200, 232, 264, 296, 328, 360, 392, 424, 456, 488],
 };
-const ARMOR_PRICE = [250, 800, 2400, 6500, 14000, 28000, 45000, 70000, 100000, 135000, 180000];
+const ARMOR_PRICE = [250, 800, 2400, 6500, 14000, 28000, 45000, 70000, 100000, 135000, 180000, 230000, 290000, 360000, 440000];
 for (const slot of ['frame', 'barrier'] as const) {
   for (const line of ['guard', 'combat', 'psy'] as const) {
     ARMOR_TABLE[slot][line].forEach(({ name, dfp, evp, ...bonus }, i) =>

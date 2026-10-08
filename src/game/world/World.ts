@@ -2,10 +2,10 @@ import * as THREE from 'three';
 import { sfx } from '../../audio';
 import { expeditionOf, isCounter, type ExpeditionId, type SpawnDef } from '../data/areas';
 import {
-  affixes as affixCfg, ai, dash as dashCfg, elite as eliteCfg, enemies as enemyDefs, hard as hardCfg, hazards as hazardCfg, machinery as machineCfg, panArms as panCfg, pylonCfg,
+  affixes as affixCfg, ai, dash as dashCfg, elite as eliteCfg, enemies as enemyDefs, hard as hardCfg, hell as hellCfg, hazards as hazardCfg, machinery as machineCfg, panArms as panCfg, pylonCfg,
   type EnemyArchetype, type EnemyId,
 } from '../config';
-import { AFFIXES, MINES_AFFIXES, rollAffixes } from '../data/affixes';
+import { AFFIXES, HARD_AFFIXES, MINES_AFFIXES, rollAffixes } from '../data/affixes';
 import { shieldBubble } from '../enemies/affixFx';
 import { hardArch, hardBoss, hardScale } from '../hard';
 import { separateCircles } from '../collision';
@@ -46,12 +46,14 @@ export interface RunState {
   /** Index into the expedition's floors: the fallback the city teleporter returns to. */
   floor: number;
   bossDefeated: boolean;
-  /** Nightmare, internally Hard (see DESIGN.md "Nightmare"). */
+  /** Nightmare, internally Hard (see DESIGN.md "Nightmare"); also set on Hell, which uses the same mechanics. */
   hard: boolean;
+  /** Hell (see DESIGN.md "Hell"): Hell scaling, every hit can corrupt, far more elites, boss third phases. */
+  hell: boolean;
 }
 
-export function newRun(expedition: ExpeditionId = 'forest', hard = false): RunState {
-  return { expedition, areas: {}, floor: 0, bossDefeated: false, hard };
+export function newRun(expedition: ExpeditionId = 'forest', hard = false, hell = false): RunState {
+  return { expedition, areas: {}, floor: 0, bossDefeated: false, hard: hard || hell, hell };
 }
 
 export function areaRun(run: RunState, id: AreaId): AreaRunState {
@@ -92,8 +94,10 @@ interface ActiveRoom {
   delay: number;
   /** Ambush spawns still telegraphing (count as alive). */
   pending: Telegraph[];
-  /** Hard: the wave entry that comes in as the room's champion. */
-  champion: { wave: number; index: number } | null;
+  /** Hard: the wave entries that come in as the room's champions (one; two in big Hell Ruins rooms). */
+  champion: { wave: number; index: number }[];
+  /** Hell: a Splitting enemy has spawned here (only one per room). */
+  splitting?: boolean;
 }
 
 /** A Shielding elite's tether to an ally it protects. */
@@ -228,7 +232,7 @@ export class World {
 
     if (def.kind === 'boss' && !run.bossDefeated) {
       const id = def.boss ?? 'dragon';
-      this.boss = createBoss(id, this.level, run.hard ? hardBoss(id) : null);
+      this.boss = createBoss(id, this.level, run.hard ? hardBoss(id, run.hell) : null);
       this.group.add(...this.boss.objects);
     }
     if (def.kind === 'boss' && run.bossDefeated) this.spawnReturnTeleporter();
@@ -341,7 +345,7 @@ export class World {
   /** The stats an enemy type spawns with here: scaled on Hard. */
   archFor(type: EnemyId): EnemyArchetype {
     const exp = expeditionOf(this.areaId);
-    return this.run.hard && exp ? hardArch(enemyDefs[type], hardScale(exp)) : enemyDefs[type];
+    return this.run.hard && exp ? hardArch(enemyDefs[type], hardScale(exp, this.run.hell)) : enemyDefs[type];
   }
 
   spawnEnemy(type: EnemyId, x: number, z: number, room: string | null, opts: EnemyOptions = {}): Enemy {
@@ -579,7 +583,9 @@ export class World {
       let n = this.shields.filter((l) => l.src === src).length;
       if (n >= affixCfg.shieldTargets) continue;
       const near = this.enemies
+        // Hell: Shielding and Regenerating enemies don't shield each other (no unbreakable walls).
         .filter((o) => o !== src && o.alive && !o.shieldedBy && o.state !== 'spawning' && Math.hypot(o.pos.x - src.pos.x, o.pos.z - src.pos.z) < affixCfg.shieldRange)
+        .filter((o) => !this.run.hell || !(o.hasAffix('shielding') || o.hasAffix('regenerating')))
         .sort((p, q) => Math.hypot(p.pos.x - src.pos.x, p.pos.z - src.pos.z) - Math.hypot(q.pos.x - src.pos.x, q.pos.z - src.pos.z));
       for (const ally of near) {
         if (n >= affixCfg.shieldTargets) break;
@@ -670,6 +676,7 @@ export class World {
       this.addEffect(new Ring(e.pos.x, e.pos.z, color, affixCfg.regenPulseRange, 0.6));
       for (const o of this.enemies) {
         if (o === e || !o.alive || o.state === 'spawning') continue;
+        if (this.run.hell && (o.hasAffix('regenerating') || o.hasAffix('shielding'))) continue;
         if (Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z) > affixCfg.regenPulseRange) continue;
         const got = o.receiveHeal(o.maxHp * affixCfg.regenPulseHeal);
         if (got >= 1) {
@@ -773,16 +780,23 @@ export class World {
     this.spawnWave(this.active, room.def.waves[0], player);
   }
 
-  /** Hard: at most one champion per room, on a random wave entry (never a control node). */
+  /**
+   * Hard: at most one champion per room, on a random wave entry (never a control node). Hell: every room has
+   * one, and big rooms in the Hell Ruins get a second.
+   */
   private pickChampion(room: RoomRuntime): ActiveRoom['champion'] {
-    if (!this.run.hard || this.hooks.rng() >= hardCfg.championChance) return null;
+    if (!this.run.hard) return [];
+    if (!this.run.hell && this.hooks.rng() >= hardCfg.championChance) return [];
     const slots: { wave: number; index: number }[] = [];
     (room.def.waves ?? []).forEach((w, wi) =>
       w.forEach((entry, i) => {
         if ((typeof entry === 'string' ? entry : entry.e) !== 'ControlNode') slots.push({ wave: wi, index: i });
       }),
     );
-    return slots.length ? slots[Math.floor(this.hooks.rng() * slots.length)] : null;
+    const n = this.run.hell && expeditionOf(this.areaId) === 'ruins' && slots.length >= hellCfg.bigRoomSpawns ? 2 : 1;
+    const picked: { wave: number; index: number }[] = [];
+    while (picked.length < n && slots.length) picked.push(slots.splice(Math.floor(this.hooks.rng() * slots.length), 1)[0]);
+    return picked;
   }
 
   private spawnWave(a: ActiveRoom, wave: SpawnDef[], player: Player): void {
@@ -797,20 +811,23 @@ export class World {
       let type = typeof entry === 'string' ? entry : entry.e;
       // Rare red Lily.
       if (elites && type === 'PoisonLily' && rng() < 1 / 15) type = 'NarLily';
-      const champion = hard && type !== 'ControlNode' && a.champion?.wave === waveIndex && a.champion.index === i;
-      const chance = hard ? hardCfg.eliteChance : eliteCfg.chance;
+      const champion = hard && type !== 'ControlNode' && a.champion.some((c) => c.wave === waveIndex && c.index === i);
+      const chance = this.run.hell ? (hardScale(expeditionOf(this.areaId) ?? 'forest', true).elite ?? hardCfg.eliteChance) : hard ? hardCfg.eliteChance : eliteCfg.chance;
+      // Hell: at most one Splitting enemy per room.
+      const pool = this.run.hell && a.splitting ? HARD_AFFIXES.filter((x) => x !== 'splitting') : undefined;
       const opts: EnemyOptions = { elite: elites && type !== 'NarLily' && type !== 'ControlNode' && rng() < chance };
       const arch = this.archFor(type);
       if (champion) {
         // The room's champion: two affixes from the whole pool.
         opts.champion = true;
-        opts.affixes = rollAffixes(2, arch, rng);
+        opts.affixes = rollAffixes(2, arch, rng, pool);
       } else if (opts.elite && hard) {
-        opts.affixes = rollAffixes(1, arch, rng);
+        opts.affixes = rollAffixes(1, arch, rng, pool);
       } else if (opts.elite && this.def.affixes) {
         // Normal Mines elites roll a machine affix, Ruins elites a dark one.
         opts.affixes = rollAffixes(1, arch, rng, this.def.affixPool ?? MINES_AFFIXES);
       }
+      if (opts.affixes?.includes('splitting')) a.splitting = true;
       let x: number;
       let z: number;
       if (typeof entry !== 'string') {
@@ -1009,6 +1026,17 @@ export class World {
     return true;
   }
 
+  /** Seconds left on each affix area attack warning right now (Hell caps how many overlap). */
+  private affixAreas: number[] = [];
+
+  /** Hell: at most `hell.maxAffixAreas` affix area attacks warn at once (Nightmare and Normal: no cap). */
+  claimAffixArea(seconds: number): boolean {
+    if (!this.run.hell) return true;
+    if (this.affixAreas.length >= hellCfg.maxAffixAreas) return false;
+    this.affixAreas.push(seconds);
+    return true;
+  }
+
   /** Ranged / caster attacks: the same budget, and at most one start per `ai.shotGap` across the room. */
   requestShot(e: Enemy, weight = 1): boolean {
     if (this.sinceShot < ai.shotGap) return false;
@@ -1020,6 +1048,7 @@ export class World {
   update(dt: number, player: Player): void {
     this.sinceWindup += dt;
     this.sinceShot += dt;
+    this.affixAreas = this.affixAreas.map((t) => t - dt).filter((t) => t > 0);
     this.updateRooms(dt, player);
 
     const ectx = this.hooks.enemyCtx;

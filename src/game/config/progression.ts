@@ -6,6 +6,17 @@ export const drops = {
 };
 
 /**
+ * Haste (see DESIGN.md "Hell"): rolls on dropped weapons, frames and barriers from tier 11 (the Nightmare Ruins)
+ * up; what is worn adds up. Swing wind-ups and recoveries and technique casts take 1 / (1 + Haste%) as long.
+ */
+export const hasteCfg = {
+  /** Highest Haste % one item can roll, by tier (lower tiers roll none). */
+  capByTier: { 11: 3, 12: 5, 13: 7, 14: 9, 15: 12 } as Record<number, number>,
+  /** Share of eligible drops that roll it (shop stock never does). */
+  chance: 0.75,
+};
+
+/**
  * Bump when the attribute or Mag tree rules change in a way that breaks existing builds: every character
  * gets all its attribute points and Mag squares back to spend again (the only way they are ever refunded).
  */

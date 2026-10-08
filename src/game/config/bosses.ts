@@ -32,6 +32,27 @@ export const dragon = {
   enrageAt: 0.4,
   enrageSpeed: 0.75, // windup multiplier when enraged
   attackGap: 1.75,
+  /** Hell: phase 3 (triple telegraphs) starts at this HP share. */
+  hellPhaseAt: 1 / 3,
+  /** Phase 3: one attack in this many is a triple (breath or charge + tail + Hellfire, one safe pocket). */
+  tripleEvery: 2,
+  /** A triple's breath / charge windup (not cut by the enrage). */
+  tripleWindup: 1.7,
+  /** Reaction time left out when checking the safe pocket can be walked to in time. */
+  tripleReact: 0.35,
+  /** Beside a breath the tail lands this long after the windup (beside a charge, at the launch). */
+  tripleTailDelay: 0.4,
+  /** The Hellfire (violet, corrupts) is warned this long after the other two, and lands this long after that. */
+  tripleFireDelay: 0.3,
+  tripleFireWindup: 1.8,
+  /** Close in: the tail sweeps this far around it, leaving one wedge (deg wide, deg off its nose) open under a wing. */
+  tripleWingR: 7,
+  tripleWingDeg: 60,
+  tripleWingAngle: 60,
+  /** Farther out: the Hellfire ring around it leaves one gap this wide (m) beside the breath or the charge. */
+  tripleGap: 4,
+  /** Nearer than this (m), the wing pocket is tried first. */
+  tripleWingRange: 8,
 };
 
 export const deRolLe = {
@@ -80,6 +101,15 @@ export const deRolLe = {
   sprayRadius: 2.0,
   puddleLife: 12,
   enrageSpeed: 0.8,
+  /** Hell: phase 3 below this HP share (the shell already gone). Every tripleEvery-th attack is then a triple. */
+  phase3At: 1 / 3,
+  tripleEvery: 2,
+  /** Warning on all three parts of a triple (its mines go off 0.25 s later, as in the Nightmare pair). */
+  tripleWindup: 1.6,
+  /** Clear deck (m, for your centre) in a triple's one safe pocket: lane to mine row, or along the beam's open flank. */
+  triplePocket: 2.5,
+  /** Width of the flank the triple beam leaves unswept (the pocket sits in it between the poison and the mines). */
+  tripleFlank: 2.6,
 };
 
 /**
@@ -154,6 +184,16 @@ export const warden = {
   maxDrones: 2,
   /** Each repairing drone restores this fraction of the Warden's max HP per second. */
   droneHealPct: 0.004,
+  // Hell, phase 3 (from phase3At): every tripleEvery-th attack (the first one at once) is a triple, three attacks
+  // warned together around one safe cell (diagonals + wall + slam, three holes + lockdown + slam, bands + wall +
+  // lockdown), then its core vents.
+  phase3At: 1 / 3,
+  tripleEvery: 3,
+  /** Warning for all three (x the enrage speed-up); the third shows tripleStagger s later and fires with them. */
+  tripleWindup: 2,
+  tripleStagger: 0.3,
+  /** The safe cell's inner part (0.5 m in from its edges) lies within this many metres of you (walking is 4.6 m/s). */
+  tripleReach: 4.5,
 };
 
 /**
@@ -249,4 +289,24 @@ export const darkFalz = {
   lanceWidth: 7,
   lanceWindup: 1.0,
   lanceAtpMult: 1.4,
+  // ---- Hell: the Angel's triples (three telegraphs at once, one safe route) ----
+  /** Every this-many-th form 3 attack on Hell is a triple (Eclipse or Judgement, taking turns). */
+  tripleEvery: 2,
+  /** The third telegraph of a triple appears this long after the first two (it fires with them). */
+  tripleDelay: 0.3,
+  /**
+   * Eclipse: three Grants pillars land (grantsWindup) and leave light; eclipseWindup s after the warnings the whole
+   * altar goes dark, sparing only the light, while feathers rake two of the pools. The safe pool is placed first,
+   * `eclipseReach` m from you and `eclipseRing` m from the centre; the other two sit ±120° round the altar from it.
+   */
+  eclipseWindup: 2.8,
+  eclipseReach: [4, 6.5] as [number, number],
+  eclipseRing: [5, 11] as [number, number],
+  /**
+   * Judgement: your half goes dark (split as for the halves), a lance runs from the Angel across the other half and a
+   * wing of feathers (a `judgementWingDeg` cone) sweeps the quarter of it away from you. Safe: the other quarter,
+   * past the lance's edge.
+   */
+  judgementWindup: 2.1,
+  judgementWingDeg: 100,
 };

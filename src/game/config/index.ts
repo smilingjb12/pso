@@ -7,6 +7,7 @@ export * from './combat';
 export * from './player';
 export * from './enemies';
 export * from './hard';
+export * from './hell';
 export * from './mechanics';
 export * from './bosses';
 export * from './progression';

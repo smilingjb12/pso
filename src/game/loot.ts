@@ -1,11 +1,12 @@
 import { makeItem, type ItemInstance } from './character';
-import { drops, type EnemyArchetype } from './config';
+import { drops, hasteCfg, type EnemyArchetype } from './config';
 import { expeditionOfBoss } from './data/areas';
 import { BOSS_IDS, BOSSES, type BossId, type ShopUnlock } from './data/bosses';
 import {
   armorLines, ATTRS, INJECTOR_MODS, itemDefs, raceCap, specials, weaponKinds, type ArmorLine, type Attr, type InjectorMod, type ItemDef, type SpecialId,
 } from './data/items';
 import { hardScale } from './hard';
+import { asDifficulty, type Difficulty } from './difficulty';
 
 export type Rng = () => number;
 
@@ -59,12 +60,20 @@ function decorateWeapon(def: ItemDef, tier: number, rng: Rng): ItemInstance {
   if (!def.special && rng() < 0.18) inst.special = pick(SPECIAL_POOL, rng);
   // Pre-ground drops are Edge levels; caps are only 5-9, so mostly +1.
   if (rng() < 0.2) inst.grind = rng() < 0.25 ? 2 : 1;
+  rollHaste(inst, tier, rng);
+  return inst;
+}
+
+/** Tier 11+ gear: most drops roll Haste, 1% up to the tier's cap. */
+export function rollHaste(inst: ItemInstance, tier: number, rng: Rng): ItemInstance {
+  const cap = hasteCfg.capByTier[tier] ?? 0;
+  if (cap > 0 && rng() < hasteCfg.chance) inst.haste = 1 + Math.floor(rng() * cap);
   return inst;
 }
 
 export function rollRare(rng: Rng, pool = RARE_POOL): ItemInstance {
   const def = itemDefs[pick(pool, rng)];
-  const inst = decorateWeapon(def, def.type === 'weapon' ? def.tier : 1, rng);
+  const inst = decorateWeapon(def, def.type === 'weapon' || def.type === 'armor' ? def.tier : 1, rng);
   delete inst.special; // rares keep their fixed special
   return inst;
 }
@@ -84,7 +93,7 @@ export function rollArmor(tier: number, rng: Rng, bias?: LootBias): ItemInstance
   const slot = rng() < 0.5 ? 'frame' : 'barrier';
   let lines: readonly ArmorLine[] = ARMOR_LINES;
   if (bias && rng() < 0.6) lines = ARMOR_LINES.filter((l) => armorLines[l].reqStat === bias);
-  return makeItem(`${slot}_${pick(lines, rng)}_${tier}`);
+  return rollHaste(makeItem(`${slot}_${pick(lines, rng)}_${tier}`), tier, rng);
 }
 
 /** The one consumable left: injector refills are charge orbs now. */
@@ -112,7 +121,8 @@ export function rollMisc(rng: Rng): ItemInstance {
 export function rollDrop(
   tier: number, rareRate: number, rng: Rng, bias?: LootBias, mesetaRange: [number, number] = [10, 30], rarePool = RARE_POOL,
 ): Drop {
-  if (rng() < rareRate * drops.rareMult) return { kind: 'item', item: rollRare(rng, rarePool) };
+  // An empty pool (Hell has no rares of its own yet) never rolls one.
+  if (rarePool.length && rng() < rareRate * drops.rareMult) return { kind: 'item', item: rollRare(rng, rarePool) };
   // Healing comes from injectors now, so consumables are rare and gear shows up more often.
   const cat = weighted<'meseta' | 'consumable' | 'injector' | 'weapon' | 'armor' | 'misc'>(
     [
@@ -250,20 +260,38 @@ export function rollHardBossDrops(boss: BossId, rng: Rng, bias?: LootBias): Drop
   return out;
 }
 
-export function rollBossDrops(boss: BossId, hard: boolean, rng: Rng, bias?: LootBias): Drop[] {
-  return hard ? rollHardBossDrops(boss, rng, bias) : BOSS_DROPS[boss](rng, bias);
+/** Each Hell boss's base Meseta (no signature drops yet: an extra top-tier piece instead). */
+const HELL_BOSS_MESETA: Record<BossId, number> = { dragon: 30000, derolle: 40000, warden: 52000, falz: 66000 };
+
+/** Hell bosses: their expedition's top tiers (one more piece than Nightmare), Haste on most, and two modded tier 6 injector rolls. */
+export function rollHellBossDrops(boss: BossId, rng: Rng, bias?: LootBias): Drop[] {
+  const base = HELL_BOSS_MESETA[boss];
+  const { dropTier: top } = hardScale(expeditionOfBoss(boss), true);
+  const out: Drop[] = [{ kind: 'meseta', amount: base + Math.round(rng() * base * 0.5) }];
+  out.push({ kind: 'item', item: rollWeapon(top, rng, bias) });
+  out.push({ kind: 'item', item: rollWeapon(rng() < 0.5 ? top : top - 1, rng, bias) });
+  out.push({ kind: 'item', item: rollArmor(top, rng, bias) });
+  out.push({ kind: 'item', item: rollArmor(rng() < 0.5 ? top : top - 1, rng, bias) });
+  out.push({ kind: 'item', item: rollInjector(6, rng, bias, 1, 6) });
+  out.push({ kind: 'item', item: rollMisc(rng) }, { kind: 'item', item: rollMisc(rng) }, { kind: 'item', item: rollMisc(rng) });
+  return out;
+}
+
+export function rollBossDrops(boss: BossId, d: Difficulty | boolean, rng: Rng, bias?: LootBias): Drop[] {
+  const diff = asDifficulty(d);
+  return diff === 'hell' ? rollHellBossDrops(boss, rng, bias) : diff === 'nightmare' ? rollHardBossDrops(boss, rng, bias) : BOSS_DROPS[boss](rng, bias);
 }
 
 // ------------------------------------------------------------------ shops
 
 export type ShopKind = 'weapon' | 'armor' | 'item';
 
-/** Bosses this character has beaten on Normal, and on Nightmare (`hard`): each opens shop tiers (BOSSES[id].shop / hardShop). */
-export type ShopUnlocks = Partial<Record<BossId, boolean>> & { hard?: Partial<Record<BossId, boolean>> };
+/** Bosses this character has beaten on Normal, on Nightmare (`hard`) and on Hell: each opens shop tiers (BOSSES[id].shop / hardShop / hellShop). */
+export type ShopUnlocks = Partial<Record<BossId, boolean>> & { hard?: Partial<Record<BossId, boolean>>; hell?: Partial<Record<BossId, boolean>> };
 
 /**
  * Highest tier a shop stocks for a given character level: the level ladder up to tier 4, then whatever the
- * bosses beaten open (tier 5 after De Rol Le from Lv 24 ... tier 11 after the Nightmare Dark Falz from Lv 82).
+ * bosses beaten open (tier 5 after De Rol Le from Lv 24 ... tier 11 after the Nightmare Dark Falz from Lv 82, tier 15 after the Hell one from Lv 122).
  */
 export function shopTier(level: number, u: ShopUnlocks = {}): number {
   let tier = level >= 20 ? 4 : level >= 12 ? 3 : level >= 5 ? 2 : 1;
@@ -273,6 +301,7 @@ export function shopTier(level: number, u: ShopUnlocks = {}): number {
   for (const id of BOSS_IDS) {
     if (u[id]) open(BOSSES[id].shop);
     if (u.hard?.[id]) open(BOSSES[id].hardShop);
+    if (u.hell?.[id]) open(BOSSES[id].hellShop);
   }
   return tier;
 }

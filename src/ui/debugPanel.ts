@@ -52,6 +52,7 @@ export interface DebugActions {
   /** Open an expedition (every boss before it counts as beaten). */
   unlock(exp: ExpeditionId): void;
   unlockHard(): void;
+  unlockHell(): void;
 }
 
 export function createDebugPanel(actions: DebugActions): GUI {
@@ -75,6 +76,7 @@ export function createDebugPanel(actions: DebugActions): GUI {
     heal: () => actions.heal(),
     kill: () => actions.killAll(),
     hard: () => actions.unlockHard(),
+    hell: () => actions.unlockHell(),
   };
   g.add(act, 'heal').name('heal HP/TP');
   g.add(act, 'xp100').name('+100 EXP');
@@ -84,6 +86,7 @@ export function createDebugPanel(actions: DebugActions): GUI {
   g.add(act, 'rare').name('give random rare');
   g.add(act, 'kill').name('kill all enemies');
   g.add(act, 'hard').name('unlock Nightmare');
+  g.add(act, 'hell').name('unlock Hell');
   g.add({ city: () => actions.goto('city') }, 'city').name('warp: Pioneer 2');
   for (const exp of Object.values(expeditions)) {
     if (exp.needs) g.add({ unlock: () => actions.unlock(exp.id) }, 'unlock').name(`unlock ${exp.name}`);

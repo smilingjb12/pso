@@ -44,6 +44,8 @@ export interface EnemyContext {
   requestAttackToken(enemy: Enemy, weight?: number): boolean;
   /** Ranged / caster attacks: the same budget, plus their own slower rhythm. */
   requestShot(enemy: Enemy, weight?: number): boolean;
+  /** An affix area attack (Stormcaller circles, Volatile vent, Molten globs) warning for `seconds`: false while too many are up (Hell). */
+  claimAffixArea(seconds: number): boolean;
   /** Strike is live; returns true if it connected (so it only hits once). */
   tryStrike(enemy: Enemy): boolean;
   /** Damage-over-time tick (burn / poison). */
@@ -503,22 +505,28 @@ export abstract class Enemy implements Hittable {
     if (this.hasAffix('stormcaller') && engaged) {
       this.stormT -= dt;
       if (this.stormT <= 0) {
-        this.stormT = affixCfg.stormEvery * (0.85 + ctx.rng() * 0.3);
-        this.callStorm(ctx);
+        if (ctx.claimAffixArea(affixCfg.stormWindup)) {
+          this.stormT = affixCfg.stormEvery * (0.85 + ctx.rng() * 0.3);
+          this.callStorm(ctx);
+        } else this.stormT = 0.4;
       }
     }
     if (this.hasAffix('volatile') && active && dist < affixCfg.ventRange + this.radius) {
       this.ventT -= dt;
       if (this.ventT <= 0) {
-        this.ventT = affixCfg.ventEvery;
-        this.vent(ctx);
+        if (ctx.claimAffixArea(affixCfg.ventWindup)) {
+          this.ventT = affixCfg.ventEvery;
+          this.vent(ctx);
+        } else this.ventT = 0.4;
       }
     }
     if (this.hasAffix('molten') && engaged) {
       this.spewT -= dt;
       if (this.spewT <= 0) {
-        this.spewT = affixCfg.spewEvery * (0.85 + ctx.rng() * 0.3);
-        this.spew(ctx);
+        if (ctx.claimAffixArea(affixCfg.spewWindup)) {
+          this.spewT = affixCfg.spewEvery * (0.85 + ctx.rng() * 0.3);
+          this.spew(ctx);
+        } else this.spewT = 0.4;
       }
     }
     if (this.hasAffix('frenzied') && !this.roared && this.frenzied) {

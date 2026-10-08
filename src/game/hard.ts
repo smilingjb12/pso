@@ -1,4 +1,4 @@
-import { hard, type EnemyArchetype, type HardBossScale, type HardScale } from './config';
+import { hard, hell, type EnemyArchetype, type HardBossScale, type HardScale } from './config';
 import type { BossId, ExpeditionId } from './data/areas';
 
 /** A telegraph on Hard: a little shorter, never below the floor (one already shorter stays). */
@@ -29,10 +29,12 @@ export function hardArch(arch: EnemyArchetype, s: HardScale): EnemyArchetype {
   };
 }
 
-export function hardScale(exp: ExpeditionId): HardScale {
-  return hard[exp];
+/** Field enemy scaling for one expedition on Nightmare, or on Hell. */
+export function hardScale(exp: ExpeditionId, isHell = false): HardScale {
+  return isHell ? hell[exp] : hard[exp];
 }
 
-export function hardBoss(id: BossId): HardBossScale {
-  return hard.bosses[id];
+/** Boss scaling on Nightmare, or on Hell (which also opens its third phase). */
+export function hardBoss(id: BossId, isHell = false): HardBossScale {
+  return isHell ? hell.bosses[id] : hard.bosses[id];
 }

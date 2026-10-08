@@ -36,6 +36,11 @@ export type ComboPhase = 'idle' | 'swing' | 'reset';
 
 export const MAX_HITS = 3;
 
+/** A swing or cast sped up by Haste: wind-up and recovery scale by `k` (1 / (1 + Haste%)); the chain window's grace doesn't. */
+export function hastened(t: AttackTiming, k: number): AttackTiming {
+  return k === 1 ? t : { ...t, windup: t.windup * k, recovery: t.recovery * k };
+}
+
 export interface SwingTimes {
   hitAt: number;
   activeEnd: number;

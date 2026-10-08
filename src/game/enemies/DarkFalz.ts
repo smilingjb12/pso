@@ -23,13 +23,17 @@ import { CORRUPT_COLOR } from './Enemy';
 //  3. The Angel descends to the centre: the altar splits into a light and a dark half along a line close
 //     to you (the dark half fires, then the other), feather volleys, and a lance across the altar
 //     through you (a dash check).
-// Nightmare pairs attacks in forms 2 and 3. Pylons on the altar cleanse you and, if it stands in one,
-// expose it.
+// Nightmare pairs attacks in forms 2 and 3. On Hell every other form 3 attack is a triple: Eclipse (Grants,
+// the whole altar going dark and feathers; only the light you can reach is safe) or Judgement (your half
+// going dark, a lance and a wing of feathers; only the quarter past the lance is safe). Pylons on the altar
+// cleanse you and, if it stands in one, expose it.
 
 type FState =
   | 'dormant' | 'intro' | 'idle' | 'lanes' | 'ring' | 'pulse' | 'open' | 'morph'
-  | 'scythe' | 'cast' | 'vanish' | 'slam' | 'recover' | 'halves' | 'feathers' | 'lance' | 'dead';
-type Attack = 'lanes' | 'ring' | 'pulse' | 'scythe' | 'grants' | 'megid' | 'teleport' | 'halves' | 'feathers' | 'lance';
+  | 'scythe' | 'cast' | 'vanish' | 'slam' | 'recover' | 'halves' | 'feathers' | 'lance' | 'triple' | 'dead';
+type Attack =
+  | 'lanes' | 'ring' | 'pulse' | 'scythe' | 'grants' | 'megid' | 'teleport' | 'halves' | 'feathers' | 'lance'
+  | 'eclipse' | 'judgement';
 
 const RED = 0xff4060;
 const AMBER = 0xffb030;
@@ -79,6 +83,7 @@ export class DarkFalz extends BossBase<FState, Attack> {
   private fyaw = Math.PI;
   private taughtOpen = false;
   private taughtLight = false;
+  private taughtEclipse = false;
   private lit = false;
   // Pose state.
   private open = 0;
@@ -104,6 +109,9 @@ export class DarkFalz extends BossBase<FState, Attack> {
   private orbs: Orb[] = [];
   private pools: LightPool[] = [];
   private morphFrom: 1 | 2 = 1;
+  /** Form 3 attacks so far (Hell: every `tripleEvery`-th is a triple) and the last triple. */
+  private f3Attacks = 0;
+  private lastTriple: Attack | null = null;
 
   constructor(arena: Rect, hard: HardBossScale | null = null) {
     super(cfg, hard);
@@ -280,8 +288,9 @@ export class DarkFalz extends BossBase<FState, Attack> {
       case 'halves':
       case 'feathers':
       case 'lance':
+      case 'triple':
         charge = 1;
-        cast = this.state === 'halves' ? 1 : 0.5;
+        cast = this.state === 'halves' || this.state === 'triple' ? 1 : 0.5;
         if (this.stateT > 6) this.endAttack(); // fallback
         break;
 
@@ -345,7 +354,12 @@ export class DarkFalz extends BossBase<FState, Attack> {
       if (near && this.lastAttack !== 'scythe' && ctx.rng() < 0.55) pick = this.pickAttack(ctx, ['scythe']);
       else pick = this.pickAttack(ctx, ['grants', 'megid', 'teleport', 'scythe'], (a) => a !== 'scythe' || near);
     } else {
-      pick = this.pickAttack(ctx, ['halves', 'halves', 'feathers', 'lance']);
+      this.f3Attacks++;
+      // Hell: every so often a triple, Eclipse and Judgement taking turns.
+      if (this.hard?.hell && this.f3Attacks % cfg.tripleEvery === 0) {
+        pick = this.pickAttack(ctx, ['eclipse', 'judgement'], (a) => a !== this.lastTriple);
+        this.lastTriple = pick;
+      } else pick = this.pickAttack(ctx, ['halves', 'halves', 'feathers', 'lance']);
     }
     this.hitOnce = false;
     switch (pick) {
@@ -376,6 +390,10 @@ export class DarkFalz extends BossBase<FState, Attack> {
         return this.startFeathers(ctx, false);
       case 'lance':
         return this.startLance(ctx);
+      case 'eclipse':
+        return this.startEclipse(ctx);
+      case 'judgement':
+        return this.startJudgement(ctx);
     }
   }
 
@@ -507,23 +525,29 @@ export class DarkFalz extends BossBase<FState, Attack> {
       const d = i === 0 ? 0 : 2.6 + ctx.rng() * 2;
       const at = new THREE.Vector3(ctx.playerX + Math.sin(a) * d, 0, ctx.playerZ + Math.cos(a) * d);
       this.clampOnAltar(at, 1.5);
-      const shape: TelegraphShape = { kind: 'circle', x: at.x, z: at.z, radius: cfg.grantsRadius };
       const last = i === cfg.grantsCount - 1;
-      this.warn(ctx, shape, dur, AMBER, () => {
-        ctx.effect(new Pillar(at.x, at.z, LIGHT, 0.45, cfg.grantsRadius * 0.7, 14));
-        ctx.effect(new Ring(at.x, at.z, LIGHT, cfg.grantsRadius * 1.2, 0.4));
-        this.strike(ctx, shape, cfg.grantsAtpMult, at.x, at.z, 6);
-        this.addPool(at.x, at.z);
-        if (last) {
-          this.sound('falz.grantsHit', at.x, at.z);
-          if (!this.taughtLight) {
-            this.taughtLight = true;
-            ctx.announce('The light lingers: it cleanses Corruption');
-          }
-          if (this.state === 'cast') this.enter('recover');
+      this.grantsPillar(ctx, at, dur, () => {
+        if (!last) return;
+        this.sound('falz.grantsHit', at.x, at.z);
+        if (!this.taughtLight) {
+          this.taughtLight = true;
+          ctx.announce('The light lingers: it cleanses Corruption');
         }
+        if (this.state === 'cast') this.enter('recover');
       });
     }
+  }
+
+  /** One Grants pillar: it crashes down on `at` after `dur` s, then stays as light. */
+  private grantsPillar(ctx: BossContext, at: { x: number; z: number }, dur: number, landed: () => void = () => {}): void {
+    const shape: TelegraphShape = { kind: 'circle', x: at.x, z: at.z, radius: cfg.grantsRadius };
+    this.warn(ctx, shape, dur, AMBER, () => {
+      ctx.effect(new Pillar(at.x, at.z, LIGHT, 0.45, cfg.grantsRadius * 0.7, 14));
+      ctx.effect(new Ring(at.x, at.z, LIGHT, cfg.grantsRadius * 1.2, 0.4));
+      this.strike(ctx, shape, cfg.grantsAtpMult, at.x, at.z, 6);
+      this.addPool(at.x, at.z);
+      landed();
+    });
   }
 
   private startMegid(ctx: BossContext): void {
@@ -609,28 +633,9 @@ export class DarkFalz extends BossBase<FState, Attack> {
 
   /** The altar splits along a line near you; the half you are on goes dark first, then the other. */
   private startHalves(ctx: BossContext): void {
-    const dx = ctx.playerX - this.cx;
-    const dz = ctx.playerZ - this.cz;
-    const d = Math.hypot(dx, dz);
-    // Normal pointing into the dark half (yours); the dividing line runs `halfOffset` from you.
-    let nx: number;
-    let nz: number;
-    if (d < 0.5) {
-      const a = ctx.rng() * Math.PI * 2;
-      nx = Math.sin(a);
-      nz = Math.cos(a);
-    } else {
-      const ux = dx / d;
-      const uz = dz / d;
-      const cos = Math.min(1, cfg.halfOffset / d);
-      const sin = Math.sqrt(1 - cos * cos) * (ctx.rng() < 0.5 ? -1 : 1);
-      nx = ux * cos + uz * sin;
-      nz = uz * cos - ux * sin;
-    }
-    const yaw = Math.atan2(nx, nz);
-    const half = (y: number): TelegraphShape => ({ kind: 'arc', x: this.cx, z: this.cz, yaw: y, inner: 0, outer: cfg.altarRadius + 0.5, arcDeg: 180 });
-    const dark = half(yaw);
-    const other = half(yaw + Math.PI);
+    const yaw = this.splitYaw(ctx);
+    const dark = this.half(yaw);
+    const other = this.half(yaw + Math.PI);
     this.enter('halves');
     this.sound('falz.halves', this.cx, this.cz);
     this.warn(ctx, dark, cfg.halfWindup * this.sm(), CORRUPT_COLOR, () => {
@@ -647,6 +652,33 @@ export class DarkFalz extends BossBase<FState, Attack> {
         this.endAttack();
       });
     });
+  }
+
+  /** Where the altar splits: the yaw of the normal into the half you are on, the line running `halfOffset` from you. */
+  private splitYaw(ctx: BossContext): number {
+    const dx = ctx.playerX - this.cx;
+    const dz = ctx.playerZ - this.cz;
+    const d = Math.hypot(dx, dz);
+    let nx: number;
+    let nz: number;
+    if (d < 0.5) {
+      const a = ctx.rng() * Math.PI * 2;
+      nx = Math.sin(a);
+      nz = Math.cos(a);
+    } else {
+      const ux = dx / d;
+      const uz = dz / d;
+      const cos = Math.min(1, cfg.halfOffset / d);
+      const sin = Math.sqrt(1 - cos * cos) * (ctx.rng() < 0.5 ? -1 : 1);
+      nx = ux * cos + uz * sin;
+      nz = uz * cos - ux * sin;
+    }
+    return Math.atan2(nx, nz);
+  }
+
+  /** One half of the altar, `yaw` pointing into it. */
+  private half(yaw: number): TelegraphShape {
+    return { kind: 'arc', x: this.cx, z: this.cz, yaw, inner: 0, outer: cfg.altarRadius + 0.5, arcDeg: 180 };
   }
 
   /** Dark energy bursting up across one half of the altar. */
@@ -711,6 +743,144 @@ export class DarkFalz extends BossBase<FState, Attack> {
     }, true);
   }
 
+  // -------------------------------------------------- Hell: form 3 triples
+
+  /** A triple starts: the Angel flares violet. */
+  private flare(ctx: BossContext): void {
+    ctx.effect(new Ring(this.cx, this.cz, CORRUPT_COLOR, 4.5, 0.5));
+    ctx.effect(new Pillar(this.cx, this.cz, CORRUPT_COLOR, 0.5, 2.2, 12));
+  }
+
+  /**
+   * Eclipse: three Grants pillars, then the whole altar goes dark (both halves at once) and feathers rake two of the
+   * pools. The pool you can reach is picked first; the others sit ±120° round the altar from it, under the feathers.
+   */
+  private startEclipse(ctx: BossContext): void {
+    const safe = this.eclipseSpot(ctx);
+    const r = Math.hypot(safe.x - this.cx, safe.z - this.cz);
+    const a = Math.atan2(safe.x - this.cx, safe.z - this.cz);
+    const raked = [1, -1].map((s) => ({ x: this.cx + Math.sin(a + (s * Math.PI * 2) / 3) * r, z: this.cz + Math.cos(a + (s * Math.PI * 2) / 3) * r }));
+    const dur = cfg.eclipseWindup * this.sm();
+    const delay = cfg.tripleDelay * this.sm();
+    this.enter('triple');
+    this.flare(ctx);
+    this.sound('falz.grants', safe.x, safe.z);
+    if (!this.taughtEclipse) {
+      this.taughtEclipse = true;
+      ctx.announce('The dark swallows the altar: only the light is safe');
+    }
+    for (const at of [safe, ...raked]) this.grantsPillar(ctx, at, cfg.grantsWindup * this.sm());
+    const yaw = ctx.rng() * Math.PI * 2;
+    const halves = [this.half(yaw), this.half(yaw + Math.PI)];
+    this.warn(ctx, halves[0], dur, CORRUPT_COLOR);
+    this.warn(ctx, halves[1], dur, CORRUPT_COLOR, () => {
+      if (this.state !== 'triple') return;
+      this.washHalf(ctx, yaw);
+      this.washHalf(ctx, yaw + Math.PI);
+      this.hitOnce = false;
+      if (!this.lightAt(ctx.playerX, ctx.playerZ, 0)) for (const h of halves) this.strike(ctx, h, cfg.halfAtpMult, this.cx, this.cz, 6, true);
+      this.endAttack();
+    });
+    // The feathers come a moment later and fire with the dark.
+    this.warn(ctx, { kind: 'circle', x: this.cx, z: this.cz, radius: 0.01 }, delay, undefined, () => {
+      if (this.state !== 'triple') return;
+      this.sound('falz.charge', this.cx, this.cz);
+      const lanes = raked.flatMap((p) => this.rakeLanes(p.x, p.z));
+      let hit = false;
+      lanes.forEach((lane, i) => {
+        this.warn(ctx, lane, dur - delay, RED, () => {
+          if (lane.kind === 'line') ctx.effect(new Tracer(lane.x, lane.z, lane.yaw, lane.length, LIGHT, 0.25, 0.3));
+          if (!hit && ctx.playerAlive && inShape(lane, ctx.playerX, ctx.playerZ, 0.45)) {
+            hit = true;
+            ctx.hitPlayer(lane, cfg.featherAtpMult, this.cx, this.cz, 5);
+          }
+          if (i === lanes.length - 1) this.sound('falz.feathers', this.cx, this.cz);
+        });
+      });
+    });
+  }
+
+  /** Eclipse's safe pool: `eclipseReach` m from you and `eclipseRing` m from the centre (whole on the altar). */
+  private eclipseSpot(ctx: BossContext): { x: number; z: number } {
+    const [near, far] = cfg.eclipseReach;
+    const [inner, outer] = cfg.eclipseRing;
+    const d = near + ctx.rng() * (far - near);
+    const a0 = ctx.rng() * Math.PI * 2;
+    let at = { x: ctx.playerX, z: ctx.playerZ };
+    for (let i = 0; i < 16; i++) {
+      const a = a0 + (i / 16) * Math.PI * 2;
+      at = { x: ctx.playerX + Math.sin(a) * d, z: ctx.playerZ + Math.cos(a) * d };
+      const r = Math.hypot(at.x - this.cx, at.z - this.cz);
+      if (r >= inner && r <= outer) return at;
+    }
+    // (Can't happen on the round altar; just keep it on the ring.)
+    const r = Math.hypot(at.x - this.cx, at.z - this.cz) || 1;
+    const k = THREE.MathUtils.clamp(r, inner, outer) / r;
+    return { x: this.cx + (at.x - this.cx) * k, z: this.cz + (at.z - this.cz) * k };
+  }
+
+  /** Feather lanes from the Angel fanned over a whole pool at (x, z), with no gap a body fits through. */
+  private rakeLanes(x: number, z: number): TelegraphShape[] {
+    const d = Math.hypot(x - this.cx, z - this.cz);
+    const yaw = Math.atan2(x - this.cx, z - this.cz);
+    // Neighbouring lanes part by at most a lane plus (nearly) a body at the pool's far edge.
+    const step = 2 * Math.asin((cfg.featherWidth / 2 + 0.4) / (d + cfg.grantsRadius));
+    const spread = Math.asin(Math.min(1, cfg.grantsRadius / d));
+    const n = Math.max(0, Math.ceil(spread / step - 0.5));
+    const lanes: TelegraphShape[] = [];
+    for (let i = -n; i <= n; i++) lanes.push({ kind: 'line', x: this.cx, z: this.cz, yaw: yaw + i * step, length: cfg.altarRadius + 1, width: cfg.featherWidth });
+    return lanes;
+  }
+
+  /**
+   * Judgement: your half goes dark, a lance runs from the Angel across the other half and a wing of feathers sweeps
+   * the quarter of it away from you. Safe: the other quarter, past the lance's edge.
+   */
+  private startJudgement(ctx: BossContext): void {
+    const yaw = this.splitYaw(ctx);
+    // u: into the other half; v: along the dividing line. The safe quarter is on your side of the lance.
+    const ux = -Math.sin(yaw);
+    const uz = -Math.cos(yaw);
+    const vx = -uz;
+    const vz = ux;
+    const along = (ctx.playerX - this.cx) * vx + (ctx.playerZ - this.cz) * vz;
+    const side = Math.abs(along) > 0.3 ? Math.sign(along) : ctx.rng() < 0.5 ? -1 : 1;
+    const dark = this.half(yaw);
+    const wingYaw = Math.atan2(ux - side * vx, uz - side * vz);
+    const wing: TelegraphShape = { kind: 'cone', x: this.cx, z: this.cz, yaw: wingYaw, range: cfg.altarRadius + 0.5, arcDeg: cfg.judgementWingDeg };
+    const lanceYaw = Math.atan2(ux, uz);
+    const lance: TelegraphShape = { kind: 'line', x: this.cx, z: this.cz, yaw: lanceYaw, length: cfg.altarRadius + 0.5, width: cfg.lanceWidth };
+    const dur = cfg.judgementWindup * this.sm();
+    const delay = cfg.tripleDelay * this.sm();
+    this.enter('triple');
+    this.flare(ctx);
+    this.sound('falz.halves', this.cx, this.cz);
+    this.warn(ctx, dark, dur, CORRUPT_COLOR);
+    this.warn(ctx, wing, dur, RED);
+    // The lance comes a moment later and fires with the others.
+    this.warn(ctx, { kind: 'circle', x: this.cx, z: this.cz, radius: 0.01 }, delay, undefined, () => {
+      if (this.state !== 'triple') return;
+      this.sound('falz.charge', this.cx, this.cz);
+      this.warn(ctx, lance, dur - delay, RED, () => {
+        if (this.state !== 'triple') return;
+        this.washHalf(ctx, yaw);
+        const arc = THREE.MathUtils.degToRad(cfg.judgementWingDeg);
+        for (let i = 0; i <= 8; i++) ctx.effect(new Tracer(this.cx, this.cz, wingYaw + (i / 8 - 0.5) * arc, cfg.altarRadius, LIGHT, 0.3, 0.3));
+        ctx.effect(new Tracer(this.cx, this.cz, lanceYaw, cfg.altarRadius, LIGHT, 0.4, cfg.lanceWidth * 0.8));
+        for (let s = 1; s <= 5; s++) ctx.effect(new Pillar(this.cx + (ux * cfg.altarRadius * s) / 5, this.cz + (uz * cfg.altarRadius * s) / 5, LIGHT, 0.3, 0.8, 10));
+        ctx.shake(0.5);
+        this.sound('falz.lance', this.cx + ux * 6, this.cz + uz * 6);
+        this.sound('falz.feathers', this.cx, this.cz);
+        // One hit at most: the first of the three that holds you.
+        this.hitOnce = false;
+        this.strike(ctx, dark, cfg.halfAtpMult, this.cx, this.cz, 6, true);
+        this.strike(ctx, lance, cfg.lanceAtpMult, this.cx, this.cz, 14);
+        this.strike(ctx, wing, cfg.featherAtpMult, this.cx, this.cz, 5);
+        this.endAttack();
+      });
+    });
+  }
+
   // ------------------------------------------------------------- morphs
 
   private startMorph(ctx: BossContext): void {
@@ -723,7 +893,7 @@ export class DarkFalz extends BossBase<FState, Attack> {
     ctx.shake(0.5);
     this.sound('falz.morph', this.cx, this.cz);
     if (this.morphFrom === 1) ctx.announce('Dark Falz breaks free of the husk!');
-    else this.escalate(ctx, 'Dark Falz ascends: the Angel descends!');
+    else this.escalate(ctx, this.hard?.hell ? 'Dark Falz ascends: the Angel descends, empowered by Hell!' : 'Dark Falz ascends: the Angel descends!');
   }
 
   private updateMorph(dt: number, _ctx: BossContext): void {

@@ -271,6 +271,7 @@ function weaponCardHtml(ch: Character, inst: ItemInstance, foe: Foe): string {
   const tags = [
     sp ? `<span class="wc-tag special">${specials[sp].name}</span>` : '',
     inst.attrs?.hit ? `<span class="wc-tag">Hit +${inst.attrs.hit}%</span>` : '',
+    inst.haste ? `<span class="wc-tag" title="Faster swings and casts (adds up with your frame and barrier)">Haste +${inst.haste}%</span>` : '',
     ground ? `<span class="wc-tag" title="Where the grind levels went">Ground: ${ground}</span>` : '',
     need ? `<span class="wc-tag${check.need ? ' bad' : ''}">Req ${need.stat.toUpperCase()} ${need.req}</span>` : '',
   ].join('');

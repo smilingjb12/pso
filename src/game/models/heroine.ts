@@ -165,7 +165,7 @@ export interface Look {
   face: string;
   colors?: LookColors;
   /**
-   * Armour evolution stage (0-4) from the equipped frame. When set, it replaces
+   * Armour evolution stage (0-5) from the equipped frame. When set, it replaces
    * `glow`, `armor` and `back` with the outfit's own evolution (see EVOLUTIONS).
    */
   evo?: number;
@@ -177,8 +177,8 @@ export interface Look {
 export const ATTRIBUTE_OUTFIT: Record<AttributeId, string> = { pow: 'O4', def: 'O4', dex: 'O1', mind: 'O5' };
 /** The outfit each armour line dresses her in: the frame decides the clothes. */
 export const LINE_OUTFIT: Partial<Record<ArmorLine, string>> = { guard: 'O4', combat: 'O1', psy: 'O5' };
-/** Evolution stage per frame tier (index = tier 1-11): Normal (up to the Ruins' T7) tops out at stage 3, Nightmare frames (T8+) reach 4. */
-export const TIER_STAGE = [0, 0, 1, 2, 2, 3, 3, 3, 4, 4, 4, 4];
+/** Evolution stage per frame tier (index = tier 1-15): Normal (up to the Ruins' T7) tops out at stage 3, Nightmare frames (T8-11) reach 4, Hell frames (T12+) 5. */
+export const TIER_STAGE = [0, 0, 1, 2, 2, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5];
 
 export interface Evolution {
   name: string;
@@ -195,6 +195,7 @@ export const EVOLUTIONS: Record<string, Evolution> = {
       { name: 'Warplate', desc: 'Chest plate with a core, hip plates, plated coat tails; the spikes grow glowing tips and the bracers grow spikes; glow trim lights up.' },
       { name: 'Crown', desc: 'A crown of light blades floats above her head; knee and shin plates, heel jets; circuit lines.' },
       { name: 'Sovereign', desc: 'The crown grows a taller outer ring, a wheel of photon blades turns behind her back and two hex shields guard her sides; the glow pulses.' },
+      { name: 'Imperator', desc: 'The wheel becomes an eclipse: a dark hub in a corona, ringed by lances turning the other way; a cape of light hangs from her shoulders and streams out when she runs.' },
     ],
   },
   O1: {
@@ -205,6 +206,7 @@ export const EVOLUTIONS: Record<string, Evolution> = {
       { name: 'Plumage', desc: 'The feathers gain edges of light; a breastplate with a furnace core, feather tassets, feathers on the coat tails; glow trim lights up.' },
       { name: 'Firewing', desc: 'Small folded wings, a feather ruff at the collar, thigh feathers and vents, greaves and talons; circuit lines.' },
       { name: 'Ember', desc: 'Full wings shedding sparks: spread when she stands, folded back and fluttering when she runs; the glow pulses.' },
+      { name: 'Phoenix', desc: 'A phoenix tail of five long feathered plumes ending in glowing eyes, fanned when she stands and streaming out behind her when she runs; the furnace core darkens to an eclipse.' },
     ],
   },
   O5: {
@@ -215,6 +217,7 @@ export const EVOLUTIONS: Record<string, Evolution> = {
       { name: 'Armlets', desc: 'Floating rings circle her upper arms; glow trim lights up.' },
       { name: 'Orbit', desc: 'A ring of light with three crystals orbits her hips; the halo gains rune plates; circuit lines.' },
       { name: 'Seraph', desc: 'Wings of light and a mandala halo; the glow pulses.' },
+      { name: 'Archon', desc: 'Six-feathered wings, an eclipse at the heart of the halo, and floating pauldrons of layered plates crowned with tall crystal spires.' },
     ],
   },
 };
@@ -768,8 +771,11 @@ export class Heroine implements CharacterModel {
       return m;
     };
     const white = decal(0xfafaff, 0.45);
-    const iris = decal(pal.eyes, 0.35);
-    const irisDark = decal(shade(pal.eyes, 0.45), 0.2);
+    // Hell armour (stage 5) sets the eyes alight in the glow colour.
+    const burning = (this.look.evo ?? 0) >= 5;
+    const iris = burning ? decal(pal.accent, 1.1) : decal(pal.eyes, 0.35);
+    const irisDark = burning ? decal(0xffffff, 1) : decal(shade(pal.eyes, 0.45), 0.2);
+    if (burning) iris.userData.glow = irisDark.userData.glow = true;
     const lash = decal(0x221418, 0.1);
     const shine = decal(0xffffff, 1);
     shine.userData.glow = true;
@@ -1188,18 +1194,25 @@ export class Heroine implements CharacterModel {
         this.floatingCrown(stage >= 4);
       }
       if (stage >= 4) {
-        this.bladeWheel();
+        this.bladeWheel(stage >= 5);
         this.hexShields();
       }
+      if (stage >= 5) this.lightCape();
     } else if (o === 'O1') {
       this.buildEmber(stage);
     } else if (o === 'O5') {
-      if (stage >= 1) this.halo(stage >= 4 ? 3 : stage >= 3 ? 2 : 1);
+      if (stage >= 1) this.halo(stage >= 4 ? 3 : stage >= 3 ? 2 : 1, stage >= 5);
       if (stage >= 2) this.armlets();
       if (stage >= 3) this.orbitRing();
-      if (stage >= 4) this.seraphWings();
+      if (stage >= 4) this.seraphWings(stage >= 5);
+      if (stage >= 5) this.archonPauldrons();
     }
-    // The final stage breathes: every glow line pulses slowly.
+    if (stage >= 5) {
+      this.eyeFlames();
+      this.veins();
+      this.risingMotes();
+    }
+    // The final stages breathe: every glow line pulses slowly.
     if (stage >= 4) {
       const g = this.m.glow;
       const base = g.emissiveIntensity;
@@ -1433,7 +1446,7 @@ export class Heroine implements CharacterModel {
    * Halo behind the head. 1: a ring of light with two beads; 2: an outer ring
    * with four rune plates instead; 3: plus an inner mandala turning the other way.
    */
-  private halo(level: number): void {
+  private halo(level: number, eclipse = false): void {
     const { neckRel, headCenter, r } = this.d;
     const halo = new THREE.Group();
     halo.position.set(0, neckRel + headCenter + r * 0.4, -r * 2.2);
@@ -1465,6 +1478,7 @@ export class Heroine implements CharacterModel {
       piece(inner, V(Math.cos(a) * r * 2.15, Math.sin(a) * r * 2.15, 0), V(Math.cos(a) * r * 2.85, Math.sin(a) * r * 2.85, 0), r * 0.14, 0.002, r * 0.05, V(0, 0, 1), this.m.glow);
     }
     this.spinner(inner, -0.3);
+    if (eclipse) this.eclipse(halo, r * 0.85);
   }
 
   /** Gear halo: a toothed outer ring and a glowing inner ring turning against each other. */
@@ -1533,7 +1547,7 @@ export class Heroine implements CharacterModel {
    * Halo seraph wings: four long leaf-shaped feathers of light per side, swept
    * back from the shoulder blades (clear of the Mag above the shoulders), slowly beating.
    */
-  private seraphWings(): void {
+  private seraphWings(grand = false): void {
     const { s, shoulderRel } = this.d;
     const sw = this.d.shoulderW / s;
     const light = this.lightMat(0.32);
@@ -1544,7 +1558,9 @@ export class Heroine implements CharacterModel {
       part(root, new THREE.OctahedronGeometry(0.018 * s), this.m.glow, [0, 0, 0], [0, 0, 0], [1, 1.4, 1]);
       const wing = new THREE.Group();
       root.add(wing);
-      const fan: [number, number][] = [[2.25, 0.48], [1.8, 0.58], [1.35, 0.62], [0.9, 0.52]];
+      const fan: [number, number][] = grand
+        ? [[2.5, 0.42], [2.15, 0.56], [1.8, 0.68], [1.45, 0.74], [1.1, 0.66], [0.75, 0.52]]
+        : [[2.25, 0.48], [1.8, 0.58], [1.35, 0.62], [0.9, 0.52]];
       fan.forEach(([ang, len], k) => {
         const f = new THREE.Group();
         f.rotation.set(0, side * (0.95 - k * 0.05), side * ang);
@@ -1588,6 +1604,10 @@ export class Heroine implements CharacterModel {
       const wings = this.raptorWings({ lens: [0.42, 0.52, 0.6, 0.62, 0.58, 0.5, 0.42, 0.34], w: 0.1, sweep: 0.45, pitch: 0.15, fan: [2.55, 0.22], m: () => dark, edge: true });
       for (const w of wings) this.embers(w);
       this.wreath();
+    }
+    if (stage >= 5) {
+      this.phoenixTail();
+      this.eclipse(this.rig.joints.chest, 0.034 * s, this.furnaceAt());
     }
   }
 
@@ -1767,11 +1787,17 @@ export class Heroine implements CharacterModel {
   }
 
   /** Ember: a glowing core in the breastplate with lines of light raying out across it. */
-  private furnaceCore(): void {
+  /** Where the furnace core sits on the breastplate (chest space). */
+  private furnaceAt(): THREE.Vector3 {
     const { s, neckRel } = this.d;
     const sw = this.d.shoulderW / s / 0.155;
-    const z = 0.158 * sw * s * 0.72 + 0.008 * s;
-    const c = V(0, neckRel * 0.76, z);
+    return V(0, neckRel * 0.76, 0.158 * sw * s * 0.72 + 0.008 * s);
+  }
+
+  private furnaceCore(): void {
+    const { s, neckRel } = this.d;
+    const c = this.furnaceAt();
+    const z = c.z;
     part(this.rig.joints.chest, new THREE.OctahedronGeometry(0.03 * s), this.m.glow, [c.x, c.y, c.z], [0, 0, 0], [0.8, 1.2, 0.5]);
     for (let k = 0; k < 6; k++) {
       const a = (k / 6) * Math.PI * 2 + Math.PI / 6;
@@ -1922,7 +1948,7 @@ export class Heroine implements CharacterModel {
   }
 
   /** Vanguard: a wheel of photon blades turning behind her back. */
-  private bladeWheel(): void {
+  private bladeWheel(eclipse = false): void {
     const { s, shoulderRel } = this.d;
     const wheel = new THREE.Group();
     wheel.position.set(0, shoulderRel - 0.03 * s, -0.26 * s);
@@ -1933,10 +1959,12 @@ export class Heroine implements CharacterModel {
     part(spin, new THREE.TorusGeometry(0.17 * s, 0.011 * s, 4, 32), this.m.glow);
     part(spin, new THREE.TorusGeometry(0.135 * s, 0.007 * s, 4, 32), this.m.metal);
     // Hub emblem: a plated disc with a glowing four-point star, so the hair doesn't show through.
-    part(spin, new THREE.CircleGeometry(0.135 * s, 32), doubleSided(this.m.plate));
-    for (let k = 0; k < 2; k++) {
-      part(spin, new THREE.OctahedronGeometry(1, 0).scale(0.022 * s, 0.11 * s, 0.012 * s), this.m.glow, [0, 0, -0.006 * s], [0, 0, (k * Math.PI) / 2]);
-    }
+    part(spin, new THREE.CircleGeometry(0.135 * s, 32), doubleSided(eclipse ? this.m.dark : this.m.plate));
+    if (eclipse) this.eclipse(wheel, 0.135 * s, V(0, 0, -0.004 * s), false);
+    else
+      for (let k = 0; k < 2; k++) {
+        part(spin, new THREE.OctahedronGeometry(1, 0).scale(0.022 * s, 0.11 * s, 0.012 * s), this.m.glow, [0, 0, -0.006 * s], [0, 0, (k * Math.PI) / 2]);
+      }
     const n = 8;
     for (let k = 0; k < n; k++) {
       const arm = new THREE.Group();
@@ -1949,6 +1977,259 @@ export class Heroine implements CharacterModel {
       part(arm, new THREE.OctahedronGeometry(1, 0).scale(0.018 * s, L * 0.46, 0.014 * s), this.m.glow, [0, 0.2 * s + L / 2, 0]);
     }
     this.spinner(spin, 0.3);
+    if (!eclipse) return;
+    // An outer ring of thin lances pointing in, turning the other way.
+    const outer = new THREE.Group();
+    wheel.add(outer);
+    part(outer, new THREE.TorusGeometry(0.6 * s, 0.006 * s, 4, 48), this.m.glow);
+    part(outer, new THREE.TorusGeometry(0.62 * s, 0.004 * s, 4, 48), this.m.metal);
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2;
+      const L = (k % 2 ? 0.07 : 0.12) * s;
+      const g = new THREE.Group();
+      g.rotation.z = a;
+      outer.add(g);
+      part(g, new THREE.OctahedronGeometry(1, 0).scale(0.012 * s, L / 2, 0.006 * s), k % 2 ? this.m.metal : this.m.glow, [0, 0.6 * s - L / 2, 0]);
+    }
+    this.spinner(outer, -0.18);
+  }
+
+  /**
+   * Hell motif: an eclipse. A dark disc of radius `R` with a glowing rim and a soft corona
+   * (facing +z or, with `front` false, -z), its rays slowly breathing.
+   */
+  private eclipse(parent: THREE.Object3D, R: number, at = V(0, 0, 0), front = true): THREE.Group {
+    const g = new THREE.Group();
+    g.position.copy(at);
+    if (!front) g.rotation.y = Math.PI;
+    parent.add(g);
+    part(g, new THREE.CircleGeometry(R, 32), doubleSided(this.m.dark), [0, 0, R * 0.04]);
+    part(g, new THREE.TorusGeometry(R, R * 0.07, 4, 32), this.m.glow, [0, 0, R * 0.05]);
+    const corona = this.lightMat(0.3);
+    part(g, new THREE.RingGeometry(R * 1.02, R * 1.55, 32), corona);
+    const rays = new THREE.Group();
+    g.add(rays);
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      const L = R * (k % 2 ? 0.5 : 0.85);
+      piece(rays, V(Math.cos(a) * R * 1.05, Math.sin(a) * R * 1.05, 0), V(Math.cos(a) * (R * 1.05 + L), Math.sin(a) * (R * 1.05 + L), 0), R * 0.12, 0.001, R * 0.02, V(0, 0, 1), corona);
+    }
+    this.anim(rays, (t) => rays.scale.setScalar(1 + 0.08 * Math.sin(t * 1.7)));
+    this.spinner(rays, 0.12);
+    return g;
+  }
+
+  /** Vanguard: a cape of light in three panels from the shoulder blades; it streams out behind her when she runs. */
+  private lightCape(): void {
+    const { s, shoulderRel } = this.d;
+    const sw = this.d.shoulderW / s;
+    const light = this.lightMat(0.34);
+    const bar = new THREE.Group();
+    bar.position.set(0, shoulderRel - 0.02 * s, -0.12 * s);
+    this.rig.joints.chest.add(bar);
+    part(bar, new THREE.BoxGeometry(sw * 1.3, 0.025 * s, 0.025 * s), this.m.plate);
+    for (const x of [-1, 1]) part(bar, new THREE.OctahedronGeometry(0.02 * s), this.m.glow, [x * sw * 0.65, 0, -0.01 * s]);
+    // x, width, length, phase
+    const panels: [number, number, number, number][] = [
+      [-sw * 0.42, 0.13, 0.78, 0.0],
+      [0, 0.15, 0.86, 0.9],
+      [sw * 0.42, 0.13, 0.78, 1.8],
+    ];
+    for (const [x, w, len, ph] of panels) {
+      const p = new THREE.Group();
+      p.position.set(x, 0, -0.005 * s);
+      p.rotation.z = -x * 0.35;
+      bar.add(p);
+      // Two halves, so the lower one can bend back and flutter.
+      const H = (len * s) / 2;
+      const wm = w * 1.12 * s;
+      part(p, taperBox(w * s, wm, H, 0.004 * s), light);
+      part(p, new THREE.BoxGeometry(0.006 * s, H, 0.006 * s), this.m.glow, [0, -H / 2, -0.003 * s]);
+      const q = new THREE.Group();
+      q.position.y = -H;
+      p.add(q);
+      part(q, taperBox(wm, w * 1.25 * s, H, 0.004 * s), light);
+      part(q, new THREE.BoxGeometry(0.006 * s, H * 0.9, 0.006 * s), this.m.glow, [0, -H * 0.45, -0.003 * s]);
+      // Hem: a glowing V at the bottom.
+      for (const e of [-1, 1]) piece(q, V(e * w * 0.62 * s, -H, 0), V(0, -H - 0.05 * s, 0), 0.008 * s, 0.006 * s, 0.006 * s, V(0, 0, -1), this.m.glow);
+      this.anim(p, (t) => {
+        const run = this.runK;
+        p.rotation.x = 0.1 + run * 0.45 + (0.03 + run * 0.05) * Math.sin(t * (1.4 + run * 6) + ph);
+        q.rotation.x = 0.04 + run * 0.4 + (0.05 + run * 0.12) * Math.sin(t * (1.4 + run * 6) + ph - 1.1);
+      });
+    }
+  }
+
+  /** Ember: a phoenix tail. Five plumes of overlapping light-edged feathers from the small of the back, each ending in an eye; fanned when she stands, streaming out behind her when she runs. */
+  private phoenixTail(): void {
+    const { s } = this.d;
+    const n = 5;
+    for (let k = 0; k < n; k++) {
+      const u = k / (n - 1) - 0.5;
+      const root = new THREE.Group();
+      root.rotation.order = 'YXZ';
+      root.position.set(u * 0.07 * s, 0.03 * s, -0.12 * s);
+      this.rig.joints.hips.add(root);
+      const size = 1 - Math.abs(u) * 0.35;
+      // A chain of three feathers, each hung from the one before so the plume can curl.
+      const segs: THREE.Group[] = [];
+      let parent: THREE.Object3D = root;
+      [0.3, 0.33, 0.38].forEach((len, i) => {
+        const seg = new THREE.Group();
+        seg.position.y = i ? -[0.3, 0.33][i - 1] * s * size * 0.85 : 0;
+        parent.add(seg);
+        this.feather(seg, (0.05 + i * 0.012) * s * size, len * s * size, V(0, 0, -i * 0.002 * s), 0, this.m.main, true);
+        segs.push(seg);
+        parent = seg;
+      });
+      // The eye: a glowing diamond in a ring near the last feather's tip.
+      const eyeY = -0.22 * s * size;
+      part(segs[2], new THREE.OctahedronGeometry(0.02 * s * size), this.m.glow, [0, eyeY, -0.006 * s], [0, 0, 0], [1, 1.3, 0.5]);
+      part(segs[2], new THREE.TorusGeometry(0.03 * s * size, 0.004 * s, 3, 12), this.m.glow, [0, eyeY, -0.008 * s], [0, 0, 0], [1, 1.3, 1]);
+      const ph = k * 0.7;
+      this.anim(root, (t) => {
+        const run = this.runK;
+        const f = t * (1.2 + run * 7) + ph;
+        root.rotation.x = 0.4 + run * 0.75 + 0.04 * Math.sin(f);
+        root.rotation.z = u * (1.7 - run * 1.1) + 0.04 * Math.sin(t * 0.9 + ph);
+        segs[1].rotation.x = -0.2 + run * 0.2 + 0.07 * Math.sin(f - 0.7);
+        segs[2].rotation.x = -0.35 + run * 0.3 + 0.1 * Math.sin(f - 1.4);
+      });
+    }
+  }
+
+  /**
+   * Halo (stage 5): floating pauldrons. Three curved plates nested over the top and outside of each
+   * shoulder, stepping down and out, each edged in light, with crystal fins rising off the outermost.
+   */
+  private archonPauldrons(): void {
+    const { s } = this.d;
+    const j = this.rig.joints;
+    const shell = doubleSided(this.m.main);
+    const shellLight = doubleSided(this.m.plate);
+    const crystal = this.lightMat(0.55);
+    for (const [sh, side] of [[j.shoulderL, 1], [j.shoulderR, -1]] as const) {
+      const g = new THREE.Group();
+      g.scale.set(side * 1.3, 1.3, 1.3); // built for the left shoulder, mirrored for the right
+      sh.add(g);
+      const ph = side > 0 ? 0 : 1.3;
+      this.anim(g, (t) => g.position.set(side * 0.004 * s, -0.012 * s + Math.sin(t * 1.4 + ph) * 0.004 * s, 0));
+      // Arc angle a: 0 = straight down, PI/2 = out to the side, PI = on top (cylinder lying along z).
+      const at = (R: number, a: number) => V(R * Math.sin(a), -R * Math.cos(a), 0);
+      [[0.072, 0.15, 1.45, 3.05], [0.088, 0.135, 1.2, 2.75], [0.104, 0.115, 0.95, 2.4]].forEach(([R0, D0, a0, a1], k) => {
+        const R = R0 * s;
+        const D = D0 * s;
+        const plate = new THREE.Group();
+        plate.position.set(k * 0.006 * s, -k * 0.012 * s, -k * 0.004 * s);
+        g.add(plate);
+        part(plate, new THREE.CylinderGeometry(R, R, D, 14, 1, true, a0, a1 - a0).rotateX(Math.PI / 2), k === 1 ? shell : shellLight);
+        // Lit lower rim along the plate's outer edge, and a short lit seam across its middle.
+        const lo = at(R * 1.01, a0);
+        part(plate, new THREE.BoxGeometry(0.008 * s, 0.008 * s, D * 1.02), this.m.glow, [lo.x, lo.y, 0]);
+        const mid = (a0 + a1) / 2;
+        for (let q = 0; q < 6; q++) {
+          const a = a0 + ((a1 - a0) * q) / 6;
+          const b = a0 + ((a1 - a0) * (q + 1)) / 6;
+          if (Math.abs((a + b) / 2 - mid) > 0.6) continue;
+          piece(plate, at(R * 1.015, a), at(R * 1.015, b), 0.005 * s, 0.005 * s, 0.003 * s, at(1, (a + b) / 2), this.m.glow);
+        }
+      });
+      // Crystal spires fanning up and out from the outer plate: the tallest rises past her head.
+      const base = at(0.1 * s, 2.1);
+      [[0.32, -0.12, 1], [0.22, -0.45, 0.85], [0.15, -0.8, 0.7], [0.1, 0.22, 0.6]].forEach(([len, lean, w], k) => {
+        const fin = new THREE.Group();
+        fin.position.set(base.x, base.y - 0.01 * s, -0.025 * s);
+        fin.rotation.set(-0.18, 0, lean);
+        g.add(fin);
+        const L = len * s;
+        // A plated socket, a translucent crystal with a lit core, and a bright point.
+        part(fin, new THREE.CylinderGeometry(0.016 * s * w, 0.022 * s * w, 0.03 * s, 6), this.m.plate, [0, 0.01 * s, 0]);
+        part(fin, new THREE.OctahedronGeometry(1, 0).scale(0.024 * s * w, L / 2, 0.016 * s * w), crystal, [0, 0.02 * s + L / 2, 0]);
+        part(fin, new THREE.OctahedronGeometry(1, 0).scale(0.009 * s * w, L * 0.44, 0.009 * s * w), this.m.glow, [0, 0.02 * s + L / 2, 0]);
+        const tip = part(fin, new THREE.OctahedronGeometry(0.012 * s * w), this.m.glow, [0, 0.02 * s + L + 0.02 * s, 0], [0, 0, 0], [0.7, 1.6, 0.7]);
+        this.anim(tip, (t) => (tip.position.y = 0.02 * s + L + (0.02 + 0.008 * Math.sin(t * 2 + k + ph)) * s));
+      });
+    }
+  }
+
+  /** Hell (stage 5): wisps of light streaming off the outer corner of each eye; running, they trail straight back. */
+  private eyeFlames(): void {
+    const { r, headCenter: c } = this.d;
+    const flame = this.lightMat(0.85);
+    const n = 7;
+    for (const sx of [-1, 1]) {
+      const at = facePoint(r, sx * 0.6, -0.12, r * 0.03).add(V(0, c, 0));
+      for (let i = 0; i < n; i++) {
+        const w = part(this.rig.joints.head, new THREE.OctahedronGeometry(r * 0.11), flame);
+        this.anim(w, (t) => {
+          const run = this.runK;
+          const u = (t * (0.9 + run * 0.6) + i / n) % 1;
+          const d = u * r * (0.85 + run * 0.4);
+          w.position.set(at.x + sx * d * (0.75 - run * 0.4), at.y + d * (0.4 - run * 0.15) + Math.sin(t * 9 + i) * r * 0.015, at.z - d * (0.55 + run * 0.6));
+          const k = Math.sin(u * Math.PI) * (1 - u * 0.5);
+          w.scale.set(k * 0.8, k * 1.6, k * 0.6);
+          w.rotation.set(0, 0, sx * -0.9);
+        });
+      }
+    }
+  }
+
+  /**
+   * Hell (stage 5): glowing veins down the outer forearms, the outer thighs and the backs of the calves,
+   * with a pulse of light climbing from her feet to her shoulders every couple of seconds.
+   */
+  private veins(): void {
+    const { s, limb, fore, thigh, shin } = this.d;
+    const j = this.rig.joints;
+    const o = this.look.outfit;
+    // One material per height band, so the pulse can travel up the body.
+    const bands = [0, 1, 2].map((k) => {
+      const m = this.m.glow.clone();
+      const base = m.emissiveIntensity;
+      this.anim(m, (t) => (m.emissiveIntensity = base * (0.45 + 1.6 * Math.max(0, Math.sin(t * 2.2 - k * 0.8)) ** 6)));
+      return m;
+    });
+    const vein = (parent: THREE.Object3D, pts: THREE.Vector3[], out: THREE.Vector3, m: THREE.Material) => {
+      for (let i = 0; i < pts.length - 1; i++) piece(parent, pts[i], pts[i + 1], 0.007 * s, 0.007 * s, 0.004 * s, out, m);
+      for (const p of [pts[0], pts[pts.length - 1]]) part(parent, new THREE.OctahedronGeometry(0.009 * s), m, [p.x, p.y, p.z], [0, 0, 0], [1, 1.5, 0.6]);
+    };
+    // Forearms: a zigzag down the outside (over the wide sleeve on the robe).
+    const foreR = (o === 'O5' ? 0.095 : o === 'O1' ? 0.047 : 0.052) * limb;
+    for (const [el, side] of [[j.elbowL, 1], [j.elbowR, -1]] as const) {
+      const pts = [0.22, 0.38, 0.54, 0.7].map((f, i) => V(side * (foreR + 0.003 * s), -fore * f, (i % 2 ? 0.012 : -0.012) * s));
+      vein(el, pts, V(side, 0, 0), bands[2]);
+    }
+    // Calves (behind) and outer thighs; the robe hides the legs, so it gets lines down its back hem instead.
+    const pad = this.bootPad() * s;
+    for (const [hip, knee, side] of [[j.hipL, j.kneeL, 1], [j.hipR, j.kneeR, -1]] as const) {
+      if (o === 'O5') continue;
+      const calf = [0.08, 0.3, 0.52].map((t, i) => V(side * (i % 2 ? 0.012 : 0) * s, -shin * t, -(this.calfR(t) + pad + 0.004 * s)));
+      vein(knee, calf, V(0, 0, -1), bands[0]);
+      const thighR = 0.075 * limb;
+      const th = [0.2, 0.45, 0.7].map((f, i) => V(side * (thighR + 0.004 * s), -thigh * f, (i % 2 ? -0.014 : 0.004) * s));
+      vein(hip, th, V(side, 0, 0), bands[1]);
+    }
+    // A glowing sigil between the shoulder blades, below the hair (stage 5 only), lit by the top band.
+    part(j.chest, new THREE.OctahedronGeometry(0.02 * s), bands[2], [0, 0, -this.shellDepth().chest - 0.012 * s], [0, 0, 0], [1, 1.8, 0.5]);
+  }
+
+  /** Hell (stage 5): motes of light spiralling up around her from the ground and fading out. */
+  private risingMotes(): void {
+    const { s } = this.d;
+    const hs = this.d.H / 1.68;
+    const n = 14;
+    for (let i = 0; i < n; i++) {
+      const mote = part(this.rig.root, new THREE.OctahedronGeometry(0.017 * s), this.m.glow);
+      const a0 = (i / n) * Math.PI * 2;
+      const R = (0.3 + ((i * 7) % 5) * 0.025) * s;
+      const speed = 0.22 + ((i * 3) % 4) * 0.03;
+      this.anim(mote, (t) => {
+        const u = (t * speed + i * 0.37) % 1;
+        const a = a0 + u * 1.6;
+        mote.position.set(Math.cos(a) * R * (1 - u * 0.3), u * 1.75 * hs, Math.sin(a) * R * (1 - u * 0.3));
+        mote.scale.setScalar(Math.sin(u * Math.PI) + 0.01);
+      });
+    }
   }
 
   /** Vanguard: two hex photon shields hovering at her sides. */

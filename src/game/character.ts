@@ -1,5 +1,6 @@
 import { attributeCfg, BUILD_VERSION, formulas, magCfg, spellForms, type AttackType, type Race } from './config';
 import type { BossId } from './data/bosses';
+import { asDifficulty, type Difficulty } from './difficulty';
 import type { Look } from './models/heroine';
 import {
   addBonus,
@@ -66,6 +67,8 @@ export interface ItemInstance {
   /** Injectors: the rolled mod, and doses ready (undefined = full). */
   mod?: InjectorMod;
   charge?: number;
+  /** Haste % rolled on a tier 11+ weapon, frame or barrier (see hasteCfg). */
+  haste?: number;
 }
 
 /** Save format. Saves from before classes were removed (versions 1-3) are deleted, not migrated. */
@@ -109,6 +112,8 @@ export interface CharacterData {
     dashes?: number;
     /** Bosses beaten on Hard (each opens the next Hard expedition and a shop tier). */
     hardKills?: Partial<Record<BossId, number>>;
+    /** Bosses beaten on Hell (each opens the next Hell expedition and a shop tier). */
+    hellKills?: Partial<Record<BossId, number>>;
   };
 }
 
@@ -310,16 +315,18 @@ export class Character {
     }
   }
 
-  /** Times this boss has been beaten on Normal, or on Nightmare. */
-  bossKills(boss: BossId, hard: boolean): number {
+  /** Times this boss has been beaten on a difficulty (`true` = Nightmare, `false` = Normal). */
+  bossKills(boss: BossId, d: Difficulty | boolean): number {
     const st = this.data.stats;
-    return (hard ? st.hardKills?.[boss] : st.bossKills[boss]) ?? 0;
+    const diff = asDifficulty(d);
+    return (diff === 'hell' ? st.hellKills?.[boss] : diff === 'nightmare' ? st.hardKills?.[boss] : st.bossKills[boss]) ?? 0;
   }
 
   /** Count a boss kill; returns the new count. */
-  addBossKill(boss: BossId, hard: boolean): number {
+  addBossKill(boss: BossId, d: Difficulty | boolean): number {
     const st = this.data.stats;
-    const kills = hard ? (st.hardKills ??= {}) : st.bossKills;
+    const diff = asDifficulty(d);
+    const kills = diff === 'hell' ? (st.hellKills ??= {}) : diff === 'nightmare' ? (st.hardKills ??= {}) : st.bossKills;
     return (kills[boss] = (kills[boss] ?? 0) + 1);
   }
 
@@ -442,6 +449,16 @@ export class Character {
       }
     }
     return s;
+  }
+
+  /** Haste % from what is worn (weapon, frame, barrier): they add up. */
+  haste(): number {
+    return (['weapon', 'frame', 'barrier'] as const).reduce((t, s) => t + (this.equippedItem(s)?.haste ?? 0), 0);
+  }
+
+  /** Swing and cast times scale by this: 1 / (1 + Haste%). */
+  hasteMult(): number {
+    return 1 / (1 + this.haste() / 100);
   }
 
   get maxHp() {
@@ -687,6 +704,8 @@ export interface GearSnapshot {
   stats: Stats;
   attrs: Record<Attr, number>;
   special: string;
+  /** Haste % from all worn gear. */
+  haste: number;
 }
 
 export interface CompareRow {
@@ -706,6 +725,7 @@ function snapshot(ch: Character): GearSnapshot {
     stats: ch.stats(),
     attrs: Object.fromEntries(ATTRS.map((a) => [a, ch.weaponAttr(a)])) as Record<Attr, number>,
     special: sp ? specials[sp].name : '—',
+    haste: ch.haste(),
   };
 }
 
@@ -746,6 +766,7 @@ export function compareEquip(ch: Character, inst: ItemInstance): { slot: GearSlo
   } else {
     stats(['dfp', 'evp']);
   }
+  if (before.haste || after.haste) rows.push({ label: 'Haste', before: `${before.haste}%`, after: `${after.haste}%`, delta: after.haste - before.haste });
   return { slot, current: ch.equippedItem(slot), rows };
 }
 
@@ -839,14 +860,16 @@ const ITEM_TEXT: { [T in ItemType]: ItemText<ItemDefOf<T>> } = {
       if (sp) lines.push(`Special: ${specials[sp].name}`);
       const at = attrText(inst);
       if (at) lines.push(at);
+      if (inst.haste) lines.push(`Haste +${inst.haste}%`);
       return lines;
     },
   },
   armor: {
     headline: (def) => armorStatText(def),
-    describe: (def) => {
+    describe: (def, inst) => {
       const line = armorLines[def.line];
       const lines = [`${line.label} ${def.slot === 'frame' ? 'Frame' : 'Barrier'}${def.rare ? ' · ★ RARE' : ''}`, armorStatText(def)];
+      if (inst.haste) lines.push(`Haste +${inst.haste}% (faster swings and casts)`);
       if (def.line !== 'basic') lines.push(line.desc);
       return lines;
     },

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Character } from './character';
 import { attackTypes, casting, combo as comboCfg, dash as dashCfg, magCfg, player as cfg, pylonCfg, spellForms, statuses, weaponWeights, type AttackTiming, type AttackType } from './config';
-import { Combo, type ComboEvent } from './combo';
+import { Combo, hastened, type ComboEvent } from './combo';
 import { turnToward } from './collision';
 import { techniques, type TechId } from './data/techniques';
 import { magForm } from './mag';
@@ -108,10 +108,12 @@ export class Player {
   burnStacks = 0;
   /** Seconds toward losing the next Burn stack. */
   burnDecay = 0;
-  /** Corruption stacks (Ruins): each takes a share of max HP away until light, a cleared room or Sol clears it. */
+  /** Corruption stacks (Ruins, and every Hell enemy): each takes a share of max HP away until it wears off, or light, a cleared room or Sol clears it. */
   corruption = 0;
-  /** Seconds spent in light toward shedding the next stack. */
+  /** Seconds spent in light (or past the timer) toward shedding the next stack. */
   corruptDecay = 0;
+  /** Seconds before Corruption starts wearing off by itself; every new application resets it. */
+  corruptTimer = 0;
   /** Standing in a lit pylon's circle (or a Grants light) this frame; set by the world. */
   inLight = false;
   /** Seconds of paralysis immunity left. */
@@ -159,7 +161,7 @@ export class Player {
   private deathT = 0;
 
   constructor(public char: Character) {
-    this.combo = new Combo(comboCfg, attackTypes, () => this.char.weaponKind().timing);
+    this.combo = new Combo(comboCfg, attackTypes, () => hastened(this.char.weaponKind().timing, this.char.hasteMult()));
     this.castChain = new Combo(casting, spellForms, () => this.castTiming);
 
     // Timing cue ring around the feet.
@@ -237,6 +239,8 @@ export class Player {
   /** Add Corruption stacks (current HP drops with the lowered max). Returns stacks actually added. */
   corrupt(stacks: number): number {
     const before = this.corruption;
+    // Every application (even at the cap) resets the timer before it starts wearing off.
+    this.corruptTimer = statuses.corruptDuration;
     this.corruption = Math.min(statuses.corruptMaxStacks, this.corruption + stacks);
     if (this.corruption === before) return 0;
     if (before === 0) this.corruptDecay = 0;
@@ -414,6 +418,7 @@ export class Player {
     this.burnDecay = 0;
     this.corruption = 0;
     this.corruptDecay = 0;
+    this.corruptTimer = 0;
   }
 
   /** Did she walk this frame (sheds Burn faster)? */
@@ -492,8 +497,8 @@ export class Player {
     const form = support ? 'light' : type;
     const chain = this.castChain;
     if (chain.committed ? support : !this.canMove) return [];
-    // Swift Cast (Mag keystone) shortens the wind-up and the recovery.
-    const swift = this.char.hasMagPassive('swiftCast') ? magCfg.swiftCastMult : 1;
+    // Swift Cast (Mag keystone) and Haste (gear) shorten the wind-up and the recovery.
+    const swift = (this.char.hasMagPassive('swiftCast') ? magCfg.swiftCastMult : 1) * this.char.hasteMult();
     this.castTiming = { windup: t.castTime * swift, active: 0, recovery: t.recovery * casting.recoveryMult * swift };
     const events = chain.press(form);
     if (!events.some((e) => e.kind === 'start')) return events;

@@ -10,6 +10,7 @@ import { WATER_Y, type Level, type Rect } from '../world/Level';
 import type { TelegraphShape } from '../world/Telegraph';
 import type { BossContext } from './Boss';
 import { BossBase, BossPart } from './BossBase';
+import { CORRUPT_COLOR } from './Enemy';
 
 // De Rol Le: the Cave boss. A giant armoured worm that swims around (and under)
 // the raft the player stands on. It attacks from the water and only offers
@@ -25,6 +26,9 @@ import { BossBase, BossPart } from './BossBase';
 // Phase 1: shell plates on every segment and a bone mask on the head take
 // most of the damage. Breaking the mask (or dropping it to half HP) shatters
 // the shell: phase 2 is faster, meaner and takes more damage.
+// Hell: at a third of its HP it turns to the dark (phase 3). Every second attack
+// is then a triple: three warnings at once with one safe pocket (see slamTriple
+// and beamTriple).
 
 type DrlState =
   | 'dormant'
@@ -57,6 +61,8 @@ const SUBMERGED = WATER_Y - 0.25;
 const HEAD_RADIUS = 1.5;
 /** Hard: metres of clear deck between the slam lane and the row of mines paired with it. */
 const HARD_ROW_GAP = 2.5;
+/** The player's body radius: telegraphs hit if they reach it (inShape), so triple pockets keep this clear too. */
+const BODY = 0.45;
 
 /** Polyline of where the head has been (newest first); the body follows it. */
 class Trail {
@@ -100,6 +106,13 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
   readonly id = 'derolle' as const;
   readonly objects: THREE.Object3D[];
   phase: 1 | 2 = 1;
+  /** Hell: phase 3 (still phase 2's rules otherwise), and whether the current attack is a triple. */
+  private phase3 = false;
+  private triple = false;
+  private attacks3 = 0;
+  private lastTriple: 'slam' | 'beam' = 'beam';
+  /** Phase 3's violet glow goes on these (the body segments' materials). */
+  private hellMats: THREE.MeshStandardMaterial[];
 
   private model: DeRolLeModel;
   private head: THREE.Vector3;
@@ -130,6 +143,8 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
   private end = -1;
   private beamFrom = 0;
   private beamTo = 0;
+  /** Where the head rears for the beam (the triple moves it off the centre line). */
+  private beamX = 0;
   private beamTick = 0;
   private fired = false;
   private beam: THREE.Group;
@@ -149,6 +164,7 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
     this.hw = (raft.maxX - raft.minX) / 2;
     this.hl = (raft.maxZ - raft.minZ) / 2;
     this.model = new DeRolLeModel(cfg.segments);
+    this.hellMats = [...new Set(this.model.segs.slice(0, 2).map((g) => (g.children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial))];
     this.plates = Array.from({ length: cfg.segments }, () => Math.round(cfg.plateHp * (hard?.hp ?? 1)));
     this.head = new THREE.Vector3(this.cx, DEEP - 2, raft.minZ - 16);
     this.trail = new Trail(this.head, new THREE.Vector3(0, 0, -1), (cfg.segments + 1) * cfg.segSpacing);
@@ -302,6 +318,7 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
 
   protected think(dt: number, ctx: BossContext): void {
     if (this.wantShatter && this.phase === 1 && this.state !== 'intro' && this.state !== 'dormant') this.startShatter(ctx);
+    if (this.hard?.hell && this.phase === 2 && !this.phase3 && this.state !== 'shatter' && this.hp <= this.maxHp * cfg.phase3At) this.startPhase3(ctx);
     this.announceEnrage(ctx, this.phase === 2, 'De Rol Le is enraged!', 'drl.screech');
 
     const sm = this.sm();
@@ -380,7 +397,7 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
       }
       case 'slamRise': {
         // Rears up beside the lane, facing across the raft.
-        const rise = (this.phase === 2 ? cfg.slamWindup2 : cfg.slamWindup) * sm;
+        const rise = this.triple ? cfg.tripleWindup : (this.phase === 2 ? cfg.slamWindup2 : cfg.slamWindup) * sm;
         this.steer(dt, this.cx + this.side * (this.hw + 3.2), 2.8, this.laneZ, 9, false);
         this.look(dt, this.cx, this.laneZ, 6);
         this.jaw = Math.min(1, this.stateT / rise);
@@ -416,17 +433,17 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
       // -------------------------------------------------------- beam
       case 'beamPrep': {
         const apexZ = this.end < 0 ? this.raft.minZ - 3 : this.raft.maxZ + 3;
-        const left = this.steer(dt, this.cx, DEEP, apexZ + this.end * 2, 16);
+        const left = this.steer(dt, this.beamX, DEEP, apexZ + this.end * 2, 16);
         if (left < 1 || this.stateT > 4) this.startBeamRise(ctx);
         break;
       }
       case 'beamRise': {
         const apexZ = this.end < 0 ? this.raft.minZ - 3 : this.raft.maxZ + 3;
-        this.steer(dt, this.cx, 3.2, apexZ, 8, false);
+        this.steer(dt, this.beamX, 3.2, apexZ, 8, false);
         this.headYaw = turnToward(this.headYaw, this.beamFrom, 3 * dt);
         this.headPitch += (0.25 - this.headPitch) * Math.min(1, 4 * dt);
         this.jaw = 0.6;
-        this.charge = Math.min(1, this.stateT / (cfg.beamWindup * sm));
+        this.charge = Math.min(1, this.stateT / (this.triple ? cfg.tripleWindup : cfg.beamWindup * sm));
         break; // the telegraph moves us on
       }
       case 'beaming': {
@@ -503,7 +520,13 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
   }
 
   private chooseAttack(ctx: BossContext): void {
-    const pick = this.pickAttack(ctx, this.phase === 2 ? ['bombs', 'slam', 'beam', 'spray'] : ['bombs', 'slam', 'beam']);
+    // Hell, phase 3: every tripleEvery-th attack is a triple, the slam and the beam taking turns. The attacks
+    // between them never lead with the next triple's attack.
+    const nextTriple = this.lastTriple === 'slam' ? 'beam' : 'slam';
+    this.triple = this.phase3 && this.attacks3++ % cfg.tripleEvery === 0;
+    if (this.triple) this.lastAttack = this.lastTriple = nextTriple;
+    const pool: Attack[] = this.phase === 2 ? ['bombs', 'slam', 'beam', 'spray'] : ['bombs', 'slam', 'beam'];
+    const pick = this.triple ? nextTriple : this.pickAttack(ctx, pool, (a) => !this.phase3 || a !== nextTriple);
     const pz = ctx.playerZ;
     switch (pick) {
       case 'bombs':
@@ -516,12 +539,14 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
       case 'slam':
         this.side = this.head.x >= this.cx ? 1 : -1;
         this.laneZ = this.clampToRaft(0, pz, 2.6)[1];
-        this.slamsLeft = this.phase === 2 ? 1 : 0;
+        // A triple is one slam (with the full rest after it).
+        this.slamsLeft = this.phase === 2 && !this.triple ? 1 : 0;
         this.enter('slamPrep');
         break;
       case 'beam':
         // From the end nearer the player, so the far end is the safe distance.
         this.end = pz < this.cz ? -1 : 1;
+        this.beamX = this.cx;
         this.enter('beamPrep');
         break;
       case 'spray':
@@ -588,7 +613,9 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
   private startSlamRise(ctx: BossContext): void {
     this.enter('slamRise');
     this.sound('dragon.growl');
-    const dur = (this.phase === 2 ? cfg.slamWindup2 : cfg.slamWindup) * this.sm();
+    // A triple's lane is on wherever you stand now (the head steers over to it as it rears).
+    if (this.triple) this.laneZ = this.clampToRaft(0, ctx.playerZ, 2.6)[1];
+    const dur = this.triple ? cfg.tripleWindup : (this.phase === 2 ? cfg.slamWindup2 : cfg.slamWindup) * this.sm();
     const s = this.side;
     const shape: TelegraphShape = {
       kind: 'line',
@@ -610,7 +637,11 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
       this.trail.push(this.head);
       ctx.effect(new Ring(this.head.x, this.laneZ, 0xff6040, 5, 0.4));
       this.enter('slamCross');
-    }, 0xff3030, this.phase === 2);
+    }, 0xff3030, this.phase === 2 && !this.triple);
+    if (this.triple) {
+      this.slamTriple(ctx, dur);
+      return;
+    }
     // Hard, phase 2, the first slam of the pair: the back segments lob a row of mines a little way
     // along the raft at the same time. Safe: the far side of the lane, or the strip between the two.
     if (this.hard && this.phase === 2 && this.slamsLeft > 0) {
@@ -630,20 +661,25 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
     this.enter('beamRise');
     this.sound('drl.charge');
     const c = this.end < 0 ? 0 : Math.PI; // facing down the raft
+    const apexZ = this.end < 0 ? this.raft.minZ - 3 : this.raft.maxZ + 3;
+    const fire = () => {
+      if (this.state !== 'beamRise') return;
+      // A triple sweeps from exactly where its outline was drawn.
+      if (this.triple) this.head.set(this.beamX, this.head.y, apexZ);
+      this.beamTick = 0;
+      this.enter('beaming');
+      this.sound('drl.beam', this.head.x, this.head.z, this.phase === 2 ? cfg.beamSweep * 1.5 : cfg.beamSweep);
+    };
+    if (this.triple && this.beamTriple(ctx, c, apexZ, fire)) return;
+    this.triple = false;
     const fan = THREE.MathUtils.degToRad(60);
     const span = THREE.MathUtils.degToRad(cfg.beamSpanDeg);
     // Sweep one side and the middle; the other flank (and the far end) stays safe.
     const sgn = ctx.rng() < 0.5 ? -1 : 1;
     this.beamFrom = c - sgn * fan;
     this.beamTo = this.beamFrom + sgn * span;
-    const apexZ = this.end < 0 ? this.raft.minZ - 3 : this.raft.maxZ + 3;
     const shape: TelegraphShape = { kind: 'cone', x: this.cx, z: apexZ, yaw: (this.beamFrom + this.beamTo) / 2, range: cfg.beamRange, arcDeg: cfg.beamSpanDeg };
-    ctx.telegraph(shape, cfg.beamWindup * this.sm(), () => {
-      if (this.state !== 'beamRise') return;
-      this.beamTick = 0;
-      this.enter('beaming');
-      this.sound('drl.beam', this.head.x, this.head.z, this.phase === 2 ? cfg.beamSweep * 1.5 : cfg.beamSweep);
-    }, 0xc060ff);
+    ctx.telegraph(shape, cfg.beamWindup * this.sm(), fire, 0xc060ff);
     // Hard, phase 2: it spits poison puddles as it rears, so the beam sweeps over shrinking ground.
     // Safe: the unswept flank or the far end, around the puddles.
     if (this.hard && this.phase === 2) {
@@ -659,15 +695,110 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
       const p = this.clampToRaft(this.cx + (ctx.rng() - 0.5) * this.hw * 2, ctx.playerZ + (ctx.rng() - 0.5) * 18, 0.8);
       if (pts.every(([x, z]) => Math.hypot(x - p[0], z - p[1]) > r * 1.3)) pts.push(p);
     }
+    this.lobPoison(ctx, pts, cfg.sprayWindup);
+  }
+
+  /** Spit poison from the mouth at these points; each lands as a puddle after `dur`. */
+  private lobPoison(ctx: BossContext, pts: [number, number][], dur: number): void {
+    const r = cfg.sprayRadius;
     for (const [x, z] of pts) {
       const shape: TelegraphShape = { kind: 'circle', x, z, radius: r };
-      ctx.telegraph(shape, cfg.sprayWindup, () => {
+      ctx.telegraph(shape, dur, () => {
         ctx.hitPlayer(shape, 0.5, x, z, 2, 'poison', 1);
         ctx.puddle(x, z, r, cfg.puddleLife);
       }, 0x60e040);
       const mouth = this.tmp2.set(this.head.x + Math.sin(this.headYaw) * 1.6, this.head.y, this.head.z + Math.cos(this.headYaw) * 1.6);
-      ctx.effect(new Lob(mouth, x, z, cfg.sprayWindup, 0x80ff50, 0.3));
+      ctx.effect(new Lob(mouth, x, z, dur, 0x80ff50, 0.3));
     }
+  }
+
+  /**
+   * Hell triple: the lane slam on you, a row of mines on one side of it and two rows of poison on the other.
+   * The one safe pocket is the strip (triplePocket deep, for your centre) between the lane and the mines. The
+   * poison starts at the lane's edge, so that side has no gap, and past the mines is too far to reach in time.
+   */
+  private slamTriple(ctx: BossContext, dur: number): void {
+    const r = this.raft;
+    const off = cfg.slamWidth / 2 + BODY + cfg.triplePocket + BODY + cfg.bombRadius;
+    // The mines go where their whole row lands on the deck (one side always fits: the raft is 30 m long).
+    const sides = [1, -1].filter((d) => {
+      const z = this.laneZ + d * off;
+      return z >= r.minZ + 0.3 && z <= r.maxZ - 0.3;
+    });
+    const d = sides[Math.floor(ctx.rng() * sides.length)];
+    this.launchBombs(ctx, this.rowAt(this.laneZ + d * off), dur + 0.25);
+    // Three puddles across the deck per row, overlapping the lane's edge. When the lane runs to the raft's end the
+    // first row is pulled back onto the deck (over the lane) and the second is left out.
+    const pts: [number, number][] = [];
+    for (let k = 0; k < 2; k++) {
+      const z = this.laneZ - d * (cfg.slamWidth / 2 + 1 + k * 3);
+      const zc = Math.min(r.maxZ - 0.8, Math.max(r.minZ + 0.8, z));
+      if (k > 0 && zc !== z) break;
+      for (const u of [-1, 0, 1]) pts.push([this.cx + u * this.hw * 0.68, zc]);
+    }
+    this.sound('drl.spray');
+    this.lobPoison(ctx, pts, dur);
+  }
+
+  /**
+   * Hell triple: the beam from the near end over the whole deck but the flank on your side (it rears tripleFlank
+   * in from that edge and its sweep, beam width included, ends on the line straight down the deck), poison down
+   * that flank toward the head, and a row of mines across the deck past you. The one safe pocket is the flank
+   * beside you between the poison and the mines. False when you are already too far down the raft for it (the
+   * mines would no longer close off the far end): the Nightmare pair instead.
+   */
+  private beamTriple(ctx: BossContext, c: number, apexZ: number, fire: () => void): boolean {
+    const r = this.raft;
+    const f = -this.end; // down the raft, away from the head
+    const g = cfg.triplePocket / 2;
+    const near = this.end < 0 ? r.minZ : r.maxZ;
+    const u = ctx.playerX >= this.cx ? 1 : -1;
+    // Past dMax (metres down the raft from the head) the far end, out of the beam's range, would open up before the mines.
+    const lateral = this.hw * 2 - cfg.tripleFlank + BODY;
+    const dMax = Math.sqrt(cfg.beamRange ** 2 - lateral ** 2) - g - 0.6;
+    const dYou = (ctx.playerZ - apexZ) * f;
+    if (dYou > dMax + g) return false;
+    // The pocket: on your flank, level with you, leaving room for a puddle between it and the raft's end.
+    const dMin = (near - apexZ) * f + g + BODY + cfg.sprayRadius + 0.4;
+    const pz = apexZ + f * Math.min(dMax, Math.max(dMin, dYou));
+    this.beamX = this.cx + u * (this.hw - cfg.tripleFlank);
+    // `toward` turns the yaw toward your flank; the beam's covered edge stops a degree short of straight down the deck.
+    const toward = -this.end * u;
+    const deg = THREE.MathUtils.degToRad;
+    this.beamTo = c - toward * deg(cfg.beamArcDeg / 2 + 1);
+    this.beamFrom = this.beamTo - toward * deg(cfg.beamSpanDeg);
+    // The outline shows everything the beam touches (its own width at both ends of the sweep too).
+    const arc = cfg.beamSpanDeg + cfg.beamArcDeg;
+    const shape: TelegraphShape = { kind: 'cone', x: this.beamX, z: apexZ, yaw: c - toward * deg(arc / 2 + 1), range: cfg.beamRange, arcDeg: arc };
+    ctx.telegraph(shape, cfg.tripleWindup, fire, 0xc060ff);
+    this.launchBombs(ctx, this.rowAt(pz + f * (g + BODY + cfg.bombRadius)), cfg.tripleWindup + 0.25);
+    // A column of puddles down the open flank toward the head, three at most (any further is out of reach anyway).
+    // `d`: metres in from the raft's end; the last is pulled onto the deck if it would leave a corner there open.
+    const pts: [number, number][] = [];
+    const x = this.cx + u * (this.hw - cfg.tripleFlank / 2);
+    for (let k = 0, last = Infinity; k < 3; k++) {
+      let d = (pz - near) * f - (g + BODY + cfg.sprayRadius + k * 3);
+      if (d < 0.3) {
+        if (last <= 1) break;
+        d = 0.3;
+      }
+      pts.push([x, near + f * d]);
+      last = d;
+    }
+    this.sound('drl.spray');
+    this.lobPoison(ctx, pts, cfg.tripleWindup);
+    return true;
+  }
+
+  /** Hell: the last third. It turns to the dark (a violet pulse through the body) and starts mixing in triples. */
+  private startPhase3(ctx: BossContext): void {
+    this.phase3 = true;
+    this.attacks3 = 0;
+    this.escalate(ctx, 'De Rol Le turns to the dark!');
+    ctx.shake(0.5);
+    this.sound('drl.screech');
+    ctx.effect(new Ring(this.head.x, this.head.z, CORRUPT_COLOR, 6, 0.6));
+    for (const p of this.partsList) if (p.pos.y > SUBMERGED) ctx.effect(new Pillar(p.pos.x, p.pos.z, CORRUPT_COLOR, 0.5, 0.6, 6));
   }
 
   private startShatter(ctx: BossContext): void {
@@ -745,5 +876,7 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
       charge: this.charge,
       time: this.time,
     });
+    // Hell, phase 3: a slow violet pulse through the body.
+    if (this.phase3 && this.alive && this.flashT <= 0) for (const mt of this.hellMats) mt.emissive.setHex(CORRUPT_COLOR).multiplyScalar(0.3 + Math.sin(this.time * 3) * 0.12);
   }
 }

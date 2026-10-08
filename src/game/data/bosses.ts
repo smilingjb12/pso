@@ -21,12 +21,13 @@ export interface BossDef {
   race: Race;
   /** Its fight's track (the battle layer comes in with its last phase). */
   music: TrackId;
-  /** Normal XP, read live from the tuning config. Nightmare XP is `hard.bosses[id].xp`. */
+  /** Normal XP, read live from the tuning config. Nightmare XP is `hard.bosses[id].xp`, Hell's `hell.bosses[id].xp`. */
   xp(): number;
-  /** Shop tiers it opens once beaten on Normal / on Nightmare. The first entry is the one announced. */
+  /** Shop tiers it opens once beaten on Normal / on Nightmare / on Hell. The first entry is the one announced. */
   shop: ShopUnlock[];
   hardShop: ShopUnlock[];
-  /** Beating it on Normal opens Nightmare. */
+  hellShop: ShopUnlock[];
+  /** Beating it on Normal opens Nightmare; on Nightmare, Hell. */
   opensNightmare?: boolean;
   /** Where its loot lands: the arena centre, or where it fell. */
   dropsAt: 'center' | 'body';
@@ -42,6 +43,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     shop: [],
     // Characters who played Nightmare before the Ruins got tier 7 from its Dragon: they keep it.
     hardShop: [{ tier: 8, level: 52 }, { tier: 7, level: 42 }],
+    hellShop: [{ tier: 12, level: 92 }],
     dropsAt: 'body', dropRing: 3,
   },
   derolle: {
@@ -49,6 +51,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     xp: () => deRolLe.xp,
     shop: [{ tier: 5, level: 24 }],
     hardShop: [{ tier: 9, level: 62 }],
+    hellShop: [{ tier: 13, level: 102 }],
     dropsAt: 'center', dropRing: 2.6, dropStretch: 2,
   },
   warden: {
@@ -56,6 +59,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     xp: () => warden.xp,
     shop: [{ tier: 6, level: 32 }],
     hardShop: [{ tier: 10, level: 72 }],
+    hellShop: [{ tier: 14, level: 112 }],
     dropsAt: 'center', dropRing: 3,
   },
   falz: {
@@ -63,6 +67,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     xp: () => darkFalz.xp,
     shop: [{ tier: 7, level: 42 }],
     hardShop: [{ tier: 11, level: 82 }],
+    hellShop: [{ tier: 15, level: 122 }],
     opensNightmare: true,
     dropsAt: 'center', dropRing: 3,
   },

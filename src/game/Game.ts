@@ -16,7 +16,8 @@ import {
   type Menu,
 } from '../ui/Menus';
 import { StylistMenu } from '../ui/stylist';
-import { nightmareOpen, TitleMenu, type Difficulty } from '../ui/title';
+import { hellOpen, nightmareOpen, TitleMenu } from '../ui/title';
+import { DIFFICULTY_NAME, difficultyTag, runDifficulty, type Difficulty } from './difficulty';
 import { AudioCues } from './audioCues';
 import { CameraRig } from './CameraRig';
 import { Character, dropVerdict, itemName, makeItem, sellPrice, type DropVerdict, type GrindTrack, type ItemInstance } from './character';
@@ -25,7 +26,7 @@ import { Combat } from './combat/Combat';
 import type { Hittable } from './combat/types';
 import type { ComboEvent } from './combo';
 import { expeditionFoe, type Foe } from './dps';
-import { affixes as affixCfg, hard as hardCfg, camera as camCfg, comboDamage, dash as dashCfg, debug, formulas, injectorCfg, lockOn, magCfg, player as playerCfg, pylonCfg, telepipeCfg, type AttackType } from './config';
+import { affixes as affixCfg, hard as hardCfg, hell as hellCfg, camera as camCfg, comboDamage, dash as dashCfg, debug, formulas, injectorCfg, lockOn, magCfg, player as playerCfg, pylonCfg, telepipeCfg, type AttackType } from './config';
 import { AFFIXES } from './data/affixes';
 import { areas, DEFAULT_LIGHT, expeditionOf, expeditionOfBoss, expeditionOpenedBy, expeditions, isCounter, type AreaId, type ExpeditionId } from './data/areas';
 import { BOSS_IDS, BOSSES, type BossDef } from './data/bosses';
@@ -105,6 +106,13 @@ export class Game implements GameApi {
   private runs: Partial<Record<ExpeditionId, RunState>> = {};
   /** Session difficulty, picked at login: Nightmare (the run state's `hard` flag) for every expedition. */
   private hard = false;
+  /** Hell (also sets `hard`): picked at login once Dark Falz falls on Nightmare. */
+  private hell = false;
+
+  /** The session's difficulty. */
+  private get diff(): Difficulty {
+    return this.hell ? 'hell' : this.hard ? 'nightmare' : 'normal';
+  }
   /** The open Telepipe: where its field end stands. Both ends close once you come back through it. */
   private telepipe: { area: AreaId; x: number; z: number } | null = null;
   /** The portal object in the current world, if this area shows one end of the Telepipe. */
@@ -225,6 +233,7 @@ export class Game implements GameApi {
       playerAlive: true,
       requestAttackToken: (e, w) => this.world?.requestAttackToken(e, w) ?? false,
       requestShot: (e, w) => this.world?.requestShot(e, w) ?? false,
+      claimAffixArea: (sec) => this.world?.claimAffixArea(sec) ?? true,
       tryStrike: (e) => this.combat.enemyStrike(e),
       onDot: (e, d, kind) => this.combat.burnTick(e, d, kind),
       telegraph: (shape, dur, onFire, color) => this.world?.addTelegraph(shape, dur, onFire, color) ?? noTelegraph,
@@ -301,6 +310,17 @@ export class Game implements GameApi {
         }
         this.hud.toast('Nightmare is unlocked for this character (every expedition): pick it at login.', 'good');
       },
+      unlockHell: () => {
+        const st = this.char.data.stats;
+        st.hardKills ??= {};
+        st.hellKills ??= {};
+        for (const id of BOSS_IDS) {
+          st.bossKills[id] = Math.max(1, this.char.bossKills(id, 'normal'));
+          st.hardKills[id] = Math.max(1, this.char.bossKills(id, 'nightmare'));
+          st.hellKills[id] = Math.max(1, this.char.bossKills(id, 'hell'));
+        }
+        this.hud.toast('Hell is unlocked for this character (every expedition): pick it at login.', 'good');
+      },
     });
     this.gui.hide();
     let guiVisible = false;
@@ -363,10 +383,11 @@ export class Game implements GameApi {
   private startCharacter(slot: number, ch: Character, difficulty: Difficulty = 'normal'): void {
     this.slot = slot;
     this.char = ch;
-    this.hard = difficulty === 'nightmare' && nightmareOpen(ch.data);
+    this.hell = difficulty === 'hell' && hellOpen(ch.data);
+    this.hard = this.hell || (difficulty === 'nightmare' && nightmareOpen(ch.data));
     this.player.setCharacter(ch);
     this.runs = {};
-    this.run = newRun('forest', this.hard);
+    this.run = newRun('forest', this.hard, this.hell);
     this.telepipe = null;
     this.deathT = -1;
     this.player.resetState();
@@ -472,7 +493,9 @@ export class Game implements GameApi {
       this.run = this.runOf(exp);
       this.run.floor = Math.max(this.run.floor, expeditions[exp].floors.indexOf(id));
     }
-    const run = def.kind === 'city' ? newRun('forest', this.hard) : this.run;
+    const run = def.kind === 'city' ? newRun('forest', this.hard, this.hell) : this.run;
+    // Hell: every landed hit can corrupt.
+    this.combat.hellCorrupt = run.hell && def.kind !== 'city' ? hellCfg.corruptChance : 0;
     this.world = new World(id, run, {
       enemyCtx: this.enemyCtx,
       bossCtx: {
@@ -568,16 +591,17 @@ export class Game implements GameApi {
     this.lastHit = null;
     this.roomInfo = null;
     this.hud.clearFloats();
-    this.hud.banner(run.hard ? `${def.name} (Nightmare)` : def.name);
+    this.hud.banner(def.name + difficultyTag(runDifficulty(run)));
     this.playAreaMusic();
     setSpace(areas[id].audio.space);
 
     if (def.kind === 'city') {
       // Bosses beaten open shop tiers (BOSSES[id].shop / hardShop).
-      const u: ShopUnlocks = { hard: {} };
+      const u: ShopUnlocks = { hard: {}, hell: {} };
       for (const id of BOSS_IDS) {
-        u[id] = this.char.bossKills(id, false) > 0;
-        u.hard![id] = this.char.bossKills(id, true) > 0;
+        u[id] = this.char.bossKills(id, 'normal') > 0;
+        u.hard![id] = this.char.bossKills(id, 'nightmare') > 0;
+        u.hell![id] = this.char.bossKills(id, 'hell') > 0;
       }
       this.stock = {
         weapon: shopStock('weapon', this.char.level, this.char.lootBias(), this.rng, u),
@@ -601,12 +625,12 @@ export class Game implements GameApi {
 
   /** This session's run of `exp`, started fresh the first time. */
   private runOf(exp: ExpeditionId): RunState {
-    return (this.runs[exp] ??= newRun(exp, this.hard));
+    return (this.runs[exp] ??= newRun(exp, this.hard, this.hell));
   }
 
   /** Start `exp` over from its first floor (a fresh run). */
-  private newExpedition(exp: ExpeditionId, hard = this.hard): void {
-    this.runs[exp] = newRun(exp, hard);
+  private newExpedition(exp: ExpeditionId): void {
+    this.runs[exp] = newRun(exp, this.hard, this.hell);
     if (this.telepipe && expeditionOf(this.telepipe.area) === exp) {
       this.hud.toast('Your Telepipe closed: the expedition starts fresh.', 'warn');
       this.telepipe = null;
@@ -1003,6 +1027,7 @@ export class Game implements GameApi {
     if (p.corruption <= 0) return;
     p.corruption = 0;
     p.corruptDecay = 0;
+    p.corruptTimer = 0;
     this.hud.float(this.tmpA.copy(p.pos).setY(2.4), 'CLEANSED', 'heal');
     sfx('status.cleanse');
   }
@@ -1378,19 +1403,20 @@ export class Game implements GameApi {
 
   /** The city teleporter's expedition list for the session's difficulty. */
   private teleporterMenu(): void {
-    const hard = this.hard;
+    const diff = this.diff;
     const cancel: ChoiceOption = { label: 'Cancel', run: () => this.closeMenu() };
     const opts: ChoiceOption[] = [];
-    const tag = hard ? ' (Nightmare)' : '';
+    const tag = difficultyTag(diff);
+    const lastBoss = BOSS_IDS.map((b) => BOSSES[b]).find((b) => b.opensNightmare)!.title;
     for (const exp of Object.values(expeditions)) {
-      // Normal: the previous expedition's boss. Nightmare: Dark Falz on Normal for the Forest, then the previous Nightmare boss.
+      // Normal: the previous expedition's boss. Nightmare / Hell: Dark Falz one difficulty down for the Forest, then the previous boss on this one.
       let locked: boolean;
-      let why = exp.needs ? `Defeat ${BOSSES[exp.needs].title}${hard ? ' on Nightmare' : ''} to unlock` : '';
-      if (exp.needs) locked = this.char.bossKills(exp.needs, hard) <= 0;
-      else if (!hard) locked = false;
+      let why = exp.needs ? `Defeat ${BOSSES[exp.needs].title}${diff === 'normal' ? '' : ` on ${DIFFICULTY_NAME[diff]}`} to unlock` : '';
+      if (exp.needs) locked = this.char.bossKills(exp.needs, diff) <= 0;
+      else if (diff === 'normal') locked = false;
       else {
-        locked = !nightmareOpen(this.char.data);
-        why = `Defeat ${BOSS_IDS.map((b) => BOSSES[b]).find((b) => b.opensNightmare)!.title} to unlock`;
+        locked = diff === 'hell' ? !hellOpen(this.char.data) : !nightmareOpen(this.char.data);
+        why = `Defeat ${lastBoss}${diff === 'hell' ? ' on Nightmare' : ''} to unlock`;
       }
       if (locked) {
         opts.push({ label: exp.name + tag, disabled: true, sub: why, run: () => {} });
@@ -1410,7 +1436,7 @@ export class Game implements GameApi {
       });
     }
     opts.push(cancel);
-    this.choice('Teleporter', hard ? 'Nightmare: where do you want to go?' : 'Where do you want to go?', opts);
+    this.choice('Teleporter', diff === 'normal' ? 'Where do you want to go?' : `${DIFFICULTY_NAME[diff]}: where do you want to go?`, opts);
   }
 
   private travel(go: () => void): void {
@@ -1443,9 +1469,9 @@ export class Game implements GameApi {
       // Boss parts share its HP: only the whole boss going down counts.
       if (boss.alive) return;
       const def = BOSSES[boss.id];
-      const hard = this.run.hard;
+      const diff = runDifficulty(this.run);
       this.char.data.stats.kills++;
-      const first = this.char.addBossKill(def.id, hard) === 1;
+      const first = this.char.addBossKill(def.id, diff) === 1;
       this.cleanse();
       this.run.bossDefeated = true;
       this.lockTarget = null;
@@ -1455,11 +1481,11 @@ export class Game implements GameApi {
       this.hud.banner(`${boss.name.toUpperCase()} DEFEATED`, 'boss');
       this.autosave();
       this.hud.toast('Quest complete! A teleporter to Pioneer 2 has appeared.', 'good');
-      if (first) this.announceUnlocks(def, hard);
-      this.gainXp(hard ? hardCfg.bosses[def.id].xp : def.xp());
+      if (first) this.announceUnlocks(def, diff);
+      this.gainXp(diff === 'hell' ? hellCfg.bosses[def.id].xp : diff === 'nightmare' ? hardCfg.bosses[def.id].xp : def.xp());
       // Loot lands on the deck / arena floor around the centre, or where it fell.
       const at = def.dropsAt === 'center' ? world.level.center() : t.pos;
-      const drops = rollBossDrops(def.id, hard, this.rng, this.char.lootBias());
+      const drops = rollBossDrops(def.id, diff, this.rng, this.char.lootBias());
       drops.forEach((d, i) => {
         const a = (i / drops.length) * Math.PI * 2;
         this.spawnDrop(d, at.x + Math.sin(a) * def.dropRing, at.z + Math.cos(a) * def.dropRing * (def.dropStretch ?? 1));
@@ -1468,14 +1494,17 @@ export class Game implements GameApi {
     }
   }
 
-  /** Toasts for what a boss's first kill opened: shop tiers, the next expedition, Nightmare. */
-  private announceUnlocks(def: BossDef, hard: boolean): void {
-    const shop = (hard ? def.hardShop : def.shop)[0];
+  /** Toasts for what a boss's first kill opened: shop tiers, the next expedition, Nightmare or Hell. */
+  private announceUnlocks(def: BossDef, diff: Difficulty): void {
+    const shop = (diff === 'hell' ? def.hellShop : diff === 'nightmare' ? def.hardShop : def.shop)[0];
     if (shop) this.hud.toast(`Pioneer 2 shops will now stock tier ${shop.tier} gear (from Lv ${shop.level}).`, 'rare');
     const next = expeditionOpenedBy(def.id);
-    if (next) this.hud.toast(`A new ${hard ? 'Nightmare ' : ''}expedition is open: the ${next.name}.`, 'rare');
-    if (!hard && def.opensNightmare && !this.char.data.stats.nightmareKept) {
+    if (next) this.hud.toast(`A new ${diff === 'normal' ? '' : `${DIFFICULTY_NAME[diff]} `}expedition is open: the ${next.name}.`, 'rare');
+    if (diff === 'normal' && def.opensNightmare && !this.char.data.stats.nightmareKept) {
       this.hud.toast('Nightmare is open: Save &amp; quit (menu, I) and pick it when you start again.', 'rare');
+    }
+    if (diff === 'nightmare' && def.opensNightmare) {
+      this.hud.toast('Hell is open: Save &amp; quit (menu, I) and pick it when you start again.', 'rare');
     }
   }
 
@@ -1756,7 +1785,7 @@ export class Game implements GameApi {
   }
 
   damageFoe(): Foe {
-    return expeditionFoe(this.run.expedition, this.hard);
+    return expeditionFoe(this.run.expedition, this.diff);
   }
 
   sell(uid: string): string | null {
@@ -1868,7 +1897,7 @@ export class Game implements GameApi {
     if (p.buffs.atp.t > 0) buffs.push(`▲ATP ${Math.ceil(p.buffs.atp.t)}s`);
     if (p.buffs.dfp.t > 0) buffs.push(`▲DFP ${Math.ceil(p.buffs.dfp.t)}s`);
     const statuses: { label: string; cls: string }[] = [];
-    if (p.corruption > 0) statuses.push({ label: `CORRUPT ×${p.corruption}${p.inLight ? '' : ' · LIGHT'}`, cls: 'corrupt' });
+    if (p.corruption > 0) statuses.push({ label: `CORRUPT ×${p.corruption} · ${p.inLight ? 'LIGHT' : p.corruptTimer > 0 ? `${Math.ceil(p.corruptTimer)}s` : 'FADING'}`, cls: 'corrupt' });
     if (p.burnStacks > 0) statuses.push({ label: `BURN ×${p.burnStacks}${p.moving ? '' : ' · MOVE'}`, cls: 'burn' });
     if (p.poison > 0) statuses.push({ label: `POISON ${Math.ceil(p.poison)}s`, cls: 'poison' });
     if (p.paralysis > 0) statuses.push({ label: `PARALYSIS ${p.paralysis.toFixed(1)}s`, cls: 'para' });
@@ -1913,7 +1942,7 @@ export class Game implements GameApi {
         boss && boss.engaged && (boss.alive || boss.deadT < 3)
           ? { name: boss.name + (boss.alive ? (boss.hudNote ?? '') : ''), race: boss.race, weak: boss.weakPointOpen }
           : null,
-      area: this.hard ? `${world.def.name} (Nightmare)` : world.def.name,
+      area: world.def.name + difficultyTag(this.diff),
       roomInfo: this.roomInfo,
       prompt,
       buffs,

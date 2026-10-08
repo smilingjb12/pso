@@ -1,5 +1,6 @@
 import { BOSS_IDS, BOSSES } from '../game/data/bosses';
 import type { CharacterData } from '../game/character';
+import type { Difficulty } from '../game/difficulty';
 import { itemDefs, type WeaponKind } from '../game/data/items';
 import { buildTitle, leadAttribute, type KitId } from '../game/data/stats';
 import { magForm, magPointsFree, readMag } from '../game/mag';
@@ -10,19 +11,29 @@ import { esc, type Menu } from './Menus';
 // Title screen: save slots, with the selected character standing on a
 // teleporter pad. "Create character" opens the creation wizard. Starting a
 // character asks for the difficulty first (Diablo style: the whole session is
-// played on it; Nightmare opens once Dark Falz falls on Normal).
+// played on it; Nightmare opens once Dark Falz falls on Normal, Hell once it falls on Nightmare).
 
-/** Session difficulty. Nightmare is the run state's `hard` flag (see DESIGN.md "Nightmare"). */
-export type Difficulty = 'normal' | 'nightmare';
+export type { Difficulty };
 
-const DIFFS: { id: Difficulty; name: string; sub: string }[] = [
-  { id: 'normal', name: 'Normal', sub: 'Lv 1-42' },
-  { id: 'nightmare', name: 'Nightmare', sub: 'Lv 42-82' },
+const DIFFS: { id: Difficulty; name: string; sub: string; lock: string }[] = [
+  { id: 'normal', name: 'Normal', sub: 'Lv 1-42', lock: '' },
+  { id: 'nightmare', name: 'Nightmare', sub: 'Lv 42-82', lock: 'Defeat Dark Falz on Normal to unlock' },
+  { id: 'hell', name: 'Hell', sub: 'Lv 82-122', lock: 'Defeat Dark Falz on Nightmare to unlock' },
 ];
 
 /** Nightmare opens once the last boss (Dark Falz) has fallen on Normal (characters who opened it with the Warden, before the Ruins, keep it). */
 export function nightmareOpen(c: CharacterData): boolean {
   return BOSS_IDS.some((b) => BOSSES[b].opensNightmare && (c.stats.bossKills[b] ?? 0) > 0) || !!c.stats.nightmareKept;
+}
+
+/** Hell opens once the last boss (Dark Falz) has fallen on Nightmare. */
+export function hellOpen(c: CharacterData): boolean {
+  return BOSS_IDS.some((b) => BOSSES[b].opensNightmare && (c.stats.hardKills?.[b] ?? 0) > 0);
+}
+
+/** Difficulties this character can pick, easiest first. */
+export function openDifficulties(c: CharacterData): Difficulty[] {
+  return DIFFS.map((d) => d.id).filter((d) => d === 'normal' || (d === 'nightmare' ? nightmareOpen(c) : hellOpen(c)));
 }
 
 export interface TitleApi {
@@ -54,11 +65,11 @@ export class TitleMenu implements Menu {
   }
 
   private renderDifficulty(cur: CharacterData): string {
-    const open = nightmareOpen(cur);
+    const open = openDifficulties(cur);
     const rows = DIFFS.map((d) => {
-      const locked = d.id === 'nightmare' && !open;
+      const locked = !open.includes(d.id);
       const cls = `slot-row diff-row${d.id === this.diff ? ' sel' : ''}${locked ? ' disabled' : ''}`;
-      const sub = locked ? 'Defeat Dark Falz on Normal to unlock' : d.sub;
+      const sub = locked ? d.lock : d.sub;
       return `<div class="${cls}" data-act="diff" data-arg="${d.id}"><span class="slot-name">${d.name}</span><span class="diff-sub">${sub}</span></div>`;
     }).join('');
     return `<div class="win slot-win"><div class="win-title">Difficulty</div><div class="slot-list">${rows}</div>
@@ -146,7 +157,11 @@ export class TitleMenu implements Menu {
     if (this.picking) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         const cur = this.api.slots()[this.sel];
-        if (cur && nightmareOpen(cur)) this.diff = this.diff === 'normal' ? 'nightmare' : 'normal';
+        if (cur) {
+          const open = openDifficulties(cur);
+          const i = open.indexOf(this.diff);
+          this.diff = open[(i + (e.key === 'ArrowDown' ? 1 : open.length - 1)) % open.length];
+        }
         return true;
       }
       if (e.key === 'Enter') {
@@ -190,13 +205,14 @@ export class TitleMenu implements Menu {
         // Pick the difficulty next; start on the hardest one this character has open.
         const cur = this.api.slots()[this.sel];
         if (!cur) break;
-        this.diff = nightmareOpen(cur) ? 'nightmare' : 'normal';
+        const open = openDifficulties(cur);
+        this.diff = open[open.length - 1];
         this.picking = true;
         break;
       }
       case 'diff': {
         const cur = this.api.slots()[this.sel];
-        if (cur && (arg === 'normal' || nightmareOpen(cur))) this.diff = arg as Difficulty;
+        if (cur && openDifficulties(cur).includes(arg as Difficulty)) this.diff = arg as Difficulty;
         break;
       }
       case 'enter':
