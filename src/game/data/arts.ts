@@ -7,7 +7,7 @@ import { techniques, TECH_IDS, type TechId } from './techniques';
 // - Hunter and Ranger Arts come from the weapon kind in hand (three each, PSO2 style) plus three of the class's
 //   that work with any weapon of its family.
 // - Force Arts are the techniques (nine attack techniques: three elements in three shapes).
-// - Resta, Shifta and Deband are support Arts anyone can slot.
+// - Resta is a support Art anyone can slot (Shifta and Deband went on 2026-10-15).
 // An Art pressed inside the basic chain's window becomes the chain's next step and gets the perfect streak
 // (basic, basic, Art). Channels, guards and movement Arts seal the chain: nothing chains after them.
 // Each Art has two modifier rows (pick one of three in each), opening at ranks 5 and 10 of it in the Skills trees
@@ -30,7 +30,7 @@ export type ArtId =
   | 'scatterBlast' | 'napalmShell' | 'slug'
   // Ranger: any gun
   | 'freezeTrap' | 'backflipShot' | 'grenade'
-  // Techniques (Force attack techniques; Resta, Shifta and Deband for anyone)
+  // Techniques (Force attack techniques; Resta for anyone)
   | TechId;
 
 /** Where an Art comes from. */
@@ -375,19 +375,11 @@ const TECH_MODS: Record<TechId, [ArtMod[], ArtMod[]]> = {
     [m('regen', 'Regeneration', 'Also heals 2% of your max HP a second for 5 s.'), m('greater', 'Greater Resta', 'Heals 40% more.'), m('quick', 'Quick', 'Casts 30% faster.')],
     [m('anti', 'Anti', 'Also cures poison, paralysis and Burn.'), m('desperate', 'Desperate', 'Refunds 30% of its TP when cast below 30% HP.'), m('swift', 'Swiftness', 'Run 15% faster for 4 s.')],
   ],
-  shifta: [
-    [m('long', 'Long', 'Lasts 120 s.'), m('strong', 'Strong', '30% stronger.'), m('quick', 'Quick', 'Casts 30% faster.')],
-    [m('zalure', 'Zalure', 'Also strips 10% armour from enemies within 8 m for 10 s.'), m('cheap', 'Cheap', '30% less TP.'), m('both', 'Twin Charm', 'Also casts Deband at half strength.')],
-  ],
-  deband: [
-    [m('long', 'Long', 'Lasts 120 s.'), m('strong', 'Strong', '30% stronger.'), m('quick', 'Quick', 'Casts 30% faster.')],
-    [m('jellen', 'Jellen', 'Also makes enemies within 8 m deal 15% less for 10 s.'), m('cheap', 'Cheap', '30% less TP.'), m('both', 'Twin Charm', 'Also casts Shifta at half strength.')],
-  ],
 };
 
 const techRole = (t: TechId): ArtDef['role'] => {
   const s = techniques[t].shape;
-  return s === 'heal' || s === 'buff' ? 'support' : s === 'bolt' || s === 'spike' || s === 'chain' ? 'single' : 'area';
+  return s === 'heal' ? 'support' : s === 'bolt' || s === 'spike' || s === 'chain' ? 'single' : 'area';
 };
 
 const techArt = (t: TechId): ArtDef => {
@@ -395,7 +387,7 @@ const techArt = (t: TechId): ArtDef => {
   return {
     id: t, name: d.name, from: { tech: t }, level: d.level, tpPct: 0, cooldown: 0, windup: d.castTime, channel: 0, ticks: 0,
     recovery: d.recovery, walk: 0, seals: false, poise: false, power: d.power, role: techRole(t),
-    pose: d.shape === 'heal' || d.shape === 'buff' ? 'support' : 'cast', range: d.range, color: d.color, desc: d.desc, mods: TECH_MODS[t],
+    pose: d.shape === 'heal' ? 'support' : 'cast', range: d.range, color: d.color, desc: d.desc, mods: TECH_MODS[t],
   };
 };
 
@@ -408,7 +400,7 @@ export function isTechArt(id: ArtId): id is TechId {
 }
 
 /** Support techniques anyone can slot. */
-export const SUPPORT_ARTS: TechId[] = ['resta', 'shifta', 'deband'];
+export const SUPPORT_ARTS: TechId[] = ['resta'];
 
 /** The classes that can learn an Art at all (support Arts: everyone; attack techniques: Forces). */
 export function artClasses(id: ArtId): ClassId[] {

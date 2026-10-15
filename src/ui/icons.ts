@@ -72,14 +72,6 @@ function techGlyph(tech: string): string {
       );
     case 'resta':
       return svg(`<circle cx="24" cy="24" r="19" fill="none" stroke="#5aff8a" stroke-width="3"/><rect x="20" y="11" width="8" height="26" rx="2" fill="#5aff8a"/><rect x="11" y="20" width="26" height="8" rx="2" fill="#5aff8a"/>`);
-    case 'shifta':
-    case 'deband': {
-      // The red/blue "stat up" arrow from PSO's palette.
-      const c = tech === 'shifta' ? '#ff4a4a' : '#4a8aff';
-      return svg(
-        `<polygon points="24,3 36,17 29,17 29,30 19,30 19,17 12,17" fill="${c}"/><circle cx="10" cy="30" r="4" fill="${c}"/><circle cx="38" cy="30" r="4" fill="${c}"/><path d="M14 36 Q24 46 34 36" stroke="${c}" stroke-width="4" fill="none" stroke-linecap="round"/>`,
-      );
-    }
     default:
       return svg(`<circle cx="24" cy="24" r="14" fill="#c8a0ff"/>`);
   }

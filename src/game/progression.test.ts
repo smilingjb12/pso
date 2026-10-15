@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { Character, compareEquip, dropVerdict, gearVerdict, grindBonus, itemName, makeItem, rarityOf, statDef } from './character';
-import { enemies, techScaling } from './config';
+import { enemies } from './config';
 import { areas } from './data/areas';
 import { CLASS_IDS, MAX_LEVEL, xpToNext, type ClassId } from './data/stats';
 import { getDef, grindCap, INVENTORY_SIZE, itemDefs, kindFamily, PHOTON_STACK, raceCap, weaponKinds, type ArmorItemDef } from './data/items';
 import { ITEM_AFFIXES } from './data/itemAffixes';
-import { buffPct, restaHeal } from './data/techniques';
+import { restaHeal } from './data/techniques';
 import {
   LOOT_LEAN, rollArmor, rollDragonDrops, rollDrop, rollEliteBonus, rollEnemyDrop, rollFalzDrops, rollUnit, rollWardenDrops, rollWeapon, shopStock, shopTier, type LootBias,
 } from './loot';
@@ -182,9 +182,6 @@ describe('Character', () => {
     // Resta: the MST build heals more at the same level, in HP and as a share of its (smaller) bar.
     expect(restaHeal(fMst)).toBeGreaterThan(restaHeal(hMst));
     expect(restaHeal(fMst) / f.maxHp).toBeGreaterThan((restaHeal(hMst) / h.maxHp) * 4);
-    // Buffs scale with MST too, up to a cap.
-    expect(buffPct('shifta', fMst)).toBeGreaterThan(4 * buffPct('shifta', hMst));
-    expect(buffPct('shifta', 5000)).toBe(techScaling.buffCap);
     // More MST from gear raises both damage and cost.
     const before = [f.techDamage('zonde'), f.techCost('zonde')];
     const rod = makeItem('rod_4');

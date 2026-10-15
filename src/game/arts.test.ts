@@ -40,10 +40,11 @@ describe('Arts data (2026-10-14)', () => {
     }
   });
 
-  it('make every technique an Art: attack ones for Forces, Resta / Shifta / Deband for anyone', () => {
+  it('make every technique an Art: attack ones for Forces, Resta for anyone (no Shifta or Deband since 2026-10-15)', () => {
     for (const t of Object.keys(techniques)) expect(isTechArt(t as never)).toBe(true);
     for (const t of ATTACK_TECHS) expect(artClasses(t)).toEqual(['force']);
-    for (const t of ['resta', 'shifta', 'deband'] as const) expect(artClasses(t)).toEqual(['hunter', 'ranger', 'force']);
+    expect(artClasses('resta')).toEqual(['hunter', 'ranger', 'force']);
+    expect(Object.keys(techniques)).not.toContain('shifta');
   });
 });
 
@@ -54,7 +55,7 @@ describe('the Art bar', () => {
     expect(holding('force', 1).artBar()).toEqual(['foie', 'zonde', 'barta', 'resta']);
   });
 
-  it('fills an untouched bar in unlock order, so a slot never moves as Arts are learned (Shifta / Deband left out)', () => {
+  it('fills an untouched bar in unlock order, so a slot never moves as Arts are learned', () => {
     const ch = holding('hunter', 1, 'saber');
     const seen: (string | null)[][] = [];
     for (const lv of [1, 5, 10, 12, 20, 28, 36]) {
@@ -108,7 +109,7 @@ describe('the Art bar', () => {
     const ch = holding('hunter', 30);
     ch.data.equipped.weapon = undefined;
     expect(ch.barKey).toBe('none');
-    expect(ch.artsFor()).toEqual(['resta', 'shifta', 'deband']);
+    expect(ch.artsFor()).toEqual(['resta']);
   });
 });
 
@@ -127,24 +128,24 @@ describe('Art numbers', () => {
     expect(f2.artCost('foie')).toBeGreaterThan(f.artCost('foie'));
   });
 
-  it('modifiers open at ranks 5 and 10 of the Art and change numbers', () => {
+  it('modifiers (nodes forking below the Art) open at its ranks 5 and 10 and change numbers', () => {
     const ch = holding('hunter', 40, 'sword');
-    expect(ch.pickArtMod('cyclone', 0, 'longSpin')).not.toBeNull(); // rank 1
+    expect(ch.rankUp('cyclone:longSpin')).toMatch(/rank 5/);
     ch.data.skills.ranks.cyclone = 5;
-    expect(ch.pickArtMod('cyclone', 0, 'longSpin')).toBeNull();
+    expect(ch.rankUp('cyclone:longSpin')).toBeNull();
     expect(ch.artMod('cyclone', 'longSpin')).toBe(true);
     expect(ch.artTicks('cyclone')).toBe(ARTS.cyclone.ticks + 2);
     expect(ch.artCost('cyclone')).toBe(Math.round(ARTS.cyclone.tpPct * ch.baseTp() * 1.4 * ch.artRankTp('cyclone')));
-    expect(ch.pickArtMod('cyclone', 0, 'shockwave')).not.toBeNull(); // a row 2 modifier
-    expect(ch.pickArtMod('cyclone', 1, 'shockwave')).not.toBeNull(); // row 2 opens at rank 10
+    expect(ch.rankUp('cyclone:vortex')).toMatch(/One per row/);
+    expect(ch.rankUp('cyclone:shockwave')).toMatch(/rank 10/);
     ch.data.skills.ranks.cyclone = 10;
-    expect(ch.pickArtMod('cyclone', 1, 'shockwave')).toBeNull();
-    // Taken back below rank 5, the modifiers go.
-    for (let i = 0; i < 6; i++) ch.data.skills.ranks.cyclone--;
-    expect(ch.artMod('cyclone', 'longSpin')).toBe(false);
+    expect(ch.rankUp('cyclone:shockwave')).toBeNull();
+    expect(ch.rankDown('cyclone')).toMatch(/Shockwave/); // it rests on rank 10
+    expect(ch.rankDown('cyclone:longSpin')).toMatch(/Shockwave/); // and on a first-row modifier
     const g = holding('hunter', 40, 'saber');
     g.data.skills.ranks.guardStance = 10;
-    expect(g.pickArtMod('guardStance', 1, 'quick')).toBeNull();
+    expect(g.rankUp('guardStance:iron')).toBeNull();
+    expect(g.rankUp('guardStance:quick')).toBeNull();
     expect(g.artCooldown('guardStance')).toBe(6);
   });
 

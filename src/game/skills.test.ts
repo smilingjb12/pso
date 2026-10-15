@@ -4,7 +4,8 @@ import { passiveCfg, skillCfg } from './config';
 import { ART_IDS, artClasses } from './data/arts';
 import { CLASS_IDS } from './data/stats';
 import { passiveRanks, type PassiveId } from './passives';
-import { readSkills, SKILL_TREES, skillNode, skillNodes, skillPoints, TREE_COLS } from './skills';
+import { ARTS } from './data/arts';
+import { readSkills, SKILL_TREES, skillNode, skillNodes, skillPoints, treeCols, treeLines } from './skills';
 
 function at(cls: 'hunter' | 'ranger' | 'force', level: number): Character {
   const ch = Character.create('T', cls);
@@ -13,19 +14,24 @@ function at(cls: 'hunter' | 'ranger' | 'force', level: number): Character {
 }
 
 describe('Skills trees (2026-10-15, Diablo 2 style: ranked Arts and passives with prerequisites)', () => {
-  it('give each class four trees holding all its Arts once, on free grid cells, hanging from nodes of the same tree', () => {
+  it('give each class its trees (no Force Support tree), all its Arts once with their six modifiers, on free cells', () => {
+    expect(SKILL_TREES.hunter.map((t) => t.id)).toEqual(['sword', 'saber', 'dagger', 'combat']);
+    expect(SKILL_TREES.ranger.map((t) => t.id)).toEqual(['handgun', 'rifle', 'shot', 'gunnery']);
+    expect(SKILL_TREES.force.map((t) => t.id)).toEqual(['fire', 'lightning', 'ice']);
     for (const cls of CLASS_IDS) {
-      expect(SKILL_TREES[cls]).toHaveLength(4);
       const nodes = skillNodes(cls);
       expect(new Set(nodes.map((n) => n.id)).size).toBe(nodes.length);
       const arts = nodes.filter((n) => n.kind === 'art').map((n) => n.id).sort();
       expect(arts).toEqual(ART_IDS.filter((a) => artClasses(a).includes(cls)).sort());
+      expect(nodes.filter((n) => n.kind === 'mod')).toHaveLength(arts.length * 6);
+      for (const a of arts) expect(new Set(ARTS[a as keyof typeof ARTS].mods.flat().map((m) => m.id)).size, a).toBe(6);
       for (const t of SKILL_TREES[cls]) {
-        const cells = t.nodes.map(([, r, c]) => `${r}:${c}`);
+        const cells = nodes.filter((n) => n.tree === t.id).map((n) => `${n.row}:${n.col}`);
         expect(new Set(cells).size, `${cls} ${t.id}`).toBe(cells.length);
+        for (const [a, b] of treeLines(cls, t.id)) expect(skillNode(cls, a)!.row, `${a} -> ${b}`).toBeLessThan(skillNode(cls, b)!.row);
       }
       for (const n of nodes) {
-        expect(n.col).toBeLessThan(TREE_COLS);
+        expect(n.col).toBeLessThan(treeCols(SKILL_TREES[cls].find((t) => t.id === n.tree)!));
         if (!n.pre) continue;
         const p = skillNode(cls, n.pre)!;
         expect(p.tree, `${cls} ${n.id}`).toBe(n.tree);
@@ -103,22 +109,28 @@ describe('Skills trees (2026-10-15, Diablo 2 style: ranked Arts and passives wit
     expect(ch.passiveK('fervor' as PassiveId)).toBe(0);
   });
 
-  it('opens an Art\'s modifier rows at ranks 5 and 10, and drops a pick when the rank falls below', () => {
+  it('takes one modifier per row at a point each: row 1 at the Art\'s rank 5, row 2 at rank 10 after a row 1 pick', () => {
     const ch = at('force', 60);
-    expect(ch.pickArtMod('foie', 0, 'split')).toMatch(/rank 5/);
+    expect(ch.rankUp('foie:split')).toMatch(/rank 5/);
     for (let i = 0; i < 4; i++) ch.rankUp('foie');
-    expect(ch.pickArtMod('foie', 0, 'split')).toBeNull();
+    const left = ch.skillPointsLeft;
+    expect(ch.rankUp('foie:split')).toBeNull();
+    expect(ch.skillPointsLeft).toBe(left - 1);
     expect(ch.artMod('foie', 'split')).toBe(true);
-    expect(ch.skillPointsFree).toBeGreaterThan(0);
-    ch.rankDown('foie');
-    expect(ch.artMod('foie', 'split')).toBe(false);
-    expect(ch.data.skills.mods.foie).toBeUndefined();
+    expect(ch.rankUp('foie:big')).toMatch(/One per row/);
+    expect(ch.rankDown('foie')).toMatch(/Foie Split/); // it rests on rank 5
+    for (let i = 0; i < 5; i++) ch.rankUp('foie');
+    expect(ch.rankUp('foie:ignite')).toBeNull();
+    expect(ch.rankDown('foie:split')).toMatch(/Ignite/);
+    expect(ch.rankDown('foie:ignite')).toBeNull();
+    expect(ch.rankDown('foie:split')).toBeNull();
+    expect(ch.rankUp('foie:big')).toBeNull(); // the row is free again
   });
 
   it('repairs stored picks: unknown skills, missing prerequisites, too many ranks or points', () => {
+    // Modifier picks stored apart (the first ranked trees) become modifier nodes.
     const picks = readSkills({ ranks: { foie: 30, gifoie: 2, rafoie: 1, bogus: 3, overload: 5 }, mods: { foie: ['split', 'nope'] } }, 'force', 20);
-    expect(picks.ranks).toEqual({ foie: 10, gifoie: 2 }); // Rafoie opens at 36, Overload needs Kindle
-    expect(picks.mods.foie).toEqual(['split', null]);
+    expect(picks.ranks).toEqual({ foie: 10, gifoie: 2, 'foie:split': 1 }); // Rafoie opens at 36, Overload needs Kindle
     expect(readSkills({ ranks: { foie: 10, gifoie: 10 } }, 'force', 12).ranks).toEqual({ foie: 10 }); // 12 points; Gifoie at 15
     expect(readSkills({ ranks: { foie: 10, zonde: 10 } }, 'force', 12).ranks).toEqual({ foie: 10, zonde: 2 });
   });

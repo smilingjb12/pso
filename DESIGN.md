@@ -106,13 +106,13 @@ damage taken** split, and the full version: formulas changed so each number is l
   **Crit chance** (`lck`, kept in tenths of a percent: 24 = 2.4%), **Strike damage taken** and **Area damage taken**
   (`strike` / `area`, % less, each capped at 75%: `AFFIX_CAPS.damageTaken`), plus **Crit damage** (×2 base) and Haste.
   The status screen lists them with a live Foie / Resta note for Tech damage and nothing else; the long tooltips went.
-- **Weapon hits** = (Weapon damage + the weapon's own roll) × (1 + Weapon damage %) × Shifta × the swing's multiplier
+- **Weapon hits** = (Weapon damage + the weapon's own roll) × (1 + Weapon damage %) × Farlla's attack buff × the swing's multiplier
   (light ×0.7, heavy ×1.3) × the kind's and the family's (melee ×1.52, ranged ×1.58), less the enemy's **armour %**.
   DFP used to come off ATP before a ÷5 × 0.9; enemy HP went up **×5.56** (1 / 0.18) so the hits and kill times held.
 - **Techniques** = tech damage × the technique's multiplier (Foie 278%, Zonde 362%, Barta 251%, before the form's
   ×0.5 / ×1.35), less the enemy's **technique resistance %**: in proportion to tech damage now (it grew with MST^1.2).
-  Heals, buffs and TP cost scale with tech damage as they did with MST. **Deband** takes 40% of its % off both
-  damage-taken stats (35% Deband: −14%); Farlla the same.
+  Heals and TP cost scale with tech damage as they did with MST. Farlla's defence buff takes 40% of its % off both
+  damage-taken stats (35%: −14%). (Shifta and Deband did the same until they went on 2026-10-15.)
 - **Enemy armour and technique resistance** are plain % (was DFP and MDF). Fitted per enemy and per band by a
   script (2026-10-14), so a reference Hunter / Ranger / Force (Mag unspent, no affixes, the band's gear, the SETUPS
   levels) keeps its old kill time: the analytic estimate is within 2% at every band. Armour comes out 7-22% on
@@ -307,11 +307,11 @@ picked **on the Mag tab**. Data in `data/arts.ts`, behaviour in `combat/arts.ts`
   the chain (it ends after them). Some have cooldowns (Leap 6 s, Guard Stance 10 s, War Cry 15 s). Weapon specials
   (Heat, Ice...) roll on the basic finisher and on single-target Arts' strong hits.
 - **Four slots** (RMB, Q, E, R), **one bar per weapon kind**: swap to a sword and the sword's bar comes up. An
-  untouched bar fills itself in unlock order, so a slot never moves as Arts unlock (Shifta and Deband are left out:
-  buffs are picked on purpose); a level-up puts what it taught into the empty slots of a bar you changed. Menu →
-  Arts: click a slot, then an Art. Changes wait for the end of a fight; in the city only support Arts work.
+  untouched bar fills itself in learning order, so a slot never moves as Arts are learned; an Art learned in Skills
+  goes into the first empty slot of a bar you changed. Menu → Arts: click a slot, then an Art. Changes wait for the end of a fight; in the city only support Arts work.
 - **Where they come from**: three per weapon kind (Lv 1, 12, 28) and three per family (Lv 5, 20, 36). Forces get the
-  nine attack techniques instead. Everyone gets Resta (Lv 1), Shifta and Deband (Lv 10).
+  nine attack techniques instead. Everyone gets Resta (Lv 1). Shifta and Deband (Lv 10, the buffs) were removed on
+  2026-10-15 at the user's call ("remove Shifta and other utility spells"; Resta stays); Farlla keeps their effect.
 
   | Kind | Lv 1 | Lv 12 | Lv 28 |
   |---|---|---|---|
@@ -327,13 +327,13 @@ picked **on the Mag tab**. Data in `data/arts.ts`, behaviour in `combat/arts.ts`
 - **Techniques** (Forces): Lv 1 **Foie** (homing fireball, burns), **Zonde** (jumps to two more, may stun), **Barta**
   (ice spike, chills); Lv 12 **Gibarta** (an ice wave ahead), 15 **Gifoie** (a fire ring around you), 20 **Gizonde**
   (three bolts in a fan); Lv 28 **Rabarta** (a 3 s blizzard that freezes at the end), 36 **Rafoie** (a meteor and
-  burning ground), 46 **Razonde** (a 3 s storm, eight strikes). Base TP 10 / 14 / 18 by tier, Resta 15, Shifta and
-  Deband 18, through the MST formula (`techTpCost`). The fire / lightning / ice damage affixes (foie / zonde / barta
+  burning ground), 46 **Razonde** (a 3 s storm, eight strikes). Base TP 10 / 14 / 18 by tier, Resta 15, through the MST
+  formula (`techTpCost`). The fire / lightning / ice damage affixes (foie / zonde / barta
   % until now) cover each element's three.
 - **Modifiers**: every Art has two rows of three, one pick per row, opening at the Art's level +10 and +25 (90 at
   most). They change numbers (Long Spin: two more sweeps for +40% TP; Quick Guard: 6 s cooldown), add effects
-  (Burning Blade, Vortex, Marking) or change the shape (Twin Crescent, Boomerang). Since 2026-10-15 the rows open at
-  **ranks 5 and 10** of the Art in the Skills trees and are picked there (see "Skills"); the Arts tab only shows them.
+  (Burning Blade, Vortex, Marking) or change the shape (Twin Crescent, Boomerang). Since 2026-10-15 every modifier is a
+  node forking below its Art in the Skills trees (see "Skills"); the Arts tab only shows the ones taken.
 - **Technique visuals** (2026-10-15, `world/spellFx.ts`; the user found Rabarta "like a stroboscope" and asked for
   every spell to match its fix): soft and steady, never a full-area flash on a rhythm. Particles (embers, sparks,
   snow, motes), ground marks that fade (scorch, frost, a soft glow), thin jagged lightning and ice crystals growing
@@ -387,7 +387,7 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
   Saber + Mate), **Ranger** (ranged: handgun, rifle, shot; Handgun + Mate), **Force** (caster: rod and wand swings and
   **every technique**; Wand + Fluid). (Twelve kinds until 2026-10-14: see "Eight kinds".) Each grows like the old
   class did (Hunter HP 14 / ATP 4 / DFP 3 a level, Ranger LCK (was ATA) 1.8 / ATP 3.4, Force MST 4 / TP 6...), so gear
-  requirements and the tuning below still hold. Hunters and Rangers know Resta, Shifta and Deband; the nine attack
+  requirements and the tuning below still hold. Hunters and Rangers know Resta (Shifta and Deband went on 2026-10-15); the nine attack
   techniques are the Force's (since 2026-10-14; everyone knew all six before). The class names
   the character; its Mag stat (POW / DEX / MIND) picks the outfit before a frame does and the Mag's first form.
 - **Level cap 100** (`MAX_LEVEL`; was 130). Past it XP stops counting and the chase is gear (no paragon levels).
@@ -429,21 +429,27 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
   free); the user found it a mess ("a spell, then its Row 1 / Row 2 options, then the picked skill below it", empty
   cells, too many columns) and asked for **Diablo 2**: "put points into Foie to unlock Gifoie, and into Gifoie to unlock
   Rafoie". Picked from an interactive mockup: ranks (Arts 1-10, passives 1-5), modifiers at rank milestones, four trees.
-  - **Four trees per class, one on screen at a time**, each a small grid (4 columns, up to 7 rows) of Arts and passives
-    with lines to what they hang from. Hunter Sword · Saber · Dagger · Combat (Leap / War Cry / Iron Will, the supports,
-    general passives); Ranger Handgun · Rifle · Shot · Gunnery; Force Fire · Lightning · Ice · Support. Chains: Foie →
-    Gifoie → Rafoie, Cyclone → Ground Breaker → Sunder, Resta → Shifta → Deband (Force: Resta → Shifta / Deband), and
-    so on; passives hang from the Art or passive they fit (Kindle from Overcast from Foie).
+  Later the same day the user asked for the modifiers to be part of the tree too (they sat in the Art's details), for
+  Force's Support tree to go (its nodes spread over the other trees), and for Shifta and Deband to go from the game.
+  - **Trees, one on screen at a time** (`skills.ts` lays them out): lanes of Arts on the left, each Art over its
+    **modifier fork** (two rows of three), the next Art of the lane below that; passives in two wider columns on the
+    right, below what they hang from. Hunter Sword · Saber · Dagger · Combat (Leap → War Cry → Iron Will, and a Resta
+    lane, with the general passives); Ranger Handgun · Rifle · Shot · Gunnery (Freeze Trap → Backflip Shot → Grenade,
+    and Resta); Force Fire · Lightning · Ice (Resta's lane sits in Ice, with Barrier / Purify / Composure; Calm Mind,
+    Siphon Staff and Clarity in Lightning; Efficiency in Fire). Chains: Foie → Gifoie → Rafoie, Cyclone → Ground
+    Breaker → Sunder, and so on; passives hang from the Art or passive they fit (Kindle from Overcast from Foie).
   - **Points**: one a level (100 at Lv 100). A node needs its level and a point in the one it hangs from.
   - **Arts cost points now**: rank 1 learns one (a new character's Lv 1 point goes into its start weapon's first Art,
     or Foie). Each rank after adds power (rank 1 ×0.85, +6% of that a rank: rank 4 ≈ the power before ranks, rank 10
-    ×1.31) and takes 2% off its TP. Power is damage, and Resta's healing; Shifta / Deband strength doesn't scale yet.
+    ×1.31) and takes 2% off its TP. Power is damage, and Resta's healing.
     Unlearned Arts can't go on a bar (the Arts tab lists them as "Not learned yet"); learning one drops it into a
     changed bar's first empty slot, and an Art taken back to rank 0 leaves every bar. Level-ups no longer fill bars;
     they toast the points and the Arts that can now be learned.
-  - **Modifiers** open at **ranks 5 and 10** of their Art: pick one of three in the Art's details (free to swap); a rank
-    taken back below the milestone clears that pick. The Skills badge counts unspent points plus open rows with
-    nothing picked (those nodes pulse).
+  - **Modifiers** are nodes forking below their Art, a point each, **one per row**: the first row needs the Art at
+    **rank 5**, the second at **rank 10** and a first-row pick. Taking one darkens the other two of its row (the branch
+    not followed), and the second row's line comes from the first-row pick. Nothing comes back while something rests on
+    it: the Art can't drop below a milestone with a pick on it, nor a first-row pick go with a second-row one taken. The
+    Skills badge counts unspent points while something can take one.
   - **Passives** take up to five ranks, the fifth being the old full effect: a multiplier moves from 1 toward its
     value (`rankMult`), an amount from 0 (`rankAmt`); times, ranges and counts don't scale. Twenty on/off ones (Fleet,
     Blink, Lunge, Whirl, Pierce...) take one rank. Descriptions show the numbers at the current and next rank.
@@ -460,8 +466,8 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
   per normal enemy's bar, elites double, a boss's whole bar 0.6; halved 2026-10-11 at the user's call, was 0.08 /
   1.2); it **fires by itself** when full (2026-10-11; it was key 2), in a fight (a sealed room or an engaged boss)
   and when you can act. **Mylla & Youlla**: 5× your basic finisher (or photon bolt) to every enemy within 10 m; it
-  waits for an enemy in reach. **Leilla**: heal 30% and take half damage for 4 s. **Farlla**: Shifta + Deband at 35%
-  for 60 s. Numbers in `magCfg` (pb*).
+  waits for an enemy in reach. **Leilla**: heal 30% and take half damage for 4 s. **Farlla**: weapon damage +35% and
+  damage taken −14% for 60 s (it cast Shifta and Deband until those went). Numbers in `magCfg` (pb*).
 - Not done: every passive and Art number is a first draft; most can only be judged by playing (the bot never
   dodges or uses dashes).
 - **Debug panel**: Passives folder (every `passiveCfg` number), Basic attack folder, Mag photon blast sliders,
@@ -781,7 +787,7 @@ Agreed 2026-10-05: everything **synthesized in code with the Web Audio API**, wi
 - `src/game/injectors.ts`: injector stats, mods, charge and doses (unit-tested in `injectors.test.ts`).
 - `src/game/loot.ts`: drop tables, rarity and affix rolls, units, injector rolls, shop stock.
 - `src/game/passives.ts`: passive definitions, their weapon requirements and descriptions (numbers in `config/` `passiveCfg`).
-- `src/game/skills.ts`: the four Skills trees per class (nodes, prerequisites, ranks, modifier milestones, points, save repair and migration; numbers in `skillCfg`).
+- `src/game/skills.ts`: the Skills trees per class (layout, prerequisites, ranks, modifier forks, points, save repair and migration; numbers in `skillCfg`).
 - `src/game/data/arts.ts`: every Art (weapon Arts, class Arts and the techniques as Arts) with its modifiers;
   `src/game/combat/arts.ts` (`ArtRunner`) carries them out, `combat/Combat.ts` runs the basic chain, Art costs,
   cooldowns, debuffs (Mark, Sunder, venom, chill) and ground zones.

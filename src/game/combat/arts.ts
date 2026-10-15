@@ -3,7 +3,7 @@ import { sfx } from '../../audio';
 import { yawTo } from '../collision';
 import { formulas, passiveCfg as T, techScaling } from '../config';
 import { ARTS, type ArtId } from '../data/arts';
-import { buffPct, restaHeal, techniques, type TechId } from '../data/techniques';
+import { restaHeal, techniques, type TechId } from '../data/techniques';
 import { cutMult, playerDamageRaw } from '../formulas';
 import type { TelegraphShape } from '../world/Telegraph';
 import type { Projectile } from '../world/Projectile';
@@ -577,10 +577,6 @@ export class ArtRunner {
       case 'resta':
         this.resta(x);
         break;
-      case 'shifta':
-      case 'deband':
-        this.buff(id, x);
-        break;
     }
     // Ward: the single-target techniques shield you.
     if ((id === 'foie' || id === 'zonde' || id === 'barta') && !x.echo && c.hasPassive('ward')) p.addTimedShield(p.maxHp * c.pAmt('ward', T.wardShield), T.wardTime);
@@ -708,7 +704,7 @@ export class ArtRunner {
     this.k.fx(new GroundMark({ kind: 'circle', x, z, radius: spread + 0.9 }, { color: 0xbfe8ff, opacity: 0.35, look: 'frost', fadeIn: 0.08, hold: 0.8, fadeOut: 0.9 }));
   }
 
-  /** Resta, Shifta, Deband: motes of light rising around her over a soft glow at her feet. */
+  /** Resta: motes of light rising around her over a soft glow at her feet. */
   private supportGlow(light: number, color: number): void {
     const p = this.p;
     this.k.fx(new Burst(p.pos.x, 0.15, p.pos.z, 34, { color: light, to: color, life: [0.7, 1.2], speed: [0.5, 1.4], spread: 'up', size: 0.2, gravity: -1.4, drag: 1.4, jitter: 0.9, brightness: 0.75 }));
@@ -999,31 +995,5 @@ export class ArtRunner {
     this.k.h.float(tmp.copy(p.pos).setY(2.2), crit ? `+${amount}!` : `+${amount}`, crit ? 'heal crit' : 'heal');
     sfx('tech.resta');
     this.k.h.log(`${x.label}: healed <b>${amount}</b>${crit ? ' <span class="l-kill">CRIT</span>' : ''}`);
-  }
-
-  private buff(id: 'shifta' | 'deband', x: ArtCtx): void {
-    const p = this.p;
-    const c = this.c;
-    const crit = this.k.h.rng() * 100 < c.critChance();
-    const secs = x.has('long') ? 120 : techScaling.buffDuration;
-    const apply = (tech: 'shifta' | 'deband', strength: number) => {
-      const stat = techniques[tech].buffStat!;
-      // Shifta: weapon damage +%. Deband: that share of it off damage taken (both kinds).
-      const pct = buffPct(tech, c.stats().mst) * strength * (crit ? formulas.critSupport : 1) * (stat === 'def' ? techScaling.debandShare : 1);
-      p.buffs[stat] = { pct: Math.max(pct, p.buffs[stat].t > 0 ? p.buffs[stat].pct : 0), t: secs };
-      return { stat, pct };
-    };
-    const { stat, pct } = apply(id, x.has('strong') ? 1.3 : 1);
-    if (x.has('both')) apply(id === 'shifta' ? 'deband' : 'shifta', 0.5);
-    for (const t of this.k.targetsIn({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius: 8 })) {
-      if (x.has('zalure')) this.k.strip(t, 10, 10);
-      if (x.has('jellen')) this.k.weaken(t, 0.85, 10);
-    }
-    if (x.has('zalure') || x.has('jellen')) this.k.ring(p.pos.x, p.pos.z, techniques[id].color, 8, 0.5, 0.4);
-    this.supportGlow(id === 'shifta' ? 0xffd0c8 : 0xd0e4ff, techniques[id].color);
-    sfx('tech.buff', { pitch: stat === 'def' ? 0.8 : 1 });
-    this.k.h.float(tmp.copy(p.pos).setY(2.3), `${techniques[id].name.toUpperCase()}${crit ? '!' : ''}`, crit ? 'heal crit' : 'heal');
-    const what = stat === 'def' ? `damage taken −${pct.toFixed(0)}%` : `weapon damage +${pct.toFixed(0)}%`;
-    this.k.h.log(`${x.label}: ${what}${crit ? ' <span class="l-kill">CRIT</span>' : ''}`);
   }
 }

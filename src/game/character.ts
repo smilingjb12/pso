@@ -54,7 +54,7 @@ import { chargeOf, describeInjector, injectorDef, injectorStats } from './inject
 import { GEAR_SLOTS, isGear, isStackable, itemRequirement, itemSlot, stackCap, type GearSlot, type ItemDefOf, type ItemType } from './itemTypes';
 import { magBonuses, magPointsFree, magSpend, newMag, PHOTON_BLASTS, readMag, type MagData, type MagStat, type PhotonBlastId } from './mag';
 import { passiveRanks, PASSIVES, rankAmt, rankMult, weaponFits, type PassiveId } from './passives';
-import { emptySkills, migrateSkills, modRowRank, modsUnpicked, pickMod, pointsSpent, rankDown, rankOf, rankUp, rankUpBlock, readSkills, skillNodes, skillPoints, starterArt, type SkillPicks } from './skills';
+import { emptySkills, migrateSkills, modNodeId, pointsSpent, rankDown, rankOf, rankUp, rankUpBlock, readSkills, skillNodes, skillPoints, starterArt, type SkillPicks } from './skills';
 
 // Persistent character state plus derived-stat helpers. No rendering here.
 
@@ -594,11 +594,10 @@ export class Character {
     return Array.from({ length: ART_SLOTS }, (_, i) => fits[i] ?? null);
   }
 
-  /** What fills a bar by itself, in unlock order (weapon Arts first on a tie), so a slot never moves as Arts unlock.
-   *  Shifta and Deband stay off: buffs are picked on purpose (Menu → Arts). */
+  /** What fills a bar by itself, in unlock order (weapon Arts first on a tie), so a slot never moves as Arts unlock. */
   private autoArts(key: ArtBarKey): ArtId[] {
     const rank = (id: ArtId) => ARTS[id].level * 10 + (isTechArt(id) ? (SUPPORT_ARTS.includes(id) ? 2 : 1) : 0);
-    return ART_IDS.filter((id) => id !== 'shifta' && id !== 'deband' && this.artUsable(id, key)).sort((a, b) => rank(a) - rank(b));
+    return ART_IDS.filter((id) => this.artUsable(id, key)).sort((a, b) => rank(a) - rank(b));
   }
 
   /** The bar `key` as stored, made from the default the first time the player changes it. */
@@ -623,12 +622,9 @@ export class Character {
     return null;
   }
 
-  /** Has this modifier picked, with its row open (ranks 5 and 10 of the Art)? */
+  /** Has this modifier taken in the Skills trees (a node forking below its Art)? */
   artMod(id: ArtId, mod: string): boolean {
-    const picks = this.data.skills.mods[id];
-    if (!picks) return false;
-    const r = this.artRank(id);
-    return ([0, 1] as const).some((row) => picks[row] === mod && r >= modRowRank(row));
+    return rankOf(this.data.skills, modNodeId(id, mod)) > 0;
   }
 
   /** An Art's rank in the Skills trees (0: not learned). */
@@ -713,12 +709,10 @@ export class Character {
     return Math.max(0, this.skillPoints - pointsSpent(this.data.skills));
   }
 
-  /** The Skills tab badge: points left while something can take one, and open modifier rows with nothing picked. */
+  /** The Skills tab badge: points left while something can take one. */
   get skillPointsFree(): number {
-    const s = this.data.skills;
     const left = this.skillPointsLeft;
-    const usable = left > 0 && skillNodes(this.data.cls).some((n) => !rankUpBlock(this.data.cls, this.data.level, s, n));
-    return (usable ? left : 0) + modsUnpicked(this.data.cls, s);
+    return left > 0 && skillNodes(this.data.cls).some((n) => !rankUpBlock(this.data.cls, this.data.level, this.data.skills, n)) ? left : 0;
   }
 
   /** Put a rank into a skill (an Art just learned goes into a free slot of a changed bar). Returns why not, or null. */
@@ -739,11 +733,6 @@ export class Character {
       for (const bar of Object.values(this.data.arts.bars)) bar?.forEach((x, i) => x === id && (bar[i] = null));
     }
     return err;
-  }
-
-  /** Pick an Art's modifier in a row (null clears it). Returns why not, or null. */
-  pickArtMod(id: ArtId, row: 0 | 1, mod: string | null): string | null {
-    return pickMod(this.data.skills, id, row, mod);
   }
 
   /** A passive's rank, whatever the weapon in hand. */
@@ -947,7 +936,7 @@ export class Character {
     return formulas.critDamage + this.gearAffix('critDmg') / 100 + (this.hasUnique('redRing') ? uniqueCfg.redRingCrit : 0);
   }
 
-  /** Strike or Area damage taken, in % less: gear, Mag and class (Deband adds in combat), capped. */
+  /** Strike or Area damage taken, in % less: gear, Mag and class (Farlla adds in combat), capped. */
   damageTaken(kind: 'strike' | 'area', buff = 0): number {
     return Math.min(AFFIX_CAPS.damageTaken, this.stats()[kind] + buff);
   }

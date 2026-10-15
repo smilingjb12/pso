@@ -100,7 +100,7 @@ export function maxAffixTier(ilvl: number): number {
 export const AFFIX_CAPS = {
   /** Run speed from gear and talents together, as a fraction (+20%). */
   walk: 0.2,
-  /** Strike and Area damage taken, each: at most this % less (gear, Mag, class and Deband together). */
+  /** Strike and Area damage taken, each: at most this % less (gear, Mag, class and Farlla together). */
   damageTaken: 75,
   /** Each status resistance, percent. */
   resist: 75,

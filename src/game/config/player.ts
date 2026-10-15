@@ -52,11 +52,9 @@ export const techScaling = {
   damageMult: 1,
   /** TP cost = tp × (tpFloor + (1 − tpFloor) × tech damage / mstRef): more tech damage costs more, but less per point of damage. */
   tpFloor: 0.4,
-  /** Shifta / Deband: power × tech damage / mstRef percent, never above this. */
-  buffCap: 35,
-  /** Deband: this share of its % comes off Strike and Area damage taken (35% Deband = −14%). */
+  /** Farlla (photon blast): this share of its defence buff's % comes off Strike and Area damage taken (35% = −14%). */
   debandShare: 0.4,
-  /** Seconds a Shifta / Deband lasts. */
+  /** Seconds Farlla's attack and defence buffs last. */
   buffDuration: 60,
   /** Stun chance added per point of tech damage (on top of Zonde's own chance). */
   statusPerMst: 0.0003,

@@ -66,7 +66,7 @@ export const comboDamage = [1.0, 1.15, 1.4];
 export const formulas = {
   /**
    * Crits (2026-10-09, when ATA and EVP went; their own stat since 2026-10-14): chance up to critCap %. A crit deals
-   * critDamage x (plus Crit damage affixes) on weapon hits and attack techs; Resta heals and Shifta / Deband boosts
+   * critDamage x (plus Crit damage affixes) on weapon hits and attack techs; Resta heals
    * get critSupport x.
    */
   critCap: 75,

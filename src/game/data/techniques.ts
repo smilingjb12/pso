@@ -2,14 +2,15 @@ import { techScaling } from '../config';
 
 // Techniques (2026-10-14, the Arts redesign): every attack technique is its own Art, PSO's names in three elements
 // and three shapes each, so the name says what it does: the plain one strikes the target, Gi- bursts around (or out
-// from) the caster, Ra- covers an area at the target. Resta, Shifta and Deband are support Arts anyone can slot.
+// from) the caster, Ra- covers an area at the target. Resta is a support Art anyone can slot (Shifta and Deband went on
+// 2026-10-15, the user's call).
 // Tech damage (the `mst` stat) scales them all; TP cost rises with it (the floor keeps damage per TP growing).
 
 export type TechId =
   | 'foie' | 'gifoie' | 'rafoie'
   | 'zonde' | 'gizonde' | 'razonde'
   | 'barta' | 'gibarta' | 'rabarta'
-  | 'resta' | 'shifta' | 'deband';
+  | 'resta';
 
 export type TechElement = 'fire' | 'lightning' | 'ice';
 
@@ -17,9 +18,9 @@ export type TechElement = 'fire' | 'lightning' | 'ice';
  * How a technique lands: a homing fireball (`bolt`), lightning chaining between enemies (`chain`), an ice spike
  * under the target (`spike`), a ring around the caster (`nova`), piercing lines in a fan (`lines`), a wave in a cone
  * (`cone`), a delayed meteor on an area (`meteor`), strikes over an area for a while (`storm`), a blizzard around
- * the caster (`blizzard`), a heal or a buff.
+ * the caster (`blizzard`), or a heal.
  */
-export type TechShape = 'bolt' | 'chain' | 'spike' | 'nova' | 'lines' | 'cone' | 'meteor' | 'storm' | 'blizzard' | 'heal' | 'buff';
+export type TechShape = 'bolt' | 'chain' | 'spike' | 'nova' | 'lines' | 'cone' | 'meteor' | 'storm' | 'blizzard' | 'heal';
 
 export interface TechDef {
   id: TechId;
@@ -29,7 +30,7 @@ export interface TechDef {
   element: TechElement | null;
   /**
    * Strength at tech damage = techScaling.mstRef (100): damage for attack techs (Foie's 330 is 3.3x your tech
-   * damage per enemy hit), HP for Resta, % for buffs. Tech damage alone scales it.
+   * damage per enemy hit), HP for Resta. Tech damage alone scales it.
    */
   power: number;
   /** TP cost at tech damage = techScaling.mstRef (lower pays less, higher more). */
@@ -47,8 +48,6 @@ export interface TechDef {
   statusChance: number;
   /** Character level it is learned at. */
   level: number;
-  /** Shifta raises weapon damage (atp); Deband cuts damage taken (def: techScaling.debandShare of its %). */
-  buffStat?: 'atp' | 'def';
   desc: string;
 }
 
@@ -107,21 +106,11 @@ export const techniques: Record<TechId, TechDef> = {
     castTime: 0.6, recovery: 0.45, range: 0, radius: 0, color: 0x70ff9a, statusChance: 0,
     desc: 'Restores HP.',
   },
-  shifta: {
-    id: 'shifta', name: 'Shifta', shape: 'buff', element: null, power: 6.5, tp: 18, level: 10,
-    castTime: 0.6, recovery: 0.45, range: 0, radius: 0, color: 0xff5050, statusChance: 0,
-    buffStat: 'atp', desc: 'Raises weapon damage for a while.',
-  },
-  deband: {
-    id: 'deband', name: 'Deband', shape: 'buff', element: null, power: 6.5, tp: 18, level: 10,
-    castTime: 0.6, recovery: 0.45, range: 0, radius: 0, color: 0x5090ff, statusChance: 0,
-    buffStat: 'def', desc: 'Cuts damage taken for a while.',
-  },
 };
 
 export const TECH_IDS = Object.keys(techniques) as TechId[];
 
-/** Attack techniques deal damage; Resta heals and Shifta / Deband buff. */
+/** Attack techniques deal damage; Resta heals. */
 export function isAttackTech(id: TechId): boolean {
   return techniques[id].element !== null;
 }
@@ -154,9 +143,4 @@ export function techAttackPower(id: TechId, mst: number): number {
 /** HP one Resta restores at this tech damage (before crits). */
 export function restaHeal(mst: number): number {
   return Math.round(techniques.resta.power * mstRatio(mst));
-}
-
-/** Shifta / Deband strength in % at this tech damage (before crits), capped. Deband takes debandShare of it off damage taken. */
-export function buffPct(id: TechId, mst: number): number {
-  return Math.min(techScaling.buffCap, techniques[id].power * mstRatio(mst));
 }

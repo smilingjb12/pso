@@ -39,7 +39,7 @@ export const PHOTON_BLASTS: Record<PhotonBlastId, { name: string; desc: () => st
   },
   farlla: {
     name: 'Farlla',
-    desc: () => `Shifta and Deband at full strength (weapon damage +${magCfg.pbFarllaPct}%, damage taken −${Math.round(magCfg.pbFarllaPct * techScaling.debandShare)}%), free.`,
+    desc: () => `Weapon damage +${magCfg.pbFarllaPct}% and damage taken −${Math.round(magCfg.pbFarllaPct * techScaling.debandShare)}% for ${techScaling.buffDuration} s.`,
   },
 };
 

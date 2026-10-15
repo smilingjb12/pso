@@ -491,7 +491,7 @@ export class Combat {
     return this.c.pMult('adrenaline', T.adrenalineMult);
   }
 
-  /** One weapon hit's weapon damage: the stat plus the weapon's roll, times Weapon damage % and Shifta. */
+  /** One weapon hit's weapon damage: the stat plus the weapon's roll, times Weapon damage % and Farlla's attack buff. */
   private playerWeaponDamage(): number {
     const [lo, hi] = this.c.weaponAtp();
     const base = this.c.stats().atp + randRange(lo, hi, this.h.rng);
@@ -1136,7 +1136,7 @@ export class Combat {
 
   // ---------------------------------------------------------- incoming
 
-  /** Strike or Area damage taken right now, in % less: gear, Mag, class and Deband, capped. */
+  /** Strike or Area damage taken right now, in % less: gear, Mag, class and Farlla's defence buff, capped. */
   private damageTaken(kind: 'strike' | 'area'): number {
     return this.c.damageTaken(kind, this.p.buffs.def.t > 0 ? this.p.buffs.def.pct : 0);
   }

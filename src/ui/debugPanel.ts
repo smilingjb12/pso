@@ -183,7 +183,6 @@ export function createDebugPanel(actions: DebugActions): GUI {
   ts.add(techScaling, 'damageMult', 0.1, 3, 0.01).name('attack tech damage x');
   ts.add(techScaling, 'debandShare', 0, 1, 0.01).name('Deband share off damage taken');
   ts.add(techScaling, 'tpFloor', 0, 1, 0.01).name('TP cost floor');
-  ts.add(techScaling, 'buffCap', 5, 100, 1).name('buff cap %');
   ts.add(techScaling, 'buffDuration', 5, 300, 5).name('buff duration (s)');
   ts.add(techScaling, 'statusPerMst', 0, 0.002, 0.0001).name('status chance / tech damage');
   ts.add(techScaling, 'burnShare', 0, 1.5, 0.05).name('burn: share of hit');

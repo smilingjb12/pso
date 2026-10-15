@@ -1946,16 +1946,6 @@ export class Game implements GameApi {
     return null;
   }
 
-  /** Pick an Art's modifier in a row (null clears it); out of a fight. */
-  skillMod(id: ArtId, row: 0 | 1, mod: string | null): string | null {
-    const busy = this.canRebuild;
-    if (busy) return busy;
-    const err = this.char.pickArtMod(id, row, mod);
-    if (err) return err;
-    this.skillsChanged();
-    return null;
-  }
-
   private skillsChanged(): void {
     this.player.refreshMag();
     this.player.dashCharges = Math.min(this.player.dashCharges, this.player.maxDashCharges);
@@ -2215,8 +2205,8 @@ export class Game implements GameApi {
     }
 
     const buffs: string[] = [];
-    if (p.buffs.atp.t > 0) buffs.push(`▲Shifta ${Math.ceil(p.buffs.atp.t)}s`);
-    if (p.buffs.def.t > 0) buffs.push(`▲Deband ${Math.ceil(p.buffs.def.t)}s`);
+    if (p.buffs.atp.t > 0) buffs.push(`▲ATK ${Math.ceil(p.buffs.atp.t)}s`);
+    if (p.buffs.def.t > 0) buffs.push(`▲DEF ${Math.ceil(p.buffs.def.t)}s`);
     const statuses: { label: string; cls: string }[] = [];
     if (p.corruption > 0) statuses.push({ label: `CORRUPT ×${p.corruption} · ${p.inLight ? 'LIGHT' : p.corruptTimer > 0 ? `${Math.ceil(p.corruptTimer)}s` : 'FADING'}`, cls: 'corrupt' });
     if (p.burnStacks > 0) statuses.push({ label: `BURN ×${p.burnStacks}${p.moving ? '' : ' · MOVE'}`, cls: 'burn' });

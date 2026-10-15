@@ -2054,7 +2054,7 @@ table.controls td:nth-child(odd) {
 }
 .sk-wrap {
   display: grid;
-  grid-template-columns: 1fr 300px;
+  grid-template-columns: 1fr 260px;
   gap: 10px;
   flex: 1;
   min-height: 0;
@@ -2113,8 +2113,28 @@ table.controls td:nth-child(odd) {
 .sk-node.sk-art {
   border-radius: 6px;
 }
-.sk-node.sk-pas {
+.sk-node.sk-passive {
   border-radius: 20px;
+}
+/* Modifiers: small gold tiles forking below their Art; the ones not followed in a taken row go dark. */
+.sk-node.sk-mod {
+  --c: #ffd27a;
+  justify-content: center;
+  padding: 2px 4px;
+  border-radius: 4px;
+  text-align: center;
+}
+.sk-node.sk-mod {
+  overflow: hidden;
+}
+.sk-node.sk-mod b {
+  flex: none;
+  max-width: 100%;
+  font-size: 10px;
+  line-height: 1.1;
+}
+.sk-node.shut {
+  opacity: 0.25;
 }
 .sk-node.role-offence { --c: #ff8a70; }
 .sk-node.role-defence { --c: #7ab8ff; }
@@ -2122,6 +2142,8 @@ table.controls td:nth-child(odd) {
 .sk-node b {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font: 700 11.5px/1.2 var(--font-head);
   color: var(--c);
 }
@@ -2146,9 +2168,6 @@ table.controls td:nth-child(odd) {
 }
 .sk-node.idle .sk-rank {
   color: #ffb070;
-}
-.sk-node.unpicked {
-  animation: tab-pulse 1.4s ease-in-out infinite;
 }
 .sk-node.locked {
   opacity: 0.4;

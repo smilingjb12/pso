@@ -68,7 +68,7 @@ export const magCfg = {
   pbLeillaMult: 0.5,
   pbLeillaTime: 4,
   pbLeillaHeal: 0.3,
-  /** Farlla: Shifta and Deband at this strength (%). */
+  /** Farlla: weapon damage +this % (and debandShare of it off damage taken). */
   pbFarllaPct: 35,
 };
 

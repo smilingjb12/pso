@@ -343,7 +343,7 @@ const DEFS = {
     ],
   },
   'tech.buff': {
-    group: 'Techniques', label: 'Shifta / Deband (buff)', gap: 0.1,
+    group: 'Techniques', label: 'Buff', gap: 0.1,
     variants: [
       v_('Power up', 'Three rising tones', (v) => {
         [392, 523, 784].forEach((f, i) => tone(v, { type: 'square', f, d: 0.12, gain: 0.06, at: i * 0.07, filter: { type: 'lowpass', f: 2500 } }));
