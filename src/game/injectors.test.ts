@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Character, makeItem } from './character';
-import { injectorCfg, magCfg } from './config';
+import { injectorCfg, passiveCfg } from './config';
 import { getDef, itemDefs } from './data/items';
 import { addCharge, chargeOf, doseAmount, fillInjector, injectorStats, spendDose } from './injectors';
 import { rollDeRolLeDrops, rollDragonDrops, rollDrop, rollHardBossDrops, rollWardenDrops, shopStock } from './loot';
@@ -8,11 +8,11 @@ import { mulberry32 } from './world/Level';
 
 describe('Injectors', () => {
   it("every kit starts with its own kind of injector equipped (Mate for fighters, Fluid for the Mystic), and no mates or fluids", () => {
-    for (const kit of ['vanguard', 'ranger', 'mystic'] as const) {
+    for (const kit of ['hunter', 'ranger', 'force'] as const) {
       const ch = Character.create('T', kit);
-      expect(ch.injector()?.id).toBe(kit === 'mystic' ? 'fluid_1' : 'mate_1');
+      expect(ch.injector()?.id).toBe(kit === 'force' ? 'fluid_1' : 'mate_1');
       expect(ch.data.inventory.filter((i) => getDef(i.id).type === 'injector')).toHaveLength(1);
-      expect(ch.data.inventory.some((i) => getDef(i.id).type === 'consumable' && i.id !== 'telepipe')).toBe(false);
+      expect(ch.data.inventory.some((i) => getDef(i.id).type === 'consumable')).toBe(false);
     }
   });
 
@@ -61,33 +61,33 @@ describe('Injectors', () => {
     expect(doseAmount(em, 100, 90)).toBe(Math.round(100 * em.potency));
   });
 
-  it('Bulwark boosts Mate doses and Efficiency boosts Fluid doses', () => {
-    const ch = Character.create('T', 'vanguard');
+  it('Bulwark and Field Medic boost Mate doses, Efficiency Fluid doses, and potency affixes both', () => {
+    const ch = Character.create('T', 'ranger');
+    ch.data.level = 46;
     const mate = ch.injector()!;
     const before = injectorStats(mate, ch).potency;
-    ch.mag.cells = ['-1,0', '-2,0', '-3,0']; // DEF arm up to Bulwark
-    expect(injectorStats(mate, ch).potency).toBeCloseTo(before * (1 + magCfg.injectorBoost));
-    expect(injectorStats(makeItem('fluid_1'), ch).potency).toBeCloseTo(0.3); // Fluid: needs Efficiency instead
+    ch.data.skills.ranks.bulwark = 5;
+    expect(injectorStats(mate, ch).potency).toBeCloseTo(before * (1 + passiveCfg.injectorBoost));
+    ch.data.skills.ranks.fieldMedic = 5;
+    expect(injectorStats(mate, ch).potency).toBeCloseTo(before * (1 + passiveCfg.injectorBoost + passiveCfg.fieldMedicBoost));
+    expect(injectorStats(makeItem('fluid_1'), ch).potency).toBeCloseTo(0.35); // Fluid: needs Efficiency instead
+    const frame = ch.equippedItem('frame')!;
+    frame.affixes = [{ id: 'injPotency', v: 10 }];
+    expect(injectorStats(makeItem('fluid_1'), ch).potency).toBeCloseTo(0.385);
   });
 
-  it('gates high tiers by DFP (Mate) and MST (Fluid)', () => {
-    const force = Character.create('T', 'mystic');
-    const hunter = Character.create('T', 'vanguard');
-    for (const ch of [force, hunter]) ch.addXp(30000); // around Lv 17
-    // Attribute points decide it: all MIND for the caster, two POW to one DEF for the fighter.
-    force.spendAttribute('mind', force.attributePoints);
-    hunter.spendAttribute('def', Math.floor(hunter.attributePoints / 3));
-    hunter.spendAttribute('pow', hunter.attributePoints);
-    expect(force.canEquip(makeItem('fluid_4')).ok).toBe(true);
-    expect(force.canEquip(makeItem('mate_3')).ok).toBe(false);
-    expect(hunter.canEquip(makeItem('mate_4')).ok).toBe(true);
-    expect(hunter.canEquip(makeItem('fluid_3')).ok).toBe(false);
+  it('gates high tiers by level, the same for Mate and Fluid', () => {
+    const ch = Character.create('T', 'force');
     // Tiers 1-2 are for everyone.
-    expect(force.canEquip(makeItem('mate_2')).ok).toBe(true);
+    expect(ch.canEquip(makeItem('mate_2')).ok).toBe(true);
+    expect(ch.canEquip(makeItem('fluid_3')).ok).toBe(false);
+    ch.data.level = 15;
+    for (const id of ['mate_3', 'mate_4', 'fluid_3', 'fluid_4']) expect(ch.canEquip(makeItem(id)).ok).toBe(true);
+    expect(ch.canEquip(makeItem('mate_5')).reason).toBe('Requires Lv 24 (you are Lv 15)');
   });
 
   it('has one slot: equipping another injector (either kind) replaces the one worn', () => {
-    const ch = Character.create('T', 'vanguard');
+    const ch = Character.create('T', 'hunter');
     const first = ch.injector()!;
     const fluid = makeItem('fluid_1');
     ch.addItem(fluid);
@@ -102,12 +102,12 @@ describe('Injectors', () => {
     for (const id of removed) expect(itemDefs[id]).toBeUndefined();
     let injectors = 0;
     for (let i = 0; i < 3000; i++) {
-      const d = rollDrop(3, 0, rng, 'mst');
+      const d = rollDrop(3, rng, 'caster');
       if (d.kind === 'item' && getDef(d.item.id).type === 'injector') injectors++;
     }
     expect(injectors).toBeGreaterThan(50);
-    const stock = shopStock('item', 15, 'mst', rng).map((i) => i.id);
-    expect(stock).toContain('telepipe');
+    const stock = shopStock('item', 15, 'caster', rng).map((i) => i.id);
+    expect(stock).not.toContain('telepipe');
     expect(stock).toContain('mate_1');
     expect(stock).toContain('fluid_3');
     expect(stock).not.toContain('trimate');

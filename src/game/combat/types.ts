@@ -18,8 +18,10 @@ export interface Hittable {
   readonly name: string;
   hp: number;
   readonly maxHp: number;
-  readonly evp: number;
-  readonly dfp: number;
+  /** % of weapon damage its armour takes off. */
+  readonly armor: number;
+  /** % of technique damage it shrugs off (none if missing; below 0 it takes more). */
+  readonly techResist?: number;
   readonly race: Race | null;
   /** Height of the point damage numbers / reticle attach to. */
   readonly aimHeight: number;
@@ -27,12 +29,22 @@ export interface Hittable {
   readonly invulnerable: boolean;
   /** Apply damage, adding `stagger` points toward a flinch. Returns true if this killed it. */
   damage(amount: number, fromX: number, fromZ: number, knockback: number, stagger: number): boolean;
+  /** Skip the white hit flash of the damage just taken (a blizzard's pulses would strobe it). */
+  quietHit?(): void;
   applyStatus(effect: StatusEffect, power: number, duration: number): void;
   /** Statuses currently running (target frame icons). */
   statusTimers?(): StatusTimer[];
   /**
    * Damage taken multiplier right now (weak point windows, shields, a guard). `fromX, fromZ` is where the hit
-   * comes from (a lone Shielding elite and a Delsaber guard their front); `heavy`: a heavy attack or cast.
+   * comes from (a Delsaber guards its front); `heavy`: a heavy attack or cast.
    */
   damageMult(fromX?: number, fromZ?: number, heavy?: boolean): number;
+  /** Flinching or frozen right now (Executioner, Daunt, Shatter look at it). */
+  readonly staggered?: boolean;
+  /** End a freeze now (a Frozen Shooter shatter). */
+  thaw?(): void;
+  /** Slow its movement and attacks to `mult` speed for `seconds` (a Barta Field). */
+  chill?(mult: number, seconds: number): void;
+  /** Push it away from a point without damage (Breathing Room, Point Blank). */
+  shove?(fromX: number, fromZ: number, force: number): void;
 }

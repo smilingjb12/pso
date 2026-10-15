@@ -2,7 +2,7 @@ import GUI from 'lil-gui';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Combo } from './game/combo';
-import { attackTypes, combo as comboCfg, type AttackType } from './game/config';
+import { combo as comboCfg } from './game/config';
 import { weaponKinds, type WeaponKind } from './game/data/items';
 import { Heroine, PLAYER_LOOK } from './game/models/heroine';
 import { humanPoses } from './game/models/humanoid';
@@ -27,7 +27,7 @@ scene.background = new THREE.Color(0x1c2638);
 scene.fog = new THREE.Fog(0x1c2638, 9, 22);
 scene.add(new THREE.HemisphereLight(0xcfe4ff, 0x3a3a30, 1.2));
 
-const MELEE: WeaponKind[] = ['saber', 'sword', 'dagger', 'partisan', 'cane', 'rod', 'wand'];
+const MELEE: WeaponKind[] = ['saber', 'sword', 'dagger', 'rod', 'wand'];
 const SETS: Record<string, string[]> = {
   'M3 diagonals': ['M3', 'D1', 'D2', 'X1', 'X2'],
   'All styles': ['M0', 'M1', 'M2', 'M3', 'M4'],
@@ -35,7 +35,6 @@ const SETS: Record<string, string[]> = {
 const params = {
   set: 'M3 diagonals',
   weapon: 'sword' as WeaponKind,
-  attack: 'light' as AttackType,
   slowMotion: 1,
   view: 'three-quarter',
   playing: true,
@@ -108,26 +107,25 @@ function labels(): void {
   cells.forEach((c, i) => {
     c.key = SETS[params.set][i];
     const s = SWING_STYLES[c.key];
-    const thrust = params.weapon === 'partisan' && !s.oneHanded;
-    const desc = thrust ? 'Partisans thrust instead of slashing: same lunge in every style, left hand forward on the shaft.' : s.desc;
+    const desc = s.desc;
     const inGame = s === PLAYER_SWING ? ' <span style="color:#7fe0a0;font-size:12px">· in game</span>' : '';
     c.label.innerHTML = `<b>${c.key}</b><span>${s.name}</span>${inGame}<div>${desc}</div>`;
   });
 }
 
 // One combo drives every cell, pressed like a player hitting each perfect window.
-const combo = new Combo(comboCfg, attackTypes, () => weaponKinds[params.weapon].timing);
+const combo = new Combo(comboCfg, () => weaponKinds[params.weapon].timing);
 let idleT = 0;
 let time = 0;
 
 function driveCombo(dt: number): void {
   if (combo.phase === 'swing') {
-    if (!combo.isFinisher && combo.t >= combo.times.windowOpenAt + 0.02) combo.press(params.attack);
+    if (!combo.isFinisher && combo.t >= combo.times.windowOpenAt + 0.02) combo.press('basic');
   } else if (combo.phase === 'idle') {
     idleT += dt;
     if (idleT > 0.9) {
       idleT = 0;
-      combo.press(params.attack);
+      combo.press('basic');
     }
   }
   combo.update(dt);
@@ -147,9 +145,6 @@ function poseCell(c: Cell, swinging: boolean, hitIndex: number, k: number, dt: n
   let want: HoldRequest | null = null;
   if (!swinging) {
     m.rig.apply(humanPoses.idle(time, 'melee'), dt, snap ? Infinity : 8);
-  } else if (params.weapon === 'partisan') {
-    m.rig.apply(humanPoses.thrust(hitIndex, k, SLASH_IMPACT), dt, snap ? Infinity : 30);
-    if (!style.oneHanded) want = {};
   } else {
     const f = swingFrame(style, hitIndex, k, SLASH_IMPACT, c.hilt);
     m.rig.apply(f.pose, dt, snap ? Infinity : 30);
@@ -263,7 +258,6 @@ gui.add(params, 'weapon', MELEE).onChange(() => {
   buildModels();
   labels();
 });
-gui.add(params, 'attack', ['light', 'heavy']).name('attack type');
 gui.add(params, 'slowMotion', 0.05, 1, 0.05).name('time scale');
 gui.add(params, 'view', ['three-quarter', 'front', 'side', 'behind (game camera)', 'above']).name('camera preset').onChange(placeCamera);
 gui.add({ reset: placeCamera }, 'reset').name('reset camera');

@@ -90,7 +90,7 @@ const growl = (v: V, f: number, d: number, gain: number, rough = 30) => {
 const DEFS = {
   // ================================================================ Combat
   'swing.blade': {
-    group: 'Combat', label: 'Swing: blade (saber, sword, dagger, partisan)', gap: 0.05,
+    group: 'Combat', label: 'Swing: blade (saber, sword, dagger)', gap: 0.05,
     variants: [
       v_('Swish', 'Clean air swish', (v) => swoosh(v, 600, 2600, 0.2, 0.35)),
       v_('Photon hum', 'Swish plus a rising photon-blade hum, like PSO sabers', (v) => {
@@ -104,7 +104,7 @@ const DEFS = {
     ],
   },
   'swing.blunt': {
-    group: 'Combat', label: 'Swing: staff (cane, rod, wand)', gap: 0.05,
+    group: 'Combat', label: 'Swing: staff (rod, wand)', gap: 0.05,
     variants: [
       v_('Whoosh', 'Low, heavy whoosh', (v) => swoosh(v, 300, 1100, 0.26, 0.4)),
       v_('Whir', 'Whoosh with a staff whir', (v) => {
@@ -241,21 +241,6 @@ const DEFS = {
       }),
     ],
   },
-  'shot.mechgun': {
-    group: 'Combat', label: 'Shot: mechgun (3-round burst)', gap: 0.05,
-    variants: [
-      v_('Pops', 'Three tight pops', (v) => {
-        for (let i = 0; i < 3; i++) {
-          crack(v, 0.035, 0.28, 2400, i * 0.06);
-          tone(v, { type: 'square', f: 700, f1: 180, d: 0.05, gain: 0.07, at: i * 0.06, filter: { type: 'lowpass', f: 2500 } });
-          thump(v, 140, 0.06, 0.2, i * 0.06);
-        }
-      }),
-      v_('Buzz burst', 'Buzzy sci-fi burst', (v) => {
-        for (let i = 0; i < 3; i++) fm(v, { f: 1100, f1: 400, ratio: 0.5, index: 4, d: 0.06, gain: 0.12, at: i * 0.06 });
-      }),
-    ],
-  },
   'shot.shot': {
     group: 'Combat', label: 'Shot: shot (5-pellet spread)', gap: 0.08,
     variants: [
@@ -267,16 +252,6 @@ const DEFS = {
         for (let i = 0; i < 5; i++) fm(v, { f: 1300 + i * 140, f1: 300 + i * 30, ratio: 0.5, index: 3, d: 0.14, gain: 0.06, at: i * 0.008 });
         thump(v, 120, 0.12, 0.3);
       }),
-    ],
-  },
-  'shot.slicer': {
-    group: 'Combat', label: 'Shot: slicer (thrown disc)', gap: 0.08,
-    variants: [
-      v_('Whir', 'Spinning disc whir', (v) => {
-        tone(v, { type: 'sawtooth', f: 320, f1: 520, a: 0.04, d: 0.42, gain: 0.07, vib: [32, 300], filter: { type: 'lowpass', f: 1800 } });
-        swoosh(v, 500, 1800, 0.3, 0.2);
-      }),
-      v_('FM whirr', 'Choppy metallic whirr', (v) => fm(v, { f: 600, f1: 900, ratio: 0.05, index: 18, a: 0.03, d: 0.45, gain: 0.1 })),
     ],
   },
   'box.break': {
@@ -1778,7 +1753,7 @@ const DEFS = {
     ],
   },
   'world.teleport': {
-    group: 'World', label: 'Teleport / Telepipe', gap: 0.5,
+    group: 'World', label: 'Teleport', gap: 0.5,
     variants: [
       v_('Warp', 'Rising warp with shimmer', (v) => {
         fm(v, { f: 200, f1: 1800, ratio: 0.5, index: 3, a: 0.6, d: 0.4, gain: 0.12, wet: 0.6 });

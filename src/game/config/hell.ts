@@ -2,24 +2,28 @@ import type { HardBossScale, HardScale } from './hard';
 
 /**
  * Hell (see DESIGN.md "Hell"): the third difficulty, after Nightmare. Same maps and waves; enemies scale per
- * expedition the Nightmare way (HP / XP / Meseta multipliers on the Normal numbers, flat ATP / DFP / ATA / EVP
- * additions), carrying on from the Nightmare Ruins about one band per expedition (Forest 82-92, Caves 92-102,
- * Mines 102-112, Ruins 112-122), with HP growing a little less steeply than Nightmare's. Tempo is Nightmare's
+ * expedition the Nightmare way (HP / XP / Meseta multipliers on the Normal numbers, flat ATP and armour %
+ * additions, a technique resistance), carrying on from the Nightmare Ruins. Bands: Forest 82-87, Caves 87-91, Mines
+ * 91-96, Ruins 96-100 (squeezed when the level cap came down to 100; they were 82-122). XP is set so a level takes
+ * about twice the kills (48): Hell is where levelling hands over to gear. ATP, armour and technique resistance were
+ * refit on 2026-10-14 when DFP and MDF went (DESIGN.md "Stats: named by what they do"). Tempo is Nightmare's
  * (`hard.recoveryMult` and the rest). Hell is meant to be harder through Corruption and affixes.
  */
 export const hell = {
-  forest: { hp: 15.2, xp: 56, meseta: 34, atp: 569, dfp: 170, ata: 223, evp: 131, dropTier: 12, rares: [], elite: 0.4 } as HardScale,
-  caves: { hp: 7.7, xp: 21, meseta: 13, atp: 577, dfp: 171, ata: 226, evp: 132, dropTier: 13, rares: [], elite: 0.48 } as HardScale,
-  mines: { hp: 5.2, xp: 9.6, meseta: 6, atp: 551, dfp: 166, ata: 221, evp: 128, dropTier: 14, rares: [], elite: 0.56 } as HardScale,
-  ruins: { hp: 4.3, xp: 5.7, meseta: 3.6, atp: 545, dfp: 165, ata: 220, evp: 130, dropTier: 15, rares: [], elite: 0.65 } as HardScale,
+  forest: { hp: 15.66, xp: 27, meseta: 34, atp: 249, armor: 4, techResist: 21, dropTier: 12, elite: 0.4 } as HardScale,
+  caves: { hp: 7.34, xp: 9.2, meseta: 13, atp: 223, armor: -2, techResist: 20, dropTier: 13, elite: 0.48 } as HardScale,
+  mines: { hp: 4.59, xp: 3.9, meseta: 6, atp: 189, armor: -2, techResist: 18, dropTier: 14, elite: 0.56 } as HardScale,
+  ruins: { hp: 3.56, xp: 2.2, meseta: 3.6, atp: 152, armor: -4, techResist: 16, dropTier: 15, elite: 0.65 } as HardScale,
   bosses: {
-    dragon: { hp: 23.6, atp: 530, dfp: 120, ata: 140, evp: 55, flat: 5.4, xp: 8500, hell: true } as HardBossScale,
-    derolle: { hp: 13, atp: 540, dfp: 125, ata: 145, evp: 55, flat: 3.9, xp: 13800, hell: true } as HardBossScale,
-    warden: { hp: 4, atp: 540, dfp: 130, ata: 150, evp: 55, flat: 2.95, xp: 17600, hell: true } as HardBossScale,
-    falz: { hp: 3.6, atp: 520, dfp: 135, ata: 155, evp: 55, flat: 2.7, xp: 22400, hell: true } as HardBossScale,
+    dragon: { hp: 48.82, atp: 191, armor: -3, techResist: 20, flat: 4.02, xp: 4070, hell: true } as HardBossScale,
+    derolle: { hp: 24.62, atp: 162, armor: -4, techResist: 18, flat: 3.11, xp: 6070, hell: true } as HardBossScale,
+    warden: { hp: 7.06, atp: 132, armor: -6, techResist: 16, flat: 2.61, xp: 7180, hell: true } as HardBossScale,
+    falz: { hp: 5.96, atp: 58, armor: -5, techResist: 14, flat: 2.62, xp: 8580, hell: true } as HardBossScale,
   },
-  /** Chance that any landed enemy or boss hit corrupts (violet attacks always do). */
-  corruptChance: 0.3,
+  /** Chance that any landed enemy or boss hit corrupts: every one does (2026-10-08, the user's call; was 0.3). */
+  corruptChance: 1,
+  /** Affixes per rank: every Hell enemy has at least one (2026-10-08, the user's call), elites and champions one more each. */
+  affixCount: { regular: 1, elite: 2, champion: 3 },
   /** Every room has a champion; rooms with at least this many spawns in the Hell Ruins get a second. */
   bigRoomSpawns: 9,
   /** At most this many affix area attacks (Volatile vents, Molten globs, Stormcaller circles) warning at once. */

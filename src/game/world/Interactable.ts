@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { isCounter, type AreaId, type FeatureKind } from '../data/areas';
 import { Heroine, type CharacterModel } from '../models/heroine';
 import { Humanoid, humanPoses, STYLES } from '../models/humanoid';
+import { RiftGateModel } from '../models/riftGate';
+import { SHOP_COLORS } from './CityScenery';
 import { glowDecal } from './glow';
 
 // World objects the player can use with the interact key: NPC counters,
@@ -65,6 +67,30 @@ function beamMaterial(color: number, opacity: number, map?: THREE.Texture): THRE
   });
 }
 
+/** A shop counter, front toward +Z: white body, a coloured front panel with a light strip, a dark top and a till. */
+function counterMesh(color: number): THREE.Group {
+  const g = new THREE.Group();
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = mesh.receiveShadow = !(m instanceof THREE.MeshBasicMaterial);
+    g.add(mesh);
+  };
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1c2436, roughness: 0.3, metalness: 0.5 });
+  add(new THREE.BoxGeometry(4.3, 0.12, 0.85), dark, 0, 0.06, 0);
+  add(new THREE.BoxGeometry(4.4, 0.92, 0.9), new THREE.MeshStandardMaterial({ color: 0xe6eaf2, roughness: 0.45, metalness: 0.15 }), 0, 0.58, 0);
+  add(new THREE.BoxGeometry(3.9, 0.42, 0.04), new THREE.MeshStandardMaterial({ color, roughness: 0.4, emissive: color, emissiveIntensity: 0.25 }), 0, 0.56, 0.46);
+  add(new THREE.BoxGeometry(4.4, 0.04, 0.04), new THREE.MeshBasicMaterial({ color }), 0, 0.98, 0.47);
+  add(new THREE.BoxGeometry(4.6, 0.08, 1.05), dark, 0, 1.08, 0);
+  // A small holo till on the counter.
+  add(new THREE.BoxGeometry(0.5, 0.06, 0.35), dark, 1.3, 1.15, -0.1);
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.3), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+  screen.position.set(1.3, 1.36, -0.15);
+  screen.rotation.x = -0.35;
+  g.add(screen);
+  return g;
+}
+
 const STYLIST_LOOK = { body: 'P2', hair: 'H8', outfit: 'O2', accessory: 'A1', palette: 'C4', glow: 'G1', armor: 'R0', back: 'B0', face: 'F0' };
 
 export class Interactable {
@@ -81,8 +107,8 @@ export class Interactable {
   private glowMat: THREE.MeshBasicMaterial | null = null;
   private t = Math.random() * 10;
   private npc: CharacterModel | null = null;
-  /** Telepipe portal: the spinning ring and its inner swirl. */
-  private portal: { ring: THREE.Object3D; swirl: THREE.Mesh; swirlMat: THREE.MeshBasicMaterial } | null = null;
+  /** The Rift Gate's model (ring, vortex, shards, motes). */
+  private riftGate: RiftGateModel | null = null;
   private waveT = 0;
   /** Teleporter beam: additive layers with their full-strength opacities, rising rings, scrolling streaks. */
   private beam: {
@@ -115,51 +141,34 @@ export class Interactable {
       case 'shopArmor':
       case 'shopItem':
       case 'medical': {
-        const colors: Record<string, number> = { shopWeapon: 0xff8a30, shopArmor: 0x4aa8ff, shopItem: 0x50e070, medical: 0xff6aa0 };
-        const counter = new THREE.Mesh(
-          new THREE.BoxGeometry(3.2, 1.1, 1),
-          new THREE.MeshStandardMaterial({ color: 0x3a4258 }),
-        );
-        counter.position.y = 0.55;
+        // Booths, canopies and signs are city scenery (CityScenery.ts).
+        const counter = counterMesh(SHOP_COLORS[this.kind]!);
         const style = { shopWeapon: STYLES.armorer, shopArmor: STYLES.shopkeeper, shopItem: STYLES.clerk, medical: STYLES.nurse }[this.kind];
         this.npc = new Humanoid(style);
         const npc = this.npc.rig.root;
         npc.position.set(0, 0, -0.95);
         if (this.kind === 'medical') {
-          counter.rotation.y = Math.PI / 2;
+          counter.rotation.y = -Math.PI / 2;
           npc.position.set(0.95, 0, 0);
           npc.rotation.y = -Math.PI / 2;
         }
-        const sign = new THREE.Mesh(
-          new THREE.BoxGeometry(2.4, 0.5, 0.1),
-          new THREE.MeshBasicMaterial({ color: colors[this.kind] }),
-        );
-        sign.position.set(0, 3, this.kind === 'medical' ? 0 : -1.1);
-        if (this.kind === 'medical') {
-          sign.rotation.y = Math.PI / 2;
-          sign.position.set(1.1, 3, 0);
-        }
-        this.group.add(counter, npc, sign);
+        this.group.add(counter, npc);
         break;
       }
       case 'stylist': {
         // Counter along the west wall, stylist behind it facing east.
-        const counter = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.1, 1), new THREE.MeshStandardMaterial({ color: 0x3a4258 }));
-        counter.position.y = 0.55;
+        const counter = counterMesh(SHOP_COLORS.stylist!);
         counter.rotation.y = Math.PI / 2;
         this.npc = new Heroine(STYLIST_LOOK);
         const npc = this.npc.rig.root;
         npc.position.set(-0.95, 0, 0);
         npc.rotation.y = Math.PI / 2;
-        const sign = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.5, 0.1), new THREE.MeshBasicMaterial({ color: 0xc070ff }));
-        sign.rotation.y = Math.PI / 2;
-        sign.position.set(-1.1, 3, 0);
         // A tall mirror beside the counter.
         const frame = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.2, 1.0), new THREE.MeshStandardMaterial({ color: 0xc8b070, metalness: 0.6, roughness: 0.3 }));
         frame.position.set(-1.0, 1.2, 2.2);
         const glass = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.95, 0.8), new THREE.MeshStandardMaterial({ color: 0xbfd8ff, metalness: 0.9, roughness: 0.08 }));
         glass.position.set(-0.93, 1.2, 2.2);
-        this.group.add(counter, npc, sign, frame, glass);
+        this.group.add(counter, npc, frame, glass);
         break;
       }
       case 'cityTeleporter':
@@ -269,24 +278,10 @@ export class Interactable {
         this.group.add(base, panel, this.lever, lamp, this.glow);
         break;
       }
-      case 'portal': {
-        // A standing ring of light over a glowing floor disc, like a Telepipe's beam-out gate.
-        const ringMat = new THREE.MeshBasicMaterial({ color: 0x7ae8ff });
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.07, 8, 40), ringMat);
-        ring.position.y = 1.35;
-        const swirlMat = new THREE.MeshBasicMaterial({ color: 0x2a9cff, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false });
-        const swirl = new THREE.Mesh(new THREE.CircleGeometry(0.95, 6), swirlMat);
-        swirl.position.y = 1.35;
-        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 0.5, 10), new THREE.MeshStandardMaterial({ color: 0x8ab0d8, metalness: 0.5, roughness: 0.4 }));
-        pipe.position.y = 0.25;
-        this.glowMat = new THREE.MeshBasicMaterial({ color: 0x4ae0ff, transparent: true, opacity: 0.35, depthWrite: false });
-        this.glow = new THREE.Mesh(new THREE.CircleGeometry(1.3, 24), this.glowMat);
-        this.glow.rotation.x = -Math.PI / 2;
-        this.glow.position.y = 0.03;
-        this.group.add(ring, swirl, pipe, this.glow);
-        this.portal = { ring, swirl, swirlMat };
+      case 'riftGate':
+        this.riftGate = new RiftGateModel();
+        this.group.add(this.riftGate.root);
         break;
-      }
       case 'start':
         break;
     }
@@ -301,12 +296,7 @@ export class Interactable {
       this.npc.rig.apply(this.waveT > 0 ? humanPoses.wave(this.t) : humanPoses.idle(this.t, 'none'), dt, 6);
       this.npc.update?.(dt);
     }
-    if (this.portal) {
-      this.portal.ring.rotation.y = this.t * 1.6;
-      this.portal.swirl.rotation.y = this.t * 1.6;
-      this.portal.swirl.rotation.z = this.t * 4;
-      this.portal.swirlMat.opacity = 0.45 + Math.sin(this.t * 5) * 0.12;
-    }
+    this.riftGate?.update(this.t);
     if (this.beam) {
       const b = this.beam;
       b.level += (1 - b.level) * Math.min(1, dt * 3);

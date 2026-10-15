@@ -1,4 +1,4 @@
-import { attackTypes, comboAccuracy, formulas, type AttackType } from './config';
+import { formulas } from './config';
 
 export type Rng = () => number;
 
@@ -6,28 +6,36 @@ export function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
-/** PSO-style hit chance in percent: ATA * typeMod * comboMod - EVP * 0.2. */
-export function hitChance(ata: number, evp: number, type: AttackType, hitIndex: number): number {
-  const typeMod = attackTypes[type].accuracyMult;
-  const comboMod = comboAccuracy[Math.min(hitIndex, comboAccuracy.length - 1)];
-  return clamp(ata * typeMod * comboMod - evp * formulas.evpFactor, 0, 100);
+/** Crit chance in percent from the crit stat (kept in tenths of a percent), weapon hits and techniques alike; up to critCap. */
+export function critChance(lck: number): number {
+  return clamp(lck / 10, 0, formulas.critCap);
 }
 
-/** Player-weapon damage against a defender. */
-export function playerDamage(atp: number, dfp: number, type: AttackType): number {
-  const raw = ((atp - dfp) / formulas.damageDivisor) * formulas.damageScale * attackTypes[type].damageMult;
+/**
+ * Share of a hit that gets through an enemy's armour (weapon hits) or technique resistance: both are a plain % cut
+ * since 2026-10-14 (armour used to be DFP taken off ATP). Negative resistance means it takes more.
+ */
+export function cutMult(pct: number): number {
+  return 1 - clamp(pct, -100, 95) / 100;
+}
+
+/**
+ * A weapon hit before its kind, combo and passive multipliers: weapon damage × the hit's power (a basic step 0.7,
+ * an Art its own) × the armour cut.
+ */
+export function playerDamageRaw(weaponDamage: number, armor: number, power: number): number {
+  return weaponDamage * power * cutMult(armor);
+}
+
+/** playerDamageRaw, rounded (never below minDamage). */
+export function playerDamage(weaponDamage: number, armor: number, power: number): number {
+  return Math.max(formulas.minDamage, Math.round(playerDamageRaw(weaponDamage, armor, power)));
+}
+
+/** Enemy damage against the player: its ATP × enemyDamageScale (±10%), less the player's damage taken % (strike or area). */
+export function enemyDamage(atp: number, damageTaken: number, rng: Rng): number {
+  const raw = atp * formulas.enemyDamageScale * (0.9 + rng() * 0.2) * cutMult(damageTaken);
   return Math.max(formulas.minDamage, Math.round(raw));
-}
-
-/** Enemy damage against the player. Enemies use a flatter curve than weapons. */
-export function enemyDamage(atp: number, dfp: number, rng: Rng): number {
-  const raw = (atp - dfp) * 0.35 * (0.9 + rng() * 0.2);
-  return Math.max(formulas.minDamage, Math.round(raw));
-}
-
-/** Enemy accuracy vs player: ATA - EVP * 0.2, straight percentage. */
-export function enemyHitChance(ata: number, evp: number): number {
-  return clamp(ata - evp * formulas.evpFactor, 0, 100);
 }
 
 export function rollPercent(chance: number, rng: Rng): boolean {

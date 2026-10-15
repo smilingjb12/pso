@@ -1,5 +1,3 @@
-/** Light hits an area (several enemies, weaker each); heavy hits one target hard. */
-export type AttackType = 'light' | 'heavy';
 export type EarlyPressPolicy = 'break' | 'ignore';
 export type Race = 'native' | 'abeast' | 'machine' | 'dark';
 
@@ -28,12 +26,24 @@ export const combo = {
   showCue: true,
 };
 
-// Light sweeps an area (the weapon kind sets its shape and target cap) for low damage per enemy;
-// heavy hits one target hard and rolls the weapon special. Heavy can't reach a sure hit: maxHit
-// caps its chance after ATA, so high-ATA builds still risk misses.
-export const attackTypes = {
-  light: { timingMult: 1.0, recoveryMult: 1.0, damageMult: 0.7, accuracyMult: 1.0, maxHit: 100 },
-  heavy: { timingMult: 1.55, recoveryMult: 1.2, damageMult: 1.5, accuracyMult: 0.8, maxHit: 85 },
+/**
+ * The basic attack (2026-10-14, the Arts redesign; it was the light attack, beside a heavy one): every weapon kind
+ * sweeps or fires its own shape for low damage per enemy, and it is the TP generator. Arts spend the TP. Nothing
+ * misses (2026-10-09, the user's call).
+ */
+export const basicAttack = {
+  /** Damage per enemy hit, as a multiple of one weapon hit (Arts list theirs on the same scale). */
+  damageMult: 0.7,
+  /**
+   * TP a landed basic step refills, as a share of the class's base TP at your level (gear and Mag TP make the pool
+   * bigger, not the refill): the finisher refills finisherTp times that, a perfectly chained step perfectTp times.
+   */
+  tpRefill: 0.06,
+  finisherTp: 2,
+  perfectTp: 1.5,
+  /** Casters fire photon bolts: homing, this fast, this far; their damage is the caster kind's boltPower x tech damage. */
+  boltSpeed: 24,
+  boltRange: 13,
 };
 
 export type WeaponWeight = 'light' | 'medium' | 'heavy';
@@ -42,6 +52,7 @@ export type WeaponWeight = 'light' | 'medium' | 'heavy';
  * Melee weight classes (weaponKinds[].weight). Slow kinds pay for their swing with bigger blows:
  * heavy weapons stagger more, step further into the swing and carry Poise (an enemy hit during the
  * wind-up or strike still hurts but doesn't cancel the swing; the recovery stays punishable).
+ * lunge: the step into a basic swing; lungeHeavy: into a melee Art.
  */
 export const weaponWeights: Record<WeaponWeight, { staggerMult: number; lunge: number; lungeHeavy: number; poise: boolean }> = {
   light: { staggerMult: 1, lunge: 0.25, lungeHeavy: 0.4, poise: false },
@@ -49,63 +60,59 @@ export const weaponWeights: Record<WeaponWeight, { staggerMult: number; lunge: n
   heavy: { staggerMult: 2, lunge: 0.45, lungeHeavy: 0.65, poise: true },
 };
 
-/**
- * Technique forms, like attackTypes for casting: light is the area version of a spell
- * (Foie cone, Zonde chain, Barta wave), heavy the single-target one (fireball, big bolt, ice spike).
- */
-export const spellForms = {
-  light: { timingMult: 1.0, recoveryMult: 1.0, powerMult: 0.5, tpMult: 1.0, statusMult: 0.5 },
-  heavy: { timingMult: 1.2, recoveryMult: 1.1, powerMult: 1.35, tpMult: 1.3, statusMult: 1.5 },
-};
-
-/** Accuracy multiplier by hit index in the combo (PSO used 1.0 / 1.3 / 1.69; the reward is now mostly damage). */
-export const comboAccuracy = [1.0, 1.15, 1.3];
-
-/** Damage multiplier by perfect streak: perfect chains in a row (weapon hits and attack techs). */
+/** Damage multiplier by perfect streak: perfect chains in a row (basic steps and Arts). */
 export const comboDamage = [1.0, 1.15, 1.4];
 
 export const formulas = {
-  /** Damage = (ATP - DFP) / divisor * scale */
-  damageDivisor: 5,
-  damageScale: 0.9,
-  /** Hit% = ATA * mods - EVP * evpFactor */
-  evpFactor: 0.2,
+  /**
+   * Crits (2026-10-09, when ATA and EVP went; their own stat since 2026-10-14): chance up to critCap %. A crit deals
+   * critDamage x (plus Crit damage affixes) on weapon hits and attack techs; Resta heals and Shifta / Deband boosts
+   * get critSupport x.
+   */
+  critCap: 75,
+  critDamage: 2,
+  critSupport: 1.5,
+  /**
+   * A weapon hit is weapon damage x the swing's multiplier x the kind's and the family's, less the enemy's armour %;
+   * a technique tech damage x its own multiplier, less the enemy's technique resistance % (2026-10-14: both were
+   * DFP / MDF before, and enemy HP went up x5.56 with the change, so kill times held).
+   */
   minDamage: 1,
   /**
-   * Each grind level is spent on Edge or on a race (Bane). Edge adds a share of the weapon's own ATP (both
-   * ends of the range) and ATA, so a level is worth about the same at every tier and on light or heavy
-   * weapons (~3% damage).
+   * Each grind level on a weapon (Edge) adds a share of the weapon's own ATP (both ends of the range), so a
+   * level is worth about the same at every tier and on light or heavy weapons (~3% damage).
    */
   edgeAtpPct: 0.04,
-  edgeAtaPct: 0.04,
   /**
-   * Edge MST, as a share of the weapon's own MST (only canes, rods and wands have any), sized so a level
+   * Edge MST, as a share of the weapon's own MST (only rods and wands have any), sized so a level
    * is worth about as much technique damage as the ATP share gives weapon damage.
    */
   edgeMstPct: 0.15,
-  /** Bane: race % per level (one attribute roll step, ~5-6% damage against that race), up to the tier's roll cap. */
-  banePerGrind: 5,
-  /** Enemy damage = (ATP - DFP) * enemyDamageScale */
+  /** Each grind level on a frame or barrier raises its stat bonuses by this share (2026-10-11, crafting). */
+  refineArmorPct: 0.05,
+  /** Enemy damage = ATP x enemyDamageScale, less the player's Strike or Area damage taken %. */
   enemyDamageScale: 0.35,
   /** Passive TP regen per second (none: Fluid injectors and caster melee refill TP). */
   tpRegen: 0,
-  /** Scales the TP that caster melee weapons restore per hit (weaponKinds[].tpOnHit). */
-  meleeTpMult: 1,
-  /** Weapon damage multipliers: melee takes the risk of standing in reach, so it hits harder. */
-  meleeDamageMult: 1.1,
-  rangedDamageMult: 0.85,
+  /**
+   * Weapon damage multipliers: melee takes the risk of standing in reach, so it hits harder. Raised 2026-10-09
+   * (the user's call): melee 1.1 -> 1.65 so a saber Hunter matches a Force on Normal and leads on Nightmare and
+   * Hell; ranged 0.85 -> 1.5 so a handgun Ranger does ~0.85x the saber Hunter. When misses went and LCK took
+   * ATA's numbers (2026-10-09), melee 1.65 -> 1.52 (no more 15% heavy whiffs, bigger crits) and ranged 1.5 -> 1.58
+   * (Precision's up-to-25% went; the Ranger's crits make up the rest).
+   */
+  meleeDamageMult: 1.52,
+  rangedDamageMult: 1.58,
 };
 
-/** Weapon accuracy on top of the PSO hit formula. */
-export const accuracy = {
-  /** Flat hit % added to melee weapon attacks. */
-  meleeBonus: 15,
-  /** Ranged hit chance starts dropping past this distance (weaponKinds[].falloffStart overrides). */
-  rangedFalloffStart: 10,
-  /** Fraction of the hit chance lost per metre beyond the falloff start... */
-  rangedFalloffPerM: 0.025,
+/** Guns hit for less past their effective range (it used to be accuracy, until misses went on 2026-10-09). */
+export const rangedFalloff = {
+  /** Damage starts dropping past this distance (weaponKinds[].falloffStart overrides). */
+  start: 10,
+  /** Fraction of the damage lost per metre beyond the start... */
+  perM: 0.025,
   /** ...down to at most this fraction of it. */
-  rangedFalloffFloor: 0.5,
+  floor: 0.5,
 };
 
 /**

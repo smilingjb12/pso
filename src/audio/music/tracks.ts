@@ -1,5 +1,5 @@
 import {
-  arpPart, bassPart, compPart, hits, melody, padPart, progression, shift, walkingBass,
+  arpPart, bassPart, compPart, hits, melody, padPart, progression, walkingBass,
   type NoteEv, type Part,
 } from './theory';
 
@@ -128,22 +128,52 @@ function caves(): Track {
   return {
     id: 'caves',
     name: 'Caves',
-    desc: 'Recorded (ElevenLabs): sci-fi synth-orchestral, warm pads, electric piano and strings over a laid-back electronic beat. Battle: driving synth bass, staccato strings, a synth lead.',
+    desc: 'Calm recorded (ElevenLabs): sci-fi synth-orchestral, warm pads, electric piano and strings. Battle rendered from the synth (cavesBattle, `renderLayer`): urgent, neutral spiccato strings, toms and a low horn motif.',
     bpm: 88,
     bars,
     files: { calm: 'music/caves-calm.mp3', battle: 'music/caves-battle.mp3' },
     parts: [
-      p('darkpad', 'base', padPart(prog, 48, 0.6, 3)),
-      p('softbass', 'base', bassPart(prog, 'r---------------', 36, 0.6), 0.8),
-      // Calm
+      p('darkpad', 'calm', padPart(prog, 48, 0.6, 3)),
+      p('softbass', 'calm', bassPart(prog, 'r---------------', 36, 0.6), 0.8),
       p('bell', 'calm', mel, 1, 0.15),
       p('harp', 'calm', arpPart(prog, [0, 2, 4, 5], 4, 55, 0.35), 0.7, -0.3),
-      // Battle: tension from the strings and bass pulse rather than a beat.
-      p('taiko', 'battle', hits('x..o............', bars, 38), 0.35),
-      p('strings', 'battle', arpPart(prog, [0, 1, 0, 2], 2, 48, 0.4), 0.6, -0.2),
-      p('softbass', 'battle', bassPart(prog, 'r...r...r...r...', 36, 0.5), 0.6),
-      p('choir', 'battle', padPart(prog, 60, 0.35, 3), 0.5, 0.2),
-      p('lead', 'battle', shift(mel, -12), 0.55, 0.1),
+    ],
+  };
+}
+
+/**
+ * Caves battle (2026-10-09, replacing the ElevenLabs take, which kept coming out as synthwave): urgent but
+ * neutral, and primal, as if from ancient times. D minor pentatonic over open fifths at 126 BPM: taiko and hand
+ * drums driving it, wooden sticks and a shaker, a low earthy drone, a wordless low chant every other bar and a
+ * wooden flute. No kit, strings, brass or synths. Rendered to public/music/caves-battle.mp3 with `renderLayer`
+ * (music/render.ts); it has its own tempo, so it is a separate track rather than a layer of the 88 BPM calm one.
+ */
+export function cavesBattle(): Track {
+  const bars = 16;
+  const prog = progression([
+    'D5', 'D5', 'D5', 'C5', 'D5', 'D5', 'Bb5', 'C5',
+    'D5', 'D5', 'F5', 'D5', 'C5', 'D5', 'Bb5', 'A5',
+  ]);
+  const flute = melody(`
+    D5! - - - - - C5 D5 | F5 - D5 - C5 - A4 - | D5! - - - - - . . | . . A4 C5 D5 - F5 - |
+    G5! - - - F5 - D5 - | F5 - D5 - C5 - - - | D5! - - - - - . . | . . . . C5 - A4 - |
+    A5! - - - G5 - F5 - | G5 - F5 - D5 - - - | F5! - - - D5 - C5 - | D5 - - - - - . . |
+    G5! - F5 - D5 - C5 - | A4 - C5 - D5 - - - | C5! - - - A4 - G4 - | A4 - - - - - . . |`, 2, 0.7);
+  return {
+    id: 'caves',
+    name: 'Caves (battle)',
+    desc: 'Primal and urgent: taiko and hand drums, sticks, a shaker, a low drone, a low chant and a wooden flute.',
+    bpm: 126,
+    bars,
+    parts: [
+      p('drone', 'battle', padPart(prog, 38, 0.7, 2), 1),
+      p('chant', 'battle', compPart(prog, 'X-------........ ................', 50, 0.5, 2), 0.7, -0.15),
+      p('flute', 'battle', flute, 0.9, 0.1),
+      p('taiko', 'battle', hits('X..x..X.X..x..x.', bars, 38), 0.75),
+      p('taiko', 'battle', hits('................', bars, 43, [], { every: 4, pattern: '........X.X.XXXX' }), 0.5, 0.2),
+      p('handdrum', 'battle', hits('1.21..2.1.21.2.2', bars, 57, [57, 52]), 0.55, -0.3),
+      p('sticks', 'battle', hits('..x...x...x..x.x', bars), 0.5, 0.35),
+      p('shaker', 'battle', hits('x.x.x.x.x.x.x.x.', bars), 0.45, -0.35),
     ],
   };
 }

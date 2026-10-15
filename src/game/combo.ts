@@ -1,15 +1,15 @@
-import type { AttackTiming, AttackType, EarlyPressPolicy } from './config';
+import type { AttackTiming, EarlyPressPolicy } from './config';
 
-// PSO-style 3-hit combo state machine. Pure logic, no rendering.
+// PSO-style 3-step combo state machine. Pure logic, no rendering.
 //
-// A swing goes windup -> active -> recovery. Late in the swing a chain window
-// opens; pressing inside it immediately starts the next hit (cancelling the
-// rest of the recovery). Pressing before the window either breaks the combo
-// ('break', faithful PSO anti-mash) or is ignored ('ignore').
+// A step goes windup -> active -> recovery. Late in the step a chain window opens; pressing inside it
+// immediately starts the next step (cancelling the rest of the recovery). Pressing before the window either
+// breaks the combo ('break', faithful PSO anti-mash) or is ignored ('ignore').
 //
-// The first moments of the window are the "perfect" window. Chaining there
-// extends the perfect streak, which scales damage; a later press still chains
-// but resets the streak. Casting uses its own Combo for cast chains.
+// A step is the basic attack or an Art (2026-10-14, the Arts redesign): basic, basic, Art is the classic chain,
+// PSO2 style. Each step brings its own timing. The first moments of the window are the "perfect" window.
+// Chaining there extends the perfect streak, which scales damage; a later press still chains but resets the
+// streak. An Art that seals (channels, guards, movement) can't be chained from.
 
 export interface ComboSettings {
   windowOpen: number;
@@ -21,14 +21,12 @@ export interface ComboSettings {
   perfect: number;
 }
 
-export interface AttackTypeMods {
-  timingMult: number;
-  recoveryMult: number;
-}
+/** What a step is: the basic attack, or an Art (by id). */
+export type StepId = 'basic' | (string & {});
 
 export type ComboEvent =
-  | { kind: 'start'; hitIndex: number; type: AttackType; perfect: boolean }
-  | { kind: 'hit'; hitIndex: number; type: AttackType; streak: number }
+  | { kind: 'start'; hitIndex: number; step: StepId; perfect: boolean }
+  | { kind: 'hit'; hitIndex: number; step: StepId; streak: number }
   | { kind: 'early' }
   | { kind: 'end'; completed: boolean };
 
@@ -54,30 +52,29 @@ export interface SwingTimes {
 export class Combo {
   phase: ComboPhase = 'idle';
   hitIndex = 0;
-  type: AttackType = 'light';
+  step: StepId = 'basic';
   t = 0;
   broken = false;
   /** Broken by seal() rather than a mistimed press. */
   sealed = false;
-  /** Perfect chains in a row leading into the current swing (0 on the opener or after a late chain). */
+  /** Perfect chains in a row leading into the current step (0 on the opener or after a late chain). */
   streak = 0;
   times: SwingTimes = { hitAt: 0, activeEnd: 0, duration: 0, windowOpenAt: 0, perfectCloseAt: 0, windowCloseAt: 0 };
-  /** Seconds added to the perfect window (the Mag's Rhythm passive). */
+  /** Seconds added to the perfect window (the Tempo passive). */
   perfectBonus = 0;
   private hitFired = false;
   private resetT = 0;
 
   constructor(
     private settings: ComboSettings,
-    private mods: Record<AttackType, AttackTypeMods>,
-    private timing: () => AttackTiming,
+    private timing: (step: StepId) => AttackTiming,
   ) {}
 
   get isFinisher(): boolean {
     return this.hitIndex === MAX_HITS - 1;
   }
 
-  /** True while the player is committed to an attack (cannot move). */
+  /** True while the player is committed to a step. */
   get committed(): boolean {
     return this.phase === 'swing';
   }
@@ -103,14 +100,12 @@ export class Combo {
     return Math.min(1, this.t / this.times.windowOpenAt);
   }
 
-  computeTimes(hitIndex: number, type: AttackType): SwingTimes {
-    const base = this.timing();
-    const m = this.mods[type];
+  computeTimes(hitIndex: number, step: StepId): SwingTimes {
+    const base = this.timing(step);
     const finisher = hitIndex === MAX_HITS - 1;
-    const windup = base.windup * m.timingMult;
-    const recovery = base.recovery * m.recoveryMult * (finisher ? this.settings.finisherRecoveryMult : 1);
-    const hitAt = windup;
-    const activeEnd = windup + base.active;
+    const recovery = base.recovery * (finisher ? this.settings.finisherRecoveryMult : 1);
+    const hitAt = base.windup;
+    const activeEnd = base.windup + base.active;
     const duration = activeEnd + recovery;
     const windowOpenAt = Math.max(activeEnd, duration * this.settings.windowOpen);
     // The finisher has no follow-up, so it ends exactly at its duration.
@@ -119,12 +114,18 @@ export class Combo {
     return { hitAt, activeEnd, duration, windowOpenAt, perfectCloseAt, windowCloseAt };
   }
 
-  /** Player pressed an attack button. Returns events produced by the press. */
-  press(type: AttackType): ComboEvent[] {
-    if (this.phase === 'reset') return [];
-    if (this.phase === 'idle') return this.begin(0, type);
+  /** Would pressing now start or chain a step (not break the combo, not be ignored)? */
+  get canChainNow(): boolean {
+    if (this.phase === 'idle') return true;
+    return this.phase === 'swing' && this.inWindow;
+  }
 
-    // Mid-swing.
+  /** Player pressed the basic attack or an Art. Returns events produced by the press. */
+  press(step: StepId): ComboEvent[] {
+    if (this.phase === 'reset') return [];
+    if (this.phase === 'idle') return this.begin(0, step);
+
+    // Mid-step.
     if (this.isFinisher || this.broken) return [];
     if (this.t < this.times.windowOpenAt) {
       if (this.settings.earlyPress === 'break') {
@@ -136,7 +137,7 @@ export class Combo {
     if (this.t < this.times.windowCloseAt) {
       const perfect = this.t < this.times.perfectCloseAt;
       this.streak = perfect ? this.streak + 1 : 0;
-      return this.begin(this.hitIndex + 1, type, perfect);
+      return this.begin(this.hitIndex + 1, step, perfect);
     }
     return [];
   }
@@ -153,7 +154,7 @@ export class Combo {
     this.t += dt;
     if (!this.hitFired && this.t >= this.times.hitAt) {
       this.hitFired = true;
-      events.push({ kind: 'hit', hitIndex: this.hitIndex, type: this.type, streak: this.streak });
+      events.push({ kind: 'hit', hitIndex: this.hitIndex, step: this.step, streak: this.streak });
     }
     const endAt = this.broken ? this.times.duration : this.times.windowCloseAt;
     if (this.t >= endAt) {
@@ -168,24 +169,24 @@ export class Combo {
     if (this.phase === 'swing') this.enterReset();
   }
 
-  /** The current swing can't be chained from: it plays out and ends, like a broken one but without the penalty. */
+  /** The current step can't be chained from: it plays out and ends, like a broken one but without the penalty. */
   seal(): void {
     if (this.phase !== 'swing') return;
     this.broken = true;
     this.sealed = true;
   }
 
-  private begin(hitIndex: number, type: AttackType, perfect = false): ComboEvent[] {
+  private begin(hitIndex: number, step: StepId, perfect = false): ComboEvent[] {
     if (hitIndex === 0) this.streak = 0;
     this.phase = 'swing';
     this.hitIndex = hitIndex;
-    this.type = type;
+    this.step = step;
     this.t = 0;
     this.broken = false;
     this.sealed = false;
     this.hitFired = false;
-    this.times = this.computeTimes(hitIndex, type);
-    return [{ kind: 'start', hitIndex, type, perfect }];
+    this.times = this.computeTimes(hitIndex, step);
+    return [{ kind: 'start', hitIndex, step, perfect }];
   }
 
   private enterReset(): void {

@@ -132,7 +132,36 @@ const stab: Instrument = (v, m, _len, vel) => {
   }
 };
 
+/** Low earthy drone (open fifths): warm sine and triangle with a slow breathing swell, no synth edge. */
+const drone: Instrument = (v, m, len, vel) => {
+  const f = midiHz(m);
+  tone(v, { type: 'sine', f, a: 0.6, d: 1, s: 0.9, r: 1.2, len, gain: 0.16 * vel, wet: 0.5, vib: [0.25, 6, 0] });
+  tone(v, { type: 'triangle', f, detune: 4, a: 0.8, d: 1, s: 0.8, r: 1.2, len, gain: 0.06 * vel, wet: 0.5, filter: { type: 'lowpass', f: 600, q: 0.6 } });
+};
+
+/** Low wordless chant ("oh"): a darker formant than the choir. */
+const chant: Instrument = (v, m, len, vel) => {
+  const f = midiHz(m);
+  const g = group(v, { filter: { type: 'bandpass', f: 480, q: 1.4 }, wet: 0.6 });
+  for (const det of [-12, 0, 12]) {
+    tone(g, { type: 'sawtooth', f, detune: det, a: 0.25, d: 0.5, s: 0.85, r: 0.6, len, gain: 0.09 * vel, vib: [4.5, 10, 0.2] });
+  }
+};
+
 // ---------------------------------------------------------------- drums
+
+/** Hand drum (frame drum / djembe): a pitched skin thump with a slap of noise. */
+const handdrum: Instrument = (v, m, _len, vel) => {
+  const f = midiHz(m);
+  tone(v, { f: f * 1.4, f1: f, fT: 0.04, d: 0.22, gain: 0.45 * vel, wet: 0.3 });
+  noise(v, { d: 0.04, gain: 0.12 * vel, filter: { type: 'bandpass', f: 1400, q: 1.2 } });
+};
+
+/** Wooden sticks / claves. */
+const sticks: Instrument = (v, _m, _len, vel) => {
+  tone(v, { type: 'triangle', f: 1250, f1: 1150, d: 0.05, gain: 0.12 * vel, wet: 0.35 });
+  noise(v, { d: 0.012, gain: 0.05 * vel, filter: { type: 'bandpass', f: 2500, q: 3 } });
+};
 
 const kick: Instrument = (v, _m, _len, vel) => {
   tone(v, { f: 150, f1: 42, fT: 0.11, d: 0.4, gain: 0.85 * vel });
@@ -196,6 +225,7 @@ const timpani: Instrument = (v, m, _len, vel) => {
 export const INSTRUMENTS = {
   epiano, vibes, bell, pad, darkpad, strings, choir, flute, harp,
   bass, softbass, pumpbass, distbass, brass, lead, arp, stab,
+  drone, chant, handdrum, sticks,
   kick, snare, hat, ohat, ride, rim, brush, shaker, tom, taiko, crash, timpani,
 } satisfies Record<string, Instrument>;
 

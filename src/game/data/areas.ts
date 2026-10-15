@@ -9,17 +9,19 @@ export type { BossId };
 // corridors. The level builder carves corridors through the overlap of two
 // rooms and puts laser-fence gates at each end.
 
-export type AreaId = 'city' | 'forest1' | 'dragon' | 'cave1' | 'cave2' | 'derolle' | 'mine1' | 'mine2' | 'warden' | 'ruin1' | 'ruin2' | 'falz';
+export type AreaId = 'city' | 'forest1' | 'dragon' | 'cave1' | 'cave2' | 'derolle' | 'mine1' | 'mine2' | 'warden' | 'ruin1' | 'ruin2' | 'falz'
+  /** Falz Rifts (DESIGN.md "Endgame: Falz Rifts"): generated at runtime, see `rifts.ts` (placeholders below). */
+  | 'rift' | 'riftBoss';
 
 export type FeatureKind =
   | 'start' | 'switch' | 'toBoss' | 'toNext' | 'toCity'
   | 'shopWeapon' | 'shopArmor' | 'shopItem' | 'medical' | 'stylist' | 'cityTeleporter'
-  /** A Telepipe portal (placed at runtime, never in area data). */
-  | 'portal'
   /** Mines: a power switch (toggles the machinery wired to it). */
   | 'power'
   /** Ruins: a light pylon (placed from the room's `pylons`, never as a feature). */
-  | 'pylon';
+  | 'pylon'
+  /** Pioneer 2: the Rift Gate (Falz Rifts, after the Hell Dark Falz). */
+  | 'riftGate';
 
 /** Features with an NPC behind a counter (talk, solid). */
 export const isCounter = (k: FeatureKind) => k.startsWith('shop') || k === 'medical' || k === 'stylist';
@@ -67,6 +69,10 @@ export interface RoomDef {
   trees?: number;
   boxes?: number;
   features?: FeatureDef[];
+  /** Pioneer 2: this side's wall is a window onto space (solid, drawn as glass). */
+  window?: 'n' | 's' | 'e' | 'w';
+  /** Rifts: the Guardian room (its champions are stronger; clearing it completes the rift). */
+  guardian?: boolean;
 }
 
 export interface LinkDef {
@@ -86,7 +92,7 @@ export interface AreaTheme {
   fogFar: number;
   trees: boolean;
   /** Set dressing beyond the defaults (forest = trees, boss = Dragon's lair). */
-  scenery?: 'volcanic' | 'marsh' | 'river' | 'foundry' | 'control' | 'warden' | 'temple' | 'sanctum' | 'altar';
+  scenery?: 'volcanic' | 'marsh' | 'river' | 'foundry' | 'control' | 'warden' | 'temple' | 'sanctum' | 'altar' | 'city';
   /** Ambient/sun override; defaults to neutral daylight. */
   light?: AreaLight;
   // ---- Look extras (data/looks.ts fills these for the Caves and Mines; others keep the flat sky). ----
@@ -230,26 +236,44 @@ const Br: EnemyId = 'DarkBelra';
 const Cb: EnemyId = 'ChaosBringer';
 
 export const areas: Record<AreaId, AreaDef> = {
+  // Pioneer 2 (2026-10-08 redesign, PSO1 style): a shop plaza around a holo-globe fountain, a promenade, and the
+  // teleporter deck whose south wall is a window onto Ragol. The rooms touch, so there are no gates.
   city: {
     id: 'city',
     name: 'Pioneer 2',
     kind: 'city',
     audio: { track: 'pioneer2', space: 'room', step: 'step.metal' },
     theme: {
-      floor: 0x6d7690, floorAlt: 0x646d86, wall: 0x9aa4c0, wallHeight: 5,
-      sky: 0x1a2236, fogNear: 40, fogFar: 90, trees: false,
+      floor: 0x9aa4b8, floorAlt: 0x8e98ad, wall: 0xc9d0dc, wallHeight: 5,
+      sky: 0x060a16, fogNear: 70, fogFar: 170, fogColor: 0x0a1226, trees: false, scenery: 'city',
+      light: { hemiSky: 0xe2ecff, hemiGround: 0x46506a, hemi: 1.05, sunColor: 0xfff2e2, sun: 1.35 },
+      skybox: {
+        top: 0x02040c, horizon: 0x0c1834, bottom: 0x010208, stars: 1,
+        nebulae: [{ color: 0x3a62ff, dir: [-0.7, 0.35, -0.6], size: 170, opacity: 0.22 }, { color: 0x8a4aff, dir: [0.8, 0.45, 0.2], size: 120, opacity: 0.16 }],
+      },
+      envIntensity: 0.35, floorGloss: 0.5,
+      bloom: { strength: 0.42, radius: 0.5, threshold: 0.85 },
+      // Light strips, the PSO blue bands, gold trim.
+      accent: 0x52d0ff, accent2: 0x2f62c8, accent3: 0xe8b84a,
     },
     rooms: [
       {
-        id: 'plaza', x: 0, z: 0, w: 22, h: 16,
+        id: 'plaza', x: 0, z: 0, w: 22, h: 12,
         features: [
-          { kind: 'start', tx: 11, tz: 9 },
-          { kind: 'shopWeapon', tx: 4, tz: 1.2, label: 'Weapon Shop' },
-          { kind: 'shopArmor', tx: 9, tz: 1.2, label: 'Armor Shop' },
-          { kind: 'shopItem', tx: 14, tz: 1.2, label: 'Item Shop' },
+          { kind: 'shopWeapon', tx: 5, tz: 1.2, label: 'Weapon Shop' },
+          { kind: 'shopArmor', tx: 11, tz: 1.2, label: 'Armor Shop' },
+          { kind: 'shopItem', tx: 17, tz: 1.2, label: 'Item Shop' },
           { kind: 'medical', tx: 20.8, tz: 6, label: 'Medical Center' },
           { kind: 'stylist', tx: 1.2, tz: 6, label: 'Stylist' },
-          { kind: 'cityTeleporter', tx: 11, tz: 13, label: 'Teleporter' },
+        ],
+      },
+      { id: 'promenade', x: 8, z: 12, w: 6, h: 4 },
+      {
+        id: 'deck', x: 2, z: 16, w: 18, h: 10, window: 's',
+        features: [
+          { kind: 'start', tx: 9, tz: 2.5 },
+          { kind: 'cityTeleporter', tx: 9, tz: 6, label: 'Teleporter' },
+          { kind: 'riftGate', tx: 15.5, tz: 6, label: 'Rift Gate' },
         ],
       },
     ],
@@ -651,6 +675,28 @@ export const areas: Record<AreaId, AreaDef> = {
       { id: 'arena', x: 0, z: 0, w: 15, h: 15, pylons: [[3.6, 3.6], [11.4, 3.6], [3.6, 11.4], [11.4, 11.4]],
         features: [{ kind: 'start', tx: 7.5, tz: 13.2 }] },
     ],
+    links: [],
+  },
+
+  // Falz Rifts: both are replaced at runtime (`rifts.ts` setRiftAreas) before a rift loads.
+  rift: {
+    id: 'rift',
+    name: 'Rift',
+    kind: 'field',
+    audio: { track: 'ruins', space: 'cave', step: 'step.stone' },
+    elites: true,
+    theme: { floor: 0x4e4a66, floorAlt: 0x47435e, wall: 0x302a46, wallHeight: 5, sky: 0x080612, fogNear: 28, fogFar: 92, trees: false },
+    rooms: [{ id: 'k0', x: 0, z: 0, w: 10, h: 10, features: [{ kind: 'start', tx: 5, tz: 5 }] }],
+    links: [],
+  },
+  riftBoss: {
+    id: 'riftBoss',
+    name: 'Rift Core',
+    kind: 'boss',
+    audio: { track: null, after: 'ruins', space: 'open', step: 'step.stone' },
+    boss: 'dragon',
+    theme: { floor: 0x4c4238, floorAlt: 0x3a322b, wall: 0x2e2822, wallHeight: 6, sky: 0x2c1610, fogNear: 30, fogFar: 85, trees: false },
+    rooms: [{ id: 'arena', x: 0, z: 0, w: 24, h: 24, features: [{ kind: 'start', tx: 12, tz: 21 }] }],
     links: [],
   },
 };

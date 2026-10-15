@@ -35,9 +35,9 @@ export const statuses = {
   /**
    * Corruption (Ruins, every Hell enemy): each stack takes this share of max HP away (current HP follows), up to the cap.
    * Every application resets a corruptDuration s timer; once it runs out a stack wears off every corruptWearTime s.
-   * Pylon light sheds one stack per corruptLightTime s, and a cleared room, a Sol dose or Pioneer 2 clear it all.
+   * Pylon light sheds one stack per corruptLightTime s, and a cleared room or Pioneer 2 clear it all (a Sol dose does not).
    */
-  corruptPctPerStack: 0.06,
+  corruptPctPerStack: 0.1,
   corruptMaxStacks: 5,
   corruptLightTime: 1,
   corruptDuration: 30,
@@ -60,10 +60,6 @@ export const pylonCfg = {
   snuffTime: 1.2,
   /** Seconds a Sorcerer waits after a snuff (or a failed try) before going for a pylon again. */
   snuffCooldown: 9,
-  /** Seal of Light / Falz Halo: pylons you light last this much longer. */
-  sealLitMult: 1.5,
-  /** Seal of Light / Falz Halo: Corruption takes this share of what it normally would. */
-  sealCorruptMult: 0.5,
 };
 
 /** Ruins enemies' special moves (field stats are in `enemies`). */
@@ -105,13 +101,13 @@ export const machinery = {
   crusherPeriod: 5.2,
   crusherWarning: 1.3,
   crusherSize: 3.4,
-  crusherDamage: 120,
+  crusherDamage: 79,
   /** Fraction of an enemy's max HP a crusher deals. */
   crusherEnemyPct: 0.45,
   laserOn: 2.4,
   laserOff: 2.6,
   laserWarning: 0.8,
-  laserDamage: 55,
+  laserDamage: 36,
   laserBurn: 2,
   laserEnemyPct: 0.2,
   conveyorSpeed: 2.4,
@@ -126,8 +122,8 @@ export const hazards = {
   ventWarning: 1.6,
   ventEruption: 1.4,
   ventRadius: 1.9,
-  /** Flat damage to the player per eruption (reduced by DFP like boss ticks). */
-  ventDamage: 70,
+  /** Flat damage to the player per eruption (less Area damage taken, like boss ticks). */
+  ventDamage: 46,
   /** Fraction of an enemy's max HP an eruption deals. */
   ventEnemyPct: 0.3,
   marshSlow: 0.7,

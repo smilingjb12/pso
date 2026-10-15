@@ -15,6 +15,7 @@ export default defineConfig({
         arealab: resolve(__dirname, 'arealab.html'),
         armorlab: resolve(__dirname, 'armorlab.html'),
         swinglab: resolve(__dirname, 'swinglab.html'),
+        maplab: resolve(__dirname, 'maplab.html'),
       },
     },
   },

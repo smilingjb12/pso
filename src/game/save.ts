@@ -1,12 +1,12 @@
-import { migrateBossKills, SAVE_VERSION, type CharacterData } from './character';
+import { SAVE_VERSION, type CharacterData } from './character';
 
 // localStorage-backed save slots. All access is guarded: storage can be
 // unavailable (private mode, blocked site data) and the game must still run.
 
-const KEY = 'pso-like-save-v2';
-/** Saves from before classes were removed: deleted on first load, not migrated. */
-const OLD_KEYS = ['pso-like-save-v1'];
-export const SLOT_COUNT = 3;
+const KEY = 'pso-like-save-v3';
+/** Saves from before classes came back (and from before they were removed): deleted on first load, not migrated. */
+const OLD_KEYS = ['pso-like-save-v1', 'pso-like-save-v2'];
+export const SLOT_COUNT = 4;
 
 interface SaveFile {
   slots: (CharacterData | null)[];
@@ -21,7 +21,6 @@ function read(): SaveFile {
       if (Array.isArray(parsed.slots)) {
         while (parsed.slots.length < SLOT_COUNT) parsed.slots.push(null);
         parsed.slots = parsed.slots.map((s) => (s && s.version === SAVE_VERSION ? s : null));
-        for (const s of parsed.slots) if (s) migrateBossKills(s.stats);
         return parsed;
       }
     }

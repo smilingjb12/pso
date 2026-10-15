@@ -1,28 +1,50 @@
-import type { TechId } from './techniques';
+// Character stats, the three classes and XP.
 
-// Character stats, the four attributes and the starting kits (there are no classes), palette types and XP.
-
-export type StatKey = 'hp' | 'tp' | 'atp' | 'dfp' | 'mst' | 'ata' | 'evp' | 'lck';
+/**
+ * Stats are named after what they do and shown in the unit you feel (2026-10-14, the user's call: no proxy words, no
+ * descriptions needed). The keys are the old ones so saves load unchanged:
+ * - `atp` Weapon damage: what a weapon hit deals before its swing's multiplier and the enemy's armour (class, Mag,
+ *   flat affixes; the weapon adds its own range on top).
+ * - `mst` Tech damage: the same for techniques (each deals a multiple of it), and what heals and buffs grow with.
+ * - `lck` Crit chance, kept in tenths of a percent (24 = 2.4%) so it stays a whole number.
+ * - `strike` / `area` Strike / Area damage taken, in % less (capped at AFFIX_CAPS.damageTaken): direct swings and
+ *   shots, or telegraphed areas, boss attacks and hazards.
+ */
+export type StatKey = 'hp' | 'tp' | 'atp' | 'mst' | 'lck' | 'strike' | 'area';
 export type Stats = Record<StatKey, number>;
-export const STAT_KEYS: StatKey[] = ['hp', 'tp', 'atp', 'dfp', 'mst', 'ata', 'evp', 'lck'];
+export const STAT_KEYS: StatKey[] = ['hp', 'tp', 'atp', 'mst', 'lck', 'strike', 'area'];
 export const STAT_LABEL: Record<StatKey, string> = {
-  hp: 'HP', tp: 'TP', atp: 'ATP', dfp: 'DFP', mst: 'MST', ata: 'ATA', evp: 'EVP', lck: 'LCK',
+  hp: 'HP', tp: 'TP', atp: 'Weapon damage', mst: 'Tech damage', lck: 'Crit chance', strike: 'Strike damage taken', area: 'Area damage taken',
 };
 
-/** Flat stats a piece of gear adds while worn (`bonus` on weapons and armour). */
+/** A stat's value as shown: "340", "5.7%" (crit chance), "−20%" (damage taken). */
+export function statValue(k: StatKey, v: number): string {
+  if (k === 'lck') return `${(v / 10).toFixed(1)}%`;
+  if (k === 'strike' || k === 'area') return `${v > 0 ? '−' : v < 0 ? '+' : ''}${Math.abs(Math.round(v))}%`;
+  return `${Math.round(v)}`;
+}
+
+/** A change in a stat as item text: "Weapon damage +12", "Crit chance +0.4%", "Area damage taken −3%", "HP −20". */
+export function statDelta(k: StatKey, v: number): string {
+  if (k === 'lck') return `${STAT_LABEL[k]} ${v < 0 ? '−' : '+'}${+(Math.abs(v) / 10).toFixed(1)}%`;
+  if (k === 'strike' || k === 'area') return `${STAT_LABEL[k]} ${v < 0 ? '+' : '−'}${+Math.abs(v).toFixed(2)}%`;
+  return `${STAT_LABEL[k]} ${v < 0 ? `−${+(-v).toFixed(1)}` : `+${+v.toFixed(1)}`}`;
+}
+
+/** Flat stats a piece of gear adds while worn (`bonus` on weapons and armour, and flat affixes). */
 export type StatBonus = Partial<Record<StatKey, number>>;
 
 /** The order gear bonuses are listed and compared in. */
-export const BONUS_ORDER: StatKey[] = ['atp', 'ata', 'mst', 'tp', 'hp', 'dfp', 'evp', 'lck'];
+export const BONUS_ORDER: StatKey[] = ['atp', 'mst', 'lck', 'tp', 'hp', 'strike', 'area'];
 
 /** A bonus's non-zero stats, in BONUS_ORDER. */
 export function bonusEntries(bonus: StatBonus | undefined): [StatKey, number][] {
   return BONUS_ORDER.filter((k) => bonus?.[k]).map((k) => [k, bonus![k]!]);
 }
 
-/** ["ATP +2", "MST +6"]: a bonus as item text. */
+/** ["Weapon damage +2", "Tech damage +6", "HP −20"]: a bonus as item text. */
 export function bonusText(bonus: StatBonus | undefined): string[] {
-  return bonusEntries(bonus).map(([k, v]) => `${STAT_LABEL[k]} +${v}`);
+  return bonusEntries(bonus).map(([k, v]) => statDelta(k, v));
 }
 
 /** Add a bonus onto `s` in place. */
@@ -30,205 +52,96 @@ export function addBonus(s: Stats, bonus: StatBonus | undefined): void {
   for (const [k, v] of bonusEntries(bonus)) s[k] += v;
 }
 
-/** What each stat does: a one-liner for the status screen and a longer hover tooltip. */
-export const STAT_INFO: Record<StatKey, { short: string; detail: string }> = {
-  hp: {
-    short: 'Health. You collapse at 0.',
-    detail: 'Hit Points. Restored by a Mate injector (key 1), Resta and the Medical Center. Grows with level, POW, DEX and most with DEF.',
-  },
-  tp: {
-    short: 'Spent to cast techniques.',
-    detail: 'Technique Points. No natural regen: refill with a Fluid injector (key 1), or land melee hits with a cane, rod or wand. MIND raises it.',
-  },
-  atp: {
-    short: 'Weapon damage. Base + weapon roll.',
-    detail: 'Attack Power. Weapon hit damage ≈ (ATP − enemy DFP) ÷ 5. Weapon ATP is rolled per hit; POW (and a little DEX), grinding and Shifta raise it.',
-  },
-  dfp: {
-    short: 'Reduces damage taken.',
-    detail: 'Defense Power. Enemy hit damage ≈ (enemy ATP − DFP) × 0.35. DEF (and a little DEX), frames, barriers and Deband raise it.',
-  },
-  mst: {
-    short: 'Technique power.',
-    detail: 'Mental Strength. Everyone knows every technique; MST alone decides how strong they are. Attack damage grows a little faster than MST, Resta heals 0.6 HP per MST, Shifta / Deband give 6.5% per 100 MST. TP cost rises with MST too, but slower than damage. MIND raises it; canes, rods and wands boost techniques further.',
-  },
-  ata: {
-    short: 'Accuracy of weapon attacks.',
-    detail: 'Accuracy. Hit % = ATA × attack/combo modifier − enemy EVP × 0.2. Later combo hits are more accurate; heavy attacks less (and never above 85%). Melee weapons get +15%; guns lose accuracy at long range. DEX (and a little POW) raises it.',
-  },
-  evp: {
-    short: 'Chance to dodge enemy attacks.',
-    detail: 'Evasion. Enemy hit % = enemy ATA − EVP × 0.2. Frames and barriers add EVP. Boss area attacks are harder to dodge.',
-  },
-  lck: {
-    short: 'Critical hit chance.',
-    detail: 'Luck. Crit chance = LCK ÷ 5 % for weapon hits and techniques. Crits deal 1.5× damage (Resta heals 1.5×, Shifta / Deband boost 1.5×).',
-  },
-};
+// ------------------------------------------------------------------ classes
 
-/** One-press palette action on Q / E: an item, the equipped injector, or a support technique (Resta, Shifta, Deband). */
-export type QuickAction =
-  | { kind: 'tech'; tech: TechId }
-  | { kind: 'item'; item: string }
-  | { kind: 'injector' }
-  | { kind: 'empty' };
+/** The four Mag stats (and their colours): each Mag point goes into one. They also name a class's lean. */
+export type MagStat = 'pow' | 'dex' | 'mind' | 'def';
+export const MAG_STATS: MagStat[] = ['pow', 'dex', 'mind', 'def'];
+
+export type ClassId = 'hunter' | 'ranger' | 'force';
+export const CLASS_IDS: ClassId[] = ['hunter', 'ranger', 'force'];
+
+/** What a class fights with: its Arts and passives work with this family's weapons (Force ones with techniques too). */
+export type WeaponFamily = 'melee' | 'ranged' | 'caster';
 
 /**
- * A palette row. LMB / RMB use its attack source (light / heavy): the equipped weapon, or magic
- * (the attack technique picked with the mouse wheel). Q and E are quick slots. Shift swaps rows.
+ * Picked at creation and fixed: Lv 1 stats, growth per level and starting gear. The class's Arts and passives
+ * work with its weapon family; gear is gated by level only, so a Force can carry a saber, but none of her Arts
+ * or passives help it.
  */
-export interface PaletteRow {
-  mouse: 'weapon' | 'magic';
-  quick: [QuickAction, QuickAction];
-}
-
-/** What the palette editor assigns: a row's mouse source (column 0) or a quick slot (columns 1-2). */
-export type PaletteEdit = QuickAction | { kind: 'source'; source: PaletteRow['mouse'] };
-
-// -------------------------------------------------------------- attributes
-
-/**
- * The four attributes. There are no classes: each level gives attribute points on top of a growth everyone
- * shares, and where they go (with the Mag tree and the gear) makes the character. They share their names
- * and colours with the Mag's arms. Points are permanent.
- */
-export type AttributeId = 'pow' | 'dex' | 'mind' | 'def';
-export const ATTRIBUTES: AttributeId[] = ['pow', 'dex', 'mind', 'def'];
-
-export interface AttributeDef {
-  label: string;
-  /** What a character led by this attribute is called. */
-  title: string;
-  desc: string;
-  /** Stats one point adds (fractions add up; the total is rounded down). */
-  gain: Partial<Stats>;
-}
-
-/**
- * Three points a level (attributeCfg.pointsPerLevel). All three in MIND grows like the old Force, two POW and
- * one DEF like the old Hunter, two DEX and one POW like the old Ranger (to within 0.2 EVP a level).
- */
-export const ATTRIBUTE_INFO: Record<AttributeId, AttributeDef> = {
-  pow: { label: 'POW', title: 'Vanguard', desc: 'Weapon power, with a little ATA and some HP.', gain: { atp: 0.9, ata: 0.1, hp: 1.5 } },
-  dex: { label: 'DEX', title: 'Ranger', desc: 'Accuracy, with a little ATP, DFP and HP.', gain: { ata: 0.35, atp: 0.15, dfp: 0.45, hp: 1.5 } },
-  mind: { label: 'MIND', title: 'Mystic', desc: 'Technique power (MST) and TP.', gain: { mst: 1, tp: 4 / 3 } },
-  def: { label: 'DEF', title: 'Guardian', desc: 'Defense, and the most HP.', gain: { dfp: 1.7, hp: 3.5 } },
-};
-
-/** Growth every character gets per level, whatever their points (the lowest of the old classes in each stat). */
-export const SHARED_GROWTH: Stats = { hp: 7.5, tp: 2, atp: 2.2, dfp: 1.3, mst: 1, ata: 1, evp: 2.2, lck: 0.3 };
-
-export type AttributePoints = Record<AttributeId, number>;
-
-export const noAttributes = (): AttributePoints => ({ pow: 0, dex: 0, mind: 0, def: 0 });
-
-// ------------------------------------------------------------ starting kits
-
-export type KitId = 'vanguard' | 'ranger' | 'mystic';
-
-/**
- * Picked at creation: starting gear, palette and Lv 1 stats (the old classes' starting stats, so the first
- * hour plays as before). It locks nothing; after Lv 1 only attribute points, the Mag and gear shape you.
- */
-export interface KitDef {
-  id: KitId;
+export interface ClassDef {
+  id: ClassId;
   name: string;
   desc: string;
   color: number;
-  /** The attribute it leans toward: the title and the Mag's look follow it until points say otherwise. */
-  attribute: AttributeId;
+  family: WeaponFamily;
+  /** The Mag stat it leans on: the outfit before a frame decides it, and the Mag's first form. */
+  magStat: MagStat;
   base: Stats;
+  /** Stats gained per level (fractions add up; the total is rounded down). */
+  growth: Stats;
   startWeapon: string;
   startItems: [string, number][];
   /** The injector it starts with equipped (Mate for fighters, Fluid for casters). */
   startInjector: string;
-  palette: PaletteRow[];
 }
 
-const I = (item: string): QuickAction => ({ kind: 'item', item });
-const T = (tech: TechId): QuickAction => ({ kind: 'tech', tech });
-const J: QuickAction = { kind: 'injector' };
-const E: QuickAction = { kind: 'empty' };
 
-export const KITS: Record<KitId, KitDef> = {
-  vanguard: {
-    id: 'vanguard',
-    name: 'Vanguard',
-    desc: 'Saber and a Mate injector. Starts with the most HP, ATP and DFP.',
+// Growth per level is the old classes' (a shared base plus three attribute points a level: 2 POW + 1 DEF for
+// the Hunter, 2 DEX + 1 POW for the Ranger, 3 MIND for the Force), so gear requirements and tuning still hold.
+export const CLASSES: Record<ClassId, ClassDef> = {
+  hunter: {
+    id: 'hunter',
+    name: 'Hunter',
+    desc: 'Melee: sabers, swords and daggers. The most HP, weapon damage and defense.',
     color: 0x2c4fae,
-    attribute: 'pow',
-    base: { hp: 120, tp: 30, atp: 40, dfp: 24, mst: 15, ata: 50, evp: 48, lck: 10 },
+    family: 'melee',
+    magStat: 'pow',
+    base: { hp: 120, tp: 30, atp: 40, mst: 15, lck: 50, strike: 2, area: 2 },
+    growth: { hp: 14, tp: 2, atp: 4, mst: 1, lck: 1.2, strike: 0.25, area: 0.25 },
     startWeapon: 'saber_1',
-    startItems: [['telepipe', 1]],
+    startItems: [],
     startInjector: 'mate_1',
-    palette: [
-      { mouse: 'weapon', quick: [J, E] },
-      { mouse: 'magic', quick: [I('telepipe'), E] },
-    ],
   },
   ranger: {
     id: 'ranger',
     name: 'Ranger',
-    desc: 'Handgun and a Mate injector. Starts with the best ATA.',
+    desc: 'Ranged: handguns, rifles and shots. The highest crit chance.',
     color: 0xb02a3c,
-    attribute: 'dex',
-    base: { hp: 105, tp: 30, atp: 32, dfp: 16, mst: 15, ata: 70, evp: 45, lck: 10 },
+    family: 'ranged',
+    magStat: 'dex',
+    base: { hp: 105, tp: 30, atp: 32, mst: 15, lck: 70, strike: 1, area: 1 },
+    growth: { hp: 12, tp: 2, atp: 3.4, mst: 1, lck: 1.8, strike: 0.17, area: 0.17 },
     startWeapon: 'handgun_1',
-    startItems: [['telepipe', 1]],
+    startItems: [],
     startInjector: 'mate_1',
-    palette: [
-      { mouse: 'weapon', quick: [J, E] },
-      { mouse: 'magic', quick: [I('telepipe'), E] },
-    ],
   },
-  mystic: {
-    id: 'mystic',
-    name: 'Mystic',
-    desc: 'Cane and a Fluid injector. Starts with the most MST and TP, and the least HP.',
+  force: {
+    id: 'force',
+    name: 'Force',
+    desc: 'Techniques, with a rod or wand in hand. The most tech damage and TP, the least HP.',
     color: 0x9a3ac8,
-    attribute: 'mind',
-    base: { hp: 70, tp: 80, atp: 25, dfp: 10, mst: 60, ata: 45, evp: 50, lck: 10 },
-    startWeapon: 'cane_1',
-    startItems: [['telepipe', 1]],
+    family: 'caster',
+    magStat: 'mind',
+    base: { hp: 70, tp: 80, atp: 25, mst: 60, lck: 45, strike: 0, area: 0 },
+    growth: { hp: 7.5, tp: 6, atp: 2.2, mst: 4, lck: 1, strike: 0.1, area: 0.1 },
+    startWeapon: 'wand_1',
+    startItems: [],
     startInjector: 'fluid_1',
-    palette: [
-      { mouse: 'magic', quick: [T('resta'), J] },
-      { mouse: 'weapon', quick: [J, I('telepipe')] },
-    ],
   },
 };
 
-/** Hell's bands run to Lv 122. */
-export const MAX_LEVEL = 130;
+/** The level cap: Hell's bands end at Lv 100, and past it the chase is items. */
+export const MAX_LEVEL = 100;
 
 /** XP needed to go from `level` to `level + 1`. */
 export function xpToNext(level: number): number {
   return Math.round(25 * Math.pow(level, 1.5));
 }
 
-/** Attribute points a character of `level` has earned in all (none at Lv 1). */
-export function attributePointsEarned(level: number, perLevel: number): number {
-  return Math.max(0, Math.floor((level - 1) * perLevel));
-}
-
-/** Level-up stats: the kit's Lv 1 stats, the shared growth and what the attribute points add. */
-export function statsAtLevel(kit: KitDef, level: number, points: AttributePoints): Stats {
+/** Level-up stats: the class's Lv 1 stats plus its growth. */
+export function statsAtLevel(cls: ClassDef, level: number): Stats {
   const out = {} as Stats;
-  for (const k of STAT_KEYS) {
-    let v = kit.base[k] + SHARED_GROWTH[k] * (level - 1);
-    for (const a of ATTRIBUTES) v += points[a] * (ATTRIBUTE_INFO[a].gain[k] ?? 0);
-    out[k] = Math.floor(v + 1e-6);
-  }
+  for (const k of STAT_KEYS) out[k] = Math.floor(cls.base[k] + cls.growth[k] * (level - 1) + 1e-6);
   return out;
-}
-
-/** The attribute with the most points (a tie, or none yet, goes to the kit's). */
-export function leadAttribute(kit: KitId, points: AttributePoints): AttributeId {
-  const own = KITS[kit]?.attribute ?? 'pow';
-  return [own, ...ATTRIBUTES].reduce((a, b) => (points[b] > points[a] ? b : a));
-}
-
-/** "Vanguard", "Mystic"...: what the character is called, from the attribute that leads. */
-export function buildTitle(kit: KitId, points: AttributePoints): string {
-  return ATTRIBUTE_INFO[leadAttribute(kit, points)].title;
 }

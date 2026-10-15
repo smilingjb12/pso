@@ -17,7 +17,8 @@ export interface AudioMix {
 }
 
 /** Live mix levels (the tuning panel edits these). */
-export const mix: AudioMix = { master: 0.8, music: 0.55, sfx: 0.9 };
+// music: 0.55 x 0.6 (40% cut, 2026-10-09).
+export const mix: AudioMix = { master: 0.8, music: 0.33, sfx: 0.9 };
 
 /** Final output level, after the compressor: 0.8 (20% cut, 2026-10-07) x 0.7 (30% cut, 2026-10-08). */
 const OUTPUT_TRIM = 0.56;

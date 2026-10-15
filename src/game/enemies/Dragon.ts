@@ -85,7 +85,7 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
 
   constructor(x: number, z: number, hard: HardBossScale | null = null) {
     // It takes Burn uncapped (Poison is capped like every boss's).
-    super(cfg, hard, Infinity);
+    super(cfg, hard);
     this.pos.set(x, 0, z);
     this.model = new DragonModel(cfg.breathRange, cfg.breathArcDeg);
     this.group.add(this.model.group);

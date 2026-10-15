@@ -34,9 +34,9 @@ scene.add(sun, sun.target);
 type Line = Exclude<ArmorLine, 'basic'>;
 const LINES: Line[] = ['guard', 'combat', 'psy'];
 const LINE_INFO: Record<Line, { cls: string; weapon: WeaponKind; mag: MagStat }> = {
-  guard: { cls: 'Guard line (ATP)', weapon: 'saber', mag: 'pow' },
-  combat: { cls: 'Combat line (ATA)', weapon: 'handgun', mag: 'dex' },
-  psy: { cls: 'Psy line (MST)', weapon: 'cane', mag: 'mind' },
+  guard: { cls: 'Guard line (Hunter)', weapon: 'saber', mag: 'pow' },
+  combat: { cls: 'Combat line (Ranger)', weapon: 'handgun', mag: 'dex' },
+  psy: { cls: 'Psy line (Force)', weapon: 'wand', mag: 'mind' },
 };
 const LINE_COLOR: Record<Line, string> = { guard: '#7aa8ff', combat: '#ff8a7a', psy: '#c49aff' };
 /** Colour schemes used with 'per line', so each row shows a different glow colour. */
@@ -288,7 +288,7 @@ const refresh = () => {
   rebuild();
   layout();
 };
-gui.add(params, 'mode', { 'All lines': 'All lines', 'Guard (ATP)': 'guard', 'Combat (ATA)': 'combat', 'Psy (MST)': 'psy' }).onChange(refresh);
+gui.add(params, 'mode', { 'All lines': 'All lines', 'Guard (Hunter)': 'guard', 'Combat (Ranger)': 'combat', 'Psy (Force)': 'psy' }).onChange(refresh);
 gui.add(params, 'view', Object.keys(VIEWS)).name('camera').onChange(placeCamera);
 gui.add({ reset: placeCamera }, 'reset').name('reset camera');
 gui.add(params, 'frontBack').name('front + back (one line)').onChange(refresh);

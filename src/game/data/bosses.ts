@@ -43,7 +43,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     shop: [],
     // Characters who played Nightmare before the Ruins got tier 7 from its Dragon: they keep it.
     hardShop: [{ tier: 8, level: 52 }, { tier: 7, level: 42 }],
-    hellShop: [{ tier: 12, level: 92 }],
+    hellShop: [{ tier: 12, level: 87 }],
     dropsAt: 'body', dropRing: 3,
   },
   derolle: {
@@ -51,7 +51,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     xp: () => deRolLe.xp,
     shop: [{ tier: 5, level: 24 }],
     hardShop: [{ tier: 9, level: 62 }],
-    hellShop: [{ tier: 13, level: 102 }],
+    hellShop: [{ tier: 13, level: 91 }],
     dropsAt: 'center', dropRing: 2.6, dropStretch: 2,
   },
   warden: {
@@ -59,7 +59,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     xp: () => warden.xp,
     shop: [{ tier: 6, level: 32 }],
     hardShop: [{ tier: 10, level: 72 }],
-    hellShop: [{ tier: 14, level: 112 }],
+    hellShop: [{ tier: 14, level: 96 }],
     dropsAt: 'center', dropRing: 3,
   },
   falz: {
@@ -67,7 +67,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     xp: () => darkFalz.xp,
     shop: [{ tier: 7, level: 42 }],
     hardShop: [{ tier: 11, level: 82 }],
-    hellShop: [{ tier: 15, level: 122 }],
+    hellShop: [{ tier: 15, level: 100 }],
     opensNightmare: true,
     dropsAt: 'center', dropRing: 3,
   },

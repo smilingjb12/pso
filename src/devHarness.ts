@@ -1,12 +1,14 @@
 // Dev-only helpers for driving the game from the console or automated tests
 // without pointer lock or requestAnimationFrame (e.g. in a hidden tab).
-//   __h.start(slot, kit?, difficulty?)  load or create a character (kit: vanguard / ranger / mystic) and enter the city ('nightmare' if open)
+//   __h.start(slot, cls?, difficulty?)  load or create a character (class: hunter / ranger / force) and enter the city ('nightmare' if open)
 //   __h.run(sec)     step the simulation with fixed 60 Hz frames
-//   __h.bot(sec)     fight nearby enemies with a naive combo bot (opts.late: chain this many s into the window)
+//   __h.bot(sec)     fight nearby enemies with a naive chain bot: basic, basic, the first ready damaging Art
+//                    (opts.seq: per step 'b' basic, 'a' that Art, 0-3 a bar slot; opts.late: chain this many s into the window)
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { mix } from './audio';
 import { engine } from './audio/engine';
+import { ARTS } from './game/data/arts';
 
 export function installHarness(game: any): void {
   // Pointer lock can't be granted to scripted input; failed requests would re-show the pause overlay.
@@ -39,11 +41,30 @@ export function installHarness(game: any): void {
   };
   const yawTo = (x1: number, z1: number, x2: number, z2: number) => Math.atan2(x2 - x1, z2 - z1);
 
-  const bot = (sec: number, opts: { keepGoing?: boolean; seq?: (number | 'E')[]; late?: number } = {}) => {
+  /** The Art bar's keys (RMB, Q, E, R), pressed like a player would. */
+  const pressSlot = (slot: number) => (slot === 0 ? click(2) : key(['', 'KeyQ', 'KeyE', 'KeyR'][slot]));
+  /**
+   * One chain step: 'b' the basic attack (LMB), a number an Art bar slot (0-3 = RMB, Q, E, R), 'a' the first Art on
+   * the bar that deals damage and is ready (else the basic attack).
+   */
+  const pressStep = (step: 'b' | 'a' | number) => {
+    if (step === 'b') return click(0);
+    if (typeof step === 'number') return pressSlot(step);
+    const ch = game.char;
+    const next = game.player.combo.phase === 'idle' ? 0 : game.player.combo.hitIndex + 1;
+    for (let s = 0; s < 4; s++) {
+      const id = ch.artInSlot(s);
+      if (!id || !['area', 'single'].includes(ARTS[id as keyof typeof ARTS].role)) continue;
+      if (game.combat.artBlocked(id, next) === null) return pressSlot(s);
+    }
+    click(0);
+  };
+
+  const bot = (sec: number, opts: { keepGoing?: boolean; seq?: ('b' | 'a' | number)[]; late?: number } = {}) => {
     const p = game.player;
     const c = p.combo;
-    // Mouse buttons per combo hit: 2 = RMB (light, area), 0 = LMB (heavy, single target).
-    const seq = opts.seq ?? [2, 2, 0];
+    // Per chain step: basic, basic, then the first ready damaging Art (or a third basic step).
+    const seq = opts.seq ?? ['b', 'b', 'a'];
     let walking = false;
     let t = 0;
     for (; t < sec * 60; t++) {
@@ -51,9 +72,8 @@ export function installHarness(game: any): void {
       const targets = game.world.targets();
       if (!targets.length && !opts.keepGoing) break;
       if ((!game.lockTarget || !game.lockTarget.alive) && targets.length) {
-        key('KeyF');
+        key('Tab');
         run(1 / 60);
-        if (!game.lockTarget) key('KeyF');
       }
       const tg = game.lockTarget;
       // Low HP: take a dose from a Mate injector that has one.
@@ -67,7 +87,8 @@ export function installHarness(game: any): void {
       }
       if (tg) {
         const d = Math.hypot(tg.pos.x - p.pos.x, tg.pos.z - p.pos.z) - tg.radius;
-        const reach = game.char.weaponKind().ranged ? 10 : 1.6;
+        const kind = game.char.weaponKind();
+        const reach = kind.ranged || kind.family === 'caster' ? 10 : 1.6;
         if (d > reach && c.phase !== 'swing') {
           game.rig.yaw = yawTo(p.pos.x, p.pos.z, tg.pos.x, tg.pos.z);
           if (!walking) key('KeyW');
@@ -75,12 +96,8 @@ export function installHarness(game: any): void {
         } else {
           if (walking) key('KeyW', 'keyup');
           walking = false;
-          if (c.phase === 'idle' && p.canAct) click(seq[0] === 2 ? 2 : 0);
-          else if (c.inWindow && c.t >= c.times.windowOpenAt + (opts.late ?? 0)) {
-            const n = seq[c.hitIndex + 1];
-            if (n === 'E') key('KeyE');
-            else click(n === 2 ? 2 : 0);
-          }
+          if (c.phase === 'idle' && p.canAct) pressStep(seq[0]);
+          else if (c.inWindow && c.t >= c.times.windowOpenAt + (opts.late ?? 0)) pressStep(seq[c.hitIndex + 1]);
         }
       }
       run(1 / 60);
@@ -89,7 +106,7 @@ export function installHarness(game: any): void {
     return t / 60;
   };
 
-  const start = (slot = 0, kit = 'vanguard', difficulty = 'normal') => {
+  const start = (slot = 0, cls = 'hunter', difficulty = 'normal') => {
     takeOver();
     const title = game.menus.menu;
     title.onAction('sel', String(slot));
@@ -101,7 +118,7 @@ export function installHarness(game: any): void {
       title.onAction('new', '');
       title.editor.name = 'Bot';
       title.onAction('goStep', '0');
-      title.onAction('kit', kit);
+      title.onAction('cls', cls);
       title.onAction('finish', '');
     }
     run(0.2);

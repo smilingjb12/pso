@@ -64,10 +64,10 @@ export class Ring implements Effect {
   readonly object: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   private t = 0;
 
-  constructor(x: number, z: number, color: number, private radius: number, private duration = 0.35) {
+  constructor(x: number, z: number, color: number, private radius: number, private duration = 0.35, private peak = 0.9) {
     this.object = new THREE.Mesh(
       new THREE.RingGeometry(0.7, 1, 32).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: peak, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
     );
     this.object.position.set(x, 0.08, z);
   }
@@ -76,10 +76,11 @@ export class Ring implements Effect {
     this.t += dt;
     const k = Math.min(1, this.t / this.duration);
     this.object.scale.setScalar(Math.max(0.01, this.radius * (0.3 + 0.7 * k)));
-    this.object.material.opacity = 0.9 * (1 - k);
+    this.object.material.opacity = this.peak * (1 - k);
     return k < 1;
   }
 }
+
 
 /** A straight shot flashing along a lane, then fading (gunbot fire). */
 export class Tracer implements Effect {

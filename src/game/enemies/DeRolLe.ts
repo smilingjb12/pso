@@ -3,7 +3,7 @@ import { sfx } from '../../audio';
 import { deRolLe as cfg, type HardBossScale } from '../config';
 import { separateCircles, turnToward } from '../collision';
 import type { Hittable } from '../combat/types';
-import { DeRolLeModel } from '../models/derolle';
+import { DeRolLeModel, drlSegRadius } from '../models/derolle';
 import { Lob, Pillar, Ring } from '../world/Effects';
 import { glowMaterial } from '../world/glow';
 import { WATER_Y, type Level, type Rect } from '../world/Level';
@@ -169,7 +169,7 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
     this.head = new THREE.Vector3(this.cx, DEEP - 2, raft.minZ - 16);
     this.trail = new Trail(this.head, new THREE.Vector3(0, 0, -1), (cfg.segments + 1) * cfg.segSpacing);
     this.partsList.push(new BossPart(this, HEAD_RADIUS, partAim, -1));
-    for (let i = 0; i < cfg.segments; i++) this.partsList.push(new BossPart(this, 1.25 - i * 0.055, partAim, i));
+    for (let i = 0; i < cfg.segments; i++) this.partsList.push(new BossPart(this, drlSegRadius(i), partAim, i));
 
     // The beam: a glowing shaft from the mouth plus the strip of deck it scorches.
     this.beamMat = new THREE.MeshBasicMaterial({ color: 0xe080ff, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending });
@@ -854,7 +854,7 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
     const a = this.tmp;
     const b = this.tmp2;
     for (let i = 0; i < cfg.segments; i++) {
-      const d = HEAD_RADIUS * 0.6 + (i + 1) * cfg.segSpacing;
+      const d = HEAD_RADIUS * 2 + i * cfg.segSpacing;
       const g = m.segs[i];
       this.trail.sample(this.head, d, g.position);
       g.position.y += sinkY;

@@ -18,7 +18,7 @@ export const player = {
  * Dash (Space + a direction): pure movement, no invulnerability. It can start at any time
  * you can act (not in hitstun or paralysis) and cancels whatever you were doing: a swing in
  * its windup never lands, a chain and its perfect streak are lost, a cast in progress fizzles
- * (its TP stays spent), the Telepipe breaks.
+ * (its TP stays spent).
  */
 export const dash = {
   charges: 2,
@@ -42,27 +42,36 @@ export const dash = {
 };
 
 /**
- * Technique scaling. Every class knows every technique; MST is the only thing that makes them stronger
- * (and dearer). Each tech's `power` and `tp` in techniques.ts are its values at MST = mstRef.
+ * Technique scaling. Every class knows every technique; tech damage (the `mst` stat) is the only thing that makes them
+ * stronger (and dearer). Each tech's `power` and `tp` in techniques.ts are its values at tech damage = mstRef.
  */
 export const techScaling = {
-  /** The MST at which a technique deals / heals / costs exactly its listed power and TP. */
+  /** The tech damage at which a technique deals / heals / costs exactly its listed power and TP. */
   mstRef: 100,
-  /** Attack damage = power × (MST / mstRef)^mstExp: a little faster than MST, so the Force pulls ahead. */
-  mstExp: 1.2,
-  /** TP cost = tp × (tpFloor + (1 − tpFloor) × MST / mstRef): high MST casts cost more, but less per point of damage. */
+  /** Scales every attack technique's damage (damage = power × tech damage / mstRef × this). */
+  damageMult: 1,
+  /** TP cost = tp × (tpFloor + (1 − tpFloor) × tech damage / mstRef): more tech damage costs more, but less per point of damage. */
   tpFloor: 0.4,
-  /** Shifta / Deband: power × MST / mstRef percent, never above this. */
+  /** Shifta / Deband: power × tech damage / mstRef percent, never above this. */
   buffCap: 35,
+  /** Deband: this share of its % comes off Strike and Area damage taken (35% Deband = −14%). */
+  debandShare: 0.4,
   /** Seconds a Shifta / Deband lasts. */
   buffDuration: 60,
-  /** Status chance added per point of MST (on top of the tech's own chance). */
+  /** Stun chance added per point of tech damage (on top of Zonde's own chance). */
   statusPerMst: 0.0003,
-  /** Burn damage per tick: 5 + MST / burnMstDivisor. */
-  burnMstDivisor: 40,
+  /**
+   * Foie always burns: this share of the hit's damage, spread over burnTime s. Burns don't stack: a new one
+   * only replaces the running one if it has more damage left to deal.
+   */
+  burnShare: 0.4,
+  burnTime: 3,
+  /** Barta always chills: movement and attacks at this speed for chillTime s (no stacking; bosses too). */
+  chillMult: 0.75,
+  chillTime: 3,
 };
 
-/** Casting, including cast chains: attack techs chain like combo hits (up to 3, same perfect streak). */
+/** Casting rhythm: a technique as a chain step uses these perfect-window and grace times (Character.artTiming). */
 export const casting = {
   /** Scales every technique's post-cast recovery (rooted after the tech fires). */
   recoveryMult: 1,

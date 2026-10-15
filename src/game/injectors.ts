@@ -1,4 +1,4 @@
-import { injectorCfg, magCfg } from './config';
+import { injectorCfg, passiveCfg } from './config';
 import type { Character, ItemInstance } from './character';
 import { getDef, INJECTOR_MODS, type InjectorItemDef, type InjectorKind, type InjectorMod } from './data/items';
 
@@ -22,8 +22,18 @@ export function injectorDef(inst: ItemInstance | undefined): InjectorItemDef | n
   return def.type === 'injector' ? def : null;
 }
 
-/** The Mag notable that boosts this kind: Bulwark (DEF) for Mate, Efficiency (MIND) for Fluid. */
-export const INJECTOR_NOTABLE = { mate: 'bulwark', fluid: 'efficiency' } as const;
+/** Talent and gear boosts to a dose: Bulwark (+20%) or Field Medic (+30%) for Mate, Efficiency (+20%) for Fluid, plus Injector potency affixes. */
+export function injectorBoost(kind: InjectorKind, ch?: Character): { pct: number; from: string[] } {
+  const from: string[] = [];
+  let pct = 0;
+  if (!ch) return { pct, from };
+  if (kind === 'mate' && ch.hasPassive('bulwark')) (pct += ch.pAmt('bulwark', passiveCfg.injectorBoost) * 100), from.push('Bulwark');
+  if (kind === 'mate' && ch.hasPassive('fieldMedic')) (pct += ch.pAmt('fieldMedic', passiveCfg.fieldMedicBoost) * 100), from.push('Field Medic');
+  if (kind === 'fluid' && ch.hasPassive('efficiency')) (pct += ch.pAmt('efficiency', passiveCfg.injectorBoost) * 100), from.push('Efficiency');
+  const gear = ch.gearAffix('injPotency');
+  if (gear) (pct += gear), from.push('gear');
+  return { pct, from };
+}
 
 export function injectorStats(inst: ItemInstance, ch?: Character): InjectorStats {
   const def = injectorDef(inst)!;
@@ -38,7 +48,8 @@ export function injectorStats(inst: ItemInstance, ch?: Character): InjectorStats
     over = injectorCfg.steadyTime;
   }
   if (mod === 'absorbent') chargeMult *= injectorCfg.absorbentMult;
-  if (ch?.hasMagPassive(INJECTOR_NOTABLE[def.kind])) potency *= 1 + magCfg.injectorBoost;
+  if (ch) chargeMult *= 1 + ch.gearAffix('injCharge') / 100;
+  potency *= 1 + injectorBoost(def.kind, ch).pct / 100;
   return { kind: def.kind, doses, potency, over, chargeMult, mod };
 }
 
@@ -82,7 +93,8 @@ export function describeInjector(inst: ItemInstance, ch?: Character): string[] {
   lines.push(`${s.doses} doses · each restores ${Math.round(s.potency * 100)}% of max ${gauge}${s.over ? ` over ${s.over} s` : ''}`);
   if (s.mod) lines.push(`${INJECTOR_MODS[s.mod].name}: ${INJECTOR_MODS[s.mod].desc}`);
   const rate = s.chargeMult === 1 ? '' : ` (${s.chargeMult < 1 ? 'slower' : 'faster'}: ×${+s.chargeMult.toFixed(2)})`;
-  lines.push(`Refills as you damage enemies${rate}, slowly between fights, and fully in Pioneer 2.`);
-  if (ch?.hasMagPassive(INJECTOR_NOTABLE[def.kind])) lines.push(`Mag ${def.kind === 'mate' ? 'Bulwark' : 'Efficiency'}: +${Math.round(magCfg.injectorBoost * 100)}% per dose (included)`);
+  lines.push(`Refills as you damage enemies${rate}, and fully between fights and in Pioneer 2.`);
+  const boost = injectorBoost(def.kind, ch);
+  if (boost.pct) lines.push(`${boost.from.join(', ')}: +${Math.round(boost.pct)}% per dose (included)`);
   return lines;
 }

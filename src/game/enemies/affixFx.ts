@@ -7,7 +7,7 @@ import { glowTexture } from '../world/glow';
 // a different part of the body, so a champion's two stay readable:
 //   Overclocked  cyan sparks over the body, speed streaks behind it
 //   Volatile     orange glow at the core that flickers faster as it weakens, smoke on top
-//   Shielding    teal rings orbiting the waist (a hex plate in front once it is alone)
+//   Shielding    teal rings orbiting the waist (its own hex bubble once it is alone)
 //   Regenerating green motes spiralling up (bright while healing, grey while suppressed)
 //   Splitting    a yellow seam down the middle that widens as it weakens
 //   Molten       embers rising and dripping (the body darkens; see Enemy)
@@ -26,7 +26,7 @@ export interface AffixFxState {
   frenzyNear: number;
   /** Regenerating: healing right now, idle (recently hit), or suppressed by Burn / Poison. */
   regen: 'active' | 'idle' | 'off';
-  /** Shielding with nobody tethered: its frontal plate is up. */
+  /** Shielding with nobody tethered: its own bubble is up. */
   shieldAlone: boolean;
 }
 
@@ -227,19 +227,9 @@ const PARTS: Partial<Record<Affix, (g: THREE.Group, s: number) => Part>> = {
       g.add(n);
       return n;
     });
-    const plate = new THREE.Group();
-    const hex = new THREE.Mesh(
-      new THREE.CircleGeometry(0.85 * s, 6),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }),
-    );
-    const edge = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.CircleGeometry(0.85 * s, 6)),
-      new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending }),
-    );
-    plate.add(hex, edge);
-    plate.position.set(0, 1.0 * s, 1.0 * s);
-    plate.rotation.z = Math.PI / 6;
-    g.add(plate);
+    // Alone, it wears the same wireframe hex bubble it puts on its allies.
+    const bubble = shieldBubble(s);
+    g.add(bubble);
     return {
       update(_dt, st, t) {
         rings[0].rotation.set(Math.PI / 2 + Math.sin(t * 0.9) * 0.25, 0, t * 1.4);
@@ -248,8 +238,11 @@ const PARTS: Partial<Record<Affix, (g: THREE.Group, s: number) => Part>> = {
           const a = t * 1.8 + (i * Math.PI * 2) / 3;
           n.position.set(Math.cos(a) * 1.0 * s, (1.0 + Math.sin(a * 2) * 0.1) * s, Math.sin(a) * 1.0 * s);
         });
-        plate.visible = st.shieldAlone;
-        if (st.shieldAlone) (hex.material as THREE.MeshBasicMaterial).opacity = 0.14 + Math.sin(t * 5) * 0.06;
+        bubble.visible = st.shieldAlone;
+        if (st.shieldAlone) {
+          bubble.material.opacity = 0.3 + Math.sin(t * 5) * 0.08;
+          bubble.rotation.y = t * 0.4;
+        }
       },
     };
   },

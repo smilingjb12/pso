@@ -21,6 +21,8 @@ export class Telegraph {
   done = false;
   /** The player's own technique flashes (not a warning; Slipstream ignores them). */
   friendly = false;
+  /** Speed of its clock (a chilled boss's telegraphs run as slow as it does). */
+  rate: () => number = () => 1;
   private fill: THREE.Mesh;
   private rim: THREE.MeshBasicMaterial | null = null;
 
@@ -107,7 +109,7 @@ export class Telegraph {
 
   update(dt: number): void {
     if (this.done) return;
-    this.t += dt;
+    this.t += dt * this.rate();
     const k = Math.min(1, this.t / this.duration);
     if (this.rim) this.rim.opacity = 0.55 + 0.45 * Math.sin(this.t * 16);
     if (this.shape.kind === 'line') this.fill.scale.set(1, k, 1);

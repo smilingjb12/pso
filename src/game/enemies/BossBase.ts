@@ -15,9 +15,9 @@ import type { Boss, BossContext } from './Boss';
 export interface BossStats {
   hp: number;
   atp: number;
-  ata: number;
-  dfp: number;
-  evp: number;
+  /** % of weapon damage its armour takes off, and of technique damage it shrugs off (Normal; scaling changes both). */
+  armor: number;
+  techResist: number;
   /** Injector doses its whole HP bar is worth. */
   charge: number;
   /** HP share at or below which it is enraged. */
@@ -29,14 +29,16 @@ export interface BossStats {
 /** States every boss has: asleep until the player arrives, its intro, and dead. */
 export type BossBaseState = 'dormant' | 'intro' | 'dead';
 
-/** Boss DoT damage is capped so poison can't melt a big HP pool (Burn is capped at 1.5x this). */
-export const BOSS_DOT_CAP = 8;
+/** Poison dps on a boss is capped so it can't melt a big HP pool (Burn isn't: it comes from the hit that lit it). */
+export const BOSS_DOT_CAP = 44;
+/** Chill slows a boss by at most this much (speed multiplier floor), whatever chilled it. */
+export const BOSS_CHILL_FLOOR = 0.75;
 const DOT_TICK = 0.5;
 const FLASH_TIME = 0.08;
 
 /**
- * Burn and Poison on a boss. Both feed one damage slot (the stronger dps, the longer time), ticking
- * every half second; the HUD still gets an icon per kind.
+ * Burn and Poison on a boss. Both feed one damage slot, ticking every half second: a new one takes it
+ * over only if it has more damage left to deal (nothing stacks). The HUD shows the one running.
  */
 export class BossDot {
   private left = 0;
@@ -47,21 +49,17 @@ export class BossDot {
     poison: { left: 0, total: 0 },
   };
 
-  constructor(
-    private readonly maxHp: number,
-    /** Burn dps cap (the Dragon takes Burn uncapped). */
-    private readonly burnCap = BOSS_DOT_CAP * 1.5,
-  ) {}
+  constructor(private readonly maxHp: number) {}
 
   /** Bosses shrug off freeze and stun; Burn and (capped) Poison tick. Poison's power is a share of max HP per second. */
   apply(effect: StatusEffect, power: number, duration: number): void {
     if (effect !== 'burn' && effect !== 'poison') return;
-    const dps = effect === 'poison' ? Math.min(BOSS_DOT_CAP, this.maxHp * power) : Math.min(this.burnCap, power);
-    this.dps = Math.max(this.dps, dps);
-    this.left = Math.max(this.left, duration);
-    const s = this.shown[effect];
-    if (duration >= s.left) s.total = duration;
-    s.left = Math.max(s.left, duration);
+    const dps = effect === 'poison' ? Math.min(BOSS_DOT_CAP, this.maxHp * power) : power;
+    if (dps * duration < this.dps * Math.max(0, this.left)) return;
+    this.dps = dps;
+    this.left = duration;
+    this.shown.burn.left = this.shown.poison.left = 0;
+    this.shown[effect] = { left: duration, total: duration };
   }
 
   /** Run the clock; `land` gets each tick's damage. */
@@ -94,13 +92,14 @@ export interface PartHost {
   readonly race: Race;
   readonly hp: number;
   readonly maxHp: number;
-  readonly evp: number;
-  readonly dfp: number;
+  readonly armor: number;
+  readonly techResist: number;
   readonly alive: boolean;
   partInvulnerable(p: BossPart): boolean;
   damagePart(p: BossPart, amount: number): boolean;
   partMult(p: BossPart): number;
   applyStatus(effect: StatusEffect, power: number, duration: number): void;
+  chill(mult: number, seconds: number): void;
   statusTimers(): StatusTimer[];
 }
 
@@ -136,11 +135,11 @@ export class BossPart implements Hittable {
   get maxHp(): number {
     return this.boss.maxHp;
   }
-  get evp(): number {
-    return this.boss.evp;
+  get armor(): number {
+    return this.boss.armor;
   }
-  get dfp(): number {
-    return this.boss.dfp;
+  get techResist(): number {
+    return this.boss.techResist;
   }
   get aimHeight(): number {
     return this.aim(this);
@@ -156,6 +155,9 @@ export class BossPart implements Hittable {
   }
   applyStatus(effect: StatusEffect, power: number, duration: number): void {
     this.boss.applyStatus(effect, power, duration);
+  }
+  chill(mult: number, seconds: number): void {
+    this.boss.chill(mult, seconds);
   }
   statusTimers(): StatusTimer[] {
     return this.boss.statusTimers();
@@ -197,12 +199,11 @@ export abstract class BossBase<S extends string, A extends string = never> imple
     protected readonly stats: BossStats,
     /** Nightmare scaling (null on Normal). */
     readonly hard: HardBossScale | null,
-    burnCap?: number,
   ) {
     this.maxHp = Math.round(stats.hp * (hard?.hp ?? 1));
     this.hp = this.maxHp;
     this.injectorCharge = stats.charge;
-    this.dot = new BossDot(this.maxHp, burnCap);
+    this.dot = new BossDot(this.maxHp);
   }
 
   // ---------------------------------------------------------------- Boss
@@ -214,16 +215,14 @@ export abstract class BossBase<S extends string, A extends string = never> imple
     return BOSSES[this.id].race;
   }
   get atp(): number {
-    return this.stats.atp + (this.hard?.atp ?? 0);
+    return Math.round((this.stats.atp + (this.hard?.atp ?? 0)) * (this.hard?.atpMult ?? 1));
   }
-  get ata(): number {
-    return this.stats.ata + (this.hard?.ata ?? 0);
+  get armor(): number {
+    return Math.max(0, this.stats.armor + (this.hard?.armor ?? 0));
   }
-  get dfp(): number {
-    return this.stats.dfp + (this.hard?.dfp ?? 0);
-  }
-  get evp(): number {
-    return this.stats.evp + (this.hard?.evp ?? 0);
+  /** Technique resistance: its own on Normal, its difficulty's on Nightmare and Hell. */
+  get techResist(): number {
+    return this.hard?.techResist ?? this.stats.techResist;
   }
   get alive(): boolean {
     return this.state !== 'dead';
@@ -266,8 +265,25 @@ export abstract class BossBase<S extends string, A extends string = never> imple
     this.dot.apply(effect, power, duration);
   }
 
+  /** Chill (Barta, a Barta Field): the whole fight runs slower for a while, its telegraphs included. */
+  private chillMult = 1;
+  private chillT = 0;
+  chill(mult: number, seconds: number): void {
+    mult = Math.max(BOSS_CHILL_FLOOR, mult);
+    this.chillMult = this.chillT > 0 ? Math.min(this.chillMult, mult) : mult;
+    this.chillT = Math.max(this.chillT, seconds);
+  }
+  /** Speed multiplier on its state machine and telegraphs: a rift's tier speeds it up, chill slows it. */
+  get tempo(): number {
+    return (this.hard?.tempo ?? 1) * (this.chillT > 0 && this.alive ? this.chillMult : 1);
+  }
+
   statusTimers(): StatusTimer[] {
     return this.alive ? this.dot.timers() : [];
+  }
+
+  quietHit(): void {
+    this.flashT = 0;
   }
 
   /** Take a blow's damage (the caller checked it can be hurt), never dropping below `floor`. True if it died. */
@@ -298,10 +314,13 @@ export abstract class BossBase<S extends string, A extends string = never> imple
   // ------------------------------------------------------------- update
 
   update(dt: number, ctx: BossContext): void {
-    this.time += dt;
-    this.stateT += dt;
+    // Chill slows everything it does (Burn and Poison still tick in real time).
+    const tdt = dt * this.tempo;
+    this.chillT = Math.max(0, this.chillT - dt);
+    this.time += tdt;
+    this.stateT += tdt;
     this.flashT = Math.max(0, this.flashT - dt);
-    this.always(dt, ctx);
+    this.always(tdt, ctx);
     if (this.state === 'dead') {
       this.deadT += dt;
       this.whileDead(dt);
@@ -312,7 +331,7 @@ export abstract class BossBase<S extends string, A extends string = never> imple
       if (target) this.onDot?.(target, d);
     });
     if (!this.alive) return;
-    this.think(dt, ctx);
+    this.think(tdt, ctx);
   }
 
   /** Runs every tick, dead or alive, before anything else (effects that finish playing out). */

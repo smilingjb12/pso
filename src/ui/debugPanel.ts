@@ -1,14 +1,12 @@
 import GUI from 'lil-gui';
 import { applyMix, mix } from '../audio';
 import {
-  attributeCfg,
   dash,
   ai,
-  attackTypes,
+  basicAttack,
   camera,
   casting,
   combo,
-  comboAccuracy,
   comboDamage,
   debug,
   deRolLe,
@@ -18,15 +16,15 @@ import {
   enemies,
   hazards,
   injectorCfg,
-  telepipeCfg,
   panArms,
   statuses,
   feel,
   formulas,
   lockOn,
   magCfg,
+  passiveCfg,
+  skillCfg,
   player,
-  spellForms,
   stagger,
   techScaling,
   affixes,
@@ -40,12 +38,17 @@ import {
 } from '../game/config';
 import { areas, expeditions, type AreaId, type ExpeditionId } from '../game/data/areas';
 import { weaponKinds } from '../game/data/items';
+import type { TestClass } from '../game/testCharacters';
+import { riftCfg } from '../game/rifts';
 
 export interface DebugActions {
   giveXp(n: number): void;
   giveMeseta(n: number): void;
   giveWeapon(): void;
   giveRare(): void;
+  giveUnit(): void;
+  /** Five of each photon (crafting). */
+  givePhotons(): void;
   heal(): void;
   killAll(): void;
   goto(area: AreaId): void;
@@ -53,6 +56,12 @@ export interface DebugActions {
   unlock(exp: ExpeditionId): void;
   unlockHard(): void;
   unlockHell(): void;
+  /** Save a premade Lv 64 character (Hell open) into the first empty slot. */
+  testCharacter(cls: TestClass): void;
+  /** Falz Rifts: put shards in the stash, open more tiers, or go straight into a rift (Hell rules, any session). */
+  riftShards(n: number): void;
+  riftMoreTiers(n: number): void;
+  riftOpen(boss: boolean): void;
 }
 
 export function createDebugPanel(actions: DebugActions): GUI {
@@ -73,25 +82,50 @@ export function createDebugPanel(actions: DebugActions): GUI {
     meseta: () => actions.giveMeseta(5000),
     weapon: () => actions.giveWeapon(),
     rare: () => actions.giveRare(),
+    unit: () => actions.giveUnit(),
+    photons: () => actions.givePhotons(),
     heal: () => actions.heal(),
     kill: () => actions.killAll(),
     hard: () => actions.unlockHard(),
     hell: () => actions.unlockHell(),
+    ranger: () => actions.testCharacter('ranger'),
+    hunter: () => actions.testCharacter('hunter'),
   };
   g.add(act, 'heal').name('heal HP/TP');
   g.add(act, 'xp100').name('+100 EXP');
   g.add(act, 'xp1000').name('+1000 EXP');
   g.add(act, 'meseta').name('+5000 Meseta');
   g.add(act, 'weapon').name('give random weapon');
-  g.add(act, 'rare').name('give random rare');
+  g.add({ xpLv: () => actions.giveXp(1e7) }, 'xpLv').name('+10M EXP (levels)');
+  g.add(act, 'rare').name('give rare item (your level)');
+  g.add(act, 'unit').name('give random unit');
+  g.add(act, 'photons').name('give 5 of each photon');
   g.add(act, 'kill').name('kill all enemies');
   g.add(act, 'hard').name('unlock Nightmare');
   g.add(act, 'hell').name('unlock Hell');
+  g.add(act, 'ranger').name('new Lv 64 Ranger (empty slot)');
+  g.add(act, 'hunter').name('new Lv 64 Hunter (empty slot)');
   g.add({ city: () => actions.goto('city') }, 'city').name('warp: Pioneer 2');
   for (const exp of Object.values(expeditions)) {
     if (exp.needs) g.add({ unlock: () => actions.unlock(exp.id) }, 'unlock').name(`unlock ${exp.name}`);
     for (const id of exp.floors) g.add({ warp: () => actions.goto(id) }, 'warp').name(`warp: ${areas[id].name}`);
   }
+
+  const rf = gui.addFolder('Rifts').close();
+  rf.add({ s: () => actions.riftShards(5) }, 's').name('give 5 Rift Shards');
+  rf.add({ t: () => actions.riftMoreTiers(10) }, 't').name('open 10 more rift tiers');
+  rf.add({ o: () => actions.riftOpen(false) }, 'o').name('enter a rift (Guardian)');
+  rf.add({ o: () => actions.riftOpen(true) }, 'o').name('enter a rift (boss)');
+  rf.add(riftCfg, 'hpPerTier', 1, 1.3, 0.005).name('HP x per tier');
+  rf.add(riftCfg, 'dmgPerTier', 1, 1.2, 0.005).name('damage x per tier');
+  rf.add(riftCfg, 'armorPerTier', 0, 3, 0.05).name('armour % + per tier');
+  rf.add(riftCfg, 'techResistPerTier', 0, 3, 0.05).name('tech resist % + per tier');
+  rf.add(riftCfg, 'capTier', 1, 40, 1).name('tempo / resist stop at tier');
+  rf.add(riftCfg, 'elite', 0, 1, 0.01).name('elite share');
+  rf.add(riftCfg, 'bossChance', 0, 1, 0.01).name('boss chance');
+  rf.add(riftCfg, 'guardianShard', 0, 2, 0.05).name('Guardian shard odds');
+  rf.add(riftCfg, 'championShard', 0, 0.5, 0.01).name('champion shard odds');
+  rf.add(riftCfg, 'yellow', 0, 1, 0.05).name('yellow shard share');
 
   const c = gui.addFolder('Combo timing');
   c.add(combo, 'windowOpen', 0.2, 1, 0.01).name('window opens at (swing %)');
@@ -112,37 +146,17 @@ export function createDebugPanel(actions: DebugActions): GUI {
   cst.add(casting, 'finisherRecoveryMult', 1, 3, 0.05).name('3rd cast recovery x');
   cst.close();
 
-  const at = gui.addFolder('Attack types');
-  for (const [name, t] of Object.entries(attackTypes)) {
-    const f = at.addFolder(name);
-    f.add(t, 'timingMult', 0.5, 3, 0.05).name('windup x');
-    f.add(t, 'recoveryMult', 0.5, 3, 0.05).name('recovery x');
-    f.add(t, 'damageMult', 0.1, 4, 0.01).name(name === 'light' ? 'damage x (per enemy)' : 'damage x');
-    f.add(t, 'accuracyMult', 0.1, 2, 0.01).name('accuracy x');
-    f.add(t, 'maxHit', 10, 100, 1).name('max hit %');
-    f.close();
-  }
-  const ca = at.addFolder('combo accuracy');
-  const accObj = comboAccuracy as unknown as Record<string, number>;
-  comboAccuracy.forEach((_, i) => ca.add(accObj, String(i), 0.5, 3, 0.01).name(`hit ${i + 1}`));
-  ca.close();
+  const at = gui.addFolder('Basic attack');
+  at.add(basicAttack, 'damageMult', 0.1, 4, 0.01).name('damage x (per enemy)');
+  at.add(basicAttack, 'tpRefill', 0, 0.3, 0.005).name('TP refill (share of base TP)');
+  at.add(basicAttack, 'finisherTp', 1, 4, 0.1).name('finisher TP x');
+  at.add(basicAttack, 'perfectTp', 1, 4, 0.1).name('perfect TP x');
+  at.add(basicAttack, 'boltRange', 4, 25, 0.5).name('photon bolt range');
   const cd = at.addFolder('perfect streak damage');
   const dmgObj = comboDamage as unknown as Record<string, number>;
   comboDamage.forEach((_, i) => cd.add(dmgObj, String(i), 0.5, 3, 0.01).name(`streak ${i}`));
   cd.close();
   at.close();
-
-  const sf = at.addFolder('spell forms');
-  for (const [name, t] of Object.entries(spellForms)) {
-    const f = sf.addFolder(name);
-    f.add(t, 'timingMult', 0.5, 3, 0.05).name('cast time x');
-    f.add(t, 'recoveryMult', 0.5, 3, 0.05).name('recovery x');
-    f.add(t, 'powerMult', 0.1, 4, 0.01).name('power x');
-    f.add(t, 'tpMult', 0.1, 4, 0.05).name('TP x');
-    f.add(t, 'statusMult', 0, 4, 0.05).name('status chance x');
-    f.close();
-  }
-  sf.close();
 
   const st = gui.addFolder('Stagger');
   st.add(stagger, 'light', 0, 3, 0.05).name('light (per enemy)');
@@ -154,78 +168,60 @@ export function createDebugPanel(actions: DebugActions): GUI {
   st.close();
 
   const fm = gui.addFolder('Formulas');
-  fm.add(formulas, 'damageDivisor', 1, 20, 0.1);
-  fm.add(formulas, 'damageScale', 0.1, 3, 0.01);
-  fm.add(formulas, 'evpFactor', 0, 1, 0.01).name('EVP factor (accuracy)');
+  fm.add(formulas, 'critDamage', 1, 4, 0.05).name('crit damage x');
+  fm.add(formulas, 'meleeDamageMult', 0.5, 3, 0.01).name('melee damage x');
+  fm.add(formulas, 'rangedDamageMult', 0.5, 3, 0.01).name('ranged damage x');
   fm.add(formulas, 'enemyDamageScale', 0.05, 2, 0.01);
-  fm.add(formulas, 'edgeAtpPct', 0, 0.2, 0.005).name('Edge ATP share / grind');
-  fm.add(formulas, 'edgeMstPct', 0, 0.5, 0.01).name('Edge MST share / grind');
-  fm.add(formulas, 'banePerGrind', 0, 20, 1).name('Bane race % / grind');
+  fm.add(formulas, 'edgeAtpPct', 0, 0.2, 0.005).name('Edge weapon damage share / grind level (built in)');
+  fm.add(formulas, 'edgeMstPct', 0, 0.5, 0.01).name('Edge tech damage share / grind level (built in)');
+  fm.add(formulas, 'refineArmorPct', 0, 0.2, 0.005).name('Armour bonus share / grind level (built in)');
   fm.add(formulas, 'tpRegen', 0, 10, 0.1).name('TP regen /s');
-  fm.add(formulas, 'meleeTpMult', 0, 5, 0.1).name('melee TP-on-hit mult');
   fm.close();
 
-  const ts = gui.addFolder('Techniques (MST scaling)');
-  ts.add(techScaling, 'mstRef', 20, 400, 1).name('reference MST');
-  ts.add(techScaling, 'mstExp', 0.5, 2, 0.01).name('damage MST exponent');
+  const ts = gui.addFolder('Techniques (tech damage scaling)');
+  ts.add(techScaling, 'mstRef', 20, 400, 1).name('reference tech damage');
+  ts.add(techScaling, 'damageMult', 0.1, 3, 0.01).name('attack tech damage x');
+  ts.add(techScaling, 'debandShare', 0, 1, 0.01).name('Deband share off damage taken');
   ts.add(techScaling, 'tpFloor', 0, 1, 0.01).name('TP cost floor');
   ts.add(techScaling, 'buffCap', 5, 100, 1).name('buff cap %');
   ts.add(techScaling, 'buffDuration', 5, 300, 5).name('buff duration (s)');
-  ts.add(techScaling, 'statusPerMst', 0, 0.002, 0.0001).name('status chance / MST');
-  ts.add(techScaling, 'burnMstDivisor', 5, 200, 1).name('burn: MST per +1 dmg');
+  ts.add(techScaling, 'statusPerMst', 0, 0.002, 0.0001).name('status chance / tech damage');
+  ts.add(techScaling, 'burnShare', 0, 1.5, 0.05).name('burn: share of hit');
+  ts.add(techScaling, 'chillMult', 0.3, 1, 0.05).name('chill: speed');
   ts.close();
 
-  const attrF = gui.addFolder('Attributes');
-  attrF.add(attributeCfg, 'pointsPerLevel', 1, 6, 1).name('points per level');
-
-  const mg = gui.addFolder('Mag');
+  const mg = gui.addFolder('Mag').close();
   mg.add(magCfg, 'pointsPerLevel', 0.25, 3, 0.25).name('points per char level');
-  mg.add(magCfg.keystoneReq[0], 'squares', 0, 40, 1).name('keystone I squares');
-  mg.add(magCfg.keystoneReq[0], 'points', 0, 200, 5).name('keystone I attr points');
-  mg.add(magCfg.keystoneReq[1], 'squares', 0, 40, 1).name('keystone II squares');
-  mg.add(magCfg.keystoneReq[1], 'points', 0, 300, 5).name('keystone II attr points');
-  mg.add(magCfg, 'hybridReqPoints', 0, 100, 5).name('two-arm notable points');
-  mg.add(magCfg, 'bulwarkMult', 0.3, 1, 0.01).name('Bulwark dmg x');
-  mg.add(magCfg, 'lastStandCooldown', 5, 600, 5).name('Last Stand cooldown');
-  mg.add(magCfg, 'followThroughMult', 1, 2, 0.01).name('Follow-through x');
-  mg.add(magCfg, 'breakerMult', 1, 3, 0.05).name('Breaker stagger x');
-  mg.add(magCfg, 'crushDfpIgnore', 0, 1, 0.05).name('Crush DFP ignored');
-  mg.add(magCfg, 'fleetCharges', 0, 3, 1).name('Fleet extra dashes');
-  mg.add(magCfg, 'deadeyeMaxHit', 85, 100, 1).name('Deadeye heavy cap');
-  mg.add(magCfg, 'rhythmBonus', 0, 0.2, 0.005).name('Rhythm +perfect s');
-  mg.add(magCfg, 'rhythmRunMult', 1, 1.5, 0.01).name('Rhythm run speed x');
-  mg.add(magCfg, 'efficiencyTpMult', 0.3, 1, 0.01).name('Efficiency TP x');
-  mg.add(magCfg, 'injectorBoost', 0, 1, 0.05).name('Bulwark/Efficiency injector +');
-  mg.add(magCfg, 'clarityTime', 0, 10, 0.5).name('Clarity free-cast s');
-  mg.add(magCfg, 'swiftCastMult', 0.3, 1, 0.01).name('Swift Cast time x');
-  mg.add(magCfg, 'steadfastKnockback', 0, 1, 0.05).name('Steadfast knockback x');
-  mg.add(magCfg, 'slipstreamTime', 0.5, 10, 0.5).name('Slipstream window s');
-  mg.add(magCfg, 'longshotMult', 1, 2, 0.01).name('Longshot dmg x');
-  mg.add(magCfg, 'longshotRange', 2, 20, 0.5).name('Longshot range m');
-  mg.add(magCfg, 'barrierCap', 0, 1, 0.05).name('Barrier cap (max HP)');
-  mg.add(magCfg, 'barrierFade', 0.5, 15, 0.5).name('Barrier fade s');
-  mg.add(magCfg, 'retaliateMult', 1, 2, 0.05).name('Retaliate dmg x');
-  mg.add(magCfg, 'retaliateTime', 0.5, 6, 0.5).name('Retaliate window s');
+
+  mg.add(magCfg, 'pbChargePerEnemy', 0, 0.3, 0.005).name('photon blast gauge per enemy');
+  mg.add(magCfg, 'pbBossCharge', 0, 3, 0.05).name('photon blast gauge per boss');
+  mg.add(magCfg, 'pbMyllaMult', 0, 20, 0.5).name('Mylla & Youlla x');
+
+  const sk = gui.addFolder('Skills').close();
+  sk.add(skillCfg, 'artBasePower', 0.5, 1.2, 0.01).name('Art power at rank 1');
+  sk.add(skillCfg, 'artPowerPerRank', 0, 0.15, 0.005).name('Art power per rank');
+  sk.add(skillCfg, 'artTpPerRank', 0, 0.05, 0.005).name('Art TP off per rank');
+
+  // Every numeric passive setting, live (passives.ts reads them when it describes or applies a passive).
+  const tf = gui.addFolder('Passives').close();
+  for (const [k, v] of Object.entries(passiveCfg)) {
+    if (typeof v !== 'number') continue;
+    const max = v === 0 ? 1 : v < 1 ? 1 : v <= 3 ? 4 : v <= 20 ? v * 3 : v * 2;
+    tf.add(passiveCfg, k as keyof typeof passiveCfg, 0, max, v < 1 ? 0.01 : v <= 3 ? 0.05 : 1).name(k);
+  }
   const ij = gui.addFolder('Injectors').close();
   ij.add(injectorCfg, 'chargePerEnemy', 0, 2, 0.05).name('Doses per enemy');
   ij.add(injectorCfg, 'fluidChargeMult', 0, 1, 0.05).name('Fluid charge rate x');
   ij.add(injectorCfg, 'eliteChargeMult', 1, 4, 0.25).name('Elite multiplier');
-  ij.add(injectorCfg, 'calmRate', 0, 1, 0.01).name('Out of combat doses / s');
   ij.add(injectorCfg, 'calmDelay', 0, 20, 0.5).name('Out of combat delay (s)');
   ij.add(injectorCfg, 'useLock', 0, 1.5, 0.05).name('Use lock (s)');
-  ij.add(injectorCfg, 'orbChance', 0, 0.3, 0.01).name('Orb chance / enemy');
-  ij.add(injectorCfg, 'orbBoxChance', 0, 0.3, 0.01).name('Orb chance / crate');
-  ij.add(injectorCfg, 'orbDoses', 0.25, 3, 0.25).name('Orb doses');
-  ij.add(injectorCfg, 'orbLife', 5, 60, 1).name('Orb life (s)');
-  ij.add(telepipeCfg, 'castTime', 0.5, 8, 0.25).name('Telepipe cast (s)');
   mg.close();
 
   const w = gui.addFolder('Weapon kinds');
   for (const wk of Object.values(weaponKinds)) {
     const f = w.addFolder(wk.label);
     f.add(wk, 'range', 0.5, 40, 0.1);
-    if (!wk.ranged && !wk.lineWidth) f.add(wk, 'arcDeg', 10, 360, 1);
-    if (wk.lineWidth) f.add(wk, 'lineWidth', 0.2, 5, 0.1);
+    if (!wk.ranged) f.add(wk, 'arcDeg', 10, 360, 1);
     if (wk.spreadDeg) f.add(wk, 'spreadDeg', 0, 120, 1);
     f.add(wk, 'maxTargets', 1, 10, 1);
     f.add(wk, 'damageScale', 0.1, 3, 0.05);
@@ -234,7 +230,8 @@ export function createDebugPanel(actions: DebugActions): GUI {
     f.add(wk.timing, 'recovery', 0.05, 1.5, 0.01);
     if (wk.ranged) f.add(wk, 'projSpeed', 5, 100, 1);
     f.add(wk, 'techBoost', 0.5, 2, 0.01);
-    if (wk.tpOnHit !== undefined) f.add(wk, 'tpOnHit', 0, 10, 1).name('TP on hit');
+    if (wk.tpRefill !== undefined) f.add(wk, 'tpRefill', 0, 3, 0.1).name('TP refill x');
+    if (wk.boltPower !== undefined) f.add(wk, 'boltPower', 0, 3, 0.05).name('bolt power');
     f.close();
   }
   const ww = w.addFolder('Weight classes');
@@ -297,11 +294,9 @@ export function createDebugPanel(actions: DebugActions): GUI {
   e.add(ai, 'waveDelay', 0, 5, 0.1).name('delay between waves (s)');
   for (const arch of Object.values(enemies)) {
     const a = e.addFolder(arch.name);
-    a.add(arch, 'hp', 1, 2000, 1);
+    a.add(arch, 'hp', 1, 10000, 1);
     a.add(arch, 'atp', 0, 500, 1);
-    a.add(arch, 'dfp', 0, 300, 1);
-    a.add(arch, 'ata', 0, 300, 1);
-    a.add(arch, 'evp', 0, 300, 1);
+    a.add(arch, 'armor', 0, 80, 1).name('armour %');
     a.add(arch, 'moveSpeed', 0, 12, 0.1);
     a.add(arch, 'windup', 0.1, 2, 0.01).name('windup (telegraph)');
     a.add(arch, 'strikeActive', 0.05, 0.6, 0.01);
@@ -319,9 +314,9 @@ export function createDebugPanel(actions: DebugActions): GUI {
   e.close();
 
   const d = gui.addFolder('Dragon');
-  d.add(dragon, 'hp', 100, 10000, 10).name('max HP (next spawn)');
+  d.add(dragon, 'hp', 500, 50000, 10).name('max HP (next spawn)');
   d.add(dragon, 'atp', 0, 500, 1);
-  d.add(dragon, 'dfp', 0, 200, 1);
+  d.add(dragon, 'armor', 0, 80, 1).name('armour %');
   d.add(dragon, 'moveSpeed', 0, 10, 0.1);
   d.add(dragon, 'stompWindup', 0.2, 3, 0.05);
   d.add(dragon, 'breathWindup', 0.2, 3, 0.05);
@@ -340,11 +335,11 @@ export function createDebugPanel(actions: DebugActions): GUI {
   d.close();
 
   const drl = gui.addFolder('De Rol Le');
-  drl.add(deRolLe, 'hp', 200, 20000, 50).name('max HP (next spawn)');
+  drl.add(deRolLe, 'hp', 1000, 100000, 50).name('max HP (next spawn)');
   drl.add(deRolLe, 'atp', 0, 600, 1);
-  drl.add(deRolLe, 'dfp', 0, 300, 1);
+  drl.add(deRolLe, 'armor', 0, 80, 1).name('armour %');
   drl.add(deRolLe, 'plateMult', 0.05, 1, 0.05).name('damage through plates x');
-  drl.add(deRolLe, 'maskHp', 50, 3000, 10).name('mask HP (next spawn)');
+  drl.add(deRolLe, 'maskHp', 250, 20000, 10).name('mask HP (next spawn)');
   drl.add(deRolLe, 'phase2At', 0.1, 0.9, 0.05).name('phase 2 at HP %');
   drl.add(deRolLe, 'attackGap', 0.5, 6, 0.1).name('gap between attacks (P1)');
   drl.add(deRolLe, 'attackGap2', 0.5, 6, 0.1).name('gap between attacks (P2)');
@@ -381,7 +376,7 @@ export function createDebugPanel(actions: DebugActions): GUI {
   cv.close();
 
   const wd = gui.addFolder('Warden');
-  wd.add(warden, 'hp', 200, 20000, 50).name('max HP (next spawn)');
+  wd.add(warden, 'hp', 1000, 200000, 50).name('max HP (next spawn)');
   wd.add(warden, 'atp', 0, 700, 1);
   wd.add(warden, 'phase2At', 0, 1, 0.05).name('phase 2 at HP %');
   wd.add(warden, 'attackGap', 0.3, 6, 0.1).name('attack gap (s)');
@@ -449,7 +444,7 @@ export function createDebugPanel(actions: DebugActions): GUI {
   ru.close();
 
   const fz = gui.addFolder('Dark Falz');
-  fz.add(darkFalz, 'hp', 1000, 40000, 100).name('max HP (next spawn)');
+  fz.add(darkFalz, 'hp', 5000, 300000, 100).name('max HP (next spawn)');
   fz.add(darkFalz, 'atp', 0, 800, 1);
   fz.add(darkFalz, 'form2At', 0, 1, 0.05).name('form 2 at HP %');
   fz.add(darkFalz, 'form3At', 0, 1, 0.05).name('form 3 at HP %');

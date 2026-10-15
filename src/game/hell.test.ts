@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { Character, makeItem } from './character';
+import { Character } from './character';
 import { Combo, hastened } from './combo';
-import { attackTypes, combo as comboCfg, enemies, hard, hasteCfg, hell } from './config';
+import { combo as comboCfg, enemies, hard, hasteCfg, hell } from './config';
 import { expeditions, type ExpeditionId } from './data/areas';
 import { getDef } from './data/items';
+import { cutMult } from './formulas';
 import { hardArch, hardBoss } from './hard';
-import { rollArmor, rollBossDrops, rollHaste, rollWeapon, shopTier } from './loot';
+import { rollAffixValue, rollArmor, rollBossDrops, rollWeapon, shopTier } from './loot';
+import { ITEM_AFFIXES } from './data/itemAffixes';
+import type { ItemInstance } from './character';
 import { TIER_STAGE } from './models/heroine';
 import { hellOpen, nightmareOpen, openDifficulties } from '../ui/title';
 import { mulberry32 } from './world/Level';
@@ -22,8 +25,8 @@ describe('Hell scaling', () => {
       expect(h.atp).toBeGreaterThan(nm.atp);
       expect(h.dropTier).toBe(hard[e].dropTier + 4);
     }
-    // More elites than Nightmare, ramping up through the expeditions.
-    expect(hell.forest.elite!).toBeGreaterThan(hard.eliteChance);
+    // At least Nightmare's elites, ramping up through the expeditions.
+    expect(hell.forest.elite!).toBeGreaterThanOrEqual(hard.eliteChance);
     for (let i = 1; i < EXPS.length; i++) expect(hell[EXPS[i]].elite!).toBeGreaterThan(hell[EXPS[i - 1]].elite!);
   });
 
@@ -38,7 +41,7 @@ describe('Hell scaling', () => {
 
 describe('Hell unlocks and loot', () => {
   it('opens Hell once Dark Falz falls on Nightmare, and counts Hell kills apart', () => {
-    const ch = Character.create('T', 'vanguard');
+    const ch = Character.create('T', 'hunter');
     expect(openDifficulties(ch.data)).toEqual(['normal']);
     ch.addBossKill('falz', 'normal');
     expect(nightmareOpen(ch.data)).toBe(true);
@@ -53,14 +56,14 @@ describe('Hell unlocks and loot', () => {
   it('opens shop tiers 12-15 after the Hell bosses, at the band tops', () => {
     const all = { dragon: true, derolle: true, warden: true, falz: true };
     const u = { ...all, hard: all, hell: { dragon: true } };
-    expect(shopTier(91, u)).toBe(11);
-    expect(shopTier(92, u)).toBe(12);
-    expect(shopTier(130, { ...u, hell: all })).toBe(15);
+    expect(shopTier(86, u)).toBe(11);
+    expect(shopTier(87, u)).toBe(12);
+    expect(shopTier(100, { ...u, hell: all })).toBe(15);
   });
 
   it('drops the expedition top tier from Hell bosses', () => {
     const rng = mulberry32(5);
-    const tiers = rollBossDrops('falz', 'hell', rng, 'atp').flatMap((d) => (d.kind === 'item' ? [getDef(d.item.id)] : []));
+    const tiers = rollBossDrops('falz', 'hell', rng, 'melee').flatMap((d) => (d.kind === 'item' ? [getDef(d.item.id)] : []));
     expect(tiers.some((d) => (d.type === 'weapon' || d.type === 'armor') && d.tier === 15)).toBe(true);
   });
 
@@ -70,27 +73,32 @@ describe('Hell unlocks and loot', () => {
   });
 });
 
+const haste = (it: ItemInstance) => (it.affixes ?? []).find((r) => r.id === 'haste')?.v;
+
 describe('Haste', () => {
-  it('rolls only on tier 11+ gear, up to the tier cap', () => {
+  it('rolls only on tier 8+ gear (Nightmare), up to the tier cap, Frail included', () => {
     const rng = mulberry32(3);
     for (let i = 0; i < 200; i++) {
-      expect(rollWeapon(10, rng).haste).toBeUndefined();
-      const w = rollWeapon(15, rng);
-      if (w.haste !== undefined) expect(w.haste).toBeGreaterThanOrEqual(1);
-      expect(w.haste ?? 0).toBeLessThanOrEqual(hasteCfg.capByTier[15]);
-      expect(rollArmor(11, rng).haste ?? 0).toBeLessThanOrEqual(hasteCfg.capByTier[11]);
+      const normal = rollWeapon(7, rng, undefined, 'rare');
+      expect(haste(normal)).toBeUndefined();
+      expect((normal.affixes ?? []).some((r) => r.id === 'frail')).toBe(false);
+      expect(haste(rollWeapon(8, rng, undefined, 'rare')) ?? 0).toBeLessThanOrEqual(hasteCfg.capByTier[8]);
+      const w = rollWeapon(15, rng, undefined, 'rare');
+      expect(haste(w) ?? 1).toBeGreaterThanOrEqual(1);
+      expect(haste(w) ?? 0).toBeLessThanOrEqual(hasteCfg.capByTier[15]);
+      expect(haste(rollArmor(11, rng, undefined, 'rare')) ?? 0).toBeLessThanOrEqual(hasteCfg.capByTier[11]);
     }
     const seen = new Set<number>();
-    for (let i = 0; i < 400; i++) seen.add(rollHaste(makeItem('frame_guard_13'), 13, rng).haste ?? 0);
+    for (let i = 0; i < 400; i++) seen.add(rollAffixValue(ITEM_AFFIXES.haste, 13, rng).v);
     expect(Math.max(...seen)).toBe(hasteCfg.capByTier[13]);
   });
 
   it('adds up across weapon, frame and barrier and shortens wind-ups and recoveries (not the chain grace)', () => {
-    const ch = Character.create('T', 'vanguard');
+    const ch = Character.create('T', 'hunter');
     const w = ch.data.inventory.find((i) => i.uid === ch.data.equipped.weapon)!;
-    w.haste = 10;
+    w.affixes = [{ id: 'haste', v: 10 }];
     const f = ch.data.inventory.find((i) => i.uid === ch.data.equipped.frame)!;
-    f.haste = 15;
+    f.affixes = [{ id: 'haste', v: 10 }, { id: 'frail', v: 5, p: 20 }];
     expect(ch.haste()).toBe(25);
     expect(ch.hasteMult()).toBeCloseTo(0.8);
     const base = ch.weaponKind().timing;
@@ -98,9 +106,26 @@ describe('Haste', () => {
     expect(fast.windup).toBeCloseTo(base.windup * 0.8);
     expect(fast.recovery).toBeCloseTo(base.recovery * 0.8);
     expect(fast.grace).toBe(base.grace);
-    const slow = new Combo(comboCfg, attackTypes, () => base).computeTimes(0, 'light');
-    const quick = new Combo(comboCfg, attackTypes, () => fast).computeTimes(0, 'light');
+    const slow = new Combo(comboCfg, () => base).computeTimes(0, 'basic');
+    const quick = new Combo(comboCfg, () => fast).computeTimes(0, 'basic');
     expect(quick.duration).toBeLessThan(slow.duration);
     expect(quick.windowCloseAt - quick.duration).toBeCloseTo(slow.windowCloseAt - slow.duration);
+  });
+});
+
+describe('Technique resistance', () => {
+  it('is each enemy own on Normal and its difficulty and expedition on Nightmare and Hell, a plain % cut', () => {
+    expect(enemies.Booma.techResist).toBeGreaterThan(0);
+    expect(hardArch(enemies.Booma, hard.forest).techResist).toBe(hard.forest.techResist);
+    expect(hardArch(enemies.ChaosBringer, hell.ruins).techResist).toBe(hell.ruins.techResist);
+    expect(cutMult(hell.ruins.techResist)).toBeCloseTo(1 - hell.ruins.techResist / 100);
+    expect(hardBoss('falz', true).techResist).toBe(hell.bosses.falz.techResist);
+    expect(cutMult(0)).toBe(1);
+  });
+
+  it('adds armour per expedition on top of each enemy own, never below 0', () => {
+    for (const s of [hard.forest, hard.ruins, hell.forest, hell.ruins]) {
+      for (const e of [enemies.Booma, enemies.ChaosBringer]) expect(hardArch(e, s).armor).toBe(Math.max(0, e.armor + s.armor));
+    }
   });
 });

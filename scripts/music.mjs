@@ -58,6 +58,8 @@ const SONGS = {
     seconds: 100,
     prompt: `${ERA} Ambient exploration music for the caves beneath an alien frontier planet: volcanic caverns and flooded grottos. Sci-fi, mysterious but calm and pleasant, never ominous or sad, in D dorian. Warm, slowly evolving analog synth pads, soft sparse Rhodes electric piano chords, deep fretless bass notes held long, and gentle airy textures. No tribal or hand drums, no marimba. Ambient background music meant to sit unnoticed under gameplay: slow, soft, low-key and evenly quiet, with no drums, no beat, no prominent lead melody and no big swells. ${NO} ${LOOP}`,
   },
+  // Superseded (2026-10-09): caves-battle.mp3 is now rendered from the synth (cavesBattle in
+  // src/audio/music/tracks.ts); regenerating this id would overwrite it with an ElevenLabs take.
   'caves-battle': {
     seconds: 100,
     prompt: `${ERA} Combat theme for the same alien caves. Same key (D dorian) and tempo (90 BPM) as the calm exploration theme. Futuristic sci-fi action, synth-orchestral: a driving synth bass line, staccato strings, warm synth pads, punchy electronic drums (tight kick and snare, sixteenth-note hi-hats) that sit back in the mix rather than dominate, and a confident heroic melody on a bright synth lead and strings. Exciting rather than threatening or scary. No tribal drums, hand drums, congas, taiko, marimba, acoustic guitar or jungle percussion. ${NO} ${LOOP}`,
@@ -76,6 +78,17 @@ const AMBIENT_EXCLUDE = [
 const CAVES_AMBIENT = [
   'instrumental ambient video game background music', 'sci-fi exploration of caves on an alien planet',
   'calm, mysterious, pleasant and wondrous', 'D dorian', 'slow, soft and evenly quiet, sits unnoticed under gameplay',
+  'one steady section that loops seamlessly',
+];
+const BATTLE_EXCLUDE = [
+  'synthwave', 'retrowave', 'disco', 'funk', 'four-on-the-floor dance beat', 'eurobeat', 'EDM', 'pop', 'groovy',
+  'heroic melody', 'bright synth lead', 'catchy lead melody', 'saxophone', 'slap bass', 'arpeggiated synth',
+  'happy', 'uplifting', 'triumphant', 'bells', 'chimes', 'glockenspiel', 'choir', 'vocals',
+  'tribal drums', 'hand drums', 'congas', 'marimba', 'acoustic guitar', 'intro', 'outro', 'fade out', 'breakdown',
+];
+const CAVES_BATTLE = [
+  'instrumental video game combat music', 'fighting monsters in caves on an alien planet', 'D minor', '90 BPM',
+  'barebones, minimal and urgent', 'tense and pressing, a sense of danger and hurry', 'no lead melody, driven by rhythm',
   'one steady section that loops seamlessly',
 ];
 const VARIANTS = {
@@ -100,6 +113,31 @@ const VARIANTS = {
       seconds: 90,
       positive: [...CAVES_AMBIENT, 'breathy alto flute playing a few long sustained notes', 'soft legato strings', 'warm analog synth pad', 'deep soft bass'],
       negative: AMBIENT_EXCLUDE,
+    },
+  ],
+  // The first battle take came out as synthwave disco; these strip it back to
+  // a lean, urgent pulse.
+  'caves-battle': [
+    {
+      key: 'A',
+      note: 'Pulse and toms: relentless low synth-bass ostinato, dry floor toms and a few tense string stabs.',
+      seconds: 90,
+      positive: [...CAVES_BATTLE, 'relentless repeating low synth bass ostinato in eighth notes', 'dry pounding floor toms and a tight kick', 'short tense staccato low string stabs', 'very sparse, mostly just bass and drums'],
+      negative: BATTLE_EXCLUDE,
+    },
+    {
+      key: 'B',
+      note: 'Strings: driving spiccato cellos and basses with a dry kick and snare, a few low brass hits.',
+      seconds: 90,
+      positive: [...CAVES_BATTLE, 'driving spiccato cellos and double basses repeating a two-note figure', 'dry tight kick and snare', 'occasional short low brass hits', 'lean arrangement with lots of space'],
+      negative: BATTLE_EXCLUDE,
+    },
+    {
+      key: 'C',
+      note: 'Industrial: gritty distorted bass pulse, metallic hits and a mechanical drum loop.',
+      seconds: 90,
+      positive: [...CAVES_BATTLE, 'gritty distorted analog bass pulse', 'mechanical industrial drum loop with metallic hits', 'clicking ticking percussion like a countdown', 'stripped-down and raw'],
+      negative: BATTLE_EXCLUDE,
     },
   ],
 };

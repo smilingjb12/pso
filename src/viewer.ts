@@ -14,12 +14,13 @@ import { Humanoid, humanPoses, STYLES, type Grip } from './game/models/humanoid'
 import { LEAD_FORMS, MAG_STATS, STAGE1, type MagStat } from './game/mag';
 import { MagCompanion } from './game/models/mag';
 import { buildProp, type PropKind } from './game/models/props';
+import { RiftGateModel } from './game/models/riftGate';
 import type { Pose, Rig } from './game/models/Rig';
 import { buildWeapon, WEAPON_GRIP } from './game/models/weapons';
 import { gaitPose, PLAYER_GAIT, scaleGait } from './game/models/gait';
 import { PLAYER_SWING, swingFrame, WeaponHold, type HoldRequest } from './game/models/swings';
 import { LEFT_HAND_AT, type HiltTarget } from './game/models/twoHand';
-import { player as playerCfg } from './game/config';
+import { deRolLe as drlCfg, player as playerCfg } from './game/config';
 import {
   BelraModel, belraPoses, BringerModel, bringerPoses, darvantModel, DelsaberModel, delsaberPoses, DimenianModel, dimenianPoses, SorcererModel, sorcererPoses,
 } from './game/models/ruins';
@@ -79,6 +80,7 @@ type Entry =
   | { kind: 'prop'; prop: PropKind }
   | { kind: 'weapon'; weapon: WeaponKind }
   | { kind: 'mag' }
+  | { kind: 'riftGate' }
   | { kind: 'gunbot' }
   | { kind: 'garanz' }
   | { kind: 'sinow' }
@@ -151,6 +153,7 @@ const CATALOGUE: Record<string, Entry> = {
   'Prop: Chimney stack': { kind: 'prop', prop: 'stack' },
   ...Object.fromEntries((Object.keys(weaponKinds) as WeaponKind[]).map((w) => [`Weapon: ${weaponKinds[w].label}`, { kind: 'weapon', weapon: w }])),
   'Mag: all forms': { kind: 'mag' },
+  'Rift Gate': { kind: 'riftGate' },
 };
 
 /**
@@ -189,7 +192,7 @@ function textSprite(text: string, color: number): THREE.Sprite {
   return sprite;
 }
 
-const HUMAN_ANIMS = ['idle', 'run', 'slash 1', 'slash 2', 'slash 3 (overhead)', 'thrust (partisan)', 'shoot', 'cast 1', 'cast 2', 'cast 3 (finisher)', 'cast (support)', 'hurt', 'drink', 'wave'];
+const HUMAN_ANIMS = ['idle', 'run', 'slash 1', 'slash 2', 'slash 3 (overhead)', 'shoot', 'cast 1', 'cast 2', 'cast 3 (finisher)', 'cast (support)', 'hurt', 'drink', 'wave'];
 const BOOMA_ANIMS = ['idle', 'walk', 'windup', 'strike', 'attack loop', 'hurt', 'crouch'];
 const DRAGON_ANIMS = ['idle', 'walk', 'roar', 'stomp windup', 'breath', 'charge', 'stunned (weak point)', 'dead'];
 const LILY_ANIMS = ['idle', 'aim', 'spit', 'burst windup', 'burst', 'attack loop', 'hurt', 'dead'];
@@ -212,6 +215,7 @@ const NO_ANIMS = ['\u2014'];
 const ANIMS: Record<Entry['kind'], string[]> = {
   human: HUMAN_ANIMS, booma: BOOMA_ANIMS, brute: BOOMA_ANIMS, lily: LILY_ANIMS, migium: MIGIUM_ANIMS,
   derolle: DRL_ANIMS, dragon: DRAGON_ANIMS, prop: NO_ANIMS, weapon: NO_ANIMS, mag: NO_ANIMS,
+  riftGate: ['idle'],
   gunbot: GUNBOT_ANIMS, garanz: GARANZ_ANIMS, sinow: SINOW_ANIMS, node: NODE_ANIMS, warden: WARDEN_ANIMS,
   dimenian: DIMENIAN_ANIMS, delsaber: DELSABER_ANIMS, sorcerer: SORCERER_ANIMS, belra: BELRA_ANIMS, bringer: BRINGER_ANIMS,
   darvant: NO_ANIMS, falz: FALZ_ANIMS,
@@ -250,6 +254,7 @@ let warden: WardenModel | null = null;
 let ruins: { rig: Rig; pose: () => { pose: Pose; rate: number }; update?: () => void } | null = null;
 let husk: HuskModel | null = null;
 let angel: AngelModel | null = null;
+let riftGate: RiftGateModel | null = null;
 let time = 0;
 
 function frame(obj: THREE.Object3D): void {
@@ -292,6 +297,7 @@ function build(): void {
   ruins = null;
   husk = null;
   angel = null;
+  riftGate = null;
   brute = null;
   mags = [];
   const e = CATALOGUE[params.model];
@@ -324,7 +330,7 @@ function build(): void {
       root = migium.rig.root;
       break;
     case 'derolle':
-      drl = new DeRolLeModel(8);
+      drl = new DeRolLeModel(drlCfg.segments);
       root = drl.root;
       break;
     case 'gunbot':
@@ -410,6 +416,10 @@ function build(): void {
     case 'prop':
       root = buildProp(e.prop);
       break;
+    case 'riftGate':
+      riftGate = new RiftGateModel();
+      root = riftGate.root;
+      break;
     case 'mag':
       root = new THREE.Group();
       mags = MAG_LINEUP.map((e, i) => {
@@ -490,8 +500,6 @@ function humanPose(): { pose: Pose; rate: number; hold?: HoldRequest } {
       const f = swingFrame(PLAYER_SWING, i, k, impact, humanHilt);
       return { pose: f.pose, rate: 30, hold: { hilt: f.hilt } };
     }
-    case 'thrust (partisan)':
-      return { pose: humanPoses.thrust(0, phase(1), impact), rate: 30, hold: params.weapon === 'none' ? undefined : {} };
     case 'shoot':
       return { pose: humanPoses.shoot(phase(0.8), 0.25, grip), rate: 30 };
     case 'cast 1':
@@ -596,7 +604,7 @@ function poseDeRolLe(m: DeRolLeModel): void {
   m.head.position.copy(head);
   m.head.rotation.set(rear ? 0.2 : 0, lying ? -Math.PI / 2 : 0, 0);
   m.segs.forEach((g, i) => {
-    const s = 1.5 + (i + 1) * 2.1;
+    const s = 3 + i * drlCfg.segSpacing;
     const q = curve(s - 0.7).sub(curve(s + 0.7));
     g.position.copy(curve(s));
     g.rotation.set(-Math.atan2(q.y, Math.hypot(q.x, q.z)), Math.atan2(q.x, q.z), 0);
@@ -913,6 +921,7 @@ function tick(dt: number, snap = false): void {
     poseRig(ruins.rig, ruins.pose(), dt, snap);
     ruins.update?.();
   }
+  riftGate?.update(time);
   if (husk) husk.pose({ open: params.animation === 'open' ? 1 : 0, charge: params.animation === 'charge' ? 1 : 0, time, flash: false, shatter: 0 });
   if (angel) angel.pose({ charge: params.animation === 'charge' ? 1 : 0, cast: params.animation === 'cast' ? 1 : 0, time, flash: false, presence: 1 });
   if (dragon) dragon.pose(dragonPose());

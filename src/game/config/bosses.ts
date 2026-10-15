@@ -1,9 +1,8 @@
 export const dragon = {
-  hp: 1100,
-  atp: 170,
-  dfp: 30,
-  evp: 45,
-  ata: 120,
+  hp: 6111,
+  atp: 108,
+  armor: 14,
+  techResist: 15,
   xp: 250,
   /** Injector doses its whole HP bar is worth (see injectorCfg). */
   charge: 3,
@@ -16,7 +15,7 @@ export const dragon = {
   breathDuration: 1.8,
   breathRange: 13,
   breathArcDeg: 50,
-  breathTickDamage: 14,
+  breathTickDamage: 12,
   chargeWindup: 0.88,
   chargeSpeed: 12,
   chargeDistance: 20,
@@ -56,25 +55,25 @@ export const dragon = {
 };
 
 export const deRolLe = {
-  hp: 2300,
-  atp: 245,
-  ata: 132,
-  dfp: 45,
-  evp: 50,
+  hp: 12778,
+  atp: 161,
+  armor: 15,
+  techResist: 10,
   xp: 900,
   /** Injector doses its whole HP bar is worth (see injectorCfg). */
   charge: 4.5,
   /** Shell plates: HP each, and the share of damage the boss itself takes through a plate. */
-  plateHp: 150,
+  plateHp: 2222,
   plateMult: 0.3,
-  maskHp: 950,
+  maskHp: 5278,
   /** Phase 2 starts by HP fraction even if the mask survives. */
   phase2At: 0.5,
   phase2DamageMult: 1.15,
   headRestMult: 1.5,
   enrageAt: 0.25,
-  segments: 8,
-  segSpacing: 2.1,
+  /** Few, big body segments: each is a separate target, so multi-target techs mustn't hit a dozen of them. */
+  segments: 3,
+  segSpacing: 3,
   /** Seconds between attacks (phase 1 / phase 2). */
   attackGap: 2.1,
   attackGap2: 1.5,
@@ -94,7 +93,7 @@ export const deRolLe = {
   beamRange: 22,
   beamArcDeg: 12,
   beamSpanDeg: 75,
-  beamTickDamage: 24,
+  beamTickDamage: 18,
   headRest: 2.7,
   sprayWindup: 1.25,
   sprayPuddles: 6,
@@ -119,11 +118,10 @@ export const deRolLe = {
  * Spark Mites and Repair Drones, and slams its hands on anyone close.
  */
 export const warden = {
-  hp: 9000,
-  atp: 320,
-  ata: 150,
-  dfp: 70,
-  evp: 45,
+  hp: 50000,
+  atp: 206,
+  armor: 18,
+  techResist: 4,
   xp: 1600,
   /** Injector doses its whole HP bar is worth. */
   charge: 4.5,
@@ -155,7 +153,7 @@ export const warden = {
   wallWindup2: 1.5,
   wallTime: 1.5,
   wallGap: 5,
-  wallDamage: 110,
+  wallDamage: 72,
   wallBurn: 2,
   // Lockdown: the cell you stand on (phase 2: and one more) becomes burning floor until reset.
   lockWindup: 1.5,
@@ -163,7 +161,7 @@ export const warden = {
   /** Seconds the zones stay at the cap before they all reset. */
   lockHold: 8,
   /** Flat damage per half second spent in a zone (it also adds Burn). */
-  lockTick: 28,
+  lockTick: 18,
   // Hand slam on anyone within slamRange of its alcove.
   slamRange: 9,
   slamWindup: 1.4,
@@ -206,11 +204,10 @@ export const warden = {
  *     (the dark half fires, then the other), feather volleys and a lance across the altar (a dash check).
  */
 export const darkFalz = {
-  hp: 14000,
-  atp: 450,
-  ata: 165,
-  dfp: 80,
-  evp: 50,
+  hp: 77778,
+  atp: 324,
+  armor: 16,
+  techResist: 0,
   xp: 2600,
   /** Injector doses its whole HP bar is worth. */
   charge: 5,

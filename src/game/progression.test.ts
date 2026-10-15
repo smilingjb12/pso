@@ -1,26 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { Character, compareEquip, dropVerdict, gearVerdict, grindPreview, itemName, makeItem } from './character';
+import { Character, compareEquip, dropVerdict, gearVerdict, grindBonus, itemName, makeItem, rarityOf, statDef } from './character';
 import { enemies, techScaling } from './config';
 import { areas } from './data/areas';
-import { xpToNext, type AttributeId, type KitId } from './data/stats';
-import { getDef, grindCap, INVENTORY_SIZE, itemDefs, MAX_STACK, weaponKinds } from './data/items';
+import { CLASS_IDS, MAX_LEVEL, xpToNext, type ClassId } from './data/stats';
+import { getDef, grindCap, INVENTORY_SIZE, itemDefs, kindFamily, PHOTON_STACK, raceCap, weaponKinds, type ArmorItemDef } from './data/items';
+import { ITEM_AFFIXES } from './data/itemAffixes';
 import { buffPct, restaHeal } from './data/techniques';
-import { rollDragonDrops, rollDrop, rollEliteBonus, rollEnemyDrop, rollFalzDrops, rollWardenDrops, rollWeapon, shopStock, shopTier, type LootBias } from './loot';
+import {
+  LOOT_LEAN, rollArmor, rollDragonDrops, rollDrop, rollEliteBonus, rollEnemyDrop, rollFalzDrops, rollUnit, rollWardenDrops, rollWeapon, shopStock, shopTier, type LootBias,
+} from './loot';
 import { Level, mulberry32, TILE } from './world/Level';
 
-const KIT_IDS: KitId[] = ['vanguard', 'ranger', 'mystic'];
-const BIASES: LootBias[] = ['atp', 'ata', 'mst'];
+const BIASES: LootBias[] = ['melee', 'ranged', 'caster'];
 
-/** Points spent the way the old classes grew: Mystic all MIND, Vanguard two POW to one DEF, Ranger two DEX to one POW. */
-const OLD_CLASS: Record<KitId, AttributeId[]> = { mystic: ['mind', 'mind', 'mind'], vanguard: ['pow', 'pow', 'def'], ranger: ['dex', 'dex', 'pow'] };
-function spendLikeOldClass(ch: Character): Character {
-  for (let i = 0; ch.attributePoints > 0; i++) ch.spendAttribute(OLD_CLASS[ch.data.kit][i % 3]);
+/** A character of `cls` at `level` (no Mag points spent). */
+function atLevel(cls: ClassId, level: number): Character {
+  const ch = Character.create('T', cls);
+  ch.data.level = level;
   return ch;
 }
 
 describe('Character', () => {
-  it('starts every kit with a usable weapon equipped', () => {
-    for (const cls of KIT_IDS) {
+  it('starts every class with a usable weapon equipped', () => {
+    for (const cls of CLASS_IDS) {
       const ch = Character.create('T', cls);
       const w = ch.weaponInstance();
       expect(w).toBeDefined();
@@ -30,7 +32,7 @@ describe('Character', () => {
   });
 
   it('levels up and carries over excess XP', () => {
-    const ch = Character.create('T', 'vanguard');
+    const ch = Character.create('T', 'hunter');
     const hp1 = ch.maxHp;
     const gained = ch.addXp(xpToNext(1) + xpToNext(2) + 5);
     expect(gained).toBe(2);
@@ -39,174 +41,141 @@ describe('Character', () => {
     expect(ch.maxHp).toBeGreaterThan(hp1);
   });
 
-  it('stacks consumables up to the cap, one stack per type', () => {
-    const ch = Character.create('T', 'vanguard');
-    const start = ch.countOf('telepipe');
-    expect(ch.addItem(makeItem('telepipe', { qty: MAX_STACK - start }))).toBe(true);
-    expect(ch.countOf('telepipe')).toBe(MAX_STACK);
-    expect(ch.addItem(makeItem('telepipe'))).toBe(false);
+  it('stacks bag items up to the cap, one stack per type', () => {
+    const ch = Character.create('T', 'hunter');
+    const start = ch.countOf('photon_drop');
+    expect(ch.addItem(makeItem('photon_drop', { qty: PHOTON_STACK - start }))).toBe(true);
+    expect(ch.countOf('photon_drop')).toBe(PHOTON_STACK);
+    expect(ch.addItem(makeItem('photon_drop'))).toBe(false);
+  });
+
+  it('carries photons outside the bag: a full bag still takes them', () => {
+    const ch = Character.create('T', 'hunter');
+    while (!ch.full) ch.addItem(makeItem('saber_1'));
+    expect(ch.addItem(makeItem('photon_sphere'))).toBe(true);
+    expect(ch.full).toBe(true);
+    expect(ch.bagCount).toBe(INVENTORY_SIZE);
+  });
+
+  it('drops items that no longer exist (the Telepipe) from old saves', () => {
+    const data = Character.create('T', 'hunter').data;
+    data.inventory.push({ uid: 'old', id: 'telepipe', qty: 3 });
+    const ch = new Character(JSON.parse(JSON.stringify(data)));
+    expect(ch.data.inventory.some((i) => i.id === 'telepipe')).toBe(false);
   });
 
   it('respects inventory capacity for non-stackables', () => {
-    const ch = Character.create('T', 'vanguard');
+    const ch = Character.create('T', 'hunter');
     while (ch.data.inventory.length < INVENTORY_SIZE) expect(ch.addItem(makeItem('saber_1'))).toBe(true);
     expect(ch.addItem(makeItem('saber_1'))).toBe(false);
   });
 
-  it('has no classes: only stat requirements decide gear', () => {
-    const ch = Character.create('T', 'mystic');
+  it('gates gear by stat requirements only, whatever the class', () => {
+    const ch = Character.create('T', 'force');
     expect(ch.canEquip(makeItem('sword_1')).ok).toBe(true);
     expect(ch.canEquip(makeItem('rifle_1')).ok).toBe(true);
-    const hunter = Character.create('T', 'vanguard');
+    const hunter = Character.create('T', 'hunter');
     expect(hunter.canEquip(makeItem('saber_3')).ok).toBe(false); // ATP req
     hunter.addXp(100000);
-    spendLikeOldClass(hunter);
     expect(hunter.canEquip(makeItem('saber_3')).ok).toBe(true);
   });
 
-  it('earns three attribute points a level, spent for good', () => {
-    const ch = Character.create('T', 'vanguard');
-    expect(ch.attributePoints).toBe(0);
-    expect(ch.spendAttribute('pow')).toMatch(/No attribute points/);
-    ch.addXp(xpToNext(1) + xpToNext(2));
-    expect(ch.attributePoints).toBe(6);
-    const before = ch.baseStats();
-    expect(ch.spendAttribute('mind', 4)).toBeNull();
-    expect(ch.attributePoints).toBe(2);
-    expect(ch.baseStats().mst).toBe(before.mst + 4);
-    expect(ch.spendAttribute('mind', 3)).not.toBeNull();
-    expect(ch.data.attributes.mind).toBe(4);
+  it('names the character after the class', () => {
+    expect(Character.create('T', 'force').title).toBe('Force');
+    expect(Character.create('T', 'hunter').title).toBe('Hunter');
   });
 
-  it('names the character after the attribute with the most points (the kit on a tie)', () => {
-    const ch = Character.create('T', 'mystic');
-    expect(ch.title).toBe('Mystic');
-    ch.data.level = 5;
-    ch.spendAttribute('def', 2);
-    expect(ch.title).toBe('Guardian');
-    ch.spendAttribute('mind', 2);
-    expect(ch.title).toBe('Mystic');
-    ch.spendAttribute('pow', 3);
-    expect(ch.title).toBe('Vanguard');
-  });
-
-  it('grows like the old classes when points go the same way', () => {
-    const at = (kit: KitId, level: number) => {
-      const ch = Character.create('T', kit);
-      ch.data.level = level;
-      return spendLikeOldClass(ch).baseStats();
-    };
+  it('grows like the old classes', () => {
     // The old classes' growth per level (Lv 31 = 30 levels of it).
-    expect(at('mystic', 31)).toMatchObject({ hp: 70 + 7.5 * 30, tp: 80 + 6 * 30, atp: 25 + 2.2 * 30, dfp: 10 + 1.3 * 30, mst: 60 + 4 * 30, ata: 45 + 30 });
-    expect(at('vanguard', 31)).toMatchObject({ hp: 120 + 14 * 30, tp: 30 + 2 * 30, atp: 40 + 4 * 30, dfp: 24 + 3 * 30, mst: 15 + 30, ata: 50 + 1.2 * 30 });
-    expect(at('ranger', 31)).toMatchObject({ hp: 105 + 12 * 30, atp: 32 + 3.4 * 30, dfp: 16 + 2.2 * 30, ata: 70 + 1.8 * 30 });
+    // Damage taken grows a little a level (it replaced DFP growth on 2026-10-14): Hunter most, Force least.
+    expect(atLevel('force', 31).baseStats()).toMatchObject({ hp: 70 + 7.5 * 30, tp: 80 + 6 * 30, atp: 25 + 2.2 * 30, strike: 3, area: 3, mst: 60 + 4 * 30, lck: 45 + 30 });
+    expect(atLevel('hunter', 31).baseStats()).toMatchObject({ hp: 120 + 14 * 30, tp: 30 + 2 * 30, atp: 40 + 4 * 30, strike: 2 + 7, mst: 15 + 30, lck: 50 + 1.2 * 30 });
+    expect(atLevel('ranger', 31).baseStats()).toMatchObject({ hp: 105 + 12 * 30, atp: 32 + 3.4 * 30, strike: 1 + 5, lck: 70 + 1.8 * 30 });
   });
 
-  it('refunds every point when the build rules change (BUILD_VERSION)', () => {
-    const ch = Character.create('T', 'vanguard');
-    ch.data.level = 10;
-    ch.spendAttribute('pow', 9);
-    ch.mag.cells = ['0,-1'];
-    const data = JSON.parse(JSON.stringify(ch.data));
-    expect(new Character(JSON.parse(JSON.stringify(data))).refunded).toBe(false);
-    data.build = 0;
-    const loaded = new Character(data);
-    expect(loaded.refunded).toBe(true);
-    expect(loaded.attributePoints).toBe(27);
-    expect(loaded.mag.cells).toEqual([]);
+  it('stops levelling at the cap', () => {
+    const ch = Character.create('T', 'hunter');
+    ch.addXp(1e12);
+    expect(ch.level).toBe(MAX_LEVEL);
+    expect(ch.maxed).toBe(true);
+    expect(ch.addXp(1e6)).toBe(0);
+    expect(ch.data.xp).toBe(0);
   });
 
-  it('grinds weapons and consumes the grinder (Edge by default)', () => {
-    const ch = Character.create('T', 'vanguard');
-    const g = makeItem('digrinder');
-    ch.addItem(g);
-    const w = ch.weaponInstance()!;
-    const [lo] = ch.weaponAtp();
-    expect(ch.grind(w.uid, g.uid).ok).toBe(true);
-    expect(w.grind).toBe(2);
-    // Saber 40-55: 4% of the average ATP per level.
-    expect(ch.weaponAtp()[0]).toBe(lo + 4);
-    expect(ch.countOf('digrinder')).toBe(0);
+  it('counts every weapon as fully ground (Edge at its cap): a share of its damage, and tech damage on caster weapons', () => {
+    const hunter = Character.create('T', 'hunter');
+    const saber = hunter.weaponDef();
+    expect(hunter.weaponEdge()).toBe(grindCap(saber));
+    expect(hunter.weaponAtp()[0]).toBe(saber.atpMin + grindBonus(saber, grindCap(saber)).atp);
+    expect(hunter.stats().mst).toBe(hunter.ownStats().mst); // no tech damage on a saber, ground or not
+    const force = Character.create('T', 'force');
+    const wand = force.weaponDef(); // Wand: weapon damage 20-30, tech damage 6
+    expect(wand.kind).toBe('wand');
+    expect(force.stats().mst - force.ownStats().mst).toBe((wand.bonus?.mst ?? 0) + grindBonus(wand, grindCap(wand)).mst);
   });
 
-  it('Edge raises a share of every stat the weapon has: MST only on caster weapons', () => {
-    const force = Character.create('T', 'mystic');
-    const cane = force.weaponInstance()!; // Cane: ATP 25-35, ATA 30, MST 4
-    const before = force.stats();
-    const [lo] = force.weaponAtp();
-    cane.grind = 4;
-    expect(force.weaponAtp()[0]).toBe(lo + 5);
-    expect(force.stats().ata).toBe(before.ata + 5);
-    expect(force.stats().mst).toBe(before.mst + 2);
-    const hunter = Character.create('T', 'vanguard');
-    const mst = hunter.stats().mst;
-    hunter.weaponInstance()!.grind = 4;
-    expect(hunter.stats().mst).toBe(mst);
+  it('weapons and armour take 5-12 grind levels by tier, uniques 2 more', () => {
+    expect([1, 2, 3, 5, 7, 9, 15].map((tier) => grindCap({ tier }))).toEqual([5, 5, 6, 7, 8, 9, 12]);
+    expect(grindCap(itemDefs.unique_darkFlow_2 as { tier: number; rare?: boolean })).toBe(7);
   });
 
-  it('weapons take 5-9 grind levels by tier, rares 2 more', () => {
-    expect([1, 2, 3, 5, 7, 9].map((tier) => grindCap({ tier }))).toEqual([5, 5, 6, 7, 8, 9]);
-    expect(grindCap(itemDefs.red_saber as { tier: number; rare?: boolean })).toBe(7);
+  it('counts frames and barriers as fully ground too: a share more of their stat bonuses (damage taken is the ground value)', () => {
+    const f = makeItem('frame_guard_4');
+    const base = itemDefs.frame_guard_4 as ArmorItemDef;
+    const refined = statDef(f) as ArmorItemDef;
+    expect(refined.bonus!.atp).toBe(Math.round(base.bonus!.atp! * (1 + 0.05 * grindCap(base))));
+    expect(refined.dr).toBe(base.dr);
+    expect(itemName(f)).not.toMatch(/\+\d+$/);
   });
 
-  it('race levels add 5% each against that race, leave the stats alone, and mix freely', () => {
-    const ch = Character.create('T', 'vanguard');
-    const w = makeItem('saber_5'); // race cap 30%, 7 levels
-    ch.addItem(w);
-    ch.data.equipped.weapon = w.uid; // past the ATP requirement
-    const atp = ch.weaponAtp();
-    const grind = (track: Parameters<Character['grind']>[2]) => {
-      const g = makeItem('monogrinder');
-      ch.addItem(g);
-      return ch.grind(w.uid, g.uid, track);
-    };
-    expect(grind('machine').ok).toBe(true);
-    expect(grind('machine').ok).toBe(true);
-    expect(grind('dark').ok).toBe(true);
-    expect(grind('edge').ok).toBe(true);
-    expect(w.grind).toBe(4);
-    expect(w.bane).toEqual({ machine: 2, dark: 1 });
-    expect(ch.weaponAttr('machine')).toBe(10);
-    expect(ch.weaponAttr('dark')).toBe(5);
-    expect(ch.weaponAttr('abeast')).toBe(0);
-    // Only the one Edge level moved ATP.
-    expect(ch.weaponAtp()[0] - atp[0]).toBe(Math.round(0.04 * ((176 + 242) / 2)));
-    expect(itemName(w)).toBe('Gladius +4');
+  it('old saves drop their grind and Bane levels (everything counts as fully ground now)', () => {
+    const d = Character.create('T', 'hunter').data;
+    const w = makeItem('saber_5', { grind: 4, bane: { machine: 2, dark: 1 } });
+    d.inventory.push(w, { uid: 'g', id: 'monogrinder', qty: 3 });
+    const ch = new Character(d);
+    const after = ch.find(w.uid)!;
+    expect(after.grind).toBeUndefined();
+    expect(after.bane).toBeUndefined();
+    expect(itemName(after)).toBe('Gladius');
+    expect(ch.countOf('monogrinder')).toBe(0);
   });
 
-  it('a race stops at the tier cap counting the rolled %, and the total stops at the grind cap', () => {
-    // Tier 3: race cap 20%, 6 levels. A 15% Machine roll leaves room for one Machine level.
-    const w = makeItem('saber_3', { attrs: { machine: 15 } });
-    expect(grindPreview(w, 'machine', 3)).toMatchObject({ levels: 1, wasted: 2 });
-    w.grind = 1;
-    w.bane = { machine: 1 };
-    const full = grindPreview(w, 'machine', 1);
-    expect(full.levels).toBe(0);
-    expect(full.reason).toContain('cap (20%)');
-    expect(itemName(w)).toBe('Buster of Machines +1');
-    expect(grindPreview(w, 'native', 3).levels).toBe(3);
-    w.grind = 6;
-    expect(grindPreview(w, 'edge', 1)).toMatchObject({ levels: 0, reason: 'Fully ground' });
-    // A Trigrinder with one level of room adds one and loses two.
-    w.grind = 5;
-    expect(grindPreview(w, 'edge', 3)).toMatchObject({ levels: 1, wasted: 2 });
-    // The preview never touches the weapon itself.
-    expect(w.grind).toBe(5);
+  it('old saves move their affix rolls to the 2026-10-14 units once', () => {
+    const d = Character.create('T', 'hunter').data;
+    delete d.affixUnits;
+    const frame = makeItem('frame_guard_11', {
+      rarity: 'rare',
+      affixes: [{ id: 'dfp' as never, v: 32, t: 6 }, { id: 'areaDr', v: 10, t: 6 }, { id: 'reckless', v: 34, p: 30, t: 6 }],
+      dormant: [{ id: 'lck', v: 30, t: 6 }],
+    });
+    const saber = makeItem('saber_11', { rarity: 'magic', affixes: [{ id: 'atpPct', v: 32, t: 6 }] });
+    const unit = makeItem('unit_11', { rarity: 'magic', affixes: [{ id: 'dfp' as never, v: 45, t: 6 }] });
+    d.inventory.push(frame, saber);
+    d.units = [unit];
+    d.magUnits = ['dfp' as never];
+    const ch = new Character(d);
+    expect(ch.find(frame.uid)!.affixes).toEqual([
+      { id: 'strike', v: 5, t: 6 },
+      { id: 'areaDr', v: 7, t: 6 },
+      { id: 'reckless', v: 30, p: 5, t: 6 },
+    ]);
+    expect(ch.find(frame.uid)!.dormant).toEqual([{ id: 'lck', v: 30, t: 6 }]);
+    expect(ch.find(saber.uid)!.affixes).toEqual([{ id: 'atpPct', v: 28, t: 6 }]);
+    expect(ch.data.units[0].affixes).toEqual([{ id: 'strike', v: 8, t: 6 }]);
+    expect(ch.data.magUnits).toEqual(['strike']);
+    // Only once: a save already in the new units keeps its rolls.
+    const again = new Character(JSON.parse(JSON.stringify(ch.data)));
+    expect(again.find(frame.uid)!.affixes).toEqual(ch.find(frame.uid)!.affixes);
   });
 
-  it('knows every technique from the start; MST alone decides how strong they are', () => {
-    const at42 = (kit: KitId) => {
-      const ch = Character.create('T', kit);
-      ch.data.level = 42;
-      return spendLikeOldClass(ch);
-    };
-    const h = at42('vanguard');
-    const f = at42('mystic');
+  it('knows every technique from the start; tech damage alone decides how strong they are', () => {
+    const h = atLevel('hunter', 42);
+    const f = atLevel('force', 42);
     const fMst = f.stats().mst;
     const hMst = h.stats().mst;
     expect(fMst).toBeGreaterThan(3 * hMst);
-    // Attack techs: a Force hits far harder, and gets more damage out of each TP.
-    expect(f.techDamage('foie')).toBeGreaterThan(5 * h.techDamage('foie'));
+    // Attack techs: a Force hits far harder (in proportion to tech damage), and gets more damage out of each TP.
+    expect(f.techDamage('foie')).toBeGreaterThan(3 * h.techDamage('foie'));
     expect(f.techDamage('foie') / f.techCost('foie')).toBeGreaterThan(h.techDamage('foie') / h.techCost('foie'));
     // ...but each cast costs more TP.
     expect(f.techCost('foie')).toBeGreaterThan(h.techCost('foie'));
@@ -237,11 +206,11 @@ describe('loot', () => {
       }
     }
     for (const lv of [1, 20, 60]) {
-      for (const it of shopStock('item', lv, 'mst', rng, { derolle: true, warden: true })) expect(it.id.startsWith('disk_')).toBe(false);
+      for (const it of shopStock('item', lv, 'caster', rng, { derolle: true, warden: true })) expect(it.id.startsWith('disk_')).toBe(false);
     }
   });
 
-  it('Cave enemies drop tiers 2-5 and their own rares', () => {
+  it('Cave enemies drop tiers 2-5 and never a unique', () => {
     const rng = mulberry32(11);
     const tiers = new Set<number>();
     const rares = new Set<string>();
@@ -262,7 +231,7 @@ describe('loot', () => {
       }
     }
     expect([...tiers].sort()).toEqual([2, 3, 4, 5]);
-    expect(rares.has('lily_sting') || rares.has('spread_needle')).toBe(true);
+    expect(rares.size).toBe(0);
   });
 
   it('Mines enemies drop tiers 4-6, and injectors stop at tier 5', () => {
@@ -280,18 +249,16 @@ describe('loot', () => {
     expect([...tiers].sort()).toEqual([4, 5, 6]);
   });
 
-  it('the Warden drops tier 5-6 gear and, sometimes, a signature item', () => {
+  it('the Warden drops tier 5-6 gear', () => {
     const rng = mulberry32(13);
-    const sig = new Set<string>();
     for (let i = 0; i < 400; i++) {
       for (const d of rollWardenDrops(rng, BIASES[i % 3])) {
         if (d.kind !== 'item') continue;
         const def = getDef(d.item.id);
-        if (def.id === 'warden_core' || def.id === 'arc_welder') sig.add(def.id);
-        else if (!def.rare && (def.type === 'weapon' || def.type === 'armor')) expect(def.tier).toBeGreaterThanOrEqual(5);
+        expect(def.rare).toBeFalsy();
+        if (def.type === 'weapon' || def.type === 'armor') expect(def.tier).toBeGreaterThanOrEqual(5);
       }
     }
-    expect([...sig].sort()).toEqual(['arc_welder', 'warden_core']);
   });
 
   it('shops stock tier 6 only after the Warden, from Lv 32', () => {
@@ -300,11 +267,11 @@ describe('loot', () => {
     expect(shopTier(32, { derolle: true, warden: true })).toBe(6);
     const rng = mulberry32(14);
     for (const kind of ['weapon', 'armor', 'item'] as const) {
-      for (const item of shopStock(kind, 35, 'atp', rng, { derolle: true, warden: true })) expect(() => getDef(item.id)).not.toThrow();
+      for (const item of shopStock(kind, 35, 'melee', rng, { derolle: true, warden: true })) expect(() => getDef(item.id)).not.toThrow();
     }
   });
 
-  it('Ruins enemies drop tiers 5-7, and Dark Falz tier 6-7 gear and its signature items', () => {
+  it('Ruins enemies drop tiers 5-7, and Dark Falz tier 6-7 gear', () => {
     const rng = mulberry32(15);
     const tiers = new Set<number>();
     for (const arch of Object.values(enemies).filter((a) => a.dropTier === 7)) {
@@ -318,22 +285,20 @@ describe('loot', () => {
       }
     }
     expect([...tiers].sort()).toEqual([5, 6, 7]);
-    const sig = new Set<string>();
     for (let i = 0; i < 400; i++) {
       for (const d of rollFalzDrops(rng, BIASES[i % 3])) {
         if (d.kind !== 'item') continue;
         const def = getDef(d.item.id);
-        if (def.id === 'dark_flow' || def.id === 'seal_of_light') sig.add(def.id);
-        else if (!def.rare && (def.type === 'weapon' || def.type === 'armor')) expect(def.tier).toBeGreaterThanOrEqual(6);
+        expect(def.rare).toBeFalsy();
+        if (def.type === 'weapon' || def.type === 'armor') expect(def.tier).toBeGreaterThanOrEqual(6);
       }
     }
-    expect([...sig].sort()).toEqual(['dark_flow', 'seal_of_light']);
   });
 
   it('only ever produces valid items', () => {
     const rng = mulberry32(42);
     for (let i = 0; i < 3000; i++) {
-      const d = rollDrop(2, 0.05, rng, BIASES[i % 3]);
+      const d = rollDrop(2, rng, BIASES[i % 3]);
       if (d.kind === 'item') expect(itemDefs[d.item.id]).toBeDefined();
       else if (d.kind === 'meseta') expect(d.amount).toBeGreaterThan(0);
     }
@@ -346,16 +311,206 @@ describe('loot', () => {
     expect(rollDragonDrops(rng).length).toBeGreaterThan(3);
   });
 
-  it("weapon shop stocks weapons of the player's weapon stat", () => {
+  it("weapon shop stocks weapons of the class's family, white or blue only", () => {
     const rng = mulberry32(7);
     for (const bias of BIASES) {
       const stock = shopStock('weapon', 1, bias, rng);
       const own = stock.filter((s) => {
         const def = getDef(s.id);
-        return def.type === 'weapon' && weaponKinds[def.kind].reqStat === bias;
+        return def.type === 'weapon' && kindFamily(weaponKinds[def.kind]) === bias;
       });
       expect(own.length).toBeGreaterThan(0);
+      for (const it of [...stock, ...shopStock('armor', 30, bias, rng)]) expect(['normal', 'magic']).toContain(rarityOf(it));
     }
+  });
+
+  it('leans weapon drops 80% toward the class family', () => {
+    const rng = mulberry32(21);
+    let own = 0;
+    const n = 4000;
+    for (let i = 0; i < n; i++) {
+      const def = getDef(rollWeapon(5, rng, 'ranged').id);
+      if (def.type === 'weapon' && kindFamily(weaponKinds[def.kind]) === 'ranged') own++;
+    }
+    // 80% leaned, plus the ranged share of the unleaned fifth (5 of 12 kinds).
+    expect(own / n).toBeGreaterThan(LOOT_LEAN);
+    expect(own / n).toBeLessThan(0.95);
+  });
+});
+
+describe('affixes', () => {
+  const prefixes = (it: ReturnType<typeof rollWeapon>) => (it.affixes ?? []).filter((r) => ITEM_AFFIXES[r.id].kind === 'prefix').length + (it.special ? 1 : 0);
+  const suffixes = (it: ReturnType<typeof rollWeapon>) => (it.affixes ?? []).filter((r) => ITEM_AFFIXES[r.id].kind === 'suffix').length;
+
+  it('roll none on normal items, one prefix and / or one suffix on magic ones', () => {
+    const rng = mulberry32(31);
+    for (let i = 0; i < 500; i++) {
+      const n = rollWeapon(3, rng, undefined, 'normal');
+      expect(n.affixes).toBeUndefined();
+      expect(n.special).toBeUndefined();
+      const m = rollArmor(3, rng, undefined, 'magic');
+      expect(prefixes(m) + suffixes(m)).toBeGreaterThanOrEqual(1);
+      expect(prefixes(m)).toBeLessThanOrEqual(1);
+      expect(suffixes(m)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('give rares 3-4 affixes on Normal tiers, up to 5 on Nightmare and 4-6 on Hell, at most 3 of each kind', () => {
+    const rng = mulberry32(32);
+    for (const [tier, lo, hi] of [[5, 3, 4], [10, 3, 5], [14, 4, 6]]) {
+      let most = 0;
+      for (let i = 0; i < 600; i++) {
+        const it = i % 2 ? rollWeapon(tier, rng, undefined, 'rare') : rollArmor(tier, rng, undefined, 'rare');
+        const n = prefixes(it) + suffixes(it);
+        expect(n).toBeGreaterThanOrEqual(lo);
+        expect(n).toBeLessThanOrEqual(hi);
+        expect(prefixes(it)).toBeLessThanOrEqual(3);
+        expect(suffixes(it)).toBeLessThanOrEqual(3);
+        const ids = (it.affixes ?? []).map((r) => r.id);
+        expect(new Set(ids).size).toBe(ids.length);
+        expect(ids.filter((id) => id.startsWith('race')).length).toBeLessThanOrEqual(1);
+        expect(it.name).toBeTruthy();
+        most = Math.max(most, n);
+      }
+      expect(most).toBe(hi);
+    }
+  });
+
+  it("only roll a weapon family's affixes on its weapons, and never unique-only ones", () => {
+    const rng = mulberry32(33);
+    for (let i = 0; i < 1500; i++) {
+      const w = rollWeapon(9, rng, undefined, 'rare');
+      const fam = kindFamily(weaponKinds[(getDef(w.id) as { kind: keyof typeof weaponKinds }).kind]);
+      for (const r of w.affixes ?? []) {
+        const def = ITEM_AFFIXES[r.id];
+        expect(def.slots).toContain('weapon');
+        if (def.family) expect(def.family).toBe(fam);
+      }
+    }
+  });
+
+  it('rolls race % in 5% steps up to the weapon tier cap', () => {
+    const rng = mulberry32(3);
+    for (const tier of [1, 4, 8]) {
+      let top = 0;
+      for (let i = 0; i < 3000; i++) {
+        for (const r of rollWeapon(tier, rng, undefined, 'rare').affixes ?? []) {
+          if (!r.id.startsWith('race')) continue;
+          expect(r.v % 5).toBe(0);
+          top = Math.max(top, r.v);
+        }
+      }
+      expect(top).toBe(raceCap(tier));
+    }
+  });
+
+  it('adds flat affixes and downside penalties to the stats', () => {
+    const ch = Character.create('T', 'force');
+    const base = ch.stats();
+    ch.equippedItem('frame')!.affixes = [{ id: 'hp', v: 40 }, { id: 'overcharged', v: 60, p: 36 }];
+    const s = ch.stats();
+    expect(s.hp).toBe(base.hp + 40 - 36);
+    expect(s.tp).toBe(base.tp + 60);
+    expect(ch.maxHp).toBe(s.hp);
+  });
+
+  it('units carry one affix, are learned on pickup, and the frame\'s slots decide how many are active', () => {
+    const rng = mulberry32(34);
+    for (let i = 0; i < 200; i++) expect(rollUnit(6, rng).affixes).toHaveLength(1);
+    const ch = Character.create('T', 'hunter');
+    const frame = ch.equippedItem('frame')!;
+    frame.slots = 1;
+    const a = makeItem('unit_3', { affixes: [{ id: 'hp', v: 20 }] });
+    const b = makeItem('unit_3', { affixes: [{ id: 'strike', v: 3 }] });
+    const bagBefore = ch.data.inventory.length;
+    expect(ch.take(a)).toEqual({ to: 'learned', before: null });
+    expect(ch.take(b)).toEqual({ to: 'learned', before: null });
+    // Learned units need no bag slot.
+    expect(ch.data.inventory).toHaveLength(bagBefore);
+    expect(ch.insertUnit('hp')).toBeNull();
+    expect(ch.insertUnit('strike')).toBeNull();
+    expect(ch.insertUnit('lck')).not.toBeNull();
+    // One slot: only the first unit counts; reordering swaps which one.
+    expect(ch.activeUnits()).toEqual([a]);
+    expect(ch.inactiveUnits).toBe(1);
+    ch.moveUnit(0, 1);
+    expect(ch.activeUnits()).toEqual([b]);
+    expect(ch.wornAffixes()).toContainEqual(b.affixes![0]);
+    // No frame (or one without slots): all inactive, but still slotted.
+    ch.unequip(frame.uid);
+    expect(ch.activeUnits()).toEqual([]);
+    expect(ch.data.magUnits).toEqual(['strike', 'hp']);
+    // Taking one out of the Mag keeps it learned.
+    expect(ch.removeUnit(0)).toBeNull();
+    expect(ch.data.magUnits).toEqual(['hp']);
+    expect(ch.learnedUnit('strike')).toBe(b);
+  });
+
+  it('keeps the best roll of each unit: a better one replaces it, a worse one is junk for the bag', () => {
+    const ch = Character.create('T', 'hunter');
+    ch.equippedItem('frame')!.slots = 1;
+    const weak = makeItem('unit_3', { affixes: [{ id: 'hp', v: 20 }] });
+    const strong = makeItem('unit_6', { affixes: [{ id: 'hp', v: 45 }] });
+    const worse = makeItem('unit_4', { affixes: [{ id: 'hp', v: 30 }] });
+    expect(dropVerdict(ch, weak).look).toBe('upgrade');
+    ch.take(weak);
+    ch.insertUnit('hp');
+    expect(dropVerdict(ch, weak).look).toBe('junk');
+    expect(dropVerdict(ch, strong).look).toBe('upgrade');
+    expect(ch.take(strong)).toEqual({ to: 'learned', before: { id: 'hp', v: 20 } });
+    expect(ch.data.units).toEqual([strong]);
+    // The slotted kind stays slotted, now with the better roll.
+    expect(ch.activeUnits()).toEqual([strong]);
+    expect(ch.unitStatus(worse)).toBe('known');
+    expect(dropVerdict(ch, worse).look).toBe('junk');
+    expect(ch.take(worse)).toEqual({ to: 'bag' });
+    expect(ch.find(worse.uid)).toBeDefined();
+    // Same value: the smaller penalty wins.
+    const oc1 = makeItem('unit_5', { affixes: [{ id: 'overcharged', v: 60, p: 40 }] });
+    const oc2 = makeItem('unit_5', { affixes: [{ id: 'overcharged', v: 60, p: 30 }] });
+    ch.take(oc1);
+    expect(ch.unitStatus(oc2)).toBe('better');
+  });
+
+  it('old saves: units in the Mag and the bag are learned (best of each kind), the Mag keeps its slots', () => {
+    const ch = Character.create('T', 'hunter');
+    const inMag = makeItem('unit_3', { affixes: [{ id: 'hp', v: 20 }] });
+    const inMag2 = makeItem('unit_3', { affixes: [{ id: 'hp', v: 15 }] });
+    const better = makeItem('unit_6', { affixes: [{ id: 'hp', v: 45 }] });
+    const other = makeItem('unit_3', { affixes: [{ id: 'lck', v: 8 }] });
+    const data = JSON.parse(JSON.stringify(ch.data));
+    delete data.magUnits;
+    data.units = [inMag, inMag2];
+    data.inventory.push(better, other, makeItem('unit_2', { affixes: [{ id: 'lck', v: 4 }] }));
+    const loaded = new Character(data);
+    expect(loaded.data.magUnits).toEqual(['hp']);
+    expect(loaded.learnedUnit('hp')!.uid).toBe(better.uid);
+    expect(loaded.learnedUnit('lck')!.uid).toBe(other.uid);
+    // Learned ones left the bag; the weaker LCK unit stays as junk.
+    const bagUnits = loaded.data.inventory.filter((it) => it.id.startsWith('unit_'));
+    expect(bagUnits.map((u) => u.affixes![0].v)).toEqual([4]);
+  });
+
+  it('moves units that sat in a frame (old saves) into the Mag', () => {
+    const ch = Character.create('T', 'hunter');
+    const unit = makeItem('unit_3', { affixes: [{ id: 'hp', v: 20 }] });
+    ch.equippedItem('frame')!.units = [unit];
+    const data = JSON.parse(JSON.stringify(ch.data));
+    delete data.units;
+    delete data.magUnits;
+    const loaded = new Character(data);
+    expect(loaded.data.units.map((u) => u.uid)).toEqual([unit.uid]);
+    expect(loaded.data.magUnits).toEqual(['hp']);
+    expect(loaded.equippedItem('frame')!.units).toBeUndefined();
+  });
+
+  it('caps status resistance at 75%', () => {
+    const ch = Character.create('T', 'hunter');
+    ch.equippedItem('frame')!.affixes = [{ id: 'resPoison', v: 40 }];
+    ch.equippedItem('frame')!.slots = 1;
+    ch.data.units = [{ uid: 'u', id: 'unit_5', affixes: [{ id: 'resPoison', v: 40 }] }];
+    ch.data.magUnits = ['resPoison'];
+    expect(ch.resist('resPoison')).toBe(75);
   });
 });
 
@@ -433,58 +588,59 @@ describe('Level', () => {
 });
 
 describe('Item names', () => {
-  it('prefixes a rolled special and suffixes the best race once it reaches half the tier cap', () => {
-    // Tier 3 (Buster) caps race % at 20, so 10% is enough for the suffix.
-    expect(itemName(makeItem('saber_3', { special: 'heat', attrs: { abeast: 10, native: 5, hit: 15 }, grind: 3 }))).toBe('Heat Buster of Beasts +3');
-    expect(itemName(makeItem('saber_3', { attrs: { machine: 5, hit: 15 } }))).toBe('Buster');
-    expect(itemName(makeItem('saber_8', { attrs: { dark: 20 } }))).toBe('Nova Blade');
-    expect(itemName(makeItem('saber_8', { attrs: { dark: 25, machine: 25 } }))).toBe('Nova Blade of Machines');
-    expect(itemName(makeItem('saber_8', { attrs: { native: 25, machine: 25 } }))).toBe('Nova Blade of Natives');
+  it('names magic items by their prefix (a special or an affix) and suffix', () => {
+    expect(itemName(makeItem('saber_3', { rarity: 'magic', special: 'heat', affixes: [{ id: 'raceAbeast', v: 10 }] }))).toBe('Heat Buster of Beasts');
+    expect(itemName(makeItem('saber_3', { rarity: 'magic', affixes: [{ id: 'atpFlat', v: 5 }] }))).toBe('Heavy Buster');
+    expect(itemName(makeItem('frame_guard_2', { rarity: 'magic', affixes: [{ id: 'resBurn', v: 5 }] }))).toBe('Guard Armor of Cooling');
+    expect(itemName(makeItem('saber_8'))).toBe('Nova Blade');
   });
 
-  it("keeps a rare's own special out of the name but still names its race", () => {
-    expect(itemName(makeItem('red_saber', { special: 'heat', attrs: { machine: 10 }, grind: 2 }))).toBe('Red Saber of Machines +2');
+  it('names rares by their rolled name and uniques by their own', () => {
+    expect(itemName(makeItem('saber_3', { rarity: 'rare', name: 'Doom Edge', affixes: [{ id: 'atpFlat', v: 5 }] }))).toBe('Doom Edge');
+    expect(itemName(makeItem('unique_darkFlow_7'))).toBe('Dark Flow');
+    expect(rarityOf(makeItem('unique_darkFlow_7'))).toBe('unique');
   });
 
   it('names injector mods and stacks as before', () => {
     expect(itemName(makeItem('fluid_4', { mod: 'steady' }))).toBe('Steady Star Fluid Injector');
-    expect(itemName(makeItem('monogrinder', { qty: 3 }))).toBe('Monogrinder x3');
+    expect(itemName(makeItem('photon_drop', { qty: 3 }))).toBe('Photon Drop x3');
   });
 });
 
 describe('Equipment comparison', () => {
   it('previews a stronger weapon as a gain without changing the character', () => {
-    const ch = Character.create('T', 'vanguard');
+    const ch = Character.create('T', 'hunter');
     const before = JSON.stringify(ch.data);
-    const better = makeItem('saber_2', { grind: 3, attrs: { native: 20 } });
+    const better = makeItem('saber_2', { grind: 3, affixes: [{ id: 'raceNative', v: 20 }] });
     const c = compareEquip(ch, better)!;
     expect(c.slot).toBe('weapon');
     expect(c.current?.id).toBe('saber_1');
-    const atp = c.rows.find((r) => r.label === 'ATP')!;
+    const atp = c.rows.find((r) => r.label === 'Weapon damage')!;
     expect(atp.delta).toBeGreaterThan(0);
-    expect(c.rows.some((r) => r.label.startsWith('Native') && r.delta === 20)).toBe(true);
+    expect(c.rows[0]).toMatchObject({ label: 'Damage/s', key: true });
+    expect(c.rows[0].delta).toBeGreaterThan(0);
     expect(gearVerdict(ch, better)).toBe(1);
     expect(JSON.stringify(ch.data)).toBe(before);
   });
 
-  it('compares armour by DFP, EVP and line bonuses, and the equipped item is neutral', () => {
+  it('compares armour by damage taken and line bonuses, and the equipped item is neutral', () => {
     const ch = Character.create('T', 'ranger');
     const frame = makeItem('frame_combat_3');
     const c = compareEquip(ch, frame)!;
     expect(c.slot).toBe('frame');
-    expect(c.rows.map((r) => r.label)).toEqual(['DFP', 'EVP', 'ATP', 'ATA']);
+    expect(c.rows.map((r) => r.label)).toEqual(['Damage/s', 'Rating', 'Strike damage taken', 'Area damage taken', 'Weapon damage', 'Crit chance']);
     expect(c.rows[0].delta).toBeGreaterThan(0);
+    expect(c.rows[1].delta).toBeGreaterThan(0);
     expect(gearVerdict(ch, ch.equippedItem('frame')!)).toBe(0);
-    expect(compareEquip(ch, makeItem('telepipe'))).toBeNull();
+    expect(compareEquip(ch, makeItem('photon_drop'))).toBeNull();
     expect(compareEquip(ch, makeItem('mate_2'))).toBeNull();
   });
 });
 
 describe('Drop verdicts (ground look and pickup note)', () => {
   const wielding = (id: string, extra = {}) => {
-    const ch = Character.create('T', 'vanguard');
+    const ch = Character.create('T', 'hunter');
     ch.addXp(100000);
-    spendLikeOldClass(ch);
     const w = makeItem(id, extra);
     ch.addItem(w);
     expect(ch.equip(w.uid).ok).toBe(true);
@@ -496,93 +652,107 @@ describe('Drop verdicts (ground look and pickup note)', () => {
     const up = dropVerdict(ch, makeItem('saber_2'));
     expect(up.look).toBe('upgrade');
     expect(up.mark).toBe('up');
-    expect(up.note).toMatch(/^ATP \+\d+/);
+    expect(up.note).toMatch(/^Damage\/s \+\d+%/);
     const strong = wielding('saber_2');
     const down = dropVerdict(strong, makeItem('saber_1'));
     expect(down).toMatchObject({ look: 'junk', mark: 'down' });
-    expect(down.note).toMatch(/^Downgrade: ATP −\d+/);
+    expect(down.note).toMatch(/^Downgrade: Damage\/s −\d+%/);
     expect(dropVerdict(ch, makeItem('saber_1'))).toEqual({ look: 'junk', mark: 'same', note: 'Same as equipped' });
   });
 
-  it('keeps a weaker weapon with something new (a special) as a plain sidegrade', () => {
-    const v = dropVerdict(wielding('saber_2'), makeItem('saber_1', { special: 'heat' }));
-    expect(v).toMatchObject({ look: 'plain', mark: 'down' });
-    expect(v.note).toContain('+Heat');
+  it('never fades a unique, even a weaker one', () => {
+    expect(dropVerdict(wielding('saber_5'), makeItem('unique_darkFlow_3')).look).not.toBe('junk');
   });
 
   it('never junks an upgrade for an unmet requirement', () => {
-    const v = dropVerdict(Character.create('T', 'vanguard'), makeItem('saber_5'));
+    const v = dropVerdict(Character.create('T', 'hunter'), makeItem('saber_5'));
     expect(v.look).toBe('plain');
     expect(v.mark).toBe('no');
-    expect(v.note).toMatch(/^Needs ATP \d+ \(you have \d+\) · ATP \+/);
-    expect(dropVerdict(Character.create('T', 'vanguard'), makeItem('mate_5'))).toMatchObject({ look: 'plain', mark: 'no' });
-    expect(dropVerdict(Character.create('T', 'vanguard'), makeItem('monogrinder'))).toEqual({ look: 'plain', mark: '', note: '' });
+    expect(v.note).toMatch(/^Needs Lv 18 \(you are Lv 1\) · Damage\/s \+/);
+    expect(dropVerdict(Character.create('T', 'hunter'), makeItem('mate_5'))).toMatchObject({ look: 'plain', mark: 'no' });
+    expect(dropVerdict(Character.create('T', 'hunter'), makeItem('photon_drop'))).toEqual({ look: 'plain', mark: '', note: '' });
   });
 });
 
 describe('Armor lines', () => {
-  it('locks lines by stat only, like weapons', () => {
-    const force = Character.create('T', 'mystic');
+  it('locks lines by level only, like weapons', () => {
+    const force = Character.create('T', 'force');
     expect(force.canEquip(makeItem('frame_guard_1')).ok).toBe(true);
     expect(force.canEquip(makeItem('frame_psy_1')).ok).toBe(true);
     expect(force.canEquip(makeItem('frame_psy_2')).ok).toBe(false); // MST 60 < 80
-    expect(Character.create('T', 'vanguard').canEquip(makeItem('frame_psy_1')).ok).toBe(true);
-    expect(Character.create('T', 'vanguard').canEquip(makeItem('frame_psy_2')).ok).toBe(false);
+    expect(Character.create('T', 'hunter').canEquip(makeItem('frame_psy_1')).ok).toBe(true);
+    expect(Character.create('T', 'hunter').canEquip(makeItem('frame_psy_2')).ok).toBe(false);
   });
 
-  it("reaches a line's tiers at the old class levels when points follow the old class", () => {
-    const own = { vanguard: 'guard', ranger: 'combat', mystic: 'psy' } as const;
-    for (const kit of KIT_IDS) {
-      for (const [tier, level] of [[2, 6], [3, 12], [4, 20]]) {
-        const ch = Character.create('T', kit);
-        while (ch.level < level - 1) ch.addXp(xpToNext(ch.level));
-        spendLikeOldClass(ch);
-        expect(ch.canEquip(makeItem(`frame_${own[kit]}_${tier}`)).ok).toBe(false);
-        ch.addXp(xpToNext(ch.level));
-        spendLikeOldClass(ch);
-        expect(ch.canEquip(makeItem(`frame_${own[kit]}_${tier}`)).ok).toBe(true);
+  it("opens every line's tier to every class at the tier's level (about where it starts dropping)", () => {
+    for (const cls of CLASS_IDS) {
+      for (const line of ['guard', 'combat', 'psy']) {
+        for (const [tier, level] of [[2, 3], [3, 7], [4, 12]]) {
+          const ch = Character.create('T', cls);
+          while (ch.level < level - 1) ch.addXp(xpToNext(ch.level));
+          expect(ch.canEquip(makeItem(`frame_${line}_${tier}`)).ok).toBe(false);
+          ch.addXp(xpToNext(ch.level));
+          expect(ch.canEquip(makeItem(`frame_${line}_${tier}`)).ok).toBe(true);
+        }
       }
     }
   });
 
-  it('adds line bonuses to total stats (and TP to max TP) but not to requirements', () => {
-    const ch = Character.create('T', 'mystic');
+  it('adds line bonuses to total stats (and TP to max TP), not to the character own', () => {
+    const ch = Character.create('T', 'force');
     const psy = makeItem('frame_psy_1');
     ch.addItem(psy);
     const before = ch.stats();
     expect(ch.equip(psy.uid).ok).toBe(true);
-    expect(ch.stats().mst).toBe(before.mst + 6);
-    expect(ch.maxTp).toBe(before.tp + 5);
-    expect(ch.reqStats().mst).toBe(ch.baseStats().mst);
+    // Fully ground (x1.25 at tier 1): tech damage 6 -> 8, TP 5 -> 6.
+    expect(ch.stats().mst).toBe(before.mst + 8);
+    expect(ch.maxTp).toBe(before.tp + 6);
+    expect(ch.ownStats().mst).toBe(ch.baseStats().mst);
   });
 
-  it('rates the Guard line above another wearable line of the same tier for a fighter', () => {
-    const hunter = Character.create('T', 'vanguard');
+  it('judges frames by damage first, the overall rating only between frames that deal the same', () => {
+    const hunter = Character.create('T', 'hunter');
     hunter.addXp(100000);
-    spendLikeOldClass(hunter);
-    const guard = makeItem('frame_guard_2');
+    const guard = makeItem('frame_guard_4');
     hunter.addItem(guard);
     hunter.equip(guard.uid);
-    expect(gearVerdict(hunter, makeItem('frame_combat_2'))).toBe(-1);
-  });
-
-  it('rolls race % from 5 up to 5 + 5 per tier', () => {
-    const rng = mulberry32(3);
-    for (const tier of [1, 4, 8]) {
-      let top = 0;
-      for (let i = 0; i < 2000; i++) {
-        for (const [a, v] of Object.entries(rollWeapon(tier, rng).attrs ?? {})) {
-          if (a === 'hit' || !v) continue;
-          expect(v % 5).toBe(0);
-          top = Math.max(top, v);
-        }
-      }
-      expect(top).toBe(5 + tier * 5);
-    }
+    // The Combat line's weapon damage and crit beat the Guard line's defence (2026-10-13, the user's call).
+    expect(gearVerdict(hunter, makeItem('frame_combat_4'))).toBe(1);
+    // Same damage: the HP decides.
+    expect(gearVerdict(hunter, makeItem('frame_guard_4', { rarity: 'magic', affixes: [{ id: 'hp', v: 40, t: 4 }] }))).toBe(1);
+    expect(gearVerdict(hunter, makeItem('frame_guard_3'))).toBe(-1);
   });
 
   it('stocks every line in the armor shop', () => {
-    const stock = shopStock('armor', 12, 'atp', mulberry32(1)).map((i) => i.id);
+    const stock = shopStock('armor', 12, 'melee', mulberry32(1)).map((i) => i.id);
     for (const line of ['guard', 'combat', 'psy']) expect(stock).toContain(`frame_${line}_3`);
+  });
+});
+
+describe('Weapon kinds (eight since 2026-10-14)', () => {
+  it('gives each class its own kinds: Hunter dagger / saber / sword, Ranger handgun / rifle / shot, Force wand / rod', () => {
+    const byFamily = (f: string) => Object.values(weaponKinds).filter((k) => kindFamily(k) === f).map((k) => k.kind).sort();
+    expect(byFamily('melee')).toEqual(['dagger', 'saber', 'sword']);
+    expect(byFamily('ranged')).toEqual(['handgun', 'rifle', 'shot']);
+    expect(byFamily('caster')).toEqual(['rod', 'wand']);
+    expect(Character.create('T', 'force').weaponDef().kind).toBe('wand');
+  });
+
+  it('turns saved partisans, mechguns, slicers and canes into swords, handguns, rifles and rods, affixes kept', () => {
+    const data = Character.create('T', 'hunter').data;
+    const affixes = [{ id: 'atpPct' as const, v: 20 }, { id: 'lck' as const, v: 30 }];
+    const old = [
+      { uid: 'p', id: 'partisan_7', rarity: 'rare' as const, name: 'Storm Reaver', affixes },
+      { uid: 'm', id: 'mechgun_12', rarity: 'magic' as const, affixes },
+      { uid: 's', id: 'slicer_3', affixes: [] },
+      { uid: 'c', id: 'cane_1' },
+    ];
+    data.inventory.push(...old);
+    data.equipped.weapon = 'p';
+    const ch = new Character(data);
+    const ids = Object.fromEntries(ch.data.inventory.map((i) => [i.uid, i.id]));
+    expect(ids).toMatchObject({ p: 'sword_7', m: 'handgun_12', s: 'rifle_3', c: 'rod_1' });
+    expect(ch.data.inventory.find((i) => i.uid === 'p')!.affixes).toEqual(affixes);
+    expect(ch.weaponDef().kind).toBe('sword');
   });
 });

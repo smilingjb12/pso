@@ -3,17 +3,16 @@
 (async () => {
   const { Character, makeItem } = await import('/src/game/character.ts');
   const { xpToNext } = await import('/src/game/data/stats.ts');
+  const { grantArts } = await import('/src/game/skills.ts');
   const g = window.__h.game;
-  // No classes any more: the old class names pick a kit and spend attribute points the way that class grew
-  // (hunter: Vanguard kit, 2 POW : 1 DEF; ranger: Ranger kit, 2 DEX : 1 POW; force: Mystic kit, all MIND).
-  const OLD_CLASS = { hunter: ['vanguard', ['pow', 'pow', 'def']], ranger: ['ranger', ['dex', 'dex', 'pow']], force: ['mystic', ['mind', 'mind', 'mind']] };
-  window.mkChar = (cls, lvl, weapon, frame, barrier) => {
-    const [kit, split] = OLD_CLASS[cls] ?? [cls, ['pow', 'pow', 'def']];
-    const ch = Character.create('Tester', kit);
+  // Classes: hunter / ranger / force. passives (optional): passive ids granted at full rank, and every Art open at the level at rank 4 (no points, no prerequisites); Mag points stay unspent.
+  window.mkChar = (cls, lvl, weapon, frame, barrier, passives = []) => {
+    const ch = Character.create('Tester', cls);
     let xp = 0;
     for (let l = 1; l < lvl; l++) xp += xpToNext(l);
     ch.addXp(xp);
-    for (let i = 0; ch.attributePoints > 0; i++) ch.spendAttribute(split[i % 3]);
+    grantArts(cls, lvl, ch.data.skills, 4);
+    passives.forEach((id) => id && (ch.data.skills.ranks[id] = 5));
     for (const [slot, id] of [['weapon', weapon], ['frame', frame], ['barrier', barrier]]) {
       if (!id) continue;
       const it = makeItem(id);
@@ -120,15 +119,15 @@
     hHM: ['hunter', 66, 'saber_9', 'frame_guard_9', 'barrier_guard_9', 'mine2', ['n1', 'n2', 'n3', 'n4', 'n5'], true],
     hHR: ['hunter', 76, 'saber_10', 'frame_guard_10', 'barrier_guard_10', 'ruin2', ['s1', 's2', 's3', 's4', 's5'], true],
     // Hell (last arg 'hell'): each band entered with the gear of the band before (no Haste: shop-clean items).
-    hXF: ['hunter', 86, 'saber_11', 'frame_guard_11', 'barrier_guard_11', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], 'hell'],
-    rXF: ['ranger', 86, 'handgun_11', 'frame_combat_11', 'barrier_combat_11', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], 'hell'],
-    hXC: ['hunter', 96, 'saber_12', 'frame_guard_12', 'barrier_guard_12', 'cave1', ['c1', 'c2', 'c3', 'c4', 'c5'], 'hell'],
-    hXM: ['hunter', 106, 'saber_13', 'frame_guard_13', 'barrier_guard_13', 'mine2', ['n1', 'n2', 'n3', 'n4', 'n5'], 'hell'],
-    hXR: ['hunter', 116, 'saber_14', 'frame_guard_14', 'barrier_guard_14', 'ruin2', ['s1', 's2', 's3', 's4', 's5'], 'hell'],
+    hXF: ['hunter', 84, 'saber_11', 'frame_guard_11', 'barrier_guard_11', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], 'hell'],
+    rXF: ['ranger', 84, 'handgun_11', 'frame_combat_11', 'barrier_combat_11', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], 'hell'],
+    hXC: ['hunter', 89, 'saber_12', 'frame_guard_12', 'barrier_guard_12', 'cave1', ['c1', 'c2', 'c3', 'c4', 'c5'], 'hell'],
+    hXM: ['hunter', 93, 'saber_13', 'frame_guard_13', 'barrier_guard_13', 'mine2', ['n1', 'n2', 'n3', 'n4', 'n5'], 'hell'],
+    hXR: ['hunter', 98, 'saber_14', 'frame_guard_14', 'barrier_guard_14', 'ruin2', ['s1', 's2', 's3', 's4', 's5'], 'hell'],
   };
-  window.simClass = (cls, lvl, w, f, b, area, rooms, hard = false) => {
+  window.simClass = (cls, lvl, w, f, b, area, rooms, hard = false, passives = []) => {
     // hard: true = Nightmare, 'hell' = Hell.
-    g.startCharacter(-1, mkChar(cls, lvl, w, f, b), hard === 'hell' ? 'hell' : hard ? 'nightmare' : 'normal');
+    g.startCharacter(-1, mkChar(cls, lvl, w, f, b, passives), hard === 'hell' ? 'hell' : hard ? 'nightmare' : 'normal');
     window.__h.run(0.1);
     g.newExpedition(area === 'forest1' ? 'forest' : area.startsWith('mine') ? 'mines' : area.startsWith('ruin') ? 'ruins' : 'caves');
     g.enterArea(area, 'start');

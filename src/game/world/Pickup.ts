@@ -1,31 +1,77 @@
 import * as THREE from 'three';
-import { itemName, type DropVerdict, type ItemInstance } from '../character';
-import { injectorCfg } from '../config';
-import { getDef } from '../data/items';
+import { itemName, rarityOf, type DropVerdict, type ItemInstance } from '../character';
+import { getDef, type CraftId } from '../data/items';
+import { riftTitle, type RiftShard } from '../rifts';
 import { glowDecal, glowSprite, markerTexture } from './glow';
 
-// Items, meseta and charge orbs lying on the ground.
+// Items, meseta and Rift Shards lying on the ground.
 
-export type PickupContent = { kind: 'item'; item: ItemInstance } | { kind: 'meseta'; amount: number } | { kind: 'charge' };
+export type PickupContent = { kind: 'item'; item: ItemInstance } | { kind: 'meseta'; amount: number } | { kind: 'shard'; shard: RiftShard };
 
 const COLORS = {
   weapon: 0xff8a30,
   armor: 0x4aa8ff,
   consumable: 0x50e070,
   injector: 0x40d8c0,
-  grinder: 0xdfe6f2, // silver, like the grinder icon
+  photon: 0x8ff6ff, // photon cyan (crafting; each photon wears its own, PHOTON_COLOR)
+  unit: 0x9ad0ff,
+  /** Uniques (purple cube and pillar). */
   rare: 0xb050ff,
   meseta: 0xffd040,
   upgrade: 0x30f060,
+  /** Rift Shards (Falz Rifts): a violet crystal with a pillar, taken by walking over it. */
+  shard: 0xb070ff,
 };
-/** Charge orbs wear the colour of the injector they would fill (as on the HUD). */
-const ORB = { mate: 0x5aff7a, fluid: 0x5ac8ff };
-/** Seconds of blinking before a charge orb fades. */
-const ORB_BLINK = 4;
+/** Magic (blue) and rare (yellow) gear: the halo and floor glow take the rarity's colour; rares get a pillar too. */
+const RARITY_TINT = { magic: 0x6a9cff, rare: 0xffd84a };
 /** Junk gems fade toward this grey. */
 const JUNK_GREY = new THREE.Color(0x5a5e66);
 
-/** Tall see-through pillar so a drop is visible across the room (rares, and grinders in their own colour). */
+/** Each photon's colour on the ground (gem, halo, pillar), as in its menu icon. */
+const PHOTON_COLOR: Record<CraftId, number> = { drop: 0x5ae8ff, sphere: 0x7a9cff, crystal: 0xffe27a };
+
+const glowMat = (color: number, intensity = 0.9, flat = false) =>
+  new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: intensity, flatShading: flat });
+
+/**
+ * A photon's shape on the ground, after its menu icon (2026-10-11, the user's ask: tell them apart at a glance).
+ * The returned mesh is the gem (recoloured with the drop); its children are the extra parts and spin with it.
+ * Drop: a teardrop. Sphere: an orb with a tilted orbiting ring. Crystal: a tall six-sided crystal with two floating
+ * chips (not the Rift Shard's violet octahedron).
+ */
+function photonGem(craft: CraftId): THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> {
+  const color = PHOTON_COLOR[craft];
+  switch (craft) {
+    case 'drop': {
+      // Teardrop: x = sin t * sin(t / 2), point up.
+      const pts: THREE.Vector2[] = [];
+      for (let i = 0; i <= 16; i++) {
+        const t = Math.PI * (1 - i / 16);
+        pts.push(new THREE.Vector2(0.26 * Math.sin(t) * Math.sin(t / 2), -0.34 * Math.cos(t)));
+      }
+      return new THREE.Mesh(new THREE.LatheGeometry(pts, 20), glowMat(color));
+    }
+    case 'sphere': {
+      const gem = new THREE.Mesh(new THREE.SphereGeometry(0.2, 20, 14), glowMat(color));
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.025, 8, 40), glowMat(0xdfe8ff, 1));
+      ring.rotation.set(1.25, 0, 0.35);
+      gem.add(ring);
+      return gem;
+    }
+    case 'crystal': {
+      const body = [new THREE.Vector2(0, -0.4), new THREE.Vector2(0.17, -0.06), new THREE.Vector2(0.17, 0.08), new THREE.Vector2(0, 0.42)];
+      const gem = new THREE.Mesh(new THREE.LatheGeometry(body, 6), glowMat(color, 0.9, true));
+      for (const [x, y, s] of [[0.3, 0.12, 1], [-0.28, -0.1, 0.8]]) {
+        const chip = new THREE.Mesh(new THREE.OctahedronGeometry(0.06 * s), glowMat(0xfff4c0, 1, true));
+        chip.position.set(x, y, 0);
+        gem.add(chip);
+      }
+      return gem;
+    }
+  }
+}
+
+/** Tall see-through pillar so a drop is visible across the room (rares, and photons and units in their own colour). */
 function beam(color: number): THREE.Mesh {
   const m = new THREE.Mesh(
     new THREE.CylinderGeometry(0.12, 0.12, 6, 8, 1, true),
@@ -53,46 +99,61 @@ export class Pickup {
   private junk = false;
   /** Green ▲ over upgrades, built on first use. */
   private marker: THREE.Group | null = null;
-  /** Last setCharge() look, to skip repaints. */
-  private orbKey = '';
+  /** The see-through pillar (rares, uniques, photons, units). */
+  private pillar: THREE.Mesh | null = null;
+  /** Units: the pillar only stands while the unit is worth learning (a new kind or a better roll). */
+  private unit = false;
 
   constructor(readonly content: PickupContent, x: number, z: number) {
     this.pos.set(x, 0, z);
     let color = COLORS.meseta;
     let grinder = false;
+    let tint: number | null = null;
+    let photon: CraftId | null = null;
     if (content.kind === 'item') {
       const def = getDef(content.item.id);
-      this.rare = !!def.rare;
-      grinder = def.type === 'grinder';
-      color = this.rare ? COLORS.rare : COLORS[def.type];
+      if (def.type === 'photon') photon = def.craft;
+      const rarity = rarityOf(content.item);
+      this.rare = rarity === 'unique';
+      // Grinders, photons and units are scarce and worth a look: a pillar in their own colour (a unit's only while
+      // it's worth learning, see setVerdict).
+      this.unit = def.type === 'unit';
+      grinder = def.type === 'photon' || this.unit;
+      color = this.rare ? COLORS.rare : photon ? PHOTON_COLOR[photon] : COLORS[def.type];
+      if (rarity === 'magic' || rarity === 'rare') tint = RARITY_TINT[rarity];
+      if (rarity === 'rare') grinder = true; // a pillar, in the rarity's colour
     }
     const rare = this.rare;
     this.color = new THREE.Color(color);
-    if (content.kind === 'charge') color = COLORS.injector;
+    if (content.kind === 'shard') {
+      color = COLORS.shard;
+      grinder = true; // a pillar
+      if (content.shard.mods.length >= 3) tint = RARITY_TINT.rare;
+    }
     const geo =
       content.kind === 'meseta'
         ? new THREE.CylinderGeometry(0.25, 0.25, 0.08, 16).rotateX(Math.PI / 2)
-        : content.kind === 'charge'
-          ? new THREE.SphereGeometry(0.22, 16, 12)
+        : content.kind === 'shard'
+          ? new THREE.OctahedronGeometry(0.24).scale(0.75, 1.7, 0.75)
           : rare
           ? new THREE.BoxGeometry(0.55, 0.55, 0.55)
           : new THREE.OctahedronGeometry(0.3);
-    this.gem = new THREE.Mesh(
-      geo,
-      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.9 }),
-    );
+    this.gem = photon ? photonGem(photon) : new THREE.Mesh(geo, glowMat(color));
     this.gem.position.y = 0.6;
     this.group.add(this.gem);
 
     // Soft halo around the gem plus a glow pool on the floor, so drops read from a distance.
-    this.haloSize = content.kind === 'meseta' ? 1.1 : content.kind === 'charge' ? 1.4 : rare ? 2.4 : grinder ? 2 : 1.6;
-    this.halo = glowSprite(color, this.haloSize, 0.7);
+    this.haloSize = content.kind === 'meseta' ? 1.1 : rare ? 2.4 : grinder ? 2 : 1.6;
+    this.halo = glowSprite(tint ?? color, this.haloSize, 0.7);
     this.halo.position.y = 0.6;
-    this.pool = glowDecal(color, rare ? 2.6 : 1.8, 0.5);
+    this.pool = glowDecal(tint ?? color, rare ? 2.6 : 1.8, 0.5);
     this.group.add(this.halo, this.pool);
 
     // Grinders are scarce and always useful, so they get a pillar too, in their own colour (purple stays rare).
-    if (rare || grinder) this.group.add(beam(color));
+    if (rare || grinder) {
+      this.pillar = beam(tint ?? color);
+      this.group.add(this.pillar);
+    }
   }
 
   /**
@@ -103,6 +164,7 @@ export class Pickup {
     this.verdict = v;
     const junk = v.look === 'junk' && !this.rare;
     if (junk !== this.junk) this.paint(junk, 0.75);
+    if (this.unit && this.pillar) this.pillar.visible = !junk;
     const up = v.look === 'upgrade';
     if (up && !this.marker) {
       this.marker = new THREE.Group();
@@ -115,23 +177,6 @@ export class Pickup {
       this.group.add(this.marker);
     }
     if (this.marker) this.marker.visible = up;
-  }
-
-  /**
-   * A charge orb takes the worn injector's colour, and dims like junk while it can't be taken (the
-   * injector is full, or none is worn): walking over it then leaves it lying.
-   */
-  setCharge(kind: 'mate' | 'fluid' | null, open: boolean): void {
-    const key = `${kind}|${open}`;
-    if (key === this.orbKey) return;
-    this.orbKey = key;
-    this.color.setHex(kind ? ORB[kind] : COLORS.injector);
-    this.paint(!open, 0.6);
-  }
-
-  /** A charge orb that has lain long enough (the game removes it). */
-  get expired(): boolean {
-    return this.content.kind === 'charge' && this.age >= injectorCfg.orbLife;
   }
 
   /** Colour the gem, halo and pool; `dim` greys it out with no pulse. */
@@ -148,18 +193,13 @@ export class Pickup {
 
   get label(): string {
     if (this.content.kind === 'meseta') return `${this.content.amount} Meseta`;
-    if (this.content.kind === 'charge') return 'Charge orb';
+    if (this.content.kind === 'shard') return riftTitle(this.content.shard);
     return itemName(this.content.item);
   }
 
   update(dt: number): void {
     this.t += dt;
     this.age += dt;
-    if (this.content.kind === 'charge') {
-      // Blink faster and faster before it fades.
-      const left = injectorCfg.orbLife - this.age;
-      this.group.visible = left > ORB_BLINK || Math.floor(left * (left < 1.5 ? 12 : 6)) % 2 === 0;
-    }
     const bob = Math.sin(this.t * 3) * 0.1;
     this.gem.rotation.y += dt * (this.junk ? 0.6 : 2);
     this.gem.position.y = 0.6 + bob * (this.junk ? 0.4 : 1);

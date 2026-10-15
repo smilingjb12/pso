@@ -21,7 +21,7 @@ export interface BossContext {
   tickPlayer(shape: TelegraphShape, damage: number, fromX: number, fromZ: number): void;
   /** Leave a poison puddle on the ground. */
   puddle(x: number, z: number, radius: number, life: number): void;
-  /** Facility hazard damage (flat, softened by DFP). */
+  /** Facility hazard damage (flat, less Area damage taken). */
   hazardHit(damage: number, fromX: number, fromZ: number, knockback: number, source: string): void;
   /** Add Burn stacks. */
   burnPlayer(stacks: number): void;
@@ -48,7 +48,6 @@ export interface Boss {
   readonly name: string;
   readonly race: Race;
   readonly atp: number;
-  readonly ata: number;
   /** Whole-boss HP (damage dealt to it charges injectors). */
   readonly hp: number;
   readonly maxHp: number;
@@ -67,6 +66,8 @@ export interface Boss {
   /** Is this hittable part of the boss? */
   owns(h: Hittable): boolean;
   update(dt: number, ctx: BossContext): void;
+  /** Speed of its state machine and telegraphs (above 1 in higher rift tiers, lower while chilled). */
+  readonly tempo: number;
   /** Keep the player out of the body and the body inside the arena. */
   collide(playerPos: THREE.Vector3, playerRadius: number, level: Level): void;
   /** Damage-over-time tick on one of its parts. */

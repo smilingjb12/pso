@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Race } from '../game/config';
 import type { StatusTimer } from '../game/combat/types';
 import { ATTR_LABEL } from '../game/data/items';
-import { contextIcon, statusIcon, type ContextIcon } from './icons';
+import { statusIcon } from './icons';
 
 // DOM overlay HUD. Kept dumb: the game pushes state in every frame.
 
@@ -11,25 +11,25 @@ export interface PaletteSlotView {
   label: string;
   /** Inline SVG icon. */
   icon: string;
-  /** Small number in the corner (item count, TP cost). */
+  /** Small number in the corner (the Art's TP cost). */
   count?: string;
-  kind: 'light' | 'heavy' | 'item' | 'tech' | 'empty';
+  kind: 'basic' | 'art' | 'empty';
   disabled?: boolean;
-  /** What the slot refills (a Mate / Fluid injector, Resta): it pulses when that gauge is low between fights. */
+  /** What the slot refills (Resta): it pulses when that gauge is low between fights. */
   restores?: 'hp' | 'tp';
+  /** Share of the Art's cooldown still to go (0 = ready): a dark sweep over the hex. */
+  cooldown?: number;
 }
 
-export interface ContextView {
-  icon: ContextIcon;
-  label: string;
-}
-
-/** Hex positions in the cluster, PSO-style. Slots: 0 LMB, 1 RMB, 2 Q, 3 E, 'ctx' R (interact). */
+/**
+ * Hex positions in the cluster, PSO-style (2026-10-14, the Arts redesign). Slots: 0 LMB (the basic chain),
+ * 1 RMB, 2 Q, 3 E, 4 R (the Art bar), Q / E / R left to right along the top like the keys.
+ */
 const HEX_LAYOUT = [
   { slot: 2, pos: 'far', color: 'purple' },
   { slot: 0, pos: 'left', color: 'yellow' },
-  { slot: 'ctx', pos: 'top', color: 'green' },
-  { slot: 3, pos: 'right', color: 'blue' },
+  { slot: 3, pos: 'top', color: 'green' },
+  { slot: 4, pos: 'right', color: 'blue' },
   { slot: 1, pos: 'bottom', color: 'red' },
 ] as const;
 
@@ -45,13 +45,9 @@ export interface HudState {
   level: number;
   /** No fight in progress (no active room, no engaged boss): the time to top up. */
   calm: boolean;
-  /** LMB, RMB, Q, E for the active row. */
+  /** LMB (the basic chain), then the Art bar: RMB, Q, E, R. */
   palette: PaletteSlotView[];
-  paletteIndex: number;
-  /** The attack technique the magic source casts (mouse wheel), if any is learned. */
-  spell: { name: string; icon: string } | null;
-  context: ContextView | null;
-  comboHits: number; // number of hits (or chained casts) started in the current combo (0..3)
+  comboHits: number; // number of steps started in the current chain (0..3)
   comboStreak: number; // the last this-many of them were perfect chains
   comboWindow: boolean;
   comboBroken: boolean;
@@ -72,10 +68,17 @@ export interface HudState {
   /** Status ailments (poison, paralysis) as chips. */
   statuses: { label: string; cls: string }[];
   cast: number | null; // 0..1
+  /**
+   * Hard crowd control on the player (paralysis): seconds left of the total, shown as a ring in the middle of the
+   * screen, WoW style. `hint`: a way out (a Sol injector).
+   */
+  cc: { label: string; left: number; total: number; hint: string | null } | null;
   /** The injector (key 1): doses ready (fractional) out of the most it holds. */
   injector: { kind: 'mate' | 'fluid'; doses: number; charge: number; name: string; mod: string | null } | null;
   /** Dash charges ready, the most there can be, and progress (0..1) toward the next. */
   dash: { charges: number; max: number; refill: number };
+  /** The Mag's photon blast and its gauge (0..1; it fires by itself when full, in a fight); null without one. */
+  photonBlast: { name: string; charge: number } | null;
 }
 
 interface FloatText {
@@ -108,9 +111,18 @@ const el = (cls: string, parent: HTMLElement, html = ''): HTMLDivElement => {
 
 export class Hud {
   readonly root: HTMLDivElement;
+  /** Crowd-control ring in the middle of the screen (paralysis). */
+  private ccEl!: HTMLDivElement;
+  private ccFill!: SVGCircleElement;
+  private ccTime!: HTMLDivElement;
+  private ccLabel!: HTMLDivElement;
+  private ccHint!: HTMLDivElement;
+  private ccKey = '';
   private action: HTMLDivElement;
   private vitals: HTMLDivElement;
   private dashEl!: HTMLDivElement;
+  private pbEl!: HTMLDivElement;
+  private pbFill!: HTMLElement;
   private dashCells: HTMLDivElement[] = [];
   private hpBar: HTMLDivElement;
   private hpFill: HTMLDivElement;
@@ -134,9 +146,6 @@ export class Hud {
   private lastStatusKey = '';
   private lowHpEl: HTMLDivElement;
   private hexes: HTMLDivElement[] = [];
-  private ctxHex!: HTMLDivElement;
-  private shiftTile: HTMLDivElement;
-  private spellChip: HTMLDivElement;
   private pips: HTMLDivElement[] = [];
   private castBar: HTMLDivElement;
   private castFill: HTMLDivElement;
@@ -188,6 +197,10 @@ export class Hud {
     this.lvEl = el('vlevel', this.vitals);
     // Dash charges: a matching tab on the bottom-left edge, one chevron per charge.
     this.dashEl = el('vdash', this.vitals);
+    // Photon blast gauge: a tab in the middle of the bottom edge, once a blast is picked.
+    this.pbEl = el('vpb', this.vitals);
+    el('pb-key', this.pbEl, 'PB');
+    this.pbFill = el('fill', el('pb-bar', this.pbEl));
     const gauge = (kind: 'hp' | 'tp') => {
       const row = el(`vrow v-${kind}`, this.vitals);
       el('vlabel', row, kind.toUpperCase());
@@ -210,7 +223,10 @@ export class Hud {
     hp.bar.insertBefore(this.hpCorrupt, this.hpShield.nextSibling);
     [this.tpRow, this.tpTrail, this.tpFill, this.tpText] = [tp.row, tp.trail, tp.fill, tp.text];
     // Injector: one cell per dose; the next dose fills up as you deal damage.
-    const injRoot = el('inj', el('vinj', this.vitals));
+    const vinj = el('vinj', this.vitals);
+    // The level tab sits on top of the injector cells (2026-10-10, the user's layout).
+    vinj.appendChild(this.lvEl);
+    const injRoot = el('inj', vinj);
     this.injEl = { root: injRoot, cells: el('inj-cells', injRoot), key: '' };
     const side = el('vside', this.vitals);
     this.statusChips = el('vchips', side);
@@ -219,17 +235,15 @@ export class Hud {
     // PSO-style hexagon action palette (bottom-right).
     const cluster = el('hexpal', this.root);
     for (const h of HEX_LAYOUT) {
-      const hex = el(`hex hex-${h.pos} hex-${h.color}`, cluster, '<div class="hex-ring"><div class="hex-face"><div class="hex-key"></div><div class="hex-icon"></div><div class="hex-count"></div></div></div>');
-      if (h.slot === 'ctx') this.ctxHex = hex;
-      else this.hexes[h.slot] = hex;
+      this.hexes[h.slot] = el(`hex hex-${h.pos} hex-${h.color}`, cluster, '<div class="hex-ring"><div class="hex-face"><div class="hex-key"></div><div class="hex-icon"></div><div class="hex-cd"></div><div class="hex-count"></div></div></div>');
     }
-    this.shiftTile = el('shift-tile', cluster, 'SHIFT');
-    this.spellChip = el('spell-chip', cluster);
 
     this.targetBox = el('target', this.root);
-    this.targetName = el('target-name', this.targetBox);
-    this.targetAttr = el('attr-tag', this.targetBox);
-    this.targetStatus = el('target-status', this.targetBox);
+    // One line: name, attribute (plain coloured text, so it doesn't read as an affix chip), status badges at the right.
+    const targetHead = el('target-head', this.targetBox);
+    this.targetName = el('target-name', targetHead);
+    this.targetAttr = el('attr-tag', targetHead);
+    this.targetStatus = el('target-status', targetHead);
     this.targetAffixes = el('target-affixes', this.targetBox);
 
     this.bossBox = el('bossbar', this.root);
@@ -237,6 +251,13 @@ export class Hud {
     this.bossAttr = el('attr-tag', this.bossBox);
 
     this.reticle = el('reticle', this.root);
+    this.ccEl = el('cc', this.root,
+      `<svg class="cc-ring" viewBox="0 0 100 100"><circle class="cc-track" cx="50" cy="50" r="44"/><circle class="cc-fill" cx="50" cy="50" r="44" pathLength="100"/></svg>` +
+        `<div class="cc-icon">${statusIcon('stun')}</div><div class="cc-time"></div><div class="cc-label"></div><div class="cc-hint"></div>`);
+    this.ccFill = this.ccEl.querySelector('.cc-fill') as SVGCircleElement;
+    this.ccTime = this.ccEl.querySelector('.cc-time') as HTMLDivElement;
+    this.ccLabel = this.ccEl.querySelector('.cc-label') as HTMLDivElement;
+    this.ccHint = this.ccEl.querySelector('.cc-hint') as HTMLDivElement;
     const areaBox = el('areabox', this.root);
     this.areaEl = el('area-name', areaBox);
     this.roomEl = el('room-info', areaBox);
@@ -257,9 +278,9 @@ export class Hud {
     hex.classList.toggle('dim', dim);
   }
 
-  /** Flash a palette hex when its key is pressed (0..3, or -1 for the context action). */
+  /** Flash a palette hex when its key is pressed (0 LMB, 1-4 RMB / Q / E / R). */
   pulseSlot(i: number): void {
-    const hex = i < 0 ? this.ctxHex : this.hexes[i];
+    const hex = this.hexes[i];
     if (!hex) return;
     hex.classList.remove('pressed');
     void hex.offsetWidth; // restart the animation
@@ -340,6 +361,24 @@ export class Hud {
     this.floats = [];
   }
 
+
+  /** The crowd-control ring: shown while paralysed, its arc and the seconds counting down. */
+  private updateCc(cc: HudState['cc']): void {
+    this.ccEl.classList.toggle('on', !!cc);
+    if (!cc) {
+      this.ccKey = '';
+      return;
+    }
+    const frac = Math.max(0, Math.min(1, cc.left / Math.max(0.01, cc.total)));
+    this.ccFill.style.strokeDashoffset = `${100 - frac * 100}`;
+    this.ccTime.textContent = cc.left.toFixed(1);
+    const key = `${cc.label}|${cc.hint ?? ''}`;
+    if (key !== this.ccKey) {
+      this.ccKey = key;
+      this.ccLabel.textContent = cc.label;
+      this.ccHint.textContent = cc.hint ?? '';
+    }
+  }
   update(realDt: number, s: HudState, camera: THREE.Camera, lockPos: THREE.Vector3 | null): void {
     const hpK = s.maxHp > 0 ? Math.max(0, s.hp / s.maxHp) : 0;
     const tpK = s.maxTp > 0 ? Math.max(0, s.tp / s.maxTp) : 0;
@@ -359,6 +398,12 @@ export class Hud {
     }
     this.setInjector(this.injEl, s.injector);
     this.setDash(s.dash);
+    this.pbEl.style.display = s.photonBlast ? '' : 'none';
+    if (s.photonBlast) {
+      this.pbFill.style.width = `${Math.round(s.photonBlast.charge * 100)}%`;
+      this.pbEl.classList.toggle('ready', s.photonBlast.charge >= 1);
+      this.pbEl.title = `${s.photonBlast.name}: fires by itself when full, in a fight`;
+    }
     const low = hpK < HP_LOW;
     this.hpBar.dataset.band = low ? 'low' : hpK < HP_OK ? 'mid' : 'ok';
     this.vitals.classList.toggle('danger', low && s.hp > 0);
@@ -375,16 +420,13 @@ export class Hud {
       this.statusChips.innerHTML = s.statuses.map((x) => `<span class="chip ${x.cls}">${x.label}</span>`).join('');
     }
 
-    const key = JSON.stringify([s.palette, s.context, s.spell]);
+    // The cooldown sweeps change every frame; everything else only when it changes.
+    const key = JSON.stringify(s.palette.map((p) => ({ ...p, cooldown: (p.cooldown ?? 0) > 0 })));
     if (key !== this.lastPaletteKey) {
       this.lastPaletteKey = key;
       s.palette.forEach((p, i) => this.fillHex(this.hexes[i], p.key, p.icon, p.count ?? '', p.label, p.disabled || p.kind === 'empty'));
-      const c = s.context;
-      this.fillHex(this.ctxHex, 'R', contextIcon(c?.icon ?? 'none'), '', c?.label ?? '', !c);
-      this.spellChip.style.display = s.spell ? 'flex' : 'none';
-      if (s.spell) this.spellChip.innerHTML = `${s.spell.icon}<span>${s.spell.name}</span>`;
     }
-    this.shiftTile.classList.toggle('on', s.paletteIndex === 1);
+    s.palette.forEach((p, i) => this.hexes[i].style.setProperty('--cd', (p.cooldown ?? 0).toFixed(3)));
     // Between fights, point at the fix: slots that refill a low gauge pulse.
     s.palette.forEach((p, i) => {
       const need = (p.restores === 'hp' && hpK < NUDGE_HP) || (p.restores === 'tp' && tpK < NUDGE_TP);
@@ -398,6 +440,7 @@ export class Hud {
       p.classList.toggle('broken', s.comboBroken && i === s.comboHits);
     });
 
+    this.updateCc(s.cc);
     this.castBar.style.visibility = s.cast !== null ? 'visible' : 'hidden';
     if (s.cast !== null) this.castFill.style.width = `${s.cast * 100}%`;
 

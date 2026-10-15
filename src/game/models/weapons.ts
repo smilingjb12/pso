@@ -8,13 +8,9 @@ export const WEAPON_GRIP: Record<WeaponKind, Grip> = {
   saber: 'melee',
   sword: 'melee',
   dagger: 'melee',
-  partisan: 'melee',
-  slicer: 'gun',
   handgun: 'gun',
   rifle: 'rifle',
-  mechgun: 'rifle',
   shot: 'rifle',
-  cane: 'melee',
   rod: 'melee',
   wand: 'melee',
 };
@@ -28,7 +24,18 @@ export interface WeaponModel {
   group: THREE.Group;
   /** Photon materials whose emissive colour signals attack type. */
   glow: THREE.MeshStandardMaterial[];
+  /** Melee swing trail span along the weapon's +Z axis (from, to), in grip space. */
+  trail?: [number, number];
 }
+
+// Where the swing trail runs: most of a blade, or just the head of a pole or staff.
+const TRAIL_SPAN: Partial<Record<WeaponKind, [number, number]>> = {
+  saber: [0.28, 1.12],
+  sword: [0.3, 1.7],
+  dagger: [0.12, 0.47],
+  rod: [0.85, 1.19],
+  wand: [0.36, 0.63],
+};
 
 function glowMat(color: number): THREE.MeshStandardMaterial {
   const m = mat(color, { emissive: color, emissiveIntensity: 0.9 });
@@ -69,26 +76,6 @@ export function buildWeapon(kind: WeaponKind | 'none', color: number): WeaponMod
       part(g, new THREE.BoxGeometry(0.02, 0.05, 0.38), photon(), [0, 0, 0.28]);
       break;
     }
-    case 'partisan': {
-      // Long pole with a photon spearhead and two small side blades.
-      part(g, Z(new THREE.CylinderGeometry(0.025, 0.025, 2.0, 6)), dark(), [0, 0, 0.35]);
-      part(g, Z(new THREE.CylinderGeometry(0.04, 0.04, 0.1, 6)), metal(), [0, 0, 1.36]);
-      part(g, Z(new THREE.ConeGeometry(0.075, 0.5, 4)), photon(), [0, 0, 1.66], [0, 0, Math.PI / 4]);
-      for (const sx of [-1, 1]) part(g, new THREE.BoxGeometry(0.16, 0.02, 0.05), photon(), [sx * 0.09, 0, 1.43], [0, sx * 0.5, 0]);
-      part(g, Z(new THREE.ConeGeometry(0.035, 0.1, 6)), metal(), [0, 0, -0.68], [Math.PI, 0, 0]);
-      break;
-    }
-    case 'slicer': {
-      // A hand-held throwing disc: hub, photon rim and three blades.
-      part(g, new THREE.CylinderGeometry(0.06, 0.06, 0.05, 8), metal(), [0, 0, 0.2]);
-      part(g, new THREE.TorusGeometry(0.2, 0.02, 4, 12), photon(), [0, 0, 0.2], [Math.PI / 2, 0, 0]);
-      for (let i = 0; i < 3; i++) {
-        const a = (i / 3) * Math.PI * 2;
-        part(g, new THREE.BoxGeometry(0.05, 0.02, 0.2), photon(), [Math.sin(a) * 0.12, 0, 0.2 + Math.cos(a) * 0.12], [0, a, 0]);
-      }
-      part(g, new THREE.BoxGeometry(0.03, 0.03, 0.14), dark(), [0, 0, 0.05]);
-      break;
-    }
     case 'handgun': {
       part(g, new THREE.BoxGeometry(0.06, 0.12, 0.07), dark(), [0, -0.02, -0.02], [0.3, 0, 0]);
       part(g, new THREE.BoxGeometry(0.08, 0.1, 0.28), metal(), [0, 0.07, 0.08]);
@@ -105,14 +92,6 @@ export function buildWeapon(kind: WeaponKind | 'none', color: number): WeaponMod
       part(g, new THREE.BoxGeometry(0.04, 0.018, 0.24), photon(), [0, 0.119, 0.46]); // top rail ahead of the scope (body top is y=0.11)
       break;
     }
-    case 'mechgun': {
-      part(g, new THREE.BoxGeometry(0.06, 0.12, 0.07), dark(), [0, -0.03, 0], [0.3, 0, 0]);
-      part(g, new THREE.BoxGeometry(0.13, 0.15, 0.38), metal(), [0, 0.07, 0.12]);
-      for (const sx of [-0.035, 0.035]) part(g, Z(new THREE.CylinderGeometry(0.02, 0.02, 0.22, 6)), dark(), [sx, 0.08, 0.4]);
-      part(g, new THREE.CylinderGeometry(0.07, 0.07, 0.1, 8), dark(), [0, -0.04, 0.16]);
-      part(g, new THREE.BoxGeometry(0.07, 0.018, 0.3), photon(), [0, 0.154, 0.12]); // top rail (body top is y=0.145)
-      break;
-    }
     case 'shot': {
       // Stubby wide-bodied gun with a flared muzzle.
       part(g, new THREE.BoxGeometry(0.06, 0.12, 0.08), dark(), [0, -0.03, 0], [0.3, 0, 0]);
@@ -121,12 +100,6 @@ export function buildWeapon(kind: WeaponKind | 'none', color: number): WeaponMod
       part(g, Z(new THREE.CylinderGeometry(0.1, 0.06, 0.16, 8)), dark(), [0, 0.07, 0.5]);
       part(g, new THREE.BoxGeometry(0.1, 0.05, 0.12), dark(), [0, -0.02, 0.3]);
       part(g, new THREE.BoxGeometry(0.08, 0.018, 0.32), photon(), [0, 0.144, 0.18]); // top rail (body top is y=0.135)
-      break;
-    }
-    case 'cane': {
-      part(g, Z(new THREE.CylinderGeometry(0.022, 0.026, 1.15, 6)), mat(0x6a4a2a), [0, 0, 0.2]);
-      part(g, new THREE.IcosahedronGeometry(0.07, 0), photon(), [0, 0, 0.82]);
-      part(g, Z(new THREE.CylinderGeometry(0.035, 0.035, 0.05, 6)), metal(), [0, 0, 0.74]);
       break;
     }
     case 'rod': {
@@ -145,5 +118,5 @@ export function buildWeapon(kind: WeaponKind | 'none', color: number): WeaponMod
     case 'none':
       break;
   }
-  return { group: g, glow };
+  return { group: g, glow, trail: kind === 'none' ? undefined : TRAIL_SPAN[kind] };
 }

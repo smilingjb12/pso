@@ -115,12 +115,24 @@ canvas {
   font-size: 13px;
   letter-spacing: 0.06em;
 }
-/* Status badges right of the attribute tag: each ring is a clock of the time left. */
+/* Name, attribute and status badges on one line. */
+.target-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* The attribute next to the name is plain coloured text: chips under it are affixes. */
+.target-head .attr-tag {
+  margin-top: 0;
+  padding: 0;
+  border: none;
+  background: none;
+}
+/* Status badges at the right end of the name line: each ring is a clock of the time left. */
 .target-status {
-  float: right;
+  margin-left: auto;
   display: flex;
   gap: 6px;
-  margin-top: 3px;
 }
 .target-status:not(:empty) {
   padding-bottom: 10px;
@@ -131,8 +143,8 @@ canvas {
   box-shadow: 0 0 10px rgba(255, 190, 60, 0.35);
 }
 /* Elite affix chips under the name, in each affix's aura colour. */
-.target-affixes {
-  clear: both;
+.target-affixes:empty {
+  display: none;
 }
 .affix-chips {
   display: flex;

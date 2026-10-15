@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { itemDefs, type ArmorItemDef, type ArmorLine } from '../data/items';
-import { leadAttribute, type AttributeId, type AttributePoints, type KitId } from '../data/stats';
+import { CLASSES, type ClassId, type MagStat } from '../data/stats';
 import { limbGeo, mat, part, Rig } from './Rig';
 import type { LegDims } from './gait';
 
@@ -174,7 +174,7 @@ export interface Look {
 // ------------------------------------------------------------ armour evolutions
 
 /** The outfit worn in a Standard frame (or none), by the character's leading attribute. */
-export const ATTRIBUTE_OUTFIT: Record<AttributeId, string> = { pow: 'O4', def: 'O4', dex: 'O1', mind: 'O5' };
+export const ATTRIBUTE_OUTFIT: Record<MagStat, string> = { pow: 'O4', def: 'O4', dex: 'O1', mind: 'O5' };
 /** The outfit each armour line dresses her in: the frame decides the clothes. */
 export const LINE_OUTFIT: Partial<Record<ArmorLine, string>> = { guard: 'O4', combat: 'O1', psy: 'O5' };
 /** Evolution stage per frame tier (index = tier 1-15): Normal (up to the Ruins' T7) tops out at stage 3, Nightmare frames (T8-11) reach 4, Hell frames (T12+) 5. */
@@ -222,8 +222,8 @@ export const EVOLUTIONS: Record<string, Evolution> = {
   },
 };
 
-/** Outfit and evolution stage for a character led by `attr` wearing `frame` (the attribute's outfit at stage 0 without one). */
-export function armorLook(attr: AttributeId, frame?: ArmorItemDef | null): { outfit: string; evo: number } {
+/** Outfit and evolution stage for a character of Mag stat `attr` (its class's) wearing `frame` (that stat's outfit at stage 0 without one). */
+export function armorLook(attr: MagStat, frame?: ArmorItemDef | null): { outfit: string; evo: number } {
   if (!frame) return { outfit: ATTRIBUTE_OUTFIT[attr], evo: 0 };
   return { outfit: LINE_OUTFIT[frame.line] ?? ATTRIBUTE_OUTFIT[attr], evo: TIER_STAGE[clamp(Math.round(frame.tier), 1, TIER_STAGE.length - 1)] };
 }
@@ -270,8 +270,7 @@ export function playerLook(data: {
   appearance?: Look;
   look?: string;
   colors?: LookColors;
-  kit?: KitId;
-  attributes?: AttributePoints;
+  cls?: ClassId;
   equipped?: { frame?: string };
   inventory?: { uid: string; id: string }[];
 }): Look {
@@ -279,7 +278,7 @@ export function playerLook(data: {
   const look = data.appearance ? { ...DEFAULT_APPEARANCE, ...data.appearance } : { ...legacy.look, colors: data.colors };
   const frameId = data.equipped?.frame && data.inventory?.find((it) => it.uid === data.equipped!.frame)?.id;
   const def = frameId ? itemDefs[frameId] : undefined;
-  const lead = data.attributes ? leadAttribute(data.kit ?? 'vanguard', data.attributes) : 'pow';
+  const lead = CLASSES[data.cls ?? 'hunter']?.magStat ?? 'pow';
   const gear = armorLook(lead, def?.type === 'armor' ? def : null);
   // The frame decides the outfit and its evolution; players don't get head accessories (Character Lab only).
   return { ...look, ...gear, accessory: 'A1', armor: 'R0', glow: 'G0', back: 'B0' };

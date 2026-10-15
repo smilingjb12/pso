@@ -20,6 +20,9 @@ export interface DeRolLePose {
   time: number;
 }
 
+/** Body segment `i`'s radius (they taper toward the tail). */
+export const drlSegRadius = (i: number): number => 1.6 - i * 0.15;
+
 export class DeRolLeModel {
   readonly root = new THREE.Group();
   readonly head = new THREE.Group();
@@ -35,7 +38,7 @@ export class DeRolLeModel {
   private weakMat: THREE.MeshBasicMaterial;
   private legs: THREE.Group[] = [];
 
-  constructor(segCount = 8, private segRadius = (i: number) => 1.25 - i * 0.055) {
+  constructor(segCount: number, private segRadius = drlSegRadius) {
     this.bodyMat = mat(0x4a3a6e);
     this.darkMat = mat(0x2a2044);
     const belly = mat(0x9a86b0);

@@ -228,7 +228,8 @@ export abstract class Enemy implements Hittable {
   ) {
     this.champion = !!opts.champion;
     this.elite = !!opts.elite || this.champion;
-    this.affixes = this.elite ? [...(opts.affixes ?? [])] : [];
+    // Hell gives regular enemies an affix too (no elite stats, halo or loot).
+    this.affixes = [...(opts.affixes ?? [])];
     this.noReward = !!opts.noReward;
     this.maxHp = Math.round(arch.hp * (this.champion ? hardCfg.championHp : this.elite ? eliteCfg.hpMult : 1));
     this.baseAtp = Math.round(arch.atp * (this.champion ? hardCfg.championAtp : this.elite ? eliteCfg.atpMult : 1));
@@ -267,12 +268,36 @@ export abstract class Enemy implements Hittable {
   get frenzied(): boolean {
     return this.hasAffix('frenzied') && this.hp < this.maxHp * affixCfg.frenzyAt;
   }
-  /** Speed multiplier on movement and attack timings (Overclocked elites run faster, Frenzied ones once hurt; pylon light slows the Dark). */
+  /** Speed multiplier on movement and attack timings (Overclocked elites run faster, Frenzied ones once hurt; pylon light slows the Dark, Chill everyone). */
   get tempo(): number {
     let t = this.hasAffix('overclocked') ? affixCfg.overclockedTempo : 1;
     if (this.frenzied) t *= affixCfg.frenzyTempo;
     t = Math.min(affixCfg.tempoCap, t);
+    if (this.chillT > 0) t *= this.chillMult;
     return this.lit ? t * pylonCfg.enemySlow : t;
+  }
+  /** Chill (Barta, a Barta Field): speed multiplier and seconds left. */
+  private chillMult = 1;
+  private chillT = 0;
+  chill(mult: number, seconds: number): void {
+    this.chillMult = this.chillT > 0 ? Math.min(this.chillMult, mult) : mult;
+    this.chillT = Math.max(this.chillT, seconds);
+  }
+  /** Flinching or frozen right now. */
+  get staggered(): boolean {
+    return this.state === 'hitstun' || this.state === 'frozen';
+  }
+  /** End a freeze now (a Frozen Shooter shatter): it acts again next frame. */
+  thaw(): void {
+    if (this.state === 'frozen') this.stunFor = 0;
+  }
+  /** Pushed away from a point without damage (rooted enemies don't move). */
+  shove(fromX: number, fromZ: number, force: number): void {
+    if (!this.alive || this.rooted) return;
+    const dx = this.pos.x - fromX;
+    const dz = this.pos.z - fromZ;
+    const len = Math.hypot(dx, dz) || 1;
+    this.knock.set((dx / len) * force, 0, (dz / len) * force);
   }
   /** Attack power (Frenzied hits harder once frenzied). */
   get atp(): number {
@@ -282,11 +307,11 @@ export abstract class Enemy implements Hittable {
   protected get windupScale(): number {
     return this.followingUp ? affixCfg.followUpWindup : 1;
   }
-  get evp(): number {
-    return this.arch.evp;
+  get armor(): number {
+    return this.arch.armor;
   }
-  get dfp(): number {
-    return this.arch.dfp;
+  get techResist(): number {
+    return this.arch.techResist ?? 0;
   }
   get race(): Race {
     return this.arch.race;
@@ -314,15 +339,12 @@ export abstract class Enemy implements Hittable {
 
   /**
    * Shielded by a living Shielding ally: it takes reduced damage. A Shielding elite with nobody left
-   * to protect shields its own front (hits from `fromX, fromZ` in front of it).
+   * to protect shields itself (less damage from any side).
    */
-  damageMult(fromX?: number, fromZ?: number, _heavy?: boolean): number {
+  damageMult(_fromX?: number, _fromZ?: number, _heavy?: boolean): number {
     const light = this.lit ? pylonCfg.enemyDamage : 1;
     if (this.shieldedBy?.alive) return affixCfg.shieldMult * light;
-    if (this.hasAffix('shielding') && this.shieldAllies === 0 && fromX !== undefined && fromZ !== undefined) {
-      const front = Math.abs(angleDelta(this.yaw, yawTo(this.pos.x, this.pos.z, fromX, fromZ)));
-      if (front <= (affixCfg.selfShieldArcDeg * Math.PI) / 180) return affixCfg.selfShieldMult * light;
-    }
+    if (this.hasAffix('shielding') && this.shieldAllies === 0) return affixCfg.selfShieldMult * light;
     return light;
   }
 
@@ -360,6 +382,10 @@ export abstract class Enemy implements Hittable {
     return false;
   }
 
+  quietHit(): void {
+    this.flashT = 0;
+  }
+
   /** Interrupted by a hit. */
   protected flinch(): void {
     this.enter('hitstun');
@@ -370,9 +396,10 @@ export abstract class Enemy implements Hittable {
     if (effect === 'burn' && this.hasAffix('molten')) return; // made of the stuff
     if (effect === 'stun' && this.frenzied) return;
     if (effect === 'burn') {
-      this.burnDps = Math.max(this.burnDps, power);
-      if (duration >= this.burnT) this.burnTotal = duration;
-      this.burnT = Math.max(this.burnT, duration);
+      // Burns don't stack: a new one takes over only if it has more damage left to deal.
+      if (power * duration < this.burnDps * this.burnT) return;
+      this.burnDps = power;
+      this.burnT = this.burnTotal = duration;
     } else if (effect === 'poison') {
       // power: fraction of max HP per second.
       this.poisonDps = Math.max(this.poisonDps, Math.min(POISON_DPS_CAP, this.maxHp * power));
@@ -415,6 +442,7 @@ export abstract class Enemy implements Hittable {
   update(dt: number, ctx: EnemyContext): void {
     this.ctxRef = ctx;
     this.sinceHit += dt;
+    this.chillT = Math.max(0, this.chillT - dt);
     this.healGlowT = Math.max(0, this.healGlowT - dt);
     // Tempo speeds the whole AI up (Overclocked, Frenzied); the Mines machines apply it themselves.
     const tdt = this.selfTempo ? dt : dt * this.tempo;

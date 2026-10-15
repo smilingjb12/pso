@@ -1,5 +1,4 @@
-import { armorLines, INJECTOR_REQ_STAT, MAX_STACK, weaponKinds, type ItemDef } from './data/items';
-import type { StatKey } from './data/stats';
+import { MAX_STACK, PHOTON_STACK, type ItemDef } from './data/items';
 
 // What each item type does in the inventory: where it is worn, what wearing it requires and how it stacks.
 // Adding a type to ItemDef is a compile error here until it has a row. Menu text per type is ITEM_TEXT in
@@ -12,10 +11,9 @@ export const GEAR_SLOTS: GearSlot[] = ['weapon', 'frame', 'barrier', 'injector']
 export type ItemType = ItemDef['type'];
 export type ItemDefOf<T extends ItemType> = Extract<ItemDef, { type: T }>;
 
-/** An equip requirement: base + Mag `stat` must reach `req`. */
+/** An equip requirement: the character's level must reach `level` (stat requirements went on 2026-10-14). */
 export interface Requirement {
-  stat: StatKey;
-  req: number;
+  level: number;
 }
 
 export interface ItemTypeHandler<D extends ItemDef = ItemDef> {
@@ -27,14 +25,16 @@ export interface ItemTypeHandler<D extends ItemDef = ItemDef> {
   maxStack(def: D): number;
 }
 
-const need = (stat: StatKey | null, req: number): Requirement | null => (stat && req ? { stat, req } : null);
+const need = (level: number): Requirement | null => (level > 1 ? { level } : null);
 
 export const ITEM_TYPES: { [T in ItemType]: ItemTypeHandler<ItemDefOf<T>> } = {
-  weapon: { slot: () => 'weapon', requirement: (d) => need(weaponKinds[d.kind].reqStat, d.req), maxStack: () => 0 },
-  armor: { slot: (d) => d.slot, requirement: (d) => need(armorLines[d.line].reqStat, d.req), maxStack: () => 0 },
-  injector: { slot: () => 'injector', requirement: (d) => need(INJECTOR_REQ_STAT[d.kind], d.req), maxStack: () => 0 },
+  weapon: { slot: () => 'weapon', requirement: (d) => need(d.req), maxStack: () => 0 },
+  armor: { slot: (d) => d.slot, requirement: (d) => need(d.req), maxStack: () => 0 },
+  injector: { slot: () => 'injector', requirement: (d) => need(d.req), maxStack: () => 0 },
   consumable: { slot: () => null, requirement: () => null, maxStack: (d) => d.maxStack ?? MAX_STACK },
-  grinder: { slot: () => null, requirement: () => null, maxStack: () => MAX_STACK },
+  photon: { slot: () => null, requirement: () => null, maxStack: () => PHOTON_STACK },
+  // Units are learned into the Mag, not worn in a gear slot.
+  unit: { slot: () => null, requirement: () => null, maxStack: () => 0 },
 };
 
 /** The handler for `def`'s type. */
@@ -52,7 +52,7 @@ export function isGear(def: ItemDef): boolean {
   return itemSlot(def) !== null;
 }
 
-/** What wearing it requires (base + Mag), or null if nothing. */
+/** The level wearing it requires, or null if any level will do. */
 export function itemRequirement(def: ItemDef): Requirement | null {
   return itemType(def).requirement(def);
 }

@@ -12,8 +12,6 @@ export interface ProjectileSpec {
   radius: number;
   color: number;
   size: number;
-  /** 'disc' is a flat spinning blade (slicers). Default 'orb'. */
-  look?: 'orb' | 'disc';
   /** Seconds before it launches (bursts). Position is taken from `origin()` at launch. */
   delay?: number;
   origin?: () => THREE.Vector3;
@@ -38,9 +36,7 @@ export class Projectile {
 
   constructor(readonly spec: ProjectileSpec) {
     this.mesh = new THREE.Mesh(
-      spec.look === 'disc'
-        ? new THREE.CylinderGeometry(spec.size, spec.size, spec.size * 0.2, 5)
-        : new THREE.SphereGeometry(spec.size, 8, 6),
+      new THREE.SphereGeometry(spec.size, 8, 6),
       new THREE.MeshBasicMaterial({ color: spec.color }),
     );
     this.pos = this.mesh.position;
@@ -69,7 +65,6 @@ export class Projectile {
       const want = new THREE.Vector3(s.homing.pos.x - this.pos.x, 0, s.homing.pos.z - this.pos.z).normalize();
       this.dir.lerp(want, Math.min(1, (s.homingRate ?? 6) * dt)).normalize();
     }
-    if (s.look === 'disc') this.mesh.rotation.y += dt * 20;
     const step = s.speed * dt;
     this.pos.addScaledVector(this.dir, step);
     this.traveled += step;

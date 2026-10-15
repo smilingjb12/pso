@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { sfx } from '../../audio';
-import { expeditionOf, isCounter, type ExpeditionId, type SpawnDef } from '../data/areas';
+import { expeditionOf, isCounter, type ExpeditionId, type FeatureKind, type SpawnDef } from '../data/areas';
 import {
   affixes as affixCfg, ai, dash as dashCfg, elite as eliteCfg, enemies as enemyDefs, hard as hardCfg, hell as hellCfg, hazards as hazardCfg, machinery as machineCfg, panArms as panCfg, pylonCfg,
   type EnemyArchetype, type EnemyId,
 } from '../config';
-import { AFFIXES, HARD_AFFIXES, MINES_AFFIXES, rollAffixes } from '../data/affixes';
+import { AFFIXES, affixFits, HARD_AFFIXES, MINES_AFFIXES, rollAffixes } from '../data/affixes';
+import { riftArch, riftBossScale, riftElite, riftForcedAffix, type RiftInfo } from '../rifts';
 import { shieldBubble } from '../enemies/affixFx';
 import { hardArch, hardBoss, hardScale } from '../hard';
 import { separateCircles } from '../collision';
@@ -20,6 +21,7 @@ import { ControlNode, Gunbot } from '../enemies/mineEnemies';
 import { createEnemy } from '../enemies/spawn';
 import type { Player } from '../Player';
 import { Breakable } from './Breakable';
+import { Crowd } from './Crowd';
 import { Pillar, Ring, type Effect } from './Effects';
 import { LavaVent, PoisonPool, type HazardHooks } from './Hazard';
 import { Interactable } from './Interactable';
@@ -50,10 +52,17 @@ export interface RunState {
   hard: boolean;
   /** Hell (see DESIGN.md "Hell"): Hell scaling, every hit can corrupt, far more elites, boss third phases. */
   hell: boolean;
+  /** A Falz Rift (DESIGN.md "Endgame: Falz Rifts"): Hell rules with the rift's scaling and modifiers. */
+  rift?: RiftInfo;
 }
 
 export function newRun(expedition: ExpeditionId = 'forest', hard = false, hell = false): RunState {
   return { expedition, areas: {}, floor: 0, bossDefeated: false, hard: hard || hell, hell };
+}
+
+/** A Falz Rift's run: Hell rules, on the Forest floor (its enemies come from every expedition). */
+export function newRiftRun(rift: RiftInfo): RunState {
+  return { expedition: 'forest', areas: {}, floor: 0, bossDefeated: false, hard: true, hell: true, rift };
 }
 
 export function areaRun(run: RunState, id: AreaId): AreaRunState {
@@ -79,6 +88,8 @@ export interface WorldHooks {
   /** A Volatile elite's death blast went off. */
   volatileBlast(e: Enemy, shape: TelegraphShape): void;
   rng(): number;
+  /** Features left out of the area for now (the Rift Gate before the Hell Dark Falz falls). */
+  hideFeature?(kind: FeatureKind): boolean;
 }
 
 /** A gunbot linked to its room's control node, with the tether drawn between them. */
@@ -151,6 +162,8 @@ export class World {
   private toldReboot = false;
   private machineHooks: MachineHooks;
   boss: Boss | null = null;
+  /** Pioneer 2's passers-by. */
+  private crowd: Crowd | null = null;
   private pairs: PanPair[] = [];
   private active: ActiveRoom | null = null;
   private sinceWindup = 10;
@@ -175,9 +188,13 @@ export class World {
     };
 
     for (const lock of this.state.unlocked) this.level.unlock(lock);
+    if (def.kind === 'city') {
+      this.crowd = new Crowd(this.level);
+      this.group.add(this.crowd.group);
+    }
 
     for (const f of this.level.features) {
-      if (f.def.kind === 'start') continue;
+      if (f.def.kind === 'start' || hooks.hideFeature?.(f.def.kind)) continue;
       const it = new Interactable(f.def.kind, f.def.label ?? f.def.kind, f.x, f.z, f.def.lock, f.def.to);
       if (f.def.kind === 'switch' && f.def.lock && this.state.unlocked.has(f.def.lock)) it.active = true;
       if (f.def.kind === 'power' && f.def.lock) this.circuits.set(f.def.lock, false);
@@ -232,7 +249,7 @@ export class World {
 
     if (def.kind === 'boss' && !run.bossDefeated) {
       const id = def.boss ?? 'dragon';
-      this.boss = createBoss(id, this.level, run.hard ? hardBoss(id, run.hell) : null);
+      this.boss = createBoss(id, this.level, run.rift ? riftBossScale(run.rift) : run.hard ? hardBoss(id, run.hell) : null);
       this.group.add(...this.boss.objects);
     }
     if (def.kind === 'boss' && run.bossDefeated) this.spawnReturnTeleporter();
@@ -288,10 +305,11 @@ export class World {
     if (i >= 0) this.pickups.splice(i, 1);
   }
 
-  spawnProjectile(spec: ProjectileSpec): void {
+  spawnProjectile(spec: ProjectileSpec): Projectile {
     const p = new Projectile(spec);
     this.projectiles.push(p);
     this.group.add(p.mesh);
+    return p;
   }
 
   addTelegraph(shape: TelegraphShape, duration: number, onFire: () => void, color?: number, dash = false): Telegraph {
@@ -344,6 +362,7 @@ export class World {
 
   /** The stats an enemy type spawns with here: scaled on Hard. */
   archFor(type: EnemyId): EnemyArchetype {
+    if (this.run.rift) return riftArch(type, this.run.rift);
     const exp = expeditionOf(this.areaId);
     return this.run.hard && exp ? hardArch(enemyDefs[type], hardScale(exp, this.run.hell)) : enemyDefs[type];
   }
@@ -793,7 +812,9 @@ export class World {
         if ((typeof entry === 'string' ? entry : entry.e) !== 'ControlNode') slots.push({ wave: wi, index: i });
       }),
     );
-    const n = this.run.hell && expeditionOf(this.areaId) === 'ruins' && slots.length >= hellCfg.bigRoomSpawns ? 2 : 1;
+    // Rifts: big rooms get two whatever the region, and the Guardian room two.
+    const big = slots.length >= hellCfg.bigRoomSpawns && (this.run.rift ? true : expeditionOf(this.areaId) === 'ruins');
+    const n = this.run.hell && (big || room.def.guardian) ? 2 : 1;
     const picked: { wave: number; index: number }[] = [];
     while (picked.length < n && slots.length) picked.push(slots.splice(Math.floor(this.hooks.rng() * slots.length), 1)[0]);
     return picked;
@@ -812,12 +833,25 @@ export class World {
       // Rare red Lily.
       if (elites && type === 'PoisonLily' && rng() < 1 / 15) type = 'NarLily';
       const champion = hard && type !== 'ControlNode' && a.champion.some((c) => c.wave === waveIndex && c.index === i);
-      const chance = this.run.hell ? (hardScale(expeditionOf(this.areaId) ?? 'forest', true).elite ?? hardCfg.eliteChance) : hard ? hardCfg.eliteChance : eliteCfg.chance;
+      const hellElite = this.run.rift ? riftElite(this.run.rift) : hardScale(expeditionOf(this.areaId) ?? 'forest', true).elite;
+      const chance = this.run.hell ? (hellElite ?? hardCfg.eliteChance) : hard ? hardCfg.eliteChance : eliteCfg.chance;
       // Hell: at most one Splitting enemy per room.
       const pool = this.run.hell && a.splitting ? HARD_AFFIXES.filter((x) => x !== 'splitting') : undefined;
       const opts: EnemyOptions = { elite: elites && type !== 'NarLily' && type !== 'ControlNode' && rng() < chance };
       const arch = this.archFor(type);
-      if (champion) {
+      if (this.run.hell && type !== 'ControlNode') {
+        // Hell: every enemy has affixes (regular 1, elite 2, champion 3).
+        opts.champion = champion;
+        let n = hellCfg.affixCount[champion ? 'champion' : opts.elite ? 'elite' : 'regular'];
+        // Rifts: the Exalted modifier adds one to elites and champions; the Guardian room's champions get one more.
+        const rift = this.run.rift;
+        if (rift?.mods.includes('champions') && (champion || opts.elite)) n++;
+        if (rift && champion && room.def.guardian) n++;
+        opts.affixes = rollAffixes(n, arch, rng, pool);
+        // A forced affix (a rift modifier) joins every enemy it fits.
+        const forced = riftForcedAffix(rift);
+        if (forced && affixFits(forced, arch) && !opts.affixes.includes(forced)) opts.affixes = [forced, ...opts.affixes];
+      } else if (champion) {
         // The room's champion: two affixes from the whole pool.
         opts.champion = true;
         opts.affixes = rollAffixes(2, arch, rng, pool);
@@ -1114,6 +1148,7 @@ export class World {
         separateCircles(it.pos, 1.6, 1000, player.pos, player.radius, 1);
       }
     }
+    this.crowd?.collide(player.pos, player.radius);
     this.level.resolveCircle(player.pos, player.radius);
     for (const e of this.enemies) this.level.resolveCircle(e.pos, e.radius);
 
@@ -1162,6 +1197,7 @@ export class World {
 
     for (const p of this.pickups) p.update(dt);
     for (const it of this.interactables) it.update(dt);
+    this.crowd?.update(dt, player.pos);
     this.level.update(dt);
   }
 

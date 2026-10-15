@@ -469,18 +469,6 @@ export const humanPoses = {
     return keyedSlash(SLASH_KEYS, SLASH_READY, hitIndex, k, impact);
   },
 
-  /** Spear thrust (partisans): draw back, then lunge the point straight ahead. */
-  thrust(hitIndex: number, k: number, impact: number): Pose {
-    const lunge = hitIndex === 2 ? 1.3 : 1;
-    let pose: P;
-    if (k < impact - 0.06) {
-      pose = lerpPose(SLASH_READY, THRUST_WINDUP, smooth(Math.min(1, k / Math.max(0.01, impact - 0.06))));
-    } else {
-      const u = smooth(Math.min(1, (k - (impact - 0.06)) / 0.14));
-      pose = lerpPose(THRUST_WINDUP, THRUST_END, u * lunge);
-    }
-    return { joints: pose, lift: -0.04 };
-  },
 
   shoot(k: number, impact: number, grip: Grip): Pose {
     const recoil = k > impact ? Math.max(0, 1 - (k - impact) * 5) * 0.3 : 0;
@@ -573,6 +561,30 @@ export const humanPoses = {
     };
   },
 
+  /** Strolling (the Pioneer 2 crowd): a short stride, loose arms, almost no bounce. */
+  walk(phase: number, feminine = false): Pose {
+    const s = Math.sin(phase);
+    const c = Math.cos(phase);
+    const f = feminine;
+    return {
+      joints: {
+        hips: [0, s * 0.08, f ? -s * 0.08 : -s * 0.03],
+        spine: [0.04, -s * 0.04, f ? s * 0.05 : 0],
+        chest: [0, -s * 0.07, 0],
+        head: [-0.04, s * 0.05, 0],
+        hipL: [-s * 0.42 - 0.04, 0, 0.03],
+        hipR: [s * 0.42 - 0.04, 0, -0.03],
+        kneeL: [0.08 + 0.75 * Math.max(0, c), 0, 0],
+        kneeR: [0.08 + 0.75 * Math.max(0, -c), 0, 0],
+        shoulderL: [s * 0.32, 0, f ? 0.08 : 0.12],
+        shoulderR: [-s * 0.32, 0, f ? -0.08 : -0.12],
+        elbowL: [-0.25 - Math.max(0, -s) * 0.2, 0, 0],
+        elbowR: [-0.25 - Math.max(0, s) * 0.2, 0, 0],
+      },
+      lift: -0.015 + Math.abs(c) * 0.02,
+    };
+  },
+
   wave(t: number): Pose {
     return {
       joints: { shoulderR: [0, 0, -2.6], elbowR: [-0.4 + Math.sin(t * 8) * 0.35, 0, 0], head: [0, -0.15, 0], shoulderL: [0.05, 0, 0.12] },
@@ -602,15 +614,6 @@ export function keyedSlash(keys: { windup: P; end: P }[], ready: P, hitIndex: nu
 
 export const SLASH_READY: P = { shoulderR: [-0.3, 0, -0.15], elbowR: [-0.75, 0, 0], handR: [0.35, 0, 0], shoulderL: [0.05, 0, 0.12] };
 
-// Spear thrust: drawn back low at the hip, then driven straight out with a lunge.
-const THRUST_WINDUP: P = {
-  spine: [0.05, 0, 0], chest: [0, 0.45, 0], shoulderR: [-0.6, 0, -0.3], elbowR: [-1.55, 0, 0], handR: [2.1, 0, 0],
-  shoulderL: [-0.9, 0, -0.2], elbowL: [-1.1, 0, 0], hipR: [-0.25, 0, 0], kneeR: [0.3, 0, 0], hipL: [0.15, 0, 0],
-};
-const THRUST_END: P = {
-  spine: [0.25, 0, 0], chest: [0, -0.35, 0], shoulderR: [-1.5, 0, -0.05], elbowR: [-0.05, 0, 0], handR: [1.25, 0, 0],
-  shoulderL: [-1.2, 0, -0.45], elbowL: [-0.4, 0, 0], hipL: [-0.6, 0, 0], kneeL: [0.55, 0, 0], hipR: [0.35, 0, 0],
-};
 
 const CAST_READY: P = { shoulderR: [-0.2, 0, -0.15], elbowR: [-0.6, 0, 0], shoulderL: [0.05, 0, 0.12], elbowL: [-0.3, 0, 0] };
 

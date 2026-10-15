@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import type GUI from 'lil-gui';
 import { initAudio, music, setListener, setMuffled, setSpace, sfx, type SfxId } from '../audio';
 import { Input } from '../engine/Input';
-import { Hud, type ContextView, type HudState, type PaletteSlotView } from '../ui/Hud';
-import { itemIcon, techIcon, weaponIcon } from '../ui/icons';
+import { Hud, type HudState, type PaletteSlotView } from '../ui/Hud';
+import { artIcon, techIcon, weaponIcon } from '../ui/icons';
 import { createDebugPanel } from '../ui/debugPanel';
 import {
   ChoiceMenu,
@@ -20,41 +20,51 @@ import { hellOpen, nightmareOpen, TitleMenu } from '../ui/title';
 import { DIFFICULTY_NAME, difficultyTag, runDifficulty, type Difficulty } from './difficulty';
 import { AudioCues } from './audioCues';
 import { CameraRig } from './CameraRig';
-import { Character, dropVerdict, itemName, makeItem, sellPrice, type DropVerdict, type GrindTrack, type ItemInstance } from './character';
+import { Character, dropVerdict, itemName, makeItem, rarityOf, readAffixData, sellPrice, type DropVerdict, type ItemInstance } from './character';
+import { craftWith, salvageYield, upgradeCrafting } from './crafting';
 import { angleDelta, yawTo } from './collision';
 import { Combat } from './combat/Combat';
 import type { Hittable } from './combat/types';
 import type { ComboEvent } from './combo';
 import { expeditionFoe, type Foe } from './dps';
-import { affixes as affixCfg, hard as hardCfg, hell as hellCfg, camera as camCfg, comboDamage, dash as dashCfg, debug, formulas, injectorCfg, lockOn, magCfg, player as playerCfg, pylonCfg, telepipeCfg, type AttackType } from './config';
+import { affixes as affixCfg, hard as hardCfg, hell as hellCfg, camera as camCfg, comboDamage, dash as dashCfg, debug, formulas, injectorCfg, lockOn, magCfg, passiveCfg, player as playerCfg, pylonCfg, uniqueCfg } from './config';
 import { AFFIXES } from './data/affixes';
 import { areas, DEFAULT_LIGHT, expeditionOf, expeditionOfBoss, expeditionOpenedBy, expeditions, isCounter, type AreaId, type ExpeditionId } from './data/areas';
 import { BOSS_IDS, BOSSES, type BossDef } from './data/bosses';
 import { areaDef } from './data/looks';
-import { type AttributeId, type KitId, type PaletteEdit, type PaletteRow, type QuickAction } from './data/stats';
-import { ATTR_LABEL, getDef, INJECTOR_MODS, specials, type WeaponKind } from './data/items';
-import { isAttackTech, techniques } from './data/techniques';
-import { Enemy, type EnemyContext } from './enemies/Enemy';
+import { STAT_KEYS, statDelta, type ClassId, type MagStat } from './data/stats';
+import { ART_IDS, artClasses, ARTS, isTechArt, type ArtId } from './data/arts';
+import { getDef, INJECTOR_MODS, PHOTON_STACK, specials, type WeaponKind } from './data/items';
+import { affixText, tierIlvl, type AffixRoll, type ItemAffixId } from './data/itemAffixes';
+import { CORRUPT_COLOR, Enemy, type EnemyContext } from './enemies/Enemy';
 import {
-  buyPrice, rollBoxDrop, rollBossDrops, rollChampionBonus, rollEliteBonus, rollEnemyDrop, rollRare, rollWeapon,
-  shopStock, type Drop, type ShopKind, type ShopUnlocks,
+  buyPrice, rollArmor, rollBoxDrop, rollBossDrops, rollChampionBonus, rollEliteBonus, rollEnemyDrops, rollRiftEndDrops, rollUnit, rollWeapon,
+  shopCopy, shopStock, type Drop, type ShopKind, type ShopUnlocks,
 } from './loot';
 import { addCharge, chargeOf, doseAmount, fillInjector, injectorDef, injectorStats, spendDose } from './injectors';
-import { learnCells, magForm } from './mag';
+import { magForm, PHOTON_BLASTS, type PhotonBlastId } from './mag';
+import { skillPoints } from './skills';
 import { playerLook } from './models/heroine';
 import { Player } from './Player';
 import { deleteSlot, listSlots, saveSlot } from './save';
+import { testCharacter } from './testCharacters';
 import { Breakable } from './world/Breakable';
 import { Atmosphere } from './world/Atmosphere';
 import { DashTrail, Lob, Pillar, Ring, Tracer } from './world/Effects';
 import { inShape, type Telegraph } from './world/Telegraph';
 import { Interactable } from './world/Interactable';
 import type { Pickup } from './world/Pickup';
-import { newRun, World, type RunState } from './world/World';
+import { newRiftRun, newRun, World, type RunState } from './world/World';
+import {
+  modText, plainRift, RIFT_MODS, riftBonus, riftCfg, riftFoe, riftIlvl, riftLoot, riftName, riftSave, riftsOpen, riftTitle, rollShard, setRiftAreas,
+  shardRift, type RiftInfo,
+} from './rifts';
+import { RiftGateMenu } from '../ui/riftGate';
 
-/** LMB / RMB: the row's attack source (heavy single target / light area); Q / E: its quick slots. */
-const SLOT_KEYS = ['Mouse0', 'Mouse2', 'KeyQ', 'KeyE'] as const;
-const SLOT_KEY_LABELS = ['LMB', 'RMB', 'Q', 'E'];
+/** LMB: the basic chain. RMB, Q, E, R: the Art bar's four slots (2026-10-14, the Arts redesign). */
+const BASIC_KEY = 'Mouse0';
+const ART_KEYS = ['Mouse2', 'KeyQ', 'KeyE', 'KeyR'] as const;
+const ART_KEY_LABELS = ['RMB', 'Q', 'E', 'R'];
 const DROP_MARK: Record<DropVerdict['mark'], string> = { '': '', up: '▲', down: '▼', same: '=', no: '✖' };
 
 type SpawnAt = 'start' | { x: number; z: number };
@@ -64,9 +74,9 @@ const noTelegraph = { cancel: () => {} };
 
 /** Each weapon kind's attack sound: a shot for guns, a whoosh for blades, a heavier one for staves. */
 const ATTACK_SFX: Record<WeaponKind, SfxId> = {
-  saber: 'swing.blade', sword: 'swing.blade', dagger: 'swing.blade', partisan: 'swing.blade',
-  cane: 'swing.blunt', rod: 'swing.blunt', wand: 'swing.blunt',
-  handgun: 'shot.handgun', rifle: 'shot.rifle', mechgun: 'shot.mechgun', shot: 'shot.shot', slicer: 'shot.slicer',
+  saber: 'swing.blade', sword: 'swing.blade', dagger: 'swing.blade',
+  rod: 'swing.blunt', wand: 'swing.blunt',
+  handgun: 'shot.handgun', rifle: 'shot.rifle', shot: 'shot.shot',
 };
 
 /** Seconds of field play between periodic autosaves. */
@@ -90,7 +100,7 @@ export class Game implements GameApi {
   private rng = Math.random;
   private combat: Combat;
 
-  char: Character = Character.create('Nobody', 'vanguard');
+  char: Character = Character.create('Nobody', 'hunter');
   private slot = -1;
   // Autosave: the character is written after important events (throttled),
   // every AUTOSAVE_PERIOD seconds in the field, and when the page is hidden.
@@ -104,6 +114,12 @@ export class Game implements GameApi {
   private run: RunState = newRun();
   /** This session's run of each expedition: each keeps its own progress until its boss falls, or you log out. */
   private runs: Partial<Record<ExpeditionId, RunState>> = {};
+  /** The Falz Rift open this session (DESIGN.md "Endgame: Falz Rifts"): opening another collapses it. */
+  private riftRun: RunState | null = null;
+  /** The shard stash was full when a shard was walked over (told once per rift). */
+  private stashFullTold = false;
+  /** Photon kinds whose stack was full when one was walked over (told once per area). */
+  private photonFullTold = new Set<string>();
   /** Session difficulty, picked at login: Nightmare (the run state's `hard` flag) for every expedition. */
   private hard = false;
   /** Hell (also sets `hard`): picked at login once Dark Falz falls on Nightmare. */
@@ -113,10 +129,6 @@ export class Game implements GameApi {
   private get diff(): Difficulty {
     return this.hell ? 'hell' : this.hard ? 'nightmare' : 'normal';
   }
-  /** The open Telepipe: where its field end stands. Both ends close once you come back through it. */
-  private telepipe: { area: AreaId; x: number; z: number } | null = null;
-  /** The portal object in the current world, if this area shows one end of the Telepipe. */
-  private portal: Interactable | null = null;
   /** Boss HP last frame (damage to the boss charges injectors). */
   private bossHpSeen = -1;
   /** Seconds since the last fight ended (out-of-combat injector recharge starts after injectorCfg.calmDelay). */
@@ -287,7 +299,18 @@ export class Game implements GameApi {
         this.char.data.meseta += n;
       },
       giveWeapon: () => this.giveItem(rollWeapon(1 + Math.floor(this.rng() * 3), this.rng, this.char.lootBias())),
-      giveRare: () => this.giveItem(rollRare(this.rng)),
+      giveRare: () => {
+        // A rare (yellow) weapon, frame or barrier at your level's gear tier (the highest tier whose item level
+        // you've reached), leaning to your class like drops do.
+        let tier = 1;
+        for (let t = 1; t <= 15; t++) if (tierIlvl(t) <= this.char.level) tier = t;
+        const bias = this.char.lootBias();
+        this.giveItem(this.rng() < 1 / 3 ? rollWeapon(tier, this.rng, bias, 'rare') : rollArmor(tier, this.rng, bias, 'rare'));
+      },
+      giveUnit: () => this.giveItem(rollUnit(Math.max(1, Math.min(15, Math.ceil(this.char.level / 7))), this.rng)),
+      givePhotons: () => {
+        for (const id of ['photon_drop', 'photon_sphere', 'photon_crystal']) this.giveItem(makeItem(id, { qty: 5 }));
+      },
       heal: () => {
         this.player.fullRestore();
         this.refillInjectors();
@@ -319,7 +342,37 @@ export class Game implements GameApi {
           st.hardKills[id] = Math.max(1, this.char.bossKills(id, 'nightmare'));
           st.hellKills[id] = Math.max(1, this.char.bossKills(id, 'hell'));
         }
+        this.showRiftGate();
         this.hud.toast('Hell is unlocked for this character (every expedition): pick it at login.', 'good');
+      },
+      riftShards: (n) => {
+        this.openRiftsForDebug();
+        const save = riftSave(this.char.data);
+        for (let i = 0; i < n && save.shards.length < riftCfg.stash; i++) save.shards.push(rollShard(save.tier, this.rng));
+        this.hud.toast(`${n} Rift Shards in the Rift Gate's stash.`, 'good');
+      },
+      riftMoreTiers: (n) => {
+        this.openRiftsForDebug();
+        const save = riftSave(this.char.data);
+        save.tier += n;
+        this.hud.toast(`Rift tiers 1-${save.tier} are open.`, 'good');
+      },
+      riftOpen: (boss) => {
+        const info = plainRift(riftSave(this.char.data).tier, this.rng);
+        info.boss = boss;
+        this.openRift(info);
+      },
+      testCharacter: (cls) => {
+        const slot = listSlots().findIndex((s) => !s);
+        if (slot < 0) {
+          this.hud.toast('No empty save slot for a test character.', 'warn');
+          return;
+        }
+        const data = testCharacter(cls);
+        saveSlot(slot, data);
+        // On the title screen, show it in the slot list.
+        if (!this.playing) this.openTitle();
+        else this.hud.toast(`${data.name} saved to slot ${slot + 1}: pick it at the title screen.`, 'good');
       },
     });
     this.gui.hide();
@@ -368,10 +421,10 @@ export class Game implements GameApi {
         slots: () => listSlots(),
         load: (slot, difficulty) => {
           const data = listSlots()[slot];
-          if (data) this.startCharacter(slot, new Character(data), difficulty);
+          if (data) this.startCharacter(slot, new Character(upgradeCrafting(readAffixData(data))), difficulty);
         },
-        create: (slot, name, kit: KitId, appearance) => {
-          const ch = Character.create(name, kit, appearance);
+        create: (slot, name, cls: ClassId, appearance) => {
+          const ch = Character.create(name, cls, appearance);
           saveSlot(slot, ch.data);
           this.startCharacter(slot, ch);
         },
@@ -387,8 +440,8 @@ export class Game implements GameApi {
     this.hard = this.hell || (difficulty === 'nightmare' && nightmareOpen(ch.data));
     this.player.setCharacter(ch);
     this.runs = {};
+    this.riftRun = null;
     this.run = newRun('forest', this.hard, this.hell);
-    this.telepipe = null;
     this.deathT = -1;
     this.player.resetState();
     this.player.clearBuffs();
@@ -397,7 +450,6 @@ export class Game implements GameApi {
     this.menus.close();
     this.enterArea('city', 'start');
     this.input.requestLock();
-    if (ch.refunded) this.hud.toast('The attribute and Mag rules changed: every point is back to spend again (Menu → Status and Mag).', 'good');
   }
 
   private openMenu(menu: Menu): void {
@@ -423,11 +475,10 @@ export class Game implements GameApi {
     else this.hud.showOverlay(`<div class="panel win"><div class="win-title">Paused</div><p class="resume">Click to resume</p>
       <table class="controls">
         <tr><td>WASD</td><td>Move</td><td>Mouse</td><td>Camera</td></tr>
-        <tr><td>LMB / RMB</td><td>Single-target / area attack</td><td>Q / E</td><td>Quick slots</td></tr>
-        <tr><td>Wheel</td><td>Choose attack technique</td><td>Shift (hold)</td><td>Palette 2</td></tr>
-        <tr><td>Space + WASD</td><td>Dash</td><td>R / Space</td><td>Talk / pick up / use</td></tr>
-        <tr><td>F</td><td>Lock-on</td><td>1 / 2</td><td>Injectors</td></tr>
-        <tr><td>Tab</td><td>Cycle target</td><td>C</td><td>Camera behind</td></tr>
+        <tr><td>LMB</td><td>Basic chain (refills TP)</td><td>RMB / Q / E / R</td><td>Arts</td></tr>
+        <tr><td>Space + WASD</td><td>Dash</td><td>Space</td><td>Talk / pick up / use</td></tr>
+        <tr><td>Tab</td><td>Lock-on / next target</td><td>1</td><td>Injector</td></tr>
+        <tr><td>C</td><td>Camera behind</td><td></td><td></td></tr>
         <tr><td>I</td><td>Menu</td><td>Esc</td><td>Pause</td></tr>
       </table>
       <p class="dim">${this.saveAgo()} · \` toggles the tuning panel</p></div>`);
@@ -478,24 +529,47 @@ export class Game implements GameApi {
     if (this.savePending && !down && performance.now() - this.lastSaveAt > AUTOSAVE_GAP * 1000) this.save();
   }
 
+  /** Debug: count a Hell Dark Falz kill so the Rift Gate stands, and show it now if we're in Pioneer 2. */
+  private openRiftsForDebug(): void {
+    const kills = (this.char.data.stats.hellKills ??= {});
+    kills.falz = Math.max(1, kills.falz ?? 0);
+    this.showRiftGate();
+  }
+
+  /** The city builds its features on entry: rebuild it so a just-unlocked Rift Gate appears. */
+  private showRiftGate(): void {
+    if (this.world?.areaId === 'city' && riftsOpen(this.char.data)) this.enterArea('city', 'start');
+  }
+
   // ============================================================== areas
 
   private enterArea(id: AreaId, spawn: SpawnAt): void {
+    this.photonFullTold.clear();
     if (this.world) {
       this.world.resetActiveRoom();
       this.scene.remove(this.world.group);
       this.world.dispose();
     }
     const def = areaDef(id);
-    const exp = expeditionOf(id);
-    if (exp) {
+    const inRift = id === 'rift' || id === 'riftBoss';
+    if (inRift && !this.riftRun) {
+      // No rift open (it can't be reached without one): back to the city.
+      this.enterArea('city', 'start');
+      return;
+    }
+    const exp = inRift ? null : expeditionOf(id);
+    if (inRift) {
+      this.run = this.riftRun!;
+      if (id === 'riftBoss') this.run.floor = 1;
+    } else if (exp) {
       // Every floor reached is a checkpoint: the furthest one is where the city teleporter brings you back.
       this.run = this.runOf(exp);
       this.run.floor = Math.max(this.run.floor, expeditions[exp].floors.indexOf(id));
     }
     const run = def.kind === 'city' ? newRun('forest', this.hard, this.hell) : this.run;
-    // Hell: every landed hit can corrupt.
-    this.combat.hellCorrupt = run.hell && def.kind !== 'city' ? hellCfg.corruptChance : 0;
+    // Hell, and the Ruins on every difficulty (2026-10-09, the user's call): every landed hit can corrupt.
+    this.combat.hellCorrupt = def.kind !== 'city' && (run.hell || exp === 'ruins') ? hellCfg.corruptChance : 0;
+    this.combat.corruptWearMult = def.kind !== 'city' && run.rift?.mods.includes('corruption') ? 2 : 1;
     this.world = new World(id, run, {
       enemyCtx: this.enemyCtx,
       bossCtx: {
@@ -505,7 +579,12 @@ export class Game implements GameApi {
         rng: this.rng,
         telegraph: (shape, dur, onFire, color, dash) => {
           if (dash) this.dashHint();
-          return this.world?.addTelegraph(shape, dur, onFire, color, dash) ?? noTelegraph;
+          const t = this.world?.addTelegraph(shape, dur, onFire, color, dash);
+          if (!t) return noTelegraph;
+          // Chill slows the boss and its telegraphs alike.
+          const boss = this.world?.boss;
+          if (boss) t.rate = () => boss.tempo;
+          return t;
         },
         hitPlayer: (shape, mult, fx, fz, kb, status, chance) =>
           !!this.world?.boss && this.combat.bossHit(this.world.boss, shape, mult, fx, fz, kb, status, chance),
@@ -550,7 +629,13 @@ export class Game implements GameApi {
           sfx('enemy.ambush');
         }
       },
-      onRoomCleared: () => {
+      onRoomCleared: (room) => {
+        // A rift without a boss closes when its Guardian room is cleared.
+        const rift = this.run.rift;
+        if (room.def.guardian && rift && !rift.boss) {
+          const q = room.rect;
+          this.completeRift((q.minX + q.maxX) / 2, (q.minZ + q.maxZ) / 2);
+        }
         this.roomInfo = null;
         this.cleanse();
         this.hud.toast('Room cleared. The gates open.', 'good');
@@ -560,6 +645,7 @@ export class Game implements GameApi {
       },
       onEvent: (text) => this.hud.pushLog(`<span class="l-proc">${text}</span>`),
       rng: this.rng,
+      hideFeature: (kind) => kind === 'riftGate' && !riftsOpen(this.char.data),
     });
     const boss = this.world.boss;
     if (boss) boss.onDot = (t, d) => this.combat.burnTick(t, d);
@@ -578,9 +664,7 @@ export class Game implements GameApi {
     if (typeof spawn === 'object') pos = new THREE.Vector3(spawn.x, 0, spawn.z);
     this.player.pos.copy(pos);
     this.player.resetState();
-    this.portal = null;
     this.bossHpSeen = -1;
-    this.placePortal();
     // Only Pioneer 2 tops every injector up.
     if (def.kind === 'city') this.refillInjectors();
     this.player.yaw = def.kind === 'boss' || def.kind === 'city' ? Math.PI : 0;
@@ -591,7 +675,8 @@ export class Game implements GameApi {
     this.lastHit = null;
     this.roomInfo = null;
     this.hud.clearFloats();
-    this.hud.banner(def.name + difficultyTag(runDifficulty(run)));
+    this.hud.banner(def.name + (run.rift ? '' : difficultyTag(runDifficulty(run))));
+    if (run.rift && id === 'rift' && spawn === 'start') this.announceRift(run.rift);
     this.playAreaMusic();
     setSpace(areas[id].audio.space);
 
@@ -631,10 +716,6 @@ export class Game implements GameApi {
   /** Start `exp` over from its first floor (a fresh run). */
   private newExpedition(exp: ExpeditionId): void {
     this.runs[exp] = newRun(exp, this.hard, this.hell);
-    if (this.telepipe && expeditionOf(this.telepipe.area) === exp) {
-      this.hud.toast('Your Telepipe closed: the expedition starts fresh.', 'warn');
-      this.telepipe = null;
-    }
     this.enterArea(expeditions[exp].floors[0], 'start');
   }
 
@@ -645,12 +726,8 @@ export class Game implements GameApi {
     else this.enterArea(expeditions[exp].floors[r.floor], 'start');
   }
 
-  /** Take a floor teleporter deeper. A Telepipe left open on an earlier floor would lead behind you, so it closes. */
+  /** Take a floor teleporter deeper. */
   private goDeeper(dest: AreaId): void {
-    if (this.telepipe && expeditionOf(this.telepipe.area) === this.run.expedition) {
-      this.telepipe = null;
-      this.hud.toast('Your Telepipe closed as you went deeper.', 'warn');
-    }
     this.enterArea(dest, 'start');
   }
 
@@ -723,11 +800,6 @@ export class Game implements GameApi {
     // While paralysed only an injector (a Sol one cures it) can be used.
     if (p.paralyzed) {
       if (inp.wasPressed('Digit1')) this.useInjector();
-      const row = this.char.data.palette[this.paletteIndex];
-      SLOT_KEYS.forEach((key, i) => {
-        const q = i >= 2 ? row.quick[i - 2] : null;
-        if (q?.kind === 'injector' && inp.wasPressed(key)) this.useInjector();
-      });
       return;
     }
 
@@ -739,32 +811,22 @@ export class Game implements GameApi {
     if (inp.isDown('KeyA')) this.moveDir.sub(r);
     if (this.moveDir.lengthSq() > 0) this.moveDir.normalize();
 
-    if (inp.wasPressed('KeyF')) this.toggleLock();
     if (inp.wasPressed('Tab')) this.cycleLock();
     if (inp.wasPressed('KeyC')) this.rig.snapBehind(p.yaw);
     if (inp.wasPressed('Digit1')) this.useInjector();
-    // Space also interacts when something is in reach (even mid-move); otherwise it arms a dash.
-    let spaceUsed = false;
-    if (inp.wasPressed('KeyR')) {
-      this.hud.pulseSlot(-1);
-      this.interact();
-    } else if (inp.wasPressed('Space') && this.interact()) {
-      this.hud.pulseSlot(-1);
-      spaceUsed = true;
-    }
+    // Space interacts when something is in reach (even mid-move); otherwise it arms a dash.
+    const spaceUsed = inp.wasPressed('Space') && this.interact();
     this.handleDash(spaceUsed);
 
-    const row = this.char.data.palette[this.paletteIndex];
-    SLOT_KEYS.forEach((key, i) => {
-      if (!inp.wasPressed(key)) return;
-      this.hud.pulseSlot(i);
-      if (i < 2) this.pressSource(row.mouse, i === 0 ? 'heavy' : 'light');
-      else this.runQuick(row.quick[i - 2]);
-    });
-    if (inp.wheel) {
-      const tech = this.char.cycleTech(inp.wheel);
-      this.hud.float(this.tmpA.copy(p.pos).setY(2.5), techniques[tech].name, 'spell');
+    if (inp.wasPressed(BASIC_KEY)) {
+      this.hud.pulseSlot(0);
+      this.pressBasic();
     }
+    ART_KEYS.forEach((key, i) => {
+      if (!inp.wasPressed(key)) return;
+      this.hud.pulseSlot(i + 1);
+      this.pressArt(i);
+    });
   }
 
   /**
@@ -793,17 +855,15 @@ export class Game implements GameApi {
       orbit = { x: lock.pos.x, z: lock.pos.z, fwd: fwd / n, side: side / n };
     }
     const from = p.pos.clone();
-    const inside = this.char.hasMagPassive('slipstream') ? this.telegraphsAround() : [];
-    if (!p.startDash(this.moveDir.x, this.moveDir.z, orbit)) return;
+    const inside = this.char.hasPassive('slipstream') ? this.telegraphsAround() : [];
+    // Lunge (toward the locked target) and Backstep Shot (away from it) end in a free light attack.
+    const free = !!orbit && ((orbit.fwd > 0.5 && this.char.hasPassive('lunge')) || (orbit.fwd < -0.5 && this.char.hasPassive('backstepShot')));
+    if (!p.startDash(this.moveDir.x, this.moveDir.z, orbit, { blink: this.char.hasPassive('blink'), free })) return;
     this.slipFrom = inside.length ? inside : null;
     const st = this.char.data.stats;
     st.dashes = (st.dashes ?? 0) + 1;
     sfx('player.dash');
     this.world?.addEffect(new DashTrail(from, p.pos, dashCfg.duration));
-    if (p.channelBroken) {
-      this.hud.toast('Telepipe cancelled.', 'warn');
-      p.channelBroken = null;
-    }
   }
 
   /** Enemy telegraphs (not the player's own technique flashes) the player stands in. */
@@ -819,7 +879,7 @@ export class Game implements GameApi {
     const escaped = this.slipFrom.some((t) => !inShape(t.shape, p.pos.x, p.pos.z, p.radius));
     this.slipFrom = null;
     if (!escaped || !p.alive) return;
-    p.slipstream = magCfg.slipstreamTime;
+    p.slipstream = passiveCfg.slipstreamTime;
     this.hud.float(this.tmpA.copy(p.pos).setY(2.6), 'SLIPSTREAM', 'proc');
   }
 
@@ -832,44 +892,32 @@ export class Game implements GameApi {
     this.hud.toast('Too wide to walk out of: <b>dash!</b> (Space + a direction)', 'warn');
   }
 
-  private get paletteIndex(): number {
-    return this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight') ? 1 : 0;
+  /** LMB: the basic chain (swing, shot or photon bolt). */
+  private pressBasic(): void {
+    if (this.world?.def.kind === 'city') return;
+    this.handleCombo(this.player.pressStep('basic'));
   }
 
-  /** LMB / RMB: heavy or light from the row's source (weapon combo, or the selected attack tech). */
-  private pressSource(source: PaletteRow['mouse'], type: AttackType): void {
-    if (this.world?.def.kind === 'city') return;
-    if (source === 'weapon') {
-      this.handleCombo(this.player.pressAttack(type));
+  /** RMB / Q / E / R: the Art in that bar slot (TP and cooldown first; in Pioneer 2 only support techniques). */
+  private pressArt(slot: number): void {
+    const id = this.char.artInSlot(slot);
+    const p = this.player;
+    if (!id) {
+      this.hud.float(this.tmpA.copy(p.pos).setY(2.3), this.char.artBar()[slot] ? "Can't use that with this weapon" : 'Empty slot (Menu → Arts)', 'early');
       return;
     }
-    const tech = this.char.selectedTech();
-    this.chainFeedback(this.combat.beginCast(tech, type), 'cast chain');
-  }
-
-  private runQuick(a: QuickAction): void {
-    switch (a.kind) {
-      case 'tech':
-        if (this.world?.def.kind === 'city' && isAttackTech(a.tech)) return;
-        this.chainFeedback(this.combat.beginCast(a.tech), 'cast chain');
-        break;
-      case 'item': {
-        if (!this.player.canMove) return;
-        const inst = this.char.data.inventory.find((i) => i.id === a.item);
-        if (!inst) {
-          this.hud.float(this.tmpA.copy(this.player.pos).setY(2.3), `No ${getDef(a.item).name}`, 'early');
-          return;
-        }
-        const msg = this.useItem(inst.uid);
-        if (msg) this.hud.float(this.tmpA.copy(this.player.pos).setY(2.3), msg, 'early');
-        break;
+    if (this.world?.def.kind === 'city' && ARTS[id].role !== 'support') return;
+    if (!p.canAct) return;
+    // Pressing while the chain can't take a step yet breaks it (PSO's anti-mash) without spending anything.
+    const next = p.combo.phase === 'idle' ? 0 : p.combo.hitIndex + 1;
+    if (p.combo.canChainNow) {
+      const blocked = this.combat.artBlocked(id, next);
+      if (blocked) {
+        this.hud.float(this.tmpA.copy(p.pos).setY(2.3), blocked, 'early');
+        return;
       }
-      case 'injector':
-        this.useInjector();
-        break;
-      case 'empty':
-        break;
     }
+    this.handleCombo(p.pressStep(id));
   }
 
   // ============================================================== update
@@ -877,23 +925,25 @@ export class Game implements GameApi {
   private update(dt: number): void {
     const p = this.player;
     const world = this.world!;
-    const { events, castDone, channelDone } = p.update(dt, this.moveDir);
+    const { events, ticks } = p.update(dt, this.moveDir);
     this.checkSlipstream();
+    if (p.freeAttack) {
+      p.freeAttack = false;
+      p.dashRecover = 0;
+      this.handleCombo(p.pressStep('basic'));
+    }
     if (formulas.tpRegen > 0 && p.alive) p.tp = Math.min(p.maxTp, p.tp + formulas.tpRegen * dt);
     this.handleCombo(events);
-    if (castDone) this.combat.finishCast(castDone);
-    if (channelDone?.what === 'telepipe') this.openTelepipe();
-    if (p.channelBroken) {
-      this.hud.toast(p.channelBroken === 'hit' ? 'The Telepipe was interrupted.' : 'Telepipe cancelled.', 'warn');
-      p.channelBroken = null;
-    }
+    const art = p.artStep;
+    if (art) for (const i of ticks) this.combat.artTick(art, i, p.combo.hitIndex, p.combo.streak);
     this.combat.tickPlayerStatus(dt);
 
     world.update(dt, p);
     this.tickInjectors(world, dt);
+    this.autoPhotonBlast(world);
     this.cues.update(world);
     if (p.stepped) sfx(areas[world.areaId].audio.step);
-    const inWindow = p.combo.inWindow || p.castChain.inWindow;
+    const inWindow = p.combo.inWindow;
     if (inWindow && !this.wasInWindow) sfx('combo.window');
     this.wasInWindow = inWindow;
     const boss = world.boss;
@@ -912,17 +962,14 @@ export class Game implements GameApi {
     this.lastHitT += dt;
 
     this.refreshDropVerdicts();
-    // Walk-over pickups: meseta, and charge orbs while the injector has room (they fade after a while).
+    // Walk-over pickups: meseta, Rift Shards, photons (crafting currency) and units worth learning (no bag slot;
+    // one learned at least as well stays put, to pick up by hand).
     for (const pk of [...world.pickups]) {
-      const orb = pk.content.kind === 'charge';
-      if (orb && pk.expired) {
-        world.removePickup(pk);
-        continue;
-      }
-      if (!orb && pk.content.kind !== 'meseta') continue;
-      const open = !orb || this.injectorRoom();
-      if (orb) pk.setCharge(injectorDef(this.char.injector())?.kind ?? null, open);
-      if (open && p.alive && Math.hypot(pk.pos.x - p.pos.x, pk.pos.z - p.pos.z) < 1.2) this.takePickup(pk);
+      const c = pk.content;
+      const type = c.kind === 'item' ? getDef(c.item.id).type : null;
+      const walkOver = c.kind !== 'item' || type === 'photon' || (type === 'unit' && this.char.unitStatus(c.item) !== 'known');
+      if (!walkOver) continue;
+      if (p.alive && Math.hypot(pk.pos.x - p.pos.x, pk.pos.z - p.pos.z) < 1.2) this.takePickup(pk);
     }
 
     // Death sequencing.
@@ -951,30 +998,103 @@ export class Game implements GameApi {
   /** Give the equipped injector some doses (scaled by its charge rate). */
   private chargeInjectors(doses: number): void {
     const inj = this.char.injector();
+    // Rifts: the Starved modifier slows every charge source.
+    if (this.world?.def.kind !== 'city' && this.run.rift?.mods.includes('starved')) doses *= 0.7;
     if (inj && doses > 0) addCharge(inj, doses, this.char);
   }
 
   /** The player's damage on a field enemy: its share of the enemy's HP bar, in doses. Bosses are tracked by HP below. */
   private chargeFromDamage(t: Hittable, dealt: number): void {
     if (!(t instanceof Enemy) || t.noReward || t.noCharge || t.maxHp <= 0) return;
-    this.chargeInjectors((dealt / t.maxHp) * injectorCfg.chargePerEnemy * (t.elite ? injectorCfg.eliteChargeMult : 1));
+    const share = (dealt / t.maxHp) * (t.elite ? injectorCfg.eliteChargeMult : 1);
+    this.chargeInjectors(share * injectorCfg.chargePerEnemy * this.char.pMult('bloodlust', passiveCfg.bloodlustMult));
+    this.chargePhotonBlast(share * magCfg.pbChargePerEnemy);
+  }
+
+  /** Fill the photon blast gauge (only once the Mag has one picked). */
+  private chargePhotonBlast(amount: number): void {
+    const p = this.player;
+    if (amount <= 0 || !this.photonBlastName()) return;
+    const before = p.pb;
+    p.pb = Math.min(1, p.pb + amount);
+    if (before < 1 && p.pb >= 1) sfx('mag.hungry');
+  }
+
+  /** The photon blast the Mag fires, or null. */
+  private photonBlastName(): string | null {
+    const pb = this.char.photonBlast;
+    return pb ? PHOTON_BLASTS[pb].name : null;
+  }
+
+  /**
+   * The photon blast fires by itself once its gauge is full, in a fight (a sealed room or an engaged boss), when
+   * the player can act (2026-10-11, the user's call; it was key 2). Mylla & Youlla waits until an enemy is within
+   * its reach, so it never fires into empty air.
+   */
+  private autoPhotonBlast(world: World): void {
+    const p = this.player;
+    if (p.pb < 1 || !p.alive || p.paralyzed || this.calm || world.def.kind === 'city' || !this.photonBlastName()) return;
+    if (this.char.photonBlast === 'mylla') {
+      const reach = magCfg.pbMyllaRange;
+      if (!world.targets().some((e) => !e.invulnerable && Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z) - e.radius <= reach)) return;
+    }
+    this.combat.photonBlast();
   }
 
   private tickInjectors(world: World, dt: number): void {
-    // Out of combat the injector refills slowly (both kinds at the same rate); Pioneer 2 refills it at once.
+    // A few seconds after a fight HP, TP and the injector refill completely (Pioneer 2 refills them at once).
+    // 2026-10-11, the user's call: with the injector already free out of combat, topping up by hand was a chore.
     if (this.calm && this.player.alive && world.def.kind !== 'city') {
       this.calmT += dt;
+      const p = this.player;
       const inj = this.char.injector();
-      if (inj && this.calmT >= injectorCfg.calmDelay) addCharge(inj, injectorCfg.calmRate * dt, this.char, true);
+      const injLow = !!inj && chargeOf(inj, this.char) < injectorStats(inj, this.char).doses;
+      const debuffed = p.corruption > 0 || p.poison > 0 || p.burnStacks > 0 || p.paralysis > 0;
+      if (this.calmT >= injectorCfg.calmDelay && (injLow || debuffed || p.hp < p.maxHp || p.tp < p.maxTp)) {
+        // Every debuff goes too (2026-10-11, the user's call): poison, Burn, paralysis, and Corruption that landed
+        // after the room's clear-cleanse (a death blast, a shot in flight), whose lowered max would leave HP short.
+        this.cleanse();
+        p.poison = 0;
+        p.burnStacks = 0;
+        p.burnDecay = 0;
+        p.paralysis = 0;
+        // Standing in a marsh or slag pool keeps re-applying: the next restore waits for another calm delay.
+        this.calmT = 0;
+        if (inj) fillInjector(inj);
+        p.hp = p.maxHp;
+        p.tp = p.maxTp;
+        sfx('item.drink', { pitch: 1.4 });
+        this.hud.float(this.tmpA.copy(p.pos).setY(2.6), 'RESTORED', 'heal');
+      }
     } else this.calmT = 0;
+    // Mending (HP) and Spring (TP) affixes: a little back every second, in fights too (between fights the injector covers it).
+    const regen = this.char.gearAffix('regen');
+    const tpRegen = this.char.gearAffix('tpRegen');
+    const p = this.player;
+    if (regen && p.alive && world.def.kind !== 'city') p.hp = Math.min(p.maxHp, p.hp + regen * dt);
+    if (tpRegen && p.alive && world.def.kind !== 'city') p.tp = Math.min(p.maxTp, p.tp + tpRegen * dt);
     // Boss HP lost since last frame (any source the player caused: hits, techs, burns).
     const boss = world.boss;
     if (boss) {
       if (this.bossHpSeen >= 0 && boss.hp < this.bossHpSeen && boss.maxHp > 0) {
-        this.chargeInjectors(((this.bossHpSeen - Math.max(0, boss.hp)) / boss.maxHp) * boss.injectorCharge);
+        const share = (this.bossHpSeen - Math.max(0, boss.hp)) / boss.maxHp;
+        this.chargeInjectors(share * boss.injectorCharge * this.char.pMult('bloodlust', passiveCfg.bloodlustMult));
+        this.chargePhotonBlast(share * magCfg.pbBossCharge);
       }
       this.bossHpSeen = boss.hp;
     }
+  }
+
+  /** Dark Flow: a kill heals a share of max HP and takes a Corruption stack away. */
+  private darkFlowKill(): void {
+    const p = this.player;
+    if (!p.alive || !this.char.hasUnique('darkFlow')) return;
+    const heal = Math.min(p.maxHp - p.hp, Math.round(p.maxHp * uniqueCfg.darkFlowHeal));
+    if (heal > 0) {
+      p.hp += heal;
+      this.hud.float(this.tmpA.copy(p.pos).setY(2.2), `+${heal}`, 'heal');
+    }
+    if (p.corruption > 0) p.corruption--;
   }
 
   /** Key 1 (or a quick slot): take a dose from the equipped injector. */
@@ -988,9 +1108,14 @@ export class Game implements GameApi {
     }
     const s = injectorStats(inst, this.char);
     const sol = s.mod === 'sol';
-    const status = p.poison > 0 || p.paralyzed || p.burnStacks > 0 || p.corruption > 0;
+    const status = p.poison > 0 || p.paralyzed || p.burnStacks > 0;
     if (!p.alive || (p.paralyzed ? !sol : !p.canUseItem)) return;
     const hp = s.kind === 'mate';
+    if (hp && this.char.hasUnique('darkFlow')) {
+      this.hud.float(at(), "Dark Flow: Mate doesn't work", 'early');
+      sfx('ui.error');
+      return;
+    }
     const [cur, max] = hp ? [p.hp, p.maxHp] : [p.tp, p.maxTp];
     if (cur >= max && !(sol && status)) {
       this.hud.float(at(), `${hp ? 'HP' : 'TP'} is already full`, 'early');
@@ -1010,18 +1135,17 @@ export class Game implements GameApi {
       p.poison = 0;
       p.burnStacks = 0;
       p.cureParalysis(injectorCfg.solWard);
-      this.cleanse();
     }
     if (s.mod === 'bracing') p.brace = injectorCfg.braceTime;
-    if (!hp && this.char.hasMagPassive('clarity')) {
-      p.clarity = magCfg.clarityTime;
+    if (!hp && this.char.hasPassive('clarity')) {
+      p.clarity = this.char.pAmt('clarity', passiveCfg.clarityTime);
       this.hud.float(this.tmpA.copy(p.pos).setY(2.7), 'CLARITY', 'proc');
     }
     sfx('item.drink');
     p.onItemUse(injectorCfg.useLock);
   }
 
-  /** Clear Corruption (a cleared room, a Sol dose, a boss kill). Max HP comes back; HP doesn't. */
+  /** Clear Corruption (a cleared room, a boss kill; not a Sol dose). Max HP comes back; HP doesn't. */
   private cleanse(): void {
     const p = this.player;
     if (p.corruption <= 0) return;
@@ -1032,7 +1156,7 @@ export class Game implements GameApi {
     sfx('status.cleanse');
   }
 
-  /** Last Stand (Mag DEF keystone): a free dose from a Mate injector, on top of the 1 HP. */
+  /** Last Stand (passive): a free dose from a Mate injector, on top of the 1 HP. */
   private lastStandDose(): void {
     const inst = this.char.injector();
     if (!inst || injectorDef(inst)?.kind !== 'mate') return;
@@ -1042,45 +1166,15 @@ export class Game implements GameApi {
     this.hud.float(this.tmpA.copy(p.pos).setY(2.2), `+${amount}`, 'heal');
   }
 
-  // =========================================================== telepipe
-
-  /** Show this area's end of the Telepipe, if it has one. */
-  private placePortal(): void {
-    const tp = this.telepipe;
-    const world = this.world;
-    if (!tp || !world) return;
-    if (world.def.kind === 'city') {
-      const at = world.featurePoint('cityTeleporter') ?? world.startPoint();
-      this.portal = new Interactable('portal', `Telepipe to ${areas[tp.area].name}`, at.x + 3.5, at.z);
-    } else if (tp.area === world.areaId) {
-      this.portal = new Interactable('portal', 'Telepipe to Pioneer 2', tp.x, tp.z);
-    } else return;
-    world.addInteractable(this.portal);
-  }
-
-  /** The Telepipe cast finished: open a portal here (closing any older one). */
-  private openTelepipe(): void {
-    const world = this.world;
-    if (!world || !this.inField || !this.char.consume('telepipe')) return;
-    if (this.portal) world.removeInteractable(this.portal);
-    const p = this.player;
-    this.telepipe = { area: world.areaId, x: p.pos.x + Math.sin(p.yaw) * 1.8, z: p.pos.z + Math.cos(p.yaw) * 1.8 };
-    this.placePortal();
-    if (this.portal) this.telepipe = { area: world.areaId, x: this.portal.pos.x, z: this.portal.pos.z };
-    sfx('world.teleport');
-    this.hud.toast('Telepipe open. It leads to Pioneer 2, and back here once.', 'good');
-  }
-
-  /** Perfect / broken feedback shared by weapon combos and cast chains. */
+  /** Perfect / broken feedback for the chain. */
   private chainFeedback(events: ComboEvent[], what: string): void {
     const p = this.player;
     for (const ev of events) {
-      // Slipstream (Mag): the first swing or cast after dashing out of a telegraph lands perfect.
+      // Slipstream: the first step after dashing out of a telegraph lands perfect.
       const slip = ev.kind === 'start' && p.slipstream > 0;
       if (slip) {
         p.slipstream = 0;
-        if (what === 'combo') this.slipHit = true;
-        else if (p.cast) p.cast.streak = Math.min(p.cast.streak + 1, comboDamage.length - 1);
+        this.slipHit = true;
       }
       if (ev.kind === 'start' && (ev.perfect || slip)) {
         sfx('combo.perfect');
@@ -1101,7 +1195,13 @@ export class Game implements GameApi {
     for (const ev of events) {
       switch (ev.kind) {
         case 'start': {
-          p.onSwingStart();
+          if (ev.step !== 'basic') {
+            this.combat.artStart(ev.step as ArtId, ev.hitIndex, ev.perfect);
+            p.onStepStart();
+            if (!p.aimYaw && this.moveDir.lengthSq() > 0) p.aimYaw = Math.atan2(this.moveDir.x, this.moveDir.z);
+            break;
+          }
+          p.onStepStart();
           const target = this.combat.aimTarget();
           if (target) p.aimYaw = yawTo(p.pos.x, p.pos.z, target.pos.x, target.pos.z);
           else if (this.moveDir.lengthSq() > 0) p.aimYaw = Math.atan2(this.moveDir.x, this.moveDir.z);
@@ -1109,10 +1209,12 @@ export class Game implements GameApi {
           break;
         }
         case 'hit': {
-          this.attackSound(ev.type as AttackType, ev.hitIndex);
           const streak = this.slipHit ? Math.min(ev.streak + 1, comboDamage.length - 1) : ev.streak;
           this.slipHit = false;
-          this.combat.playerAttack(ev.type as AttackType, ev.hitIndex, streak);
+          if (ev.step === 'basic') {
+            this.attackSound(ev.hitIndex);
+            this.combat.basicStep(ev.hitIndex, streak);
+          } else this.combat.artFire(ev.step as ArtId, ev.hitIndex, streak);
           break;
         }
         case 'early':
@@ -1122,10 +1224,10 @@ export class Game implements GameApi {
     }
   }
 
-  /** Whoosh / shot for the weapon in hand; heavies and finishers sound bigger. */
-  private attackSound(type: AttackType, hitIndex: number): void {
+  /** Whoosh / shot for the weapon in hand; finishers sound bigger. */
+  private attackSound(hitIndex: number): void {
     const kind = this.char.weaponInstance() ? this.char.weaponKind().kind : null;
-    const strong = type === 'heavy' || hitIndex === 2;
+    const strong = hitIndex === 2;
     const id: SfxId = kind ? ATTACK_SFX[kind] : 'swing.blunt';
     sfx(id, { pitch: strong ? 0.85 : 1, vol: strong ? 1.2 : 1 });
   }
@@ -1171,28 +1273,21 @@ export class Game implements GameApi {
     sfx('box.break', { x: b.pos.x, z: b.pos.z });
     this.world!.breakBox(b);
     this.spawnDrop(rollBoxDrop(this.rng, this.char.lootBias()), b.pos.x, b.pos.z);
-    if (this.rng() < injectorCfg.orbBoxChance) this.spawnDrop({ kind: 'charge' }, b.pos.x, b.pos.z);
   }
 
-  /** Does the equipped injector have room for a charge orb? */
-  private injectorRoom(): boolean {
-    const inj = this.char.injector();
-    return !!inj && chargeOf(inj, this.char) < injectorStats(inj, this.char).doses;
-  }
-
-  /** Junk / upgrade looks of the drops: re-read after a level-up, attribute or Mag point, equip or grind. */
+  /** Junk / upgrade looks of the drops: re-read after a level-up, attribute or Mag point, equip, grind or craft. */
   private refreshDropVerdicts(): void {
     const d = this.char.data;
     // Injectors stay out of the key: their charge changes every hit, and their verdict only needs the stats.
     const worn = (['weapon', 'frame', 'barrier'] as const).map((s) => JSON.stringify(this.char.equippedItem(s) ?? null));
-    const key = `${d.level}|${JSON.stringify(d.attributes)}|${d.mag.cells.join(',')}|${worn.join('|')}`;
+    const key = `${d.level}|${JSON.stringify(d.mag)}|${JSON.stringify(d.skills)}|${JSON.stringify(d.arts)}|${this.run.expedition}|${worn.join('|')}`;
     if (key === this.dropKey) return;
     this.dropKey = key;
     for (const pk of this.world?.pickups ?? []) this.judgeDrop(pk);
   }
 
   private judgeDrop(pk: Pickup): void {
-    if (pk.content.kind === 'item') pk.setVerdict(dropVerdict(this.char, pk.content.item));
+    if (pk.content.kind === 'item') pk.setVerdict(dropVerdict(this.char, pk.content.item, this.damageFoe()));
   }
 
   private nearestPickup(): Pickup | null {
@@ -1201,7 +1296,7 @@ export class Game implements GameApi {
     let best: Pickup | null = null;
     let bestD = playerCfg.pickupRange;
     for (const pk of this.world.pickups) {
-      if (pk.content.kind === 'charge') continue; // walk-over only
+      if (pk.content.kind !== 'item') continue; // the rest are walk-over
       const d = Math.hypot(pk.pos.x - p.x, pk.pos.z - p.z);
       if (d < bestD) {
         best = pk;
@@ -1239,27 +1334,59 @@ export class Game implements GameApi {
       world.removePickup(pk);
       return;
     }
-    if (pk.content.kind === 'charge') {
-      const inj = this.char.injector();
-      if (!inj) return;
-      addCharge(inj, injectorCfg.orbDoses, this.char, true);
-      sfx('pickup.item', { pitch: 1.35 });
-      const dose = injectorCfg.orbDoses === 1 ? '1 dose' : `${injectorCfg.orbDoses} doses`;
-      this.hud.float(this.tmpA.copy(pk.pos).setY(1.4), `+${dose}`, injectorDef(inj)?.kind === 'mate' ? 'heal' : 'tp');
+    if (pk.content.kind === 'shard') {
+      const save = riftSave(this.char.data);
+      if (save.shards.length >= riftCfg.stash) {
+        if (!this.stashFullTold) this.hud.toast('The Rift Gate holds no more shards: use or shatter some in Pioneer 2.', 'warn');
+        this.stashFullTold = true;
+        return;
+      }
+      const shard = pk.content.shard;
+      save.shards.push(shard);
       world.removePickup(pk);
+      sfx('pickup.item', { pitch: 0.8 });
+      this.hud.toast(`Rift Shard: <b>${riftTitle(shard)}</b> (${shard.mods.length} modifier${shard.mods.length === 1 ? '' : 's'})`, 'rare');
+      this.autosave();
       return;
     }
     const item = pk.content.item;
-    if (!this.char.addItem(item)) {
+    const def = getDef(item.id);
+    const took = this.char.take(item);
+    if (def.type === 'photon') {
+      // A currency: walked over, no bag space; a full stack leaves it lying there (said once per area).
+      if (took.to === 'full') {
+        if (!this.photonFullTold.has(item.id)) this.hud.toast(`You carry the most <b>${def.name}s</b> you can (${PHOTON_STACK}): spend some first.`, 'warn');
+        this.photonFullTold.add(item.id);
+        return;
+      }
+      world.removePickup(pk);
+      sfx('pickup.item', { pitch: 1.25 });
+      const n = item.qty ?? 1;
+      this.hud.float(this.tmpA.copy(pk.pos).setY(1.4), `+${n} ${def.name}${n > 1 ? 's' : ''}`, 'photon');
+      return;
+    }
+    if (took.to === 'full') {
       this.hud.toast('Inventory full!', 'warn');
       sfx('ui.error');
       return;
     }
+    world.removePickup(pk);
+    if (took.to === 'learned') {
+      this.learnedUnit(item, took.before);
+      return;
+    }
     sfx('pickup.item');
-    const def = getDef(item.id);
     this.hud.toast(`Picked up <b>${itemName(item)}</b>`, def.rare ? 'rare' : '');
     if (def.rare) this.autosave();
-    world.removePickup(pk);
+  }
+
+  /** A unit was learned (picked up or given): say what it adds, re-judge the units still lying around, save. */
+  private learnedUnit(unit: ItemInstance, before: AffixRoll | null): void {
+    sfx('mag.feed');
+    const now = affixText(unit.affixes![0]);
+    this.hud.toast(before ? `<b>${itemName(unit)}</b> improved: ${affixText(before)} → ${now}` : `Learned <b>${itemName(unit)}</b>: ${now}`, 'good');
+    this.dropKey = '';
+    this.autosave();
   }
 
   /** The stylist: edit the appearance with the creation steps; free, any time. */
@@ -1317,6 +1444,9 @@ export class Game implements GameApi {
       case 'cityTeleporter':
         this.teleporterMenu();
         break;
+      case 'riftGate':
+        this.riftGateMenu();
+        break;
       case 'toCity':
         this.choice('Teleporter', 'Return to Pioneer 2?', [
           { label: 'Return to Pioneer 2', run: () => this.travel(() => this.enterArea('city', 'start')) },
@@ -1334,9 +1464,7 @@ export class Game implements GameApi {
       case 'pylon': {
         const pylon = this.world?.pylonOf(it);
         if (!pylon) return;
-        // The Seal of Light and the Falz Halo (pylonKeeper) keep pylons you light burning longer.
-        const seal = this.char.hasGearPassive('pylonKeeper');
-        if (!pylon.light(pylonCfg.litTime * (seal ? pylonCfg.sealLitMult : 1))) return;
+        if (!pylon.light(pylonCfg.litTime)) return;
         sfx('ruins.pylon', { x: pylon.pos.x, z: pylon.pos.z });
         this.world?.addEffect(new Ring(pylon.pos.x, pylon.pos.z, 0xffe8a0, pylonCfg.radius, 0.5));
         const st = this.char.data.stats;
@@ -1350,11 +1478,6 @@ export class Game implements GameApi {
         sfx('world.switch', { pitch: 0.9 });
         this.rig.shake(0.08);
         this.hud.toast(it.label, 'good');
-        // Warden Core (switchBrace): working the machinery braces you.
-        if (this.char.hasGearPassive('switchBrace')) {
-          this.player.brace = injectorCfg.braceTime;
-          this.hud.float(this.tmpA.copy(this.player.pos).setY(2.6), 'BRACED', 'proc');
-        }
         break;
       }
       case 'toBoss': {
@@ -1373,32 +1496,109 @@ export class Game implements GameApi {
         ]);
         break;
       }
-      case 'portal': {
-        const tp = this.telepipe;
-        if (!tp) return;
-        if (this.world?.def.kind === 'city') {
-          this.choice('Telepipe', `Return to ${areas[tp.area].name}? The Telepipe closes behind you.`, [
-            {
-              label: 'Go back',
-              run: () =>
-                this.travel(() => {
-                  this.telepipe = null;
-                  this.enterArea(tp.area, { x: tp.x, z: tp.z });
-                }),
-            },
-            cancel,
-          ]);
-        } else {
-          this.choice('Telepipe', 'Return to Pioneer 2? The portal stays open until you come back through it.', [
-            { label: 'Return to Pioneer 2', run: () => this.travel(() => this.enterArea('city', 'start')) },
-            cancel,
-          ]);
-        }
-        break;
-      }
       case 'start':
         break;
     }
+  }
+
+  // ============================================================ Falz Rifts
+
+  /** The Rift Gate: only on Pioneer 2 once the Hell Dark Falz has fallen, then open in every session (rifts run on Hell rules). */
+  private riftGateMenu(): void {
+    const close: ChoiceOption = { label: 'Close', run: () => this.closeMenu() };
+    if (!riftsOpen(this.char.data)) {
+      this.choice('Rift Gate', 'The air here hums, but nothing answers. Dark Falz still holds Ragol: defeat it on Hell to tear the rifts open.', [close]);
+      return;
+    }
+    this.openMenu(
+      new RiftGateMenu({
+        char: this.char,
+        openRift: () => (this.riftRun?.rift && !this.riftRun.rift.complete ? this.riftRun.rift : null),
+        startRift: (tier: number) => this.travel(() => this.openRift(plainRift(tier, this.rng))),
+        startShard: (uid: string) => {
+          const save = riftSave(this.char.data);
+          const s = save.shards.find((x) => x.uid === uid);
+          if (!s) return;
+          save.shards.splice(save.shards.indexOf(s), 1);
+          this.travel(() => this.openRift(shardRift(s, this.rng)));
+        },
+        shatterShard: (uid: string) => {
+          const save = riftSave(this.char.data);
+          save.shards = save.shards.filter((x) => x.uid !== uid);
+          this.autosave();
+        },
+        returnToRift: () => {
+          const r = this.riftRun;
+          if (r) this.travel(() => this.enterArea(r.floor >= 1 ? 'riftBoss' : 'rift', 'start'));
+        },
+        closeMenu: () => this.closeMenu(),
+      }),
+    );
+  }
+
+  /** Open a rift: build its areas, collapse the one before, and go in. */
+  private openRift(info: RiftInfo): void {
+    this.riftRun = newRiftRun(info);
+    this.stashFullTold = false;
+    setRiftAreas(info);
+    this.autosave();
+    this.enterArea('rift', 'start');
+  }
+
+  /** On entering a rift: what it holds (two toasts; each modifier's line goes to the log). */
+  private announceRift(r: RiftInfo): void {
+    const { qty, rar } = riftLoot(r);
+    this.hud.toast(`Item level ${riftIlvl(r.tier)} · quantity +${qty}% · rarity +${rar}% · ${r.boss ? 'its Core holds a boss' : 'a Guardian waits at the end'}`, 'rare');
+    if (!r.mods.length) return;
+    const m = riftBonus(r.mods);
+    this.hud.toast(`${r.mods.map((id) => `<b>${RIFT_MODS[id].name}</b>`).join(' · ')} · shard quantity +${m.qty}% · rarity +${m.rar}%`, 'warn');
+    for (const m of r.mods) this.hud.pushLog(`<span class="l-proc">${RIFT_MODS[m].name}: ${modText(m, r.second)}</span>`);
+  }
+
+  /** A rift's boss fell: victory, its loot, and the rift closes. */
+  private riftBossKilled(def: BossDef, t: Hittable): void {
+    const world = this.world!;
+    this.char.data.stats.kills++;
+    this.cleanse();
+    this.run.bossDefeated = true;
+    this.lockTarget = null;
+    music.stop(0.4);
+    sfx('jingle.victory');
+    this.victoryT = 8;
+    this.hud.banner(`${world.boss!.name.toUpperCase()} DEFEATED`, 'boss');
+    this.gainXp(hellCfg.bosses[def.id].xp);
+    const at = def.dropsAt === 'center' ? world.level.center() : t.pos;
+    this.completeRift(at.x, at.z, def.dropRing, def.dropStretch ?? 1);
+    world.spawnReturnTeleporter();
+  }
+
+  /** The rift is closed (its Guardian room cleared, or its boss down): the next tier, its loot and shards. */
+  private completeRift(x: number, z: number, ring = 2.2, stretch = 1): void {
+    const r = this.run.rift;
+    if (!r || r.complete) return;
+    r.complete = true;
+    const save = riftSave(this.char.data);
+    save.clears++;
+    save.best = Math.max(save.best, r.tier);
+    if (r.tier >= save.tier) {
+      save.tier = r.tier + 1;
+      this.hud.toast(`Tier ${save.tier} rifts are open at the Rift Gate.`, 'rare');
+    }
+    if (!r.boss) {
+      sfx('jingle.victory');
+      this.hud.banner('RIFT CLOSED', 'boss');
+    }
+    this.hud.toast(`${riftName(r)} closed. A teleporter to Pioneer 2 stands ${r.boss ? 'in the arena' : 'in the Guardian room'}.`, 'good');
+    const drops: Drop[] = rollRiftEndDrops(r.boss, r.tier, riftIlvl(r.tier), this.rng, this.char.lootBias(), riftLoot(r).qty, riftBonus(r.mods).rar);
+    // Shards keep the rifts coming: the Guardian (or boss) always drops one; item quantity is the chance of another.
+    for (let odds = riftCfg.guardianShard * (1 + riftBonus(r.mods).qty / 100); odds > 0; odds--) {
+      if (this.rng() < odds) drops.push({ kind: 'shard', shard: rollShard(r.tier, this.rng) });
+    }
+    drops.forEach((d, i) => {
+      const a = (i / drops.length) * Math.PI * 2;
+      this.spawnDrop(d, x + Math.sin(a) * ring, z + Math.cos(a) * ring * stretch);
+    });
+    this.autosave();
   }
 
   /** The city teleporter's expedition list for the session's difficulty. */
@@ -1454,21 +1654,29 @@ export class Game implements GameApi {
     if (t instanceof Enemy) {
       // Re-formed Pan Arms halves give nothing, so splitting can't be farmed.
       if (t.noReward) return;
+      this.darkFlowKill();
       this.char.data.stats.kills++;
       this.gainXp(t.xp);
       const cls = this.char.lootBias();
-      this.spawnDrop(rollEnemyDrop(t.arch, this.rng, cls), t.pos.x, t.pos.z);
+      for (const d of rollEnemyDrops(t.arch, this.rng, cls)) this.spawnDrop(d, t.pos.x, t.pos.z);
       if (t.champion) for (const d of rollChampionBonus(t.arch, this.rng, cls)) this.spawnDrop(d, t.pos.x, t.pos.z);
+      const rift = this.run.rift;
+      if (rift && t.champion && this.rng() < riftCfg.championShard * (1 + riftBonus(rift.mods).qty / 100)) {
+        this.spawnDrop({ kind: 'shard', shard: rollShard(rift.tier, this.rng) }, t.pos.x, t.pos.z);
+      }
       else if (t.elite) this.spawnDrop(rollEliteBonus(t.arch, this.rng, cls), t.pos.x, t.pos.z);
-      // Charge orb: elites and champions always, others sometimes (never from bots that reboot, so no farming).
-      if (!t.noCharge && (t.elite || t.champion || this.rng() < injectorCfg.orbChance)) this.spawnDrop({ kind: 'charge' }, t.pos.x, t.pos.z);
       return;
     }
     const boss = world.boss;
     if (boss && boss.owns(t)) {
       // Boss parts share its HP: only the whole boss going down counts.
       if (boss.alive) return;
+      this.darkFlowKill();
       const def = BOSSES[boss.id];
+      if (this.run.rift) {
+        this.riftBossKilled(def, t);
+        return;
+      }
       const diff = runDifficulty(this.run);
       this.char.data.stats.kills++;
       const first = this.char.addBossKill(def.id, diff) === 1;
@@ -1513,7 +1721,7 @@ export class Game implements GameApi {
     const ox = (this.rng() - 0.5) * 1.2;
     const oz = (this.rng() - 0.5) * 1.2;
     this.judgeDrop(this.world.addPickup(d, x + ox, z + oz));
-    if (d.kind === 'item' && getDef(d.item.id).rare) sfx('loot.rare', { x, z });
+    if ((d.kind === 'item' && (getDef(d.item.id).rare || rarityOf(d.item) === 'rare')) || d.kind === 'shard') sfx('loot.rare', { x, z });
   }
 
   private gainXp(xp: number): void {
@@ -1528,10 +1736,12 @@ export class Game implements GameApi {
       sfx('jingle.levelup');
       this.autosave();
       this.hud.toast(
-        `HP +${after.hp - before.hp} · TP +${after.tp - before.tp} · ATP +${after.atp - before.atp} · DFP +${after.dfp - before.dfp} · MST +${after.mst - before.mst} · ATA +${after.ata - before.ata} · EVP +${after.evp - before.evp}`,
+        STAT_KEYS.filter((k) => after[k] !== before[k])
+          .map((k) => statDelta(k, after[k] - before[k]))
+          .join(' · '),
       );
-      const ap = this.char.attributePoints;
-      if (ap > 0) this.hud.toast(`${ap} attribute point${ap > 1 ? 's' : ''} to spend (Menu → Status).`, 'good');
+      this.announceLevelUnlocks(this.char.level - levels, this.char.level);
+      if (this.char.maxed) this.hud.toast('Level cap reached: from here, the chase is gear.', 'rare');
       const pts = this.char.magPoints;
       if (pts > 0) {
         this.hud.toast(`Your Mag can learn: ${pts} point${pts > 1 ? 's' : ''} to spend (Menu → Mag).`, 'good');
@@ -1540,8 +1750,23 @@ export class Game implements GameApi {
     }
   }
 
+  /** What levels `from` (exclusive) to `to` opened: skill points, Arts that can now be learned, the photon blast. */
+  private announceLevelUnlocks(from: number, to: number): void {
+    const ch = this.char;
+    const cls = ch.data.cls;
+    const opened = (lv: number) => lv > from && lv <= to;
+    const gained = skillPoints(to) - skillPoints(from);
+    if (gained > 0) this.hud.toast(`+${gained} skill point${gained > 1 ? 's' : ''}: ${ch.skillPointsLeft} to spend (Menu → Skills).`, 'rare');
+    const arts = ART_IDS.filter((a) => opened(ARTS[a].level) && artClasses(a).includes(cls));
+    if (arts.length) this.hud.toast(`Can be learned now: ${arts.map((id) => `<b>${ARTS[id].name}</b>`).join(', ')} (Menu → Skills).`, 'good');
+    if (opened(magCfg.pbLevel)) this.hud.toast('Your Mag can teach a photon blast (Menu → Mag).', 'rare');
+    this.player.refreshMag();
+  }
+
   private giveItem(inst: ItemInstance): void {
-    if (this.char.addItem(inst)) this.hud.toast(`Received <b>${itemName(inst)}</b>`);
+    const took = this.char.take(inst);
+    if (took.to === 'learned') this.learnedUnit(inst, took.before);
+    else if (took.to === 'bag') this.hud.toast(`Received <b>${itemName(inst)}</b>`);
     else this.hud.toast('Inventory full!', 'warn');
   }
 
@@ -1568,9 +1793,7 @@ export class Game implements GameApi {
   private openDeathMenu(): void {
     sfx('jingle.death');
     const floor = areas[expeditions[this.run.expedition].floors[this.run.floor]];
-    const back = this.telepipe
-      ? 'Your Telepipe is still open: step through it to come back'
-      : `The city teleporter brings you back to ${floor.name}`;
+    const back = `The city teleporter brings you back to ${floor.name}`;
     this.choice(
       'You have fallen',
       '',
@@ -1592,11 +1815,7 @@ export class Game implements GameApi {
 
   // ============================================================ lock-on
 
-  private toggleLock(): void {
-    this.lockTarget = this.lockTarget ? null : this.pickLockTarget(false);
-  }
-
-  /** Tab: lock what you're looking at; when already locked, step to the next target to the right. */
+  /** Tab: lock what you're looking at; when already locked, step to the next target to the right (none left: let go). */
   private cycleLock(): void {
     const cur = this.lockTarget?.alive ? this.lockTarget : null;
     if (!cur) {
@@ -1618,7 +1837,8 @@ export class Game implements GameApi {
         next = e;
       }
     }
-    if (next) this.lockTarget = next;
+    // Nothing else to step to: Tab lets go.
+    this.lockTarget = next;
   }
 
   /** Targets in lock range with a clear line from the player (no locking through walls). */
@@ -1677,18 +1897,6 @@ export class Game implements GameApi {
     const def = getDef(inst.id);
     if (def.type !== 'consumable') return 'Cannot use that';
     if (def.fieldOnly && !this.inField) return `${def.name} only works outside the city`;
-    const p = this.player;
-    switch (def.effect) {
-      case 'telepipe':
-        if (this.menus.isOpen) {
-          // From the inventory: back to the game, already casting (a step, a dash or a hit still breaks it).
-          if (!p.canMove) return "You can't use it right now";
-          this.closeMenu();
-        } else if (this.moveDir.lengthSq() > 0) return 'Stand still to use a Telepipe';
-        p.startChannel('telepipe', telepipeCfg.castTime);
-        sfx('tech.charge', { pitch: 0.7 });
-        return null; // consumed when the cast completes
-    }
     this.char.removeItem(uid, 1);
     sfx('item.drink');
     return null;
@@ -1700,16 +1908,16 @@ export class Game implements GameApi {
     if (kind === 'warn') sfx('ui.error');
   }
 
-  magLearn(ids: string[]): string | null {
+  /** Put Mag points into a stat (permanent); the Mag may evolve. */
+  magSpend(stat: MagStat, n = 1): string | null {
     const ch = this.char;
-    const formBefore = magForm(ch.mag, ch.leadAttribute).name;
-    const err = learnCells(ch.mag, ch.level, ch.data.attributes, ids);
+    const formBefore = magForm(ch.mag, ch.magStat).name;
+    const err = ch.spendMag(stat, n);
     if (err) return err;
     this.player.refreshMag();
     this.autosave();
-    const form = magForm(ch.mag, ch.leadAttribute).name;
+    const form = magForm(ch.mag, ch.magStat).name;
     sfx(form !== formBefore ? 'jingle.magEvolve' : 'mag.feed');
-    // A learned square shows on the grid (and plays a sound); only an evolution gets a banner.
     if (form !== formBefore) {
       this.hud.banner(`MAG EVOLVED: ${form.toUpperCase()}`, 'good');
       this.notify(`Your Mag evolved into ${form}!`, 'good');
@@ -1717,25 +1925,156 @@ export class Game implements GameApi {
     return null;
   }
 
-  /** Spend one attribute point (permanent): max HP and TP grow at once, and the title, outfit and Mag may follow. */
-  attrSpend(attr: AttributeId): string | null {
-    const ch = this.char;
-    const p = this.player;
-    const before = ch.baseStats();
-    const err = ch.spendAttribute(attr);
+  /** Skills and Art slots change out of a fight (2026-10-14). */
+  private get canRebuild(): string | null {
+    return this.calm || !this.inField ? null : 'Not in the middle of a fight';
+  }
+
+  /** Put ranks into a skill (`step` > 0) or take them out (< 0), up to |step| of them; out of a fight. */
+  skillRank(id: string, step: number): string | null {
+    const busy = this.canRebuild;
+    if (busy) return busy;
+    let done = 0;
+    let err: string | null = null;
+    for (let i = 0; i < Math.abs(step); i++) {
+      err = step > 0 ? this.char.rankUp(id) : this.char.rankDown(id);
+      if (err) break;
+      done++;
+    }
+    if (!done) return err;
+    this.skillsChanged();
+    return null;
+  }
+
+  /** Pick an Art's modifier in a row (null clears it); out of a fight. */
+  skillMod(id: ArtId, row: 0 | 1, mod: string | null): string | null {
+    const busy = this.canRebuild;
+    if (busy) return busy;
+    const err = this.char.pickArtMod(id, row, mod);
     if (err) return err;
-    const after = ch.baseStats();
-    p.hp += after.hp - before.hp;
-    p.tp += after.tp - before.tp;
-    p.refreshMag();
-    p.refreshLook();
+    this.skillsChanged();
+    return null;
+  }
+
+  private skillsChanged(): void {
+    this.player.refreshMag();
+    this.player.dashCharges = Math.min(this.player.dashCharges, this.player.maxDashCharges);
+    this.autosave();
+    sfx('ui.confirm');
+  }
+
+  /** Put an Art on a bar slot (null empties it), for the weapon in hand. */
+  artSlot(slot: number, id: ArtId | null): string | null {
+    const busy = this.canRebuild;
+    if (busy) return busy;
+    const err = this.char.setArtSlot(slot, id);
+    if (err) return err;
     this.autosave();
     sfx('ui.confirm');
     return null;
   }
 
+  /** The photon blast the Mag fires (from magCfg.pbLevel). */
+  photonBlastPick(id: PhotonBlastId): string | null {
+    if (this.char.level < magCfg.pbLevel) return `The Mag teaches photon blasts from Lv ${magCfg.pbLevel}`;
+    this.char.data.photonBlast = id;
+    this.autosave();
+    sfx('jingle.magEvolve');
+    this.notify(`Photon blast: ${PHOTON_BLASTS[id].name}`, 'good');
+    return null;
+  }
+
+  /** Slot a learned unit into the Mag. */
+  unitInsert(kind: ItemAffixId): string | null {
+    const err = this.char.insertUnit(kind);
+    if (err) return err;
+    sfx('ui.equip', { pitch: 1.1 });
+    this.autosave();
+    return null;
+  }
+
+  /** Take a unit out of the Mag. */
+  unitRemove(index: number): string | null {
+    const err = this.char.removeUnit(index);
+    if (err) return err;
+    sfx('ui.equip', { pitch: 0.9 });
+    this.autosave();
+    return null;
+  }
+
+  /** Switch exactly these units on (the Damage tab's picks). */
+  unitSet(kinds: ItemAffixId[]): string | null {
+    const err = this.char.setActiveUnits(kinds);
+    if (err) return err;
+    sfx('ui.equip', { pitch: 1.1 });
+    this.autosave();
+    return null;
+  }
+
+  /** Reorder the Mag's units (the first ones are active). */
+  unitMove(index: number, dir: number): string | null {
+    this.char.moveUnit(index, dir);
+    sfx('ui.cursor');
+    this.autosave();
+    return null;
+  }
+
+  /** Sell every bag item the verdict calls junk: gear worse than what is worn, units already learned (uniques stay). */
+  sellJunk(): string | null {
+    const ch = this.char;
+    const foe = this.damageFoe();
+    const junk = ch.data.inventory.filter((it) => !ch.isEquipped(it.uid) && rarityOf(it) !== 'unique' && dropVerdict(ch, it, foe).look === 'junk');
+    if (!junk.length) return 'Nothing to sell: no gear in the bag is worse than what you wear';
+    let total = 0;
+    for (const it of junk) {
+      total += sellPrice(it);
+      ch.removeItem(it.uid, Infinity);
+    }
+    ch.data.meseta += total;
+    sfx('ui.sell');
+    this.autosave();
+    this.notify(`Sold ${junk.length} item${junk.length > 1 ? 's' : ''} for ${total.toLocaleString()} M.`, 'good');
+    return null;
+  }
+
+  /**
+   * Salvage the bag's junk magic and rare gear (worse than what is worn; uniques stay) into Photon Drops: a rare
+   * always gives one, a magic item sometimes. Normal items are left to sell. Stops when the Photon Drop stack is full.
+   */
+  salvageJunk(): string | null {
+    const ch = this.char;
+    const foe = this.damageFoe();
+    const junk = ch.data.inventory.filter((it) => {
+      const r = rarityOf(it);
+      return (r === 'magic' || r === 'rare') && !ch.isEquipped(it.uid) && dropVerdict(ch, it, foe).look === 'junk';
+    });
+    if (!junk.length) return 'Nothing to salvage: no magic or rare gear in the bag is worse than what you wear';
+    let items = 0;
+    let got = 0;
+    for (const it of junk) {
+      const n = salvageYield(it, this.rng);
+      if (n && !ch.canAdd(makeItem('photon_drop', { qty: n }))) break;
+      ch.removeItem(it.uid, Infinity);
+      if (n) ch.addItem(makeItem('photon_drop', { qty: n }));
+      items++;
+      got += n;
+    }
+    if (!items) return 'Your Photon Drop stack is full';
+    sfx('ui.sell');
+    this.autosave();
+    this.notify(`Salvaged ${items} item${items > 1 ? 's' : ''}: ${got ? `${got} Photon Drop${got > 1 ? 's' : ''}` : 'nothing came of it'}.${items < junk.length ? ' (The Photon Drop stack is full.)' : ''}`, got ? 'good' : '');
+    return null;
+  }
+
   equipItem(uid: string): string | null {
+    const inactiveBefore = this.char.inactiveUnits;
     const r = this.char.equip(uid);
+    // A frame with fewer unit slots switches some of the Mag's units off: say so, and point at the Mag tab.
+    const off = this.char.inactiveUnits;
+    if (r.ok && off > inactiveBefore) {
+      const n = this.char.unitSlotsOpen;
+      this.hud.toast(`This frame has ${n ? n : 'no'} unit slot${n === 1 ? '' : 's'}: ${off} of your Mag's units ${off === 1 ? 'is' : 'are'} inactive (Mag tab).`, 'warn');
+    }
     this.player.refreshLook();
     this.player.refreshWeapon();
     this.player.combo.interrupt();
@@ -1758,25 +2097,22 @@ export class Game implements GameApi {
     }
   }
 
-  grindItem(weaponUid: string, grinderUid: string, track: GrindTrack): string | null {
-    const r = this.char.grind(weaponUid, grinderUid, track);
-    if (!r.ok) return r.reason ?? 'Failed';
-    sfx('ui.equip', { pitch: 1.2 });
-    const where = track === 'edge' ? 'Edge' : ATTR_LABEL[track];
-    this.notify(`Grind successful! ${itemName(this.char.find(weaponUid)!)} · ${where} +${r.levels}${r.wasted ? ` (${r.wasted} lost)` : ''}`, 'good');
+  /** Use a photon on a weapon or armour piece; `key` is its pick (an affix or an offer). */
+  craftItem(targetUid: string, toolUid: string, key: string): string | null {
+    const tool = this.char.find(toolUid);
+    if (!tool) return 'Missing item';
+    const r = craftWith(this.char, targetUid, toolUid, key, this.rng);
+    if (!r.ok) return r.reason;
+    sfx('ui.equip', { pitch: 1.35 });
+    this.notify(`${itemName(this.char.find(targetUid)!)}: ${r.text}`, 'good');
+    this.autosave();
     return null;
-  }
-
-  setPalette(row: number, col: number, edit: PaletteEdit): void {
-    const r = this.char.data.palette[row];
-    if (edit.kind === 'source') r.mouse = edit.source;
-    else if (col > 0) r.quick[col - 1] = edit;
   }
 
   buy(proto: ItemInstance): string | null {
     const price = buyPrice(proto);
     if (this.char.data.meseta < price) return 'Not enough Meseta';
-    const inst = makeItem(proto.id, { attrs: proto.attrs, grind: proto.grind, bane: proto.bane, special: proto.special });
+    const inst = shopCopy(proto);
     if (!this.char.addItem(inst)) return 'Inventory full (or stack limit reached)';
     this.char.data.meseta -= price;
     sfx('ui.buy');
@@ -1785,6 +2121,13 @@ export class Game implements GameApi {
   }
 
   damageFoe(): Foe {
+    // In a rift (or back in the city from one), against the rift's mix of every expedition. Once rifts are open a
+    // Hell session judges gear against them from the start too: a fresh login used to measure against the Hell
+    // Forest (all Native), so a Native % weapon looked far better than it is in a rift (2026-10-11).
+    if (this.run.rift) return riftFoe(this.run.rift);
+    if (this.hell && riftsOpen(this.char.data) && expeditionOf(this.world?.areaId ?? 'city') === null) {
+      return riftFoe({ tier: riftSave(this.char.data).tier, mods: [] });
+    }
     return expeditionFoe(this.run.expedition, this.diff);
   }
 
@@ -1805,55 +2148,39 @@ export class Game implements GameApi {
 
   /** The target's affixes for the enemy frame: one chip each, in its aura colour. */
   private affixChips(e: Enemy): { name: string; color: string }[] {
-    return e.affixes.map((a) => ({ name: AFFIXES[a].name, color: `#${AFFIXES[a].color.toString(16).padStart(6, '0')}` }));
+    const chips = e.affixes.map((a) => ({ name: AFFIXES[a].name, color: `#${AFFIXES[a].color.toString(16).padStart(6, '0')}` }));
+    // Corrupting, shown first like an affix: enemies whose attacks corrupt, and every enemy in the Ruins and on Hell.
+    const corrupts = e.arch.strikeStatus === 'corrupt' || e.arch.shotStatus === 'corrupt' || ((this.run.hell || this.run.expedition === 'ruins') && e.arch.ai !== 'node');
+    if (corrupts) chips.unshift({ name: 'Corrupting', color: `#${CORRUPT_COLOR.toString(16).padStart(6, '0')}` });
+    return chips;
   }
 
   private hudState(): HudState {
     const p = this.player;
     const ch = this.char;
-    const idx = this.paletteIndex;
-    const row = ch.data.palette[idx];
-    const selTech = ch.selectedTech();
-    const source = (type: AttackType, key: string): PaletteSlotView => {
-      if (row.mouse === 'weapon') {
-        const kind = ch.weaponInstance() ? ch.weaponKind().kind : 'none';
-        const sp = type === 'heavy' ? ch.weaponSpecial() : undefined;
-        const label = type === 'light' ? 'Light attack (area)' : `Heavy attack (single target)${sp ? ` · ${specials[sp].name}` : ''}`;
-        return { key, label, icon: weaponIcon(kind, type), kind: type };
-      }
-      const cost = this.combat.techCost(selTech, type);
-      const label = `${type === 'light' ? 'Light' : 'Heavy'} ${techniques[selTech].name} — ${cost} TP (wheel: change)`;
-      return { key, label, icon: techIcon(selTech, type), count: String(cost), kind: type, disabled: p.tp < cost };
-    };
-    const quick = (a: QuickAction, key: string): PaletteSlotView => {
-      switch (a.kind) {
-        case 'tech': {
-          const cost = this.combat.techCost(a.tech);
-          const label = `${techniques[a.tech].name} — ${cost} TP`;
-          const restores = techniques[a.tech].kind === 'heal' ? 'hp' : undefined;
-          return { key, label, icon: techIcon(a.tech), count: String(cost), kind: 'tech', disabled: p.tp < cost, restores };
-        }
-        case 'item': {
-          const n = ch.countOf(a.item);
-          const def = getDef(a.item);
-          return { key, label: def.name, icon: itemIcon(a.item), count: String(n), kind: 'item', disabled: n === 0 };
-        }
-        case 'injector': {
-          const inst = ch.injector();
-          if (!inst) return { key, label: 'Injector: none equipped', icon: '', kind: 'item', disabled: true };
-          const doses = Math.floor(chargeOf(inst, ch));
-          const kind = injectorDef(inst)!.kind;
-          return { key, label: `${itemName(inst)} (key 1)`, icon: itemIcon(inst.id), count: String(doses), kind: 'item', disabled: doses < 1, restores: kind === 'mate' ? 'hp' : 'tp' };
-        }
-        case 'empty':
-          return { key, label: 'Empty', icon: '', kind: 'empty' };
-      }
+    // The Art bar: LMB the basic chain, then RMB / Q / E / R.
+    const weaponKindId = ch.weaponInstance() ? ch.weaponKind().kind : 'none';
+    const sp = ch.weaponSpecial();
+    const basicLabel = `Basic chain: ${ch.weaponKind().family === 'caster' && ch.weaponInstance() ? 'photon bolts' : 'three steps'}, refills TP${sp ? ` · ${specials[sp].name} on the finisher` : ''}`;
+    const next = p.combo.phase === 'idle' ? 0 : p.combo.hitIndex + 1;
+    const artView = (slot: number): PaletteSlotView => {
+      const key = ART_KEY_LABELS[slot];
+      const id = ch.artInSlot(slot);
+      if (!id) return { key, label: ch.artBar()[slot] ? "Can't use that with this weapon" : 'Empty (Menu → Arts)', icon: '', kind: 'empty' };
+      const a = ARTS[id];
+      const cost = this.combat.artCost(id, Math.min(2, next));
+      const cd = p.cooldownLeft(id);
+      const full = ch.artCooldown(id);
+      const label = `${a.name} — ${cost} TP${full ? ` · ${full} s cooldown` : ''}: ${a.desc}`;
+      const restores = id === 'resta' ? 'hp' : undefined;
+      return { key, label, icon: isTechArt(id) ? techIcon(id) : artIcon(id), count: String(cost), kind: 'art', disabled: p.tp < cost || cd > 0, restores, cooldown: full ? cd / full : 0 };
     };
     const palette: PaletteSlotView[] = [
-      source('heavy', SLOT_KEY_LABELS[0]),
-      source('light', SLOT_KEY_LABELS[1]),
-      quick(row.quick[0], SLOT_KEY_LABELS[2]),
-      quick(row.quick[1], SLOT_KEY_LABELS[3]),
+      { key: 'LMB', label: basicLabel, icon: weaponIcon(weaponKindId), kind: 'basic' },
+      artView(0),
+      artView(1),
+      artView(2),
+      artView(3),
     ];
 
     const world = this.world!;
@@ -1865,7 +2192,6 @@ export class Game implements GameApi {
         : null;
 
     let prompt: string | null = null;
-    let context: ContextView | null = null;
     if (p.alive && !this.menus.isOpen) {
       const pk = this.nearestPickup();
       const it = this.nearestInteractable();
@@ -1874,28 +2200,23 @@ export class Game implements GameApi {
         // Same marks as the inventory; a requirement you don't meet yet is amber, not red.
         const mark = v?.mark === 'no' && v.look !== 'junk' ? 'locked' : v?.mark;
         const note = v?.note ? `<div class="pk-note ${mark}">${DROP_MARK[v.mark]} ${v.note}</div>` : '';
-        prompt = `<b>[R]</b> Pick up ${pk.label}${note}`;
-        context = { icon: 'pickup', label: `Pick up ${pk.label}${v?.note ? ` (${v.note})` : ''}` };
+        // What photons could make of it: green if that beats what is worn.
+        const craft = v?.crafted ? `<div class="pk-note ${v.crafted.up ? 'up' : 'dim'}">◆ ${v.crafted.text}</div>` : '';
+        prompt = `<b>[Space]</b> Pick up ${pk.label}${note}${craft}`;
       } else if (it) {
         const talk = isCounter(it.kind);
         const sw = it.kind === 'switch' || it.kind === 'power';
         const verb = talk ? 'Talk' : it.kind === 'switch' ? (it.active ? '' : 'Press') : sw ? 'Pull' : 'Use';
-        if (it.kind === 'pylon') {
-          prompt = `<b>[R]</b> ${it.label}`;
-          context = { icon: 'switch', label: it.label };
-        } else if (verb) {
-          prompt = `<b>[R]</b> ${verb}: ${it.label}`;
-          context = { icon: talk ? 'talk' : sw ? 'switch' : 'teleport', label: `${verb}: ${it.label}` };
-        }
+        if (it.kind === 'pylon') prompt = `<b>[Space]</b> ${it.label}`;
+        else if (verb) prompt = `<b>[Space]</b> ${verb}: ${it.label}`;
       } else if (this.nearestBox()) {
-        prompt = `<b>[R]</b> Break box`;
-        context = { icon: 'crate', label: 'Break box' };
+        prompt = `<b>[Space]</b> Break box`;
       }
     }
 
     const buffs: string[] = [];
-    if (p.buffs.atp.t > 0) buffs.push(`▲ATP ${Math.ceil(p.buffs.atp.t)}s`);
-    if (p.buffs.dfp.t > 0) buffs.push(`▲DFP ${Math.ceil(p.buffs.dfp.t)}s`);
+    if (p.buffs.atp.t > 0) buffs.push(`▲Shifta ${Math.ceil(p.buffs.atp.t)}s`);
+    if (p.buffs.def.t > 0) buffs.push(`▲Deband ${Math.ceil(p.buffs.def.t)}s`);
     const statuses: { label: string; cls: string }[] = [];
     if (p.corruption > 0) statuses.push({ label: `CORRUPT ×${p.corruption} · ${p.inLight ? 'LIGHT' : p.corruptTimer > 0 ? `${Math.ceil(p.corruptTimer)}s` : 'FADING'}`, cls: 'corrupt' });
     if (p.burnStacks > 0) statuses.push({ label: `BURN ×${p.burnStacks}${p.moving ? '' : ' · MOVE'}`, cls: 'burn' });
@@ -1903,7 +2224,7 @@ export class Game implements GameApi {
     if (p.paralysis > 0) statuses.push({ label: `PARALYSIS ${p.paralysis.toFixed(1)}s`, cls: 'para' });
     else if (p.paraImmune > 0) statuses.push({ label: `PARA WARD ${Math.ceil(p.paraImmune)}s`, cls: 'ward' });
 
-    const c = p.castChain.committed ? p.castChain : p.combo;
+    const c = p.combo;
     const inj = ch.injector();
     const st = inj && injectorStats(inj, ch);
     const injector = inj && st ? { kind: st.kind, doses: st.doses, charge: chargeOf(inj, ch), name: itemName(inj), mod: st.mod ? INJECTOR_MODS[st.mod].name : null } : null;
@@ -1912,6 +2233,10 @@ export class Game implements GameApi {
     if (p.shield > 0) buffs.push(`◆SHIELD ${Math.ceil(p.shield)}`);
     if (p.slipstream > 0) buffs.push(`★PERFECT ${Math.ceil(p.slipstream)}s`);
     if (p.retaliate > 0) buffs.push('▲RETALIATE');
+    const dr = p.damageTakenMult();
+    if (dr < 1) buffs.push(`▼DMG ${Math.round((1 - dr) * 100)}%`);
+    if (p.composureT > 0) buffs.push('◇COMPOSURE');
+    if (p.rushT > 0) buffs.push(`»RUSH ${Math.ceil(p.rushT)}s`);
     return {
       hp: p.hp,
       maxHp: p.maxHp,
@@ -1922,9 +2247,6 @@ export class Game implements GameApi {
       level: ch.level,
       calm: this.calm,
       palette,
-      paletteIndex: idx,
-      spell: { name: techniques[selTech].name, icon: techIcon(selTech) },
-      context,
       comboHits: c.phase === 'swing' ? c.hitIndex + 1 : 0,
       comboStreak: c.phase === 'swing' ? c.streak : 0,
       comboWindow: c.inWindow,
@@ -1942,14 +2264,25 @@ export class Game implements GameApi {
         boss && boss.engaged && (boss.alive || boss.deadT < 3)
           ? { name: boss.name + (boss.alive ? (boss.hudNote ?? '') : ''), race: boss.race, weak: boss.weakPointOpen }
           : null,
-      area: world.def.name + difficultyTag(this.diff),
+      area: world.def.name + (this.run.rift && world.def.kind !== 'city' ? '' : difficultyTag(this.diff)),
       roomInfo: this.roomInfo,
       prompt,
       buffs,
       statuses,
-      cast: p.channel ? p.channel.t / p.channel.dur : p.cast && !p.cast.fired ? p.cast.t / p.cast.windup : null,
+      cast: p.castProgress,
+      cc:
+        p.paralysis > 0
+          ? {
+              label: 'PARALYSED',
+              left: p.paralysis,
+              total: Math.max(p.paralysis, p.paralysisTotal),
+              // A Sol injector is the way out (usable while paralysed).
+              hint: st?.mod === 'sol' && st.doses >= 1 ? 'Press 1: Sol breaks it' : null,
+            }
+          : null,
       injector,
       dash: { charges: p.dashCharges, max: p.maxDashCharges, refill: p.dashRefill },
+      photonBlast: this.photonBlastName() ? { name: this.photonBlastName()!, charge: p.pb } : null,
     };
   }
 }

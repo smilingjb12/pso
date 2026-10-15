@@ -14,7 +14,6 @@ describe('Hard scaling', () => {
     expect(h.atp).toBe(b.atp + hard.forest.atp);
     expect(h.recovery).toBeCloseTo(b.recovery * hard.recoveryMult);
     expect(h.dropTier).toBe(8);
-    expect(h.rarePool).toEqual(hard.forest.rares);
     // Every Hard telegraph stays at or above the floor unless it was already shorter.
     for (const a of Object.values(enemies)) {
       const w = hardWindup(a.windup);
@@ -32,7 +31,7 @@ describe('Hard scaling', () => {
     const rng = mulberry32(7);
     const tiers = new Set<number>();
     for (let i = 0; i < 400; i++) {
-      const d = rollEnemyDrop(hardArch(enemies.Gillchic, hard.mines), rng, 'atp');
+      const d = rollEnemyDrop(hardArch(enemies.Gillchic, hard.mines), rng, 'melee');
       if (d?.kind !== 'item') continue;
       const def = getDef(d.item.id);
       if ((def.type === 'weapon' || def.type === 'armor') && !def.rare) tiers.add(def.tier);
@@ -88,7 +87,7 @@ describe('Hard loot', () => {
     const rng = mulberry32(11);
     for (let i = 0; i < 50; i++) expect(getDef(rollInjector(9, rng).id)).toMatchObject({ tier: 5 });
     for (const boss of ['dragon', 'derolle', 'warden', 'falz'] as const) {
-      const drops = rollHardBossDrops(boss, rng, 'mst');
+      const drops = rollHardBossDrops(boss, rng, 'caster');
       expect(drops.some((d) => d.kind === 'item' && d.item.id.endsWith('_6') && getDef(d.item.id).type === 'injector')).toBe(true);
     }
     expect(rollChampionBonus(hardArch(enemies.Booma, hard.forest), rng).length).toBeGreaterThanOrEqual(2);

@@ -15,7 +15,7 @@ export interface AffixDef {
 export const AFFIXES: Record<Affix, AffixDef> = {
   overclocked: { id: 'overclocked', name: 'Overclocked', color: 0x40d8ff, desc: 'Moves and attacks 50% faster, and follows every attack with a second one.' },
   volatile: { id: 'volatile', name: 'Volatile', color: 0xff7a30, desc: 'Vents a blast around itself every few seconds while you are close; explodes when it dies and leaves the ground burning.' },
-  shielding: { id: 'shielding', name: 'Shielding', color: 0x60ffc8, desc: 'Tethered allies take 70% less damage; it hangs back behind them, and shields its front once alone.' },
+  shielding: { id: 'shielding', name: 'Shielding', color: 0x60ffc8, desc: 'Tethered allies take 50% less damage; it hangs back behind them, and takes 30% less damage once alone.' },
   regenerating: { id: 'regenerating', name: 'Regenerating', color: 0x70ff70, desc: 'Heals fast once left alone for a moment and pulses heals to nearby allies; Burn or Poison stop it.' },
   splitting: { id: 'splitting', name: 'Splitting', color: 0xffe060, desc: 'Splits into three small, fast copies when it dies (plain, weaker versions with no affixes).' },
   molten: { id: 'molten', name: 'Molten', color: 0xff4a20, desc: 'Leaves burning ground where it walks, where its attacks land and where its lobbed globs fall. Immune to Burn.' },

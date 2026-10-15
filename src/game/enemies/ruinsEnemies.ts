@@ -213,7 +213,7 @@ export class Delsaber extends Enemy {
           this.pos.x += Math.sin(this.yaw) * a.lunge;
           this.pos.z += Math.cos(this.yaw) * a.lunge;
           const shape: TelegraphShape = { kind: 'cone', x: this.pos.x, z: this.pos.z, yaw: this.yaw, range: a.strikeRange, arcDeg: a.strikeArcDeg };
-          // Area multipliers scale ATP before DFP comes off: below ~0.9 a cut barely scratches.
+          // Area multipliers scale the hit straight (they scaled ATP before DFP came off until 2026-10-14).
           ctx.areaStrike(this, shape, fin ? 1.1 : 0.85, fin ? 8 : 3);
           this.cue('ruins.slash');
         }

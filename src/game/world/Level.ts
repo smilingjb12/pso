@@ -5,6 +5,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { neutralPropGeometry, propGeometry, propMaterial, type PropKind } from '../models/props';
 import { darkFalz as falzCfg, pylonCfg, warden as wardenCfg } from '../config';
 import { glowMaterial, glowSprite, glowTexture } from './glow';
+import { buildCityScenery } from './CityScenery';
 
 export const TILE = 2;
 
@@ -127,6 +128,8 @@ export class Level {
   /** Lava vents and marsh pools (world space), kept clear of props and boxes. */
   readonly hazardSpots: { x: number; z: number; r: number }[] = [];
   private floor: Uint8Array;
+  /** Wall tiles drawn as windows (Pioneer 2): solid, but the scenery draws glass instead of a block. */
+  private windows = new Set<number>();
   /** Rendered wall height per tile (0 for floor). */
   private wallH: Float32Array;
   private tmpBoxes: Box2[] = [];
@@ -157,6 +160,15 @@ export class Level {
       });
       for (const f of r.features ?? []) {
         this.features.push({ def: f, room: r.id, x: (x0 + f.tx) * TILE, z: (z0 + f.tz) * TILE });
+      }
+      if (r.window) {
+        const n = r.window === 'n' || r.window === 's';
+        const len = n ? r.w : r.h;
+        for (let i = 0; i < len; i++) {
+          const tx = n ? x0 + i : r.window === 'w' ? x0 - 1 : x0 + r.w;
+          const tz = !n ? z0 + i : r.window === 'n' ? z0 - 1 : z0 + r.h;
+          this.windows.add(tz * this.width + tx);
+        }
       }
       for (const [tx, tz] of r.vents ?? []) this.hazardSpots.push({ x: (x0 + tx) * TILE, z: (z0 + tz) * TILE, r: 2.6 });
       for (const [tx, tz, rx, rz] of [...(r.marsh ?? []), ...(r.slag ?? [])]) this.hazardSpots.push({ x: (x0 + tx) * TILE, z: (z0 + tz) * TILE, r: Math.max(rx, rz) * TILE + 0.5 });
@@ -390,6 +402,9 @@ export class Level {
             // Deck plates: a checker with a little wear per plate.
             floorColor.copy((x + z) % 2 === 0 ? c1 : c2).offsetHSL(0, 0, (floorRng() - 0.5) * 0.03);
             floorMesh.setColorAt(fi, floorColor);
+          } else if (t.scenery === 'city') {
+            // Big deck panels (2 x 2 tiles) in two greys.
+            floorMesh.setColorAt(fi, (Math.floor(x / 2) + Math.floor(z / 2)) % 2 === 0 ? c1 : c2);
           } else if (temple) {
             // Big flagstones (2 x 2 tiles), each a little different, with the odd inlaid slab.
             const slab = (Math.floor(x / 2) + Math.floor(z / 2)) % 2 === 0;
@@ -402,6 +417,9 @@ export class Level {
         } else if (river) {
           // Open water all around the raft: nothing for the camera to bump into.
           this.wallH[z * this.width + x] = -100;
+        } else if (this.windows.has(z * this.width + x)) {
+          // Solid for movement and the camera; the city scenery draws the sill and glass.
+          this.wallH[z * this.width + x] = t.wallHeight;
         } else if (this.touchesFloor(x, z)) {
           // Mines walls are flat panels with the odd taller buttress.
           const h = rugged
@@ -418,6 +436,7 @@ export class Level {
           this.wallH[z * this.width + x] = t.wallHeight;
         }
       }
+    wallMesh.count = wi;
     if (!altar) this.group.add(floorMesh);
     if (!river && !altar) this.group.add(wallMesh);
 
@@ -428,6 +447,15 @@ export class Level {
     if (mine) this.buildMineScenery(t.scenery as 'foundry' | 'control' | 'warden');
     if (temple) this.buildTempleScenery(t.scenery === 'sanctum');
     if (altar) this.buildAltarScenery();
+    if (t.scenery === 'city') {
+      buildCityScenery({
+        theme: t, group: this.group, rooms: this.rooms, features: this.features, colliders: this.trees,
+        width: this.width, height: this.height,
+        isFloor: (tx, tz) => this.isFloor(tx, tz),
+        isWindow: (tx, tz) => this.windows.has(tz * this.width + tx),
+        animate: (fn) => this.animators.push(fn),
+      });
+    }
   }
 
   /** Animate scenery (called by the world every frame). */

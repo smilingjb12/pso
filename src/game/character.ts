@@ -1,56 +1,60 @@
-import { attributeCfg, BUILD_VERSION, formulas, magCfg, spellForms, type AttackType, type Race } from './config';
+import { casting, drops, formulas, hasteCfg, magCfg, passiveCfg, skillCfg, uniqueCfg, type AttackTiming, type Race } from './config';
 import type { BossId } from './data/bosses';
 import { asDifficulty, type Difficulty } from './difficulty';
 import type { Look } from './models/heroine';
 import {
   addBonus,
-  ATTRIBUTE_INFO,
-  ATTRIBUTES,
-  attributePointsEarned,
   BONUS_ORDER,
   bonusText,
-  buildTitle,
-  KITS,
-  leadAttribute,
+  CLASSES,
   MAX_LEVEL,
-  noAttributes,
   STAT_LABEL,
+  statDelta,
   statsAtLevel,
+  statValue,
   xpToNext,
-  type AttributeId,
-  type AttributePoints,
-  type KitDef,
-  type KitId,
-  type PaletteRow,
+  type ClassDef,
+  type ClassId,
   type StatBonus,
   type StatKey,
   type Stats,
+  type WeaponFamily,
 } from './data/stats';
 import {
+  itemDefs,
   armorLines,
-  ATTR_LABEL,
-  ATTRS,
   getDef,
   grindCap,
   INJECTOR_MODS,
   INVENTORY_SIZE,
-  RACE_SUFFIX,
-  raceCap,
+  kindFamily,
+  RARITY_LABEL,
+  RETIRED_KINDS,
   specials,
   weaponKinds,
   type ArmorItemDef,
-  type Attr,
   type InjectorMod,
   type ItemDef,
-  type ItemPassive,
+  type Rarity,
   type SpecialId,
   type WeaponItemDef,
+  type WeaponKind,
   type WeaponKindDef,
 } from './data/items';
-import { ATTACK_TECHS, isAttackTech, techAttackPower, techTpCost, type TechId } from './data/techniques';
+import type { RiftSave } from './rifts';
+import { AFFIX_CAPS, AFFIX_TIERS, affixText, ITEM_AFFIXES, RACE_AFFIX, tierIlvl, tierRange, type AffixRoll, type ItemAffixId } from './data/itemAffixes';
+import { critChance } from './formulas';
+import { craftLoadouts, maxedRoll, rollCost } from './craftCeiling';
+import { ATTACK_TECHS, isAttackTech, techAttackPower, techniques, techTpCost, type TechId } from './data/techniques';
+import { ART_IDS, artClasses, ARTS, isTechArt, SUPPORT_ARTS, type ArtId } from './data/arts';
+import { hastened } from './combo';
+import { estimateDamage, type Foe } from './dps';
+import type { UniqueId } from './data/uniques';
 import { chargeOf, describeInjector, injectorDef, injectorStats } from './injectors';
 import { GEAR_SLOTS, isGear, isStackable, itemRequirement, itemSlot, stackCap, type GearSlot, type ItemDefOf, type ItemType } from './itemTypes';
-import { hasPassive, magBonuses, magPointsFree, newMag, readMag, type MagData, type MagPassive } from './mag';
+import { magBonuses, magPointsFree, magSpend, newMag, PHOTON_BLASTS, readMag, type MagData, type MagStat, type PhotonBlastId } from './mag';
+import { passiveRanks, PASSIVES, rankAmt, rankMult, weaponFits, type PassiveId } from './passives';
+import { emptySkills, migrateSkills, modRowRank, modsUnpicked, pickMod, pointsSpent, rankDown, rankOf, rankUp, rankUpBlock, readSkills, skillNodes, skillPoints, starterArt, type SkillPicks } from './skills';
 
 // Persistent character state plus derived-stat helpers. No rendering here.
 
@@ -58,47 +62,73 @@ export interface ItemInstance {
   uid: string;
   id: string;
   qty?: number;
-  /** Grind levels in all: Edge levels plus the race (Bane) levels below. */
+  /**
+   * Old saves only: grind levels and Bane (race levels). Grinding went on 2026-10-11 (the user's call): every weapon,
+   * frame and barrier counts as fully ground (`grindLevels`); both fields are dropped on load.
+   */
   grind?: number;
-  /** Grind levels spent on each race (each adds formulas.banePerGrind %). */
   bane?: Partial<Record<Race, number>>;
-  attrs?: Partial<Record<Attr, number>>;
+  /** A rolled weapon special (counts as a prefix; a unique's fixed one is on its def). */
   special?: SpecialId;
+  /** Normal when missing; a def marked `rare` is always unique. */
+  rarity?: Rarity;
+  /** Rolled affixes (a unique's fixed ones are on its def). */
+  affixes?: AffixRoll[];
+  /** A rare's rolled name ("Doom Edge"). */
+  name?: string;
+  /** Frames: how many of the Mag's units this frame activates. */
+  slots?: number;
+  /** Old saves only: units that sat in this frame (moved to the Mag on load). */
+  units?: ItemInstance[];
   /** Injectors: the rolled mod, and doses ready (undefined = full). */
   mod?: InjectorMod;
   charge?: number;
-  /** Haste % rolled on a tier 11+ weapon, frame or barrier (see hasteCfg). */
-  haste?: number;
+  /** Item level when it isn't its tier's (Falz Rift drops: 100 + the rift tier, which opens affix tiers 7-8). */
+  ilvl?: number;
+  /**
+   * Rares: dormant affixes (2026-10-13), rolled with the item and doing nothing until a Photon Crystal swaps one
+   * with an active affix of the same kind (crafting.ts).
+   */
+  dormant?: AffixRoll[];
+  /** Old saves only: crafting Potential and Crystal / Augment offers (both went on 2026-10-13; dropped on load). */
+  pot?: number;
+  potMax?: number;
+  offers?: unknown;
 }
 
-/** Save format. Saves from before classes were removed (versions 1-3) are deleted, not migrated. */
-export const SAVE_VERSION = 4;
-/** Content a save has seen (1: the Ruins, which moved Nightmare behind Dark Falz). Older saves are upgraded on load. */
-export const CONTENT_VERSION = 1;
+/** Save format. Saves from before classes came back (versions 1-4) are deleted, not migrated. */
+export const SAVE_VERSION = 5;
 
 export interface CharacterData {
   version: typeof SAVE_VERSION;
   name: string;
-  /** The starting kit picked at creation: Lv 1 stats, starting gear and palette. */
-  kit: KitId;
+  /** Fixed at creation. */
+  cls: ClassId;
   /** Appearance chosen at creation. */
   appearance?: Look;
-  /** Attribute points spent (permanent). */
-  attributes: AttributePoints;
-  /** BUILD_VERSION these attribute points and Mag squares were spent under (a newer one refunds them). */
-  build: number;
-  /** CONTENT_VERSION the save was last loaded under (missing on saves from before the Ruins). */
-  content?: number;
   level: number;
   xp: number; // progress toward next level
   meseta: number;
   inventory: ItemInstance[];
   equipped: Partial<Record<GearSlot, string>>;
-  palette: PaletteRow[];
-  /** Attack technique the magic source casts (cycled with the mouse wheel). */
-  selectedTech?: TechId;
-  /** The Mag's talent grid (permanent squares). */
+  /** Arts (2026-10-14): what sits on RMB, Q, E and R for each weapon kind in hand. */
+  arts: ArtLoadout;
+  /** The Skills trees (2026-10-15): ranks in Arts and passives, and the Arts' modifier picks (skills.ts). */
+  skills: SkillPicks;
+  /** Old saves only (turned into skills on load): the four passive slots. */
+  passives?: unknown;
+  /** The photon blast the Mag teaches (picked on the Mag tab from magCfg.pbLevel). */
+  photonBlast?: PhotonBlastId;
+  /** Old saves only (dropped on load): the action palette, the wheel's technique and the talent picks. */
+  palette?: unknown;
+  selectedTech?: unknown;
+  talents?: unknown;
+  /** Mag points per stat (permanent). */
   mag: MagData;
+  /** Learned units: one per kind (its affix), the best roll found. Picking up a better one replaces it. */
+  units: ItemInstance[];
+  /** Kinds slotted in the Mag, in priority order: the equipped frame's unit slots decide how many are active. */
+  magUnits: ItemAffixId[];
   stats: {
     kills: number;
     deaths: number;
@@ -107,7 +137,7 @@ export interface CharacterData {
     bossKills: Partial<Record<BossId, number>>;
     /** Pylons lit (the first one explains them). */
     pylonsLit?: number;
-    /** Opened Nightmare by beating the Warden before the Ruins existed: it stays open without Dark Falz. */
+    /** Unused since classes came back (old saves are deleted); kept so the unlock checks read the same. */
     nightmareKept?: boolean;
     dashes?: number;
     /** Bosses beaten on Hard (each opens the next Hard expedition and a shop tier). */
@@ -115,24 +145,49 @@ export interface CharacterData {
     /** Bosses beaten on Hell (each opens the next Hell expedition and a shop tier). */
     hellKills?: Partial<Record<BossId, number>>;
   };
+  /** Falz Rifts (after the Hell Dark Falz): the tier ladder, the shard stash and counts (see rifts.ts riftSave). */
+  rift?: RiftSave;
+  /**
+   * 2 once affix rolls are in the 2026-10-14 units (damage taken in %, Weapon damage % on the whole hit). Older saves
+   * convert on load: DFP rolls become Strike damage taken, Bastion and the downside penalties shrink to the new
+   * scale, Weapon damage % and Reckless come down to their new tops.
+   */
+  affixUnits?: number;
 }
 
-/** Saves from before the boss registry kept one field per boss. */
-export function migrateBossKills(stats: CharacterData['stats']): void {
-  const legacy = stats as CharacterData['stats'] & { dragonKills?: number; deRolLeKills?: number; wardenKills?: number; falzKills?: number };
-  stats.bossKills ??= {};
-  const from: [keyof typeof legacy, BossId][] = [['dragonKills', 'dragon'], ['deRolLeKills', 'derolle'], ['wardenKills', 'warden'], ['falzKills', 'falz']];
-  for (const [field, boss] of from) {
-    const n = legacy[field];
-    if (typeof n === 'number') stats.bossKills[boss] = Math.max(stats.bossKills[boss] ?? 0, n);
-    delete legacy[field];
+/** Art slots on the bar: RMB, Q, E, R. */
+export const ART_SLOTS = 4;
+
+/** An Art bar is kept per weapon kind in hand ('none': bare hands). */
+export type ArtBarKey = WeaponKind | 'none';
+
+export interface ArtLoadout {
+  bars: Partial<Record<ArtBarKey, (ArtId | null)[]>>;
+}
+
+/** Saved Art bars with anything that no longer exists dropped. */
+function readArts(raw: unknown, cls: ClassId): ArtLoadout {
+  const out: ArtLoadout = { bars: {} };
+  if (!raw || typeof raw !== 'object') return out;
+  const r = raw as Partial<ArtLoadout>;
+  for (const [key, bar] of Object.entries(r.bars ?? {})) {
+    if (key !== 'none' && !weaponKinds[key as WeaponKind]) continue;
+    if (!Array.isArray(bar)) continue;
+    const seen = new Set<string>();
+    out.bars[key as ArtBarKey] = Array.from({ length: ART_SLOTS }, (_, i) => {
+      const id = bar[i];
+      if (typeof id !== 'string' || seen.has(id) || !ARTS[id as ArtId] || !artClasses(id as ArtId).includes(cls)) return null;
+      seen.add(id);
+      return id as ArtId;
+    });
   }
+  return out;
 }
 
 let uidCounter = 0;
-/** Equip-requirement failure text; shows the base + Mag value the check actually used. */
-function reqReason(stat: StatKey, req: number, have: number): string {
-  return `Requires ${stat.toUpperCase()} ${req} (you have ${have}; gear bonuses don't count)`;
+/** Equip-requirement failure text. */
+function reqReason(level: number, have: number): string {
+  return `Requires Lv ${level} (you are Lv ${have})`;
 }
 
 export function newUid(): string {
@@ -147,55 +202,162 @@ export function makeItem(id: string, extra: Partial<ItemInstance> = {}): ItemIns
   return inst;
 }
 
+/** Rift-forged items (item level above 100): how much their base stats are raised (1 = not forged). */
+export function forgeMult(inst: Pick<ItemInstance, 'ilvl'>): number {
+  return inst.ilvl && inst.ilvl > 100 ? 1 + drops.riftForgePerTier * (inst.ilvl - 100) : 1;
+}
+
 /**
- * The prefix says what an item does (a rolled special or injector mod), the suffix what it's for: a
- * weapon's best race % once it reaches half its tier's cap ("Heat Brand of Beasts +3"). A rare's fixed
- * special is part of its name already, so only rolled ones are prefixed.
+ * An item's definition with its base stats as this copy has them: a Rift-forged drop's weapon damage and stat
+ * bonuses, or armour damage taken and bonuses, raised by `forgeMult`; a frame or barrier's bonuses raised by its
+ * (built-in) grind levels too (a weapon's grind is Edge, added by grindBonus). Everything that reads base stats goes
+ * through this.
+ */
+export function statDef(inst: ItemInstance): ItemDef {
+  const def = getDef(inst.id);
+  const refine = def.type === 'armor' ? 1 + formulas.refineArmorPct * grindLevels(inst) : 1;
+  const k = forgeMult(inst) * refine;
+  if (k === 1) return def;
+  const bonus = def.type === 'weapon' || def.type === 'armor' ? def.bonus : undefined;
+  const scaled = bonus ? (Object.fromEntries(Object.entries(bonus).map(([s, v]) => [s, Math.round((v as number) * k)])) as StatBonus) : undefined;
+  if (def.type === 'weapon') return { ...def, atpMin: Math.round(def.atpMin * k), atpMax: Math.round(def.atpMax * k), ...(scaled ? { bonus: scaled } : {}) };
+  // The damage-taken cut grows with Rift-forging only (the table value is already the fully ground one).
+  if (def.type === 'armor') return { ...def, dr: Math.round(def.dr * forgeMult(inst)), ...(scaled ? { bonus: scaled } : {}) };
+  return def;
+}
+
+/** Normal, magic, rare or unique (a def marked `rare` is always unique). */
+export function rarityOf(inst: ItemInstance): Rarity {
+  return getDef(inst.id).rare ? 'unique' : (inst.rarity ?? 'normal');
+}
+
+/** The item's own affixes: a unique's fixed ones, then what it rolled. */
+export function ownAffixes(inst: ItemInstance): AffixRoll[] {
+  const fixed = getDef(inst.id).fixed ?? [];
+  return inst.affixes?.length ? [...fixed, ...inst.affixes] : fixed;
+}
+
+
+/**
+ * Saved affix rolls made current: ATA and EVP went on 2026-10-09 (ATA rolls become LCK, EVP rolls DFP, the
+ * heavy hit-chance cap is gone); anything else unknown is dropped, and Mending rolls are capped at its new top.
+ * TP per staff hit became TP a second on 2026-10-10 (capped at its top). Cast speed became Haste on 2026-10-11:
+ * capped at the item tier's Haste top, dropped below tier 8 (no Haste there), the larger one kept if the item
+ * already has Haste.
+ */
+function readAffixes(rolls: AffixRoll[], tier = 1, legacy = false): AffixRoll[] {
+  // Foie / Zonde / Barta damage became Fire / Lightning / Ice damage on 2026-10-14 (the Arts redesign).
+  const renamed: Record<string, ItemAffixId> = { ata: 'lck', evp: 'strike', dfp: 'strike', staffTp: 'tpRegen', foiePct: 'firePct', zondePct: 'lightningPct', bartaPct: 'icePct' };
+  const out: AffixRoll[] = [];
+  for (const raw of rolls) {
+    const r = legacy ? toPercentUnits(raw) : raw;
+    if ((r.id as string) === 'castSpeed') {
+      const cap = hasteCfg.capByTier[tier];
+      if (!cap) continue;
+      const v = Math.min(r.v, cap);
+      const had = out.find((x) => x.id === 'haste') ?? rolls.find((x) => x.id === 'haste');
+      if (had) had.v = Math.max(had.v, v);
+      else out.push({ id: 'haste', v });
+      continue;
+    }
+    const id = renamed[r.id] ?? r.id;
+    if (!ITEM_AFFIXES[id]) continue;
+    if (id === 'haste' && out.some((x) => x.id === 'haste')) continue;
+    // Mending works in fights since 2026-10-09, at lower values: old rolls come down to the new top.
+    const v = id === 'regen' || id === 'tpRegen' ? Math.min(r.v, tierRange(ITEM_AFFIXES[id].tiers, AFFIX_TIERS)[1]) : r.v;
+    out.push({ ...r, id, v });
+  }
+  return out;
+}
+
+/**
+ * One saved roll moved to the 2026-10-14 units: DFP (and EVP) became Strike damage taken (about 6 DFP a %), Bastion
+ * and the downside penalties (DFP) shrank to the new scale, and Weapon damage % and Reckless (now on the whole hit)
+ * come down to the top of their new tier.
+ */
+function toPercentUnits(r: AffixRoll): AffixRoll {
+  const id = r.id as string;
+  const top = (t: number) => tierRange(ITEM_AFFIXES[r.id].tiers, t)[1];
+  if (id === 'dfp' || id === 'evp') return { ...r, id: 'strike', v: Math.max(1, Math.round(r.v / 6)) };
+  if (id === 'areaDr') return { ...r, v: Math.max(1, Math.round((r.v * 2) / 3)) };
+  if (id === 'brittle' || id === 'reckless') {
+    const out = { ...r, ...(r.p ? { p: Math.max(1, Math.round(r.p / 6)) } : {}) };
+    if (id === 'reckless') out.v = Math.min(r.v, top(r.t ?? AFFIX_TIERS));
+    return out;
+  }
+  if (id === 'atpPct') return { ...r, v: Math.min(r.v, top(r.t ?? AFFIX_TIERS)) };
+  return r;
+}
+
+/**
+ * Every saved affix roll made current (readAffixes), and old units moved to the 2026-10-14 ones once (`affixUnits`).
+ * Safe to run more than once. Save loading calls it before anything else reads the rolls (upgradeCrafting does: a
+ * roll with a retired id would break it), and the Character constructor again.
+ */
+export function readAffixData(data: CharacterData): CharacterData {
+  const legacy = (data.affixUnits ?? 1) < 2;
+  // Units that still sit in frames (older saves; the constructor moves them to the Mag) included.
+  for (const it of [...data.inventory, ...data.inventory.flatMap((x) => x.units ?? []), ...(data.units ?? [])]) {
+    const def = itemDefs[it.id];
+    if (!def) continue;
+    const tier = 'tier' in def ? def.tier : 1;
+    if (it.affixes) it.affixes = readAffixes(it.affixes, tier, legacy);
+    if (it.dormant) it.dormant = readAffixes(it.dormant, tier, legacy);
+  }
+  // Units learned as DFP are Strike units now.
+  data.magUnits = data.magUnits?.map((k) => ((k as string) === 'dfp' ? 'strike' : k));
+  data.affixUnits = 2;
+  return data;
+}
+
+/** Sum of one affix over a list of rolls. */
+function affixSum(rolls: AffixRoll[], id: ItemAffixId): number {
+  let t = 0;
+  for (const r of rolls) if (r.id === id) t += r.v;
+  return t;
+}
+
+/** What a unit is called: its affix's unit name ("Heart Unit"). */
+function unitName(inst: ItemInstance): string {
+  const a = inst.affixes?.[0];
+  return a ? `${ITEM_AFFIXES[a.id].unit ?? ITEM_AFFIXES[a.id].word} Unit` : 'Unit';
+}
+
+/**
+ * The item's name. Magic items take a word from their prefix (a rolled special or a prefix affix) and their
+ * suffix ("Heat Brand of Beasts +3"), rares their rolled name ("Doom Edge +2"), uniques their own.
  */
 export function itemName(inst: ItemInstance): string {
   const def = getDef(inst.id);
+  if (def.type === 'unit') return unitName(inst);
   let name = def.name;
   if (def.type === 'injector' && inst.mod) name = `${INJECTOR_MODS[inst.mod].name} ${name}`;
-  if (def.type === 'weapon') {
-    if (inst.special && !def.special) name = `${specials[inst.special].name} ${name}`;
-    const race = topRace(inst);
-    if (race && race.pct * 2 >= raceCap(def.tier)) name += ` ${RACE_SUFFIX[race.race]}`;
-    if (inst.grind) name += ` +${inst.grind}`;
+  const rarity = rarityOf(inst);
+  if (rarity === 'rare' && inst.name) name = inst.name;
+  else if (rarity === 'magic') {
+    const pre = inst.special && def.type === 'weapon' && !def.special ? specials[inst.special].name : inst.affixes?.find((a) => ITEM_AFFIXES[a.id].kind === 'prefix');
+    const suf = inst.affixes?.find((a) => ITEM_AFFIXES[a.id].kind === 'suffix');
+    if (pre) name = `${typeof pre === 'string' ? pre : ITEM_AFFIXES[pre.id].word} ${name}`;
+    if (suf) name += ` ${ITEM_AFFIXES[suf.id].word}`;
   }
   if (inst.qty !== undefined && inst.qty > 1) name += ` x${inst.qty}`;
   return name;
 }
 
-/** The weapon's highest race % (the first in ATTRS order on a tie), or null if it has none. */
-function topRace(inst: ItemInstance): { race: Race; pct: number } | null {
-  let best: { race: Race; pct: number } | null = null;
-  for (const a of ATTRS) {
-    if (a === 'hit') continue;
-    const pct = weaponRace(inst, a);
-    if (pct > (best?.pct ?? 0)) best = { race: a, pct };
-  }
-  return best;
+/** Weapons, frames and barriers: what photons craft on. */
+export function isGearItem(inst: ItemInstance): boolean {
+  const t = getDef(inst.id).type;
+  return t === 'weapon' || t === 'armor';
 }
 
-/** "A.Beast 25% · Hit 10%": race % with Bane levels counted, then Hit %. */
-export function attrText(inst: ItemInstance): string {
-  return ATTRS.map((a): [Attr, number] => [a, a === 'hit' ? (inst.attrs?.hit ?? 0) : weaponRace(inst, a)])
-    .filter(([, v]) => v)
-    .map(([a, v]) => `${ATTR_LABEL[a]} ${v}%`)
-    .join(' · ');
-}
-
-/** "Grind 4/7 · Edge 2 · Machine 2" (Edge and race levels only once there are some). */
-export function grindText(inst: ItemInstance): string {
+/**
+ * Grind levels an item counts as having: every weapon, frame and barrier is fully ground (its tier's cap, uniques 2
+ * more) since grinders went on 2026-10-11 (the user's call: grinding had no choice left in it, and a fresh drop
+ * started a dozen levels behind the gear it should replace). 0 for anything else.
+ */
+export function grindLevels(inst: Pick<ItemInstance, 'id'>): number {
   const def = getDef(inst.id);
-  if (def.type !== 'weapon') return '';
-  const parts = [`Grind ${inst.grind ?? 0}/${grindCap(def)}`];
-  if (inst.grind) {
-    const edge = edgeLevels(inst);
-    if (edge) parts.push(`Edge ${edge}`);
-    for (const [r, n] of Object.entries(inst.bane ?? {})) if (n) parts.push(`${ATTR_LABEL[r as Race]} ${n}`);
-  }
-  return parts.join(' · ');
+  return def.type === 'weapon' || def.type === 'armor' ? grindCap(def) : 0;
 }
 
 export function itemSpecial(inst: ItemInstance): SpecialId | undefined {
@@ -203,42 +365,28 @@ export function itemSpecial(inst: ItemInstance): SpecialId | undefined {
   return def.type === 'weapon' ? (inst.special ?? def.special) : undefined;
 }
 
+const RARITY_PRICE: Record<Rarity, number> = { normal: 1, magic: 1.6, rare: 2.8, unique: 1 };
+
 export function sellPrice(inst: ItemInstance): number {
   const def = getDef(inst.id);
-  let p = def.price / 4;
-  if (def.type === 'weapon') {
-    p += (inst.grind ?? 0) * 60;
-    const attrSum = Object.values(inst.attrs ?? {}).reduce((a, b) => a + (b ?? 0), 0);
-    p += attrSum * 8;
-    if (inst.special && !def.special) p += 150;
-  }
+  let p = (def.price / 4) * RARITY_PRICE[rarityOf(inst)];
   if (inst.mod) p *= 1.4;
   return Math.max(1, Math.floor(p)) * (inst.qty ?? 1);
 }
 
-/** Where a grind level goes: Edge (the weapon's own stats, against everything) or one race (Bane). */
-export type GrindTrack = 'edge' | Race;
-
-/** Grind levels spent on Edge: all of them minus the race (Bane) levels. */
-export function edgeLevels(inst: ItemInstance): number {
-  const bane = Object.values(inst.bane ?? {}).reduce((a, b) => a + (b ?? 0), 0);
-  return Math.max(0, (inst.grind ?? 0) - bane);
-}
-
-/** A weapon's % against `race`: its rolled attribute plus its Bane levels. */
+/** A weapon's % against `race` (its race affix). */
 export function weaponRace(inst: ItemInstance, race: Race): number {
-  return (inst.attrs?.[race] ?? 0) + (inst.bane?.[race] ?? 0) * formulas.banePerGrind;
+  return affixSum(ownAffixes(inst), RACE_AFFIX[race]);
 }
 
 /**
- * What `edge` grind levels add to a weapon: a share of its own ATP and ATA, and of its MST (only weapons
- * that already give MST, so grinding a blade or a gun doesn't feed support techs).
+ * What `edge` grind levels add to a weapon: a share of its own ATP, and of its MST (only weapons that
+ * already give MST, so grinding a blade or a gun doesn't feed support techs).
  */
-export function grindBonus(def: WeaponItemDef, edge: number): { atp: number; ata: number; mst: number } {
+export function grindBonus(def: WeaponItemDef, edge: number): { atp: number; mst: number } {
   const mst = def.bonus?.mst;
   return {
     atp: Math.round(edge * formulas.edgeAtpPct * ((def.atpMin + def.atpMax) / 2)),
-    ata: Math.round(edge * formulas.edgeAtaPct * def.ata),
     mst: mst ? Math.round(edge * formulas.edgeMstPct * mst) : 0,
   };
 }
@@ -251,67 +399,82 @@ export function weaponBonus(def: WeaponItemDef, edge: number): StatBonus {
   return out;
 }
 
-/** What a grinder would do to a weapon on one track (the grind picker shows one per track). */
-export interface GrindPreview {
-  track: GrindTrack;
-  /** Levels added: the grinder's amount, or fewer if a cap is in the way (0 = can't). */
-  levels: number;
-  /** Levels the grinder has beyond the cap, lost if it is used here. */
-  wasted: number;
-  /** Why no level fits ('' when some do). */
-  reason: string;
-  /** The weapon after grinding (a copy with its own uid, for simulateEquip). */
-  after: ItemInstance;
-}
-
-/**
- * Spending `amount` grind levels on `track`, all on the same one. Every weapon has grindCap() levels in all;
- * a race also stops at the tier's roll cap (rolled % + Bane), so a good roll needs fewer levels.
- */
-export function grindPreview(inst: ItemInstance, track: GrindTrack, amount: number): GrindPreview {
-  const def = getDef(inst.id);
-  const after: ItemInstance = { ...inst, uid: newUid(), attrs: inst.attrs && { ...inst.attrs }, bane: inst.bane && { ...inst.bane } };
-  if (def.type !== 'weapon') return { track, levels: 0, wasted: amount, reason: 'Not a weapon', after };
-  const cur = inst.grind ?? 0;
-  let room = grindCap(def) - cur;
-  let reason = room > 0 ? '' : 'Fully ground';
-  if (track !== 'edge' && room > 0) {
-    const cap = raceCap(def.tier);
-    room = Math.min(room, formulas.banePerGrind > 0 ? Math.floor((cap - weaponRace(inst, track)) / formulas.banePerGrind) : 0);
-    if (room <= 0) reason = `${ATTR_LABEL[track]} is at this tier's cap (${cap}%)`;
+/** Flat stats a set of affixes adds (stat affixes, and downside penalties taken off). */
+export function affixStats(rolls: AffixRoll[]): StatBonus {
+  const out: StatBonus = {};
+  for (const r of rolls) {
+    const def = ITEM_AFFIXES[r.id];
+    if (def.stat) out[def.stat] = (out[def.stat] ?? 0) + r.v;
+    if (def.penalty && r.p) {
+      for (const k of def.penalty.stat === 'dr' ? (['strike', 'area'] as const) : [def.penalty.stat]) out[k] = (out[k] ?? 0) - r.p;
+    }
   }
-  const levels = Math.max(0, Math.min(amount, room));
-  if (levels) {
-    after.grind = cur + levels;
-    if (track !== 'edge') after.bane = { ...after.bane, [track]: (after.bane?.[track] ?? 0) + levels };
-  }
-  return { track, levels, wasted: amount - levels, reason, after };
+  return out;
 }
 
 /** The weapon used when nothing is equipped. */
 const BARE_HANDS: WeaponItemDef = {
   id: '__bare', type: 'weapon', name: 'Bare hands', kind: 'saber', tier: 0,
-  atpMin: 5, atpMax: 10, ata: 10, req: 0, price: 0,
+  atpMin: 5, atpMax: 10, req: 0, price: 0,
 };
 
 export class Character {
-  /** Set when loading refunded every attribute point and Mag square (the build rules changed: BUILD_VERSION). */
-  readonly refunded: boolean = false;
-
   constructor(public data: CharacterData) {
-    data.mag = readMag(data.mag);
-    data.attributes = { ...noAttributes(), ...data.attributes };
-    if (data.build !== BUILD_VERSION) {
-      this.refunded = Object.values(data.attributes).some((n) => n > 0) || data.mag.cells.length > 0;
-      data.attributes = noAttributes();
-      data.mag = newMag();
-      data.build = BUILD_VERSION;
+    // The Partisan, Mechgun, Slicer and Cane went on 2026-10-14: those weapons become a Sword, Handgun, Rifle or Rod of
+    // the same tier, affixes and all (each keeps its family, so every affix still fits).
+    for (const it of data.inventory) {
+      const m = /^([a-z]+)_(\d+)$/.exec(it.id);
+      const kind = m && Object.hasOwn(RETIRED_KINDS, m[1]) ? RETIRED_KINDS[m[1]] : null;
+      if (kind) it.id = `${kind}_${m![2]}`;
     }
-    migrateBossKills(data.stats);
-    // The Ruins moved Nightmare behind Dark Falz: characters who had already opened it keep it.
-    if ((data.content ?? 0) < 1) {
-      if ((data.stats.bossKills.warden ?? 0) > 0) data.stats.nightmareKept = true;
-      data.content = CONTENT_VERSION;
+    // Items that no longer exist (the Telepipe went on 2026-10-11) leave the bag.
+    data.inventory = data.inventory.filter((it) => itemDefs[it.id]);
+    data.mag = readMag(data.mag);
+    // The Arts redesign (2026-10-14): the action palette, the wheel's technique and the talents went. A photon blast
+    // picked in the talents' last row stays picked (the Mag teaches it now).
+    const oldPb = Array.isArray(data.talents) ? (data.talents as unknown[])[9] : null;
+    if (!data.photonBlast && typeof oldPb === 'string') data.photonBlast = ({ pbMylla: 'mylla', pbLeilla: 'leilla', pbFarlla: 'farlla' } as Record<string, PhotonBlastId>)[oldPb];
+    if (data.photonBlast && !PHOTON_BLASTS[data.photonBlast]) delete data.photonBlast;
+    delete data.palette;
+    delete data.selectedTech;
+    delete data.talents;
+    data.arts = readArts(data.arts, data.cls);
+    // The Skills trees (2026-10-15, ranked): saves from before them learn the Arts on their bars and their old passives
+    // a rank each (skills.ts migrateSkills); the rest is left to spend.
+    const raw = data.skills as unknown;
+    if (raw && typeof raw === 'object' && 'ranks' in raw) data.skills = readSkills(raw, data.cls, data.level);
+    else {
+      const old = [...(Array.isArray(data.passives) ? data.passives : []), ...(raw && typeof raw === 'object' ? Object.keys(raw) : [])].filter((x): x is string => typeof x === 'string');
+      const bars = Object.values(data.arts.bars).flatMap((b) => b ?? []).filter((x): x is ArtId => !!x);
+      data.skills = migrateSkills(data.cls, data.level, bars, old);
+    }
+    delete data.passives;
+    data.stats.bossKills ??= {};
+    data.units ??= [];
+    // Units used to sit in frames: move them to the Mag (any beyond its slots go back to the bag).
+    for (const it of data.inventory) {
+      if (!it.units?.length) continue;
+      for (const u of it.units) (data.units.length < MAG_UNIT_SLOTS ? data.units : data.inventory).push(u);
+      delete it.units;
+    }
+    for (const it of data.inventory) {
+      // Grind levels and Bane went on 2026-10-11: every weapon, frame and barrier counts as fully ground now.
+      delete it.grind;
+      delete it.bane;
+    }
+    readAffixData(data);
+    if (!data.magUnits) {
+      // Units used to be bag items slotted into the Mag: learn every one (Mag and bag, the best of each kind)
+      // and keep the Mag's slots. Weaker copies stay in the bag as junk to sell.
+      const slotted = data.units;
+      data.units = [];
+      data.magUnits = [];
+      for (const u of slotted) {
+        this.learnUnit(u);
+        const kind = unitKind(u);
+        if (kind && !data.magUnits.includes(kind) && data.magUnits.length < MAG_UNIT_SLOTS) data.magUnits.push(kind);
+      }
+      for (const u of data.inventory.filter((it) => getDef(it.id).type === 'unit')) if (this.learnUnit(u) !== false) this.removeItem(u.uid, 1);
     }
   }
 
@@ -330,81 +493,297 @@ export class Character {
     return (kills[boss] = (kills[boss] ?? 0) + 1);
   }
 
-  static create(name: string, kitId: KitId, appearance?: Look): Character {
-    const kit = KITS[kitId];
-    const weapon = makeItem(kit.startWeapon);
+  static create(name: string, clsId: ClassId, appearance?: Look): Character {
+    const cls = CLASSES[clsId];
+    const weapon = makeItem(cls.startWeapon);
     const frame = makeItem('frame_1');
-    const injector = makeItem(kit.startInjector);
+    const injector = makeItem(cls.startInjector);
     const data: CharacterData = {
       version: SAVE_VERSION,
       name,
-      kit: kitId,
+      cls: clsId,
       appearance: appearance && { ...appearance, colors: appearance.colors && Object.keys(appearance.colors).length ? { ...appearance.colors } : undefined },
-      attributes: noAttributes(),
-      build: BUILD_VERSION,
-      content: CONTENT_VERSION,
       level: 1,
       xp: 0,
       meseta: 300,
-      inventory: [weapon, frame, injector, ...kit.startItems.map(([id, qty]) => makeItem(id, { qty }))],
+      inventory: [weapon, frame, injector, ...cls.startItems.map(([id, qty]) => makeItem(id, { qty }))],
       equipped: { weapon: weapon.uid, frame: frame.uid, injector: injector.uid },
-      palette: kit.palette.map((row) => ({ mouse: row.mouse, quick: [{ ...row.quick[0] }, { ...row.quick[1] }] })),
+      arts: { bars: {} },
+      skills: emptySkills(),
       mag: newMag(),
+      units: [],
+      magUnits: [],
       stats: { kills: 0, deaths: 0, playSeconds: 0, bossKills: {} },
+      affixUnits: 2,
     };
-    return new Character(data);
+    const ch = new Character(data);
+    // A new character knows its start weapon's first Art (or its first technique): the Lv 1 point goes there.
+    const first = starterArt(clsId, (id) => ch.artUsable(id, ch.barKey, true));
+    if (first) ch.rankUp(first);
+    return ch;
   }
 
-  get kit(): KitDef {
-    return KITS[this.data.kit] ?? KITS.vanguard;
+  get cls(): ClassDef {
+    return CLASSES[this.data.cls] ?? CLASSES.hunter;
   }
 
   get level() {
     return this.data.level;
   }
 
-  // -------------------------------------------------------- attributes
-
-  /** Attribute points earned so far (none at Lv 1). */
-  get attributePointsEarned(): number {
-    return attributePointsEarned(this.data.level, attributeCfg.pointsPerLevel);
+  /** "Hunter", "Ranger" or "Force". */
+  get title(): string {
+    return this.cls.name;
   }
 
-  /** Unspent attribute points. */
-  get attributePoints(): number {
-    const spent = ATTRIBUTES.reduce((n, a) => n + this.data.attributes[a], 0);
-    return Math.max(0, this.attributePointsEarned - spent);
+  /** The class's own Mag stat: the Mag's first form and the outfit before a frame decides it. */
+  get magStat(): MagStat {
+    return this.cls.magStat;
   }
 
-  /** Put points into an attribute (permanent). Returns why not, or null when spent. */
-  spendAttribute(attr: AttributeId, n = 1): string | null {
-    if (!ATTRIBUTE_INFO[attr]) return 'No such attribute';
-    if (n < 1 || n > this.attributePoints) return 'No attribute points left. Level up to earn more.';
-    this.data.attributes[attr] += n;
+  /** Forces, and anyone holding a rod or wand: damage tables show the selected technique. */
+  get prefersMagic(): boolean {
+    return this.cls.family === 'caster' || this.weaponKind().family === 'caster';
+  }
+
+  /** What drops and shops lean toward: the class's weapon family (and the armour line that goes with it). */
+  lootBias(): WeaponFamily {
+    return this.cls.family;
+  }
+
+  // ------------------------------------------------------------ Arts
+
+  /** The class's base TP at its level (gear and the Mag left out): weapon Art costs and basic refills scale with it. */
+  baseTp(): number {
+    return statsAtLevel(this.cls, this.data.level).tp;
+  }
+
+  /** The Art bar in use: the kind of the weapon in hand ('none' bare-handed). */
+  get barKey(): ArtBarKey {
+    return this.weaponInstance() ? this.weaponKind().kind : 'none';
+  }
+
+  /**
+   * Can this character slot this Art for the bar `key`: learned in the Skills trees (`unlearned`: or could be, by class
+   * and level), and the weapon kind or family it needs?
+   */
+  artUsable(id: ArtId, key: ArtBarKey = this.barKey, unlearned = false): boolean {
+    const a = ARTS[id];
+    if (!a || !artClasses(id).includes(this.data.cls) || this.data.level < a.level) return false;
+    if (!unlearned && this.artRank(id) < 1) return false;
+    const from = a.from;
+    if ('tech' in from) return true;
+    if (key === 'none') return false;
+    return 'kind' in from ? from.kind === key : kindFamily(weaponKinds[key]) === from.family;
+  }
+
+  /** Every Art that can go on the bar `key` now, weapon Arts first, then techniques, each in unlock order. */
+  artsFor(key: ArtBarKey = this.barKey): ArtId[] {
+    const rank = (id: ArtId) => (isTechArt(id) ? (SUPPORT_ARTS.includes(id) ? 2000 : 1000) : 0) + ARTS[id].level;
+    return ART_IDS.filter((id) => this.artUsable(id, key)).sort((a, b) => rank(a) - rank(b));
+  }
+
+  /** The Art bar (RMB, Q, E, R) for `key`. Until the player changes it, it is the first Arts that fit (read only, so a
+   *  gear preview never writes a bar into the save). */
+  artBar(key: ArtBarKey = this.barKey): readonly (ArtId | null)[] {
+    return this.data.arts.bars[key] ?? this.defaultBar(key);
+  }
+
+  private defaultBar(key: ArtBarKey): (ArtId | null)[] {
+    const fits = this.autoArts(key);
+    return Array.from({ length: ART_SLOTS }, (_, i) => fits[i] ?? null);
+  }
+
+  /** What fills a bar by itself, in unlock order (weapon Arts first on a tie), so a slot never moves as Arts unlock.
+   *  Shifta and Deband stay off: buffs are picked on purpose (Menu → Arts). */
+  private autoArts(key: ArtBarKey): ArtId[] {
+    const rank = (id: ArtId) => ARTS[id].level * 10 + (isTechArt(id) ? (SUPPORT_ARTS.includes(id) ? 2 : 1) : 0);
+    return ART_IDS.filter((id) => id !== 'shifta' && id !== 'deband' && this.artUsable(id, key)).sort((a, b) => rank(a) - rank(b));
+  }
+
+  /** The bar `key` as stored, made from the default the first time the player changes it. */
+  private ownBar(key: ArtBarKey): (ArtId | null)[] {
+    return (this.data.arts.bars[key] ??= this.defaultBar(key));
+  }
+
+  /** The Art in a bar slot, if it can be used with what is in hand. */
+  artInSlot(slot: number): ArtId | null {
+    const id = this.artBar()[slot] ?? null;
+    return id && this.artUsable(id) ? id : null;
+  }
+
+  /** Slot an Art (null empties the slot). An Art already elsewhere on the bar swaps places. Returns why not, or null. */
+  setArtSlot(slot: number, id: ArtId | null, key: ArtBarKey = this.barKey): string | null {
+    if (slot < 0 || slot >= ART_SLOTS) return 'No such slot';
+    if (id && !this.artUsable(id, key)) return `${ARTS[id]?.name ?? 'That Art'} can't be used with this weapon`;
+    const bar = this.ownBar(key);
+    const at = id ? bar.indexOf(id) : -1;
+    if (at >= 0) bar[at] = bar[slot];
+    bar[slot] = id;
     return null;
   }
 
-  /** The attribute with the most points (the kit's on a tie): the title and the Mag's first form follow it. */
-  get leadAttribute(): AttributeId {
-    return leadAttribute(this.data.kit, this.data.attributes);
+  /** Has this modifier picked, with its row open (ranks 5 and 10 of the Art)? */
+  artMod(id: ArtId, mod: string): boolean {
+    const picks = this.data.skills.mods[id];
+    if (!picks) return false;
+    const r = this.artRank(id);
+    return ([0, 1] as const).some((row) => picks[row] === mod && r >= modRowRank(row));
   }
 
-  /** "Vanguard", "Ranger", "Mystic" or "Guardian". */
-  get title(): string {
-    return buildTitle(this.data.kit, this.data.attributes);
+  /** An Art's rank in the Skills trees (0: not learned). */
+  artRank(id: ArtId): number {
+    return rankOf(this.data.skills, id);
   }
 
-  /** Builds that fight with techniques: MIND leads, or a cane, rod or wand is in hand (damage tables show the selected tech). */
-  get prefersMagic(): boolean {
-    return this.leadAttribute === 'mind' || this.weaponKind().reqStat === 'mst';
+  /** An Art's power from its rank (damage, and Resta's healing): skillCfg. */
+  artRankPower(id: ArtId): number {
+    const r = Math.max(1, this.artRank(id));
+    return skillCfg.artBasePower * (1 + skillCfg.artPowerPerRank * (r - 1));
   }
 
-  /** The stat drops and shops lean toward: the equipped weapon's (ATP blades, ATA guns, MST staves). */
-  lootBias(): 'atp' | 'ata' | 'mst' {
-    return this.weaponKind().reqStat;
+  /** An Art's TP multiplier from its rank. */
+  artRankTp(id: ArtId): number {
+    return 1 - skillCfg.artTpPerRank * (Math.max(1, this.artRank(id)) - 1);
   }
 
-  // ------------------------------------------------------------- stats
+  /** TP for one use of an Art now (Combat adds Clarity, Overload and the like). */
+  artCost(id: ArtId): number {
+    if (isTechArt(id)) return this.techCost(id);
+    const mult = (id === 'cyclone' && this.artMod(id, 'longSpin') ? 1.4 : 1) * this.artRankTp(id);
+    return Math.max(1, Math.round(ARTS[id].tpPct * this.baseTp() * mult));
+  }
+
+  /** Seconds before an Art can be used again (some modifiers shorten it). */
+  artCooldown(id: ArtId): number {
+    const quick: Partial<Record<ArtId, number>> = { guardStance: 6, shadowStep: 3.5, flashShot: 5, freezeTrap: 8 };
+    return this.artMod(id, 'quick') && quick[id] !== undefined ? quick[id]! : ARTS[id].cooldown;
+  }
+
+  /** Effects a channel Art makes (modifiers add some). */
+  artTicks(id: ArtId): number {
+    const a = ARTS[id];
+    if (id === 'cyclone' && this.artMod(id, 'longSpin')) return a.ticks + 2;
+    if (id === 'venomEdge' && this.artMod(id, 'quick')) return 6;
+    if (id === 'bladeDance' && this.artMod(id, 'long')) return a.ticks + 3;
+    if (id === 'rapidVolley' && this.artMod(id, 'extended')) return a.ticks + 4;
+    return a.ticks;
+  }
+
+  /**
+   * An Art's timing now: wind-up and recovery sped up by Haste (weapon Arts: Fervor / Rapid Fire too; techniques:
+   * cast speed), the channel (its ticks at the Art's own pace), and the perfect window of the weapon or of casting.
+   */
+  artTiming(id: ArtId): AttackTiming {
+    const a = ARTS[id];
+    let { windup, recovery } = a;
+    let channel = a.ticks ? (a.channel * this.artTicks(id)) / a.ticks : a.channel;
+    if (id === 'guardStance' && this.artMod(id, 'long')) channel = 1.6;
+    if (id === 'chargedShot' && this.artMod(id, 'quick')) windup = 0.55;
+    if ((id === 'freezeRound' || id === 'napalmShell') && this.artMod(id, 'quick')) windup *= 0.5;
+    const tech = isTechArt(id);
+    if (tech && this.artMod(id, 'quick')) {
+      windup *= 0.7;
+      recovery *= 0.7;
+    }
+    const k = tech ? this.castTimeMult() : this.swingTimeMult();
+    const rhythm = tech ? { perfect: casting.perfect, grace: casting.grace } : { perfect: this.weaponKind().timing.perfect, grace: this.weaponKind().timing.grace };
+    return { windup: windup * k, active: channel, recovery: recovery * k, ...rhythm };
+  }
+
+  /** The basic step's timing: the weapon kind's swing (or bolt), sped up by Haste and Fervor / Rapid Fire. */
+  basicTiming(): AttackTiming {
+    return hastened(this.weaponKind().timing, this.swingTimeMult());
+  }
+
+  /** The attack technique the estimates measure (the first one on the bar, or the first one learned). */
+  mainTech(): TechId {
+    const bar = this.artBar().filter((id): id is TechId => !!id && isTechArt(id) && isAttackTech(id));
+    return bar[0] ?? ATTACK_TECHS.find((t) => this.artUsable(t)) ?? 'foie';
+  }
+
+  // ------------------------------------------------------------ skills (ranked Arts and passives)
+
+  /** Skill points at this level, and those not spent. */
+  get skillPoints(): number {
+    return skillPoints(this.data.level);
+  }
+
+  get skillPointsLeft(): number {
+    return Math.max(0, this.skillPoints - pointsSpent(this.data.skills));
+  }
+
+  /** The Skills tab badge: points left while something can take one, and open modifier rows with nothing picked. */
+  get skillPointsFree(): number {
+    const s = this.data.skills;
+    const left = this.skillPointsLeft;
+    const usable = left > 0 && skillNodes(this.data.cls).some((n) => !rankUpBlock(this.data.cls, this.data.level, s, n));
+    return (usable ? left : 0) + modsUnpicked(this.data.cls, s);
+  }
+
+  /** Put a rank into a skill (an Art just learned goes into a free slot of a changed bar). Returns why not, or null. */
+  rankUp(id: string): string | null {
+    const err = rankUp(this.data.cls, this.data.level, this.data.skills, id);
+    if (!err && Object.hasOwn(ARTS, id) && this.artRank(id as ArtId) === 1) {
+      const bar = this.data.arts.bars[this.barKey];
+      const free = bar ? bar.indexOf(null) : -1;
+      if (bar && free >= 0 && !bar.includes(id as ArtId) && this.artUsable(id as ArtId)) bar[free] = id as ArtId;
+    }
+    return err;
+  }
+
+  /** Take a rank out of a skill (an Art taken back to 0 leaves every bar). Returns why not, or null. */
+  rankDown(id: string): string | null {
+    const err = rankDown(this.data.cls, this.data.skills, id);
+    if (!err && Object.hasOwn(ARTS, id) && this.artRank(id as ArtId) === 0) {
+      for (const bar of Object.values(this.data.arts.bars)) bar?.forEach((x, i) => x === id && (bar[i] = null));
+    }
+    return err;
+  }
+
+  /** Pick an Art's modifier in a row (null clears it). Returns why not, or null. */
+  pickArtMod(id: ArtId, row: 0 | 1, mod: string | null): string | null {
+    return pickMod(this.data.skills, id, row, mod);
+  }
+
+  /** A passive's rank, whatever the weapon in hand. */
+  passiveRank(id: PassiveId): number {
+    return rankOf(this.data.skills, id);
+  }
+
+  passiveTaken(id: PassiveId): boolean {
+    return this.passiveRank(id) > 0;
+  }
+
+  /** Learned, and the weapon in hand lets it work (weapon passives need their family's weapon). */
+  hasPassive(id: PassiveId): boolean {
+    if (!this.passiveTaken(id)) return false;
+    return weaponFits(PASSIVES[id].needs, this.weaponKind(), !!this.weaponInstance());
+  }
+
+  /** How much of a passive's full effect works now: its rank over its top rank (0 if not learned or not with this weapon). */
+  passiveK(id: PassiveId): number {
+    return this.hasPassive(id) ? Math.min(1, this.passiveRank(id) / passiveRanks(id)) : 0;
+  }
+
+  /** A passive's multiplier at its rank (1 without it), from its full value. */
+  pMult(id: PassiveId, full: number): number {
+    return rankMult(full, this.passiveK(id));
+  }
+
+  /** A passive's amount at its rank (0 without it), from its full value. */
+  pAmt(id: PassiveId, full: number): number {
+    return rankAmt(full, this.passiveK(id));
+  }
+
+  // ------------------------------------------------------------ photon blast
+
+  /** The photon blast the Mag fires (once it teaches them, magCfg.pbLevel), if one is picked. */
+  get photonBlast(): PhotonBlastId | null {
+    return this.data.level >= magCfg.pbLevel ? (this.data.photonBlast ?? null) : null;
+  }
+
+  // ---------------------------------------------------------------- Mag
 
   get mag(): MagData {
     return (this.data.mag ??= newMag());
@@ -415,45 +794,162 @@ export class Character {
     return magPointsFree(this.mag, this.data.level);
   }
 
-  hasMagPassive(p: MagPassive): boolean {
-    return hasPassive(this.mag, p);
+  /** Put points into a Mag stat (permanent). */
+  spendMag(stat: MagStat, n = 1): string | null {
+    return magSpend(this.mag, this.data.level, stat, n);
   }
 
-  /** Level-up stats: the kit's start, the shared growth and attribute points. */
+  // ------------------------------------------------------------- stats
+
+  /** Level-up stats: the class's start and growth. */
   baseStats(): Stats {
-    return statsAtLevel(this.kit, this.data.level, this.data.attributes);
+    return statsAtLevel(this.cls, this.data.level);
   }
 
-  /** Base + Mag: what equipment requirements check (the Mag is part of you; gear bonuses don't count). */
-  reqStats(): Stats {
+  /** Base + Mag: the character's own stats, before gear. */
+  ownStats(): Stats {
     const s = this.baseStats();
     for (const [k, v] of Object.entries(magBonuses(this.mag))) s[k as StatKey] += v;
     return s;
   }
 
-  /** Stats including Mag and equipment (not runtime buffs). Weapon ATP is rolled per hit, not included. */
+  /** Affix rolls from everything worn (weapon, frame, barrier) and the Mag's active units. */
+  wornAffixes(): AffixRoll[] {
+    const out: AffixRoll[] = [];
+    for (const slot of ['weapon', 'frame', 'barrier'] as const) {
+      const inst = this.equippedItem(slot);
+      if (inst) out.push(...ownAffixes(inst));
+    }
+    for (const u of this.activeUnits()) out.push(...ownAffixes(u));
+    return out;
+  }
+
+  /** Unit slots the equipped frame opens. */
+  get unitSlotsOpen(): number {
+    const f = this.equippedItem('frame');
+    return f ? unitSlots(f) : 0;
+  }
+
+  /** The learned unit of this kind, if any. */
+  learnedUnit(kind: ItemAffixId): ItemInstance | undefined {
+    return this.data.units.find((u) => unitKind(u) === kind);
+  }
+
+  /** The units slotted in the Mag, in its order. */
+  slottedUnits(): ItemInstance[] {
+    return this.data.magUnits.map((k) => this.learnedUnit(k)).filter((u): u is ItemInstance => !!u);
+  }
+
+  /** The Mag's units that the frame's slots activate: the first ones in its order. */
+  activeUnits(): ItemInstance[] {
+    return this.slottedUnits().slice(0, this.unitSlotsOpen);
+  }
+
+  /** Units slotted in the Mag but not active (the frame has fewer slots). */
+  get inactiveUnits(): number {
+    return Math.max(0, this.data.magUnits.length - this.unitSlotsOpen);
+  }
+
+  /** The frame has a free slot and a learned unit isn't slotted: worth a look at the Mag tab. */
+  get unitSlotIdle(): boolean {
+    return this.data.magUnits.length < Math.min(MAG_UNIT_SLOTS, this.unitSlotsOpen) && this.data.units.length > this.data.magUnits.length;
+  }
+
+  /** What a unit means to this character: a kind not learned yet, a better roll than the learned one, or no use. */
+  unitStatus(inst: ItemInstance): 'new' | 'better' | 'known' {
+    const kind = unitKind(inst);
+    if (!kind) return 'known';
+    const have = this.learnedUnit(kind);
+    if (!have) return 'new';
+    return unitBetter(inst, have) ? 'better' : 'known';
+  }
+
+  /**
+   * Learn a unit (it is used up): a new kind joins the learned units, a better roll replaces the learned one (which
+   * is gone; a slotted kind stays slotted). Returns the roll it replaced (null for a new kind), or false if it is no
+   * use (that kind is learned at least as well).
+   */
+  learnUnit(inst: ItemInstance): AffixRoll | null | false {
+    if (this.unitStatus(inst) === 'known') return false;
+    const u = this.data.units;
+    const i = u.findIndex((x) => unitKind(x) === unitKind(inst));
+    if (i < 0) {
+      u.push(inst);
+      return null;
+    }
+    const before = u[i].affixes![0];
+    u[i] = inst;
+    return before;
+  }
+
+  /**
+   * Take an item in: a unit worth learning is learned (no bag slot needed), anything else goes to the bag.
+   * 'learned' (with the roll it replaced), 'bag', or 'full'.
+   */
+  take(inst: ItemInstance): { to: 'learned'; before: AffixRoll | null } | { to: 'bag' | 'full' } {
+    if (getDef(inst.id).type === 'unit') {
+      const before = this.learnUnit(inst);
+      if (before !== false) return { to: 'learned', before };
+    }
+    return this.addItem(inst) ? { to: 'bag' } : { to: 'full' };
+  }
+
+  /** Total of one affix over everything worn. */
+  gearAffix(id: ItemAffixId): number {
+    return affixSum(this.wornAffixes(), id);
+  }
+
+  /**
+   * Stats including Mag and equipment (not runtime buffs or caps). The weapon's own damage range is rolled per hit,
+   * not included (weaponDamage adds it); damage taken comes uncapped (damageTaken caps it).
+   */
   stats(): Stats {
-    const s = this.reqStats();
+    const s = this.ownStats();
     const w = this.weaponDef();
-    const edge = this.weaponEdge();
-    s.ata += w.ata + grindBonus(w, edge).ata;
-    addBonus(s, weaponBonus(w, edge));
+    addBonus(s, weaponBonus(w, this.weaponEdge()));
     for (const slot of ['frame', 'barrier'] as const) {
       const inst = this.equippedItem(slot);
       if (!inst) continue;
-      const def = getDef(inst.id);
+      const def = statDef(inst);
       if (def.type === 'armor') {
-        s.dfp += def.dfp;
-        s.evp += def.evp;
+        s.strike += def.dr;
+        s.area += def.dr;
         addBonus(s, def.bonus);
       }
     }
+    addBonus(s, affixStats(this.wornAffixes()));
+    if (this.hasUnique('overclockCore')) s.hp = Math.round(s.hp * uniqueCfg.overclockHpMult);
     return s;
   }
 
-  /** Haste % from what is worn (weapon, frame, barrier): they add up. */
+  /** Haste % from what is worn (Haste and Frail affixes): it adds up (the Overclock Core doubles it). */
   haste(): number {
-    return (['weapon', 'frame', 'barrier'] as const).reduce((t, s) => t + (this.equippedItem(s)?.haste ?? 0), 0);
+    const h = this.gearAffix('haste') + this.gearAffix('frail');
+    return this.hasUnique('overclockCore') ? h * uniqueCfg.overclockHasteMult : h;
+  }
+
+  /** Is this unique worn (weapon, frame or barrier)? Its effect works while it is. */
+  hasUnique(id: UniqueId): boolean {
+    for (const slot of ['weapon', 'frame', 'barrier'] as const) {
+      const inst = this.equippedItem(slot);
+      if (inst && getDef(inst.id).unique === id) return true;
+    }
+    return false;
+  }
+
+  /** Crit chance in percent (the crit stat is kept in tenths), capped. */
+  critChance(): number {
+    return critChance(this.stats().lck);
+  }
+
+  /** Damage multiplier of a crit: ×2, plus Crit damage affixes (and the Red Ring's +100%). */
+  critDamage(): number {
+    return formulas.critDamage + this.gearAffix('critDmg') / 100 + (this.hasUnique('redRing') ? uniqueCfg.redRingCrit : 0);
+  }
+
+  /** Strike or Area damage taken, in % less: gear, Mag and class (Deband adds in combat), capped. */
+  damageTaken(kind: 'strike' | 'area', buff = 0): number {
+    return Math.min(AFFIX_CAPS.damageTaken, this.stats()[kind] + buff);
   }
 
   /** Swing and cast times scale by this: 1 / (1 + Haste%). */
@@ -461,27 +957,52 @@ export class Character {
     return 1 / (1 + this.haste() / 100);
   }
 
+  /** Weapon wind-up and recovery multiplier from Haste and Fervor / Rapid Fire. */
+  swingTimeMult(): number {
+    const quick = this.pMult('fervor', passiveCfg.swingSpeedMult) * this.pMult('rapidFire', passiveCfg.swingSpeedMult);
+    return quick * this.hasteMult();
+  }
+
+  /** Technique wind-up and recovery multiplier from Haste and Swift Cast. */
+  castTimeMult(): number {
+    const swift = this.pMult('swiftCast', passiveCfg.swiftCastMult);
+    return swift * this.hasteMult();
+  }
+
+  /** A status resistance from gear (%, capped; the Red Ring takes Corruption resistance away, down to the floor). */
+  resist(id: 'resPoison' | 'resPara' | 'resBurn' | 'resCorrupt'): number {
+    const ring = id === 'resCorrupt' && this.hasUnique('redRing') ? uniqueCfg.redRingCorrupt : 0;
+    return Math.max(AFFIX_CAPS.resistFloor, Math.min(AFFIX_CAPS.resist, this.gearAffix(id) + ring));
+  }
+
   get maxHp() {
-    return this.baseStats().hp;
+    return Math.max(1, this.stats().hp);
   }
 
   get maxTp() {
-    return this.stats().tp;
+    return Math.max(0, this.stats().tp);
   }
 
   xpToNext(): number {
     return xpToNext(this.data.level);
   }
 
+  /** At the level cap XP no longer counts. */
+  get maxed(): boolean {
+    return this.data.level >= MAX_LEVEL;
+  }
+
   /** Adds XP; returns number of levels gained. */
   addXp(amount: number): number {
     let gained = 0;
+    if (this.maxed) return 0;
     this.data.xp += amount;
     while (this.data.level < MAX_LEVEL && this.data.xp >= xpToNext(this.data.level)) {
       this.data.xp -= xpToNext(this.data.level);
       this.data.level++;
       gained++;
     }
+    if (this.maxed) this.data.xp = 0;
     return gained;
   }
 
@@ -494,7 +1015,7 @@ export class Character {
   weaponDef(): WeaponItemDef {
     const inst = this.weaponInstance();
     if (!inst) return BARE_HANDS;
-    const def = getDef(inst.id);
+    const def = statDef(inst);
     return def.type === 'weapon' ? def : BARE_HANDS;
   }
 
@@ -502,10 +1023,15 @@ export class Character {
     return weaponKinds[this.weaponDef().kind];
   }
 
-  /** Grind levels the equipped weapon has on Edge. */
+  /** The weapon in hand's family (bare hands count as melee). */
+  weaponFamily(): WeaponFamily {
+    return kindFamily(this.weaponKind());
+  }
+
+  /** Grind (Edge) levels on the equipped weapon: its built-in full grind. */
   weaponEdge(): number {
-    const inst = this.weaponInstance();
-    return inst ? edgeLevels(inst) : 0;
+    const w = this.weaponInstance();
+    return w ? grindLevels(w) : 0;
   }
 
   weaponSpecial(): SpecialId | undefined {
@@ -513,18 +1039,30 @@ export class Character {
     return inst ? itemSpecial(inst) : undefined;
   }
 
-  /** The equipped weapon's Hit % or race % (rolled plus Bane levels). */
-  weaponAttr(attr: Attr): number {
+  /** The equipped weapon's race % (its race affix). */
+  weaponAttr(race: Race): number {
     const inst = this.weaponInstance();
-    if (!inst) return 0;
-    return attr === 'hit' ? (inst.attrs?.hit ?? 0) : weaponRace(inst, attr);
+    return inst ? weaponRace(inst, race) : 0;
   }
 
-  /** Weapon ATP range including grind. */
+  /** The weapon's own damage range, built-in grind included (it adds to the Weapon damage stat on each hit). */
   weaponAtp(): [number, number] {
     const w = this.weaponDef();
     const g = grindBonus(w, this.weaponEdge()).atp;
     return [w.atpMin + g, w.atpMax + g];
+  }
+
+  /** Weapon damage % from gear (Weapon damage and Reckless affixes): it multiplies the whole hit. */
+  weaponDamagePct(): number {
+    return this.gearAffix('atpPct') + this.gearAffix('reckless');
+  }
+
+  /** What a weapon hit deals before its swing's multiplier and the enemy's armour: the stat plus the weapon's roll, times Weapon damage %. */
+  weaponDamage(): [number, number] {
+    const base = this.stats().atp;
+    const [lo, hi] = this.weaponAtp();
+    const k = 1 + this.weaponDamagePct() / 100;
+    return [Math.round((base + lo) * k), Math.round((base + hi) * k)];
   }
 
   // --------------------------------------------------------- inventory
@@ -547,20 +1085,17 @@ export class Character {
     return GEAR_SLOTS.some((s) => this.data.equipped[s] === uid);
   }
 
-  /** Does anything worn carry this passive (the Warden Core's hazard ward, the Seal of Light's...)? */
-  hasGearPassive(p: ItemPassive): boolean {
-    return GEAR_SLOTS.some((s) => {
-      const inst = this.equippedItem(s);
-      return !!inst && !!getDef(inst.id).passives?.includes(p);
-    });
-  }
-
   countOf(id: string): number {
     return this.data.inventory.filter((i) => i.id === id).reduce((n, i) => n + (i.qty ?? 1), 0);
   }
 
+  /** Bag rows in use: photons are a currency (a stack of each, up to PHOTON_STACK) and take none. */
+  get bagCount(): number {
+    return this.data.inventory.filter((i) => getDef(i.id).type !== 'photon').length;
+  }
+
   get full(): boolean {
-    return this.data.inventory.length >= INVENTORY_SIZE;
+    return this.bagCount >= INVENTORY_SIZE;
   }
 
   /** Can this instance be added without exceeding capacity? */
@@ -570,6 +1105,7 @@ export class Character {
       const stack = this.data.inventory.find((i) => i.id === inst.id);
       if (stack && (stack.qty ?? 1) + (inst.qty ?? 1) <= stackCap(def)) return true;
       if (stack) return false; // single stack per item type, like PSO
+      if (def.type === 'photon') return (inst.qty ?? 1) <= stackCap(def); // no bag space needed
     }
     return !this.full;
   }
@@ -610,13 +1146,12 @@ export class Character {
     return true;
   }
 
-  /** Whether the item can be worn now; `need` is set when only a stat requirement is in the way. */
-  canEquip(inst: ItemInstance): { ok: boolean; reason?: string; need?: { stat: StatKey; req: number } } {
+  /** Whether the item can be worn now; `need` is set when only its level requirement is in the way. */
+  canEquip(inst: ItemInstance): { ok: boolean; reason?: string; need?: { level: number } } {
     const def = getDef(inst.id);
     if (!isGear(def)) return { ok: false, reason: 'Not equippable' };
     const need = itemRequirement(def);
-    const have = need ? this.reqStats()[need.stat] : 0;
-    if (need && have < need.req) return { ok: false, reason: reqReason(need.stat, need.req, have), need };
+    if (need && this.level < need.level) return { ok: false, reason: reqReason(need.level, this.level), need };
     return { ok: true };
   }
 
@@ -636,51 +1171,102 @@ export class Character {
     for (const s of GEAR_SLOTS) if (e[s] === uid) delete e[s];
   }
 
-  /** Apply a grinder to a weapon: all its levels go to `track` (Edge or a race), as many as fit. */
-  grind(weaponUid: string, grinderUid: string, track: GrindTrack = 'edge'): { ok: boolean; reason?: string; levels?: number; wasted?: number } {
-    const w = this.find(weaponUid);
-    const g = this.find(grinderUid);
-    if (!w || !g) return { ok: false, reason: 'Missing item' };
-    const gd = getDef(g.id);
-    if (getDef(w.id).type !== 'weapon' || gd.type !== 'grinder') return { ok: false, reason: 'Invalid' };
-    const p = grindPreview(w, track, gd.amount);
-    if (!p.levels) return { ok: false, reason: p.reason };
-    w.grind = p.after.grind;
-    if (p.after.bane) w.bane = p.after.bane;
-    this.removeItem(grinderUid, 1);
-    return { ok: true, levels: p.levels, wasted: p.wasted };
+  /** Slot a learned unit into the Mag (at the end of its order). */
+  insertUnit(kind: ItemAffixId): string | null {
+    if (!this.learnedUnit(kind)) return 'You have not learned that unit';
+    const m = this.data.magUnits;
+    if (m.includes(kind)) return 'Already in your Mag';
+    if (m.length >= MAG_UNIT_SLOTS) return `Your Mag holds ${MAG_UNIT_SLOTS} units: remove one first`;
+    m.push(kind);
+    return null;
+  }
+
+  /** Take a unit out of the Mag (it stays learned). */
+  removeUnit(index: number): string | null {
+    if (!this.data.magUnits[index]) return 'No unit there';
+    this.data.magUnits.splice(index, 1);
+    return null;
+  }
+
+  /**
+   * Switch exactly these learned units on: they go first in the Mag's order. Units it held besides stay slotted
+   * only when these fill every slot the frame opens (behind them, inactive), so none of them switches on too.
+   */
+  setActiveUnits(kinds: ItemAffixId[]): string | null {
+    if (kinds.some((k) => !this.learnedUnit(k))) return 'You have not learned that unit';
+    const rest = kinds.length >= this.unitSlotsOpen ? this.data.magUnits.filter((k) => !kinds.includes(k)) : [];
+    this.data.magUnits = [...kinds, ...rest].slice(0, MAG_UNIT_SLOTS);
+    return null;
+  }
+
+  /** Move a unit up (-1) or down (+1) the Mag's order: the first ones are the active ones. */
+  moveUnit(index: number, dir: number): string | null {
+    const u = this.data.magUnits;
+    const to = index + Math.sign(dir);
+    if (!u[index] || to < 0 || to >= u.length) return null;
+    [u[index], u[to]] = [u[to], u[index]];
+    return null;
   }
 
   // -------------------------------------------------------- techniques
 
   /**
-   * TP for one cast of this tech in this form at the current MST (support techs always cost the light
-   * price). Combat adds Clarity on top.
+   * TP for one cast of this technique at the current tech damage: Efficiency, TP cost affixes, the Reactor Rod and
+   * its modifiers. Combat adds Clarity and Overload on top.
    */
-  techCost(tech: TechId, form: AttackType = 'light'): number {
-    let mult = isAttackTech(tech) ? spellForms[form].tpMult : 1;
-    if (isAttackTech(tech) && this.hasMagPassive('efficiency')) mult *= magCfg.efficiencyTpMult;
-    return Math.round(techTpCost(tech, this.stats().mst) * mult);
+  techCost(tech: TechId): number {
+    let mult = 1;
+    if (isAttackTech(tech)) {
+      mult *= this.pMult('efficiency', passiveCfg.efficiencyTpMult);
+      mult *= 1 - Math.min(50, this.gearAffix('tpCost')) / 100;
+    }
+    if (this.hasUnique('reactorRod')) mult *= uniqueCfg.reactorTpMult;
+    if (this.artMod(tech, 'efficient')) mult *= 0.75;
+    if (this.artMod(tech, 'cheap')) mult *= 0.7;
+    mult *= this.artRankTp(tech);
+    return Math.max(1, Math.round(techTpCost(tech, this.stats().mst) * mult));
   }
 
-  /** Attack damage of one cast before its form, perfect streak and crits: MST and the weapon's technique boost. */
+  /** Technique damage % from gear: Technique damage (Brittle included) and the element's own affix. */
+  techAffixPct(tech: TechId): number {
+    const el = techniques[tech].element;
+    const own = el === 'fire' ? 'firePct' : el === 'lightning' ? 'lightningPct' : el === 'ice' ? 'icePct' : null;
+    return this.gearAffix('techPct') + this.gearAffix('brittle') + (own ? this.gearAffix(own) : 0);
+  }
+
+  /** Attack damage of one cast before streak and crits: tech damage, its rank, the weapon's boost and affixes. */
   techDamage(tech: TechId): number {
-    return techAttackPower(tech, this.stats().mst) * this.weaponKind().techBoost;
+    return techAttackPower(tech, this.stats().mst) * this.artRankPower(tech) * this.weaponKind().techBoost * (1 + this.techAffixPct(tech) / 100);
   }
 
-  /** The attack technique the magic source casts. */
-  selectedTech(): TechId {
-    const sel = this.data.selectedTech;
-    return sel && ATTACK_TECHS.includes(sel) ? sel : ATTACK_TECHS[0];
+  /** A photon bolt's damage (a caster's basic step) before streak, crits and resistance: tech damage x the kind's bolt power. */
+  boltDamage(): number {
+    const kind = this.weaponKind();
+    return (kind.boltPower ?? 0) * this.stats().mst * kind.techBoost * (1 + (this.gearAffix('techPct') + this.gearAffix('brittle')) / 100);
   }
+}
 
-  /** Step the selected attack technique (mouse wheel). */
-  cycleTech(dir: number): TechId {
-    const n = ATTACK_TECHS.length;
-    const i = ATTACK_TECHS.indexOf(this.selectedTech());
-    this.data.selectedTech = ATTACK_TECHS[(i + Math.sign(dir) + n) % n];
-    return this.data.selectedTech;
-  }
+/** A unit's kind: the affix it carries. */
+export function unitKind(inst: ItemInstance): ItemAffixId | undefined {
+  return getDef(inst.id).type === 'unit' ? inst.affixes?.[0]?.id : undefined;
+}
+
+/** A unit roll beats another of its kind: a bigger value, or the same with a smaller penalty. */
+function unitBetter(a: ItemInstance, b: ItemInstance): boolean {
+  const x = a.affixes?.[0];
+  const y = b.affixes?.[0];
+  if (!x || !y) return false;
+  return x.v > y.v || (x.v === y.v && (x.p ?? 0) < (y.p ?? 0));
+}
+
+/** Most units the Mag holds (the most unit slots a frame can have). */
+export const MAG_UNIT_SLOTS = 4;
+
+/** Unit slots on a frame (0 for anything else). */
+export function unitSlots(inst: ItemInstance): number {
+  const def = getDef(inst.id);
+  if (def.type !== 'armor' || def.slot !== 'frame') return 0;
+  return def.slots ?? inst.slots ?? 0;
 }
 
 // ------------------------------------------------------------ comparison
@@ -696,181 +1282,378 @@ export function fitsSlot(inst: ItemInstance, slot: GearSlot): boolean {
   return gearSlot(inst) === slot;
 }
 
-/** Stats that equipment changes. */
-export interface GearSnapshot {
-  /** The weapon's ATP range (rolled per hit, so not in `stats`). */
-  atp: [number, number];
-  /** ch.stats(): base, Mag and every flat gear stat. */
-  stats: Stats;
-  attrs: Record<Attr, number>;
-  special: string;
-  /** Haste % from all worn gear. */
-  haste: number;
-}
-
 export interface CompareRow {
   label: string;
-  /** The stat compared (unset for the weapon's ATP range, race % and Special). */
+  /** The stat compared (unset for the weapon damage range, damage, rating and Haste). */
   stat?: StatKey;
   before: string;
   after: string;
   /** Change in the compared value (positive = better). */
   delta: number;
-}
-
-function snapshot(ch: Character): GearSnapshot {
-  const sp = ch.weaponSpecial();
-  return {
-    atp: ch.weaponAtp(),
-    stats: ch.stats(),
-    attrs: Object.fromEntries(ATTRS.map((a) => [a, ch.weaponAttr(a)])) as Record<Attr, number>,
-    special: sp ? specials[sp].name : '—',
-    haste: ch.haste(),
-  };
+  /** The row that decides the verdict: damage per second (weapons and armour alike). */
+  key?: boolean;
+  /** Armour's overall rating: decides when the damage is the same. */
+  tie?: boolean;
 }
 
 /** A throwaway copy of `ch` with `inst` equipped in `slot` (it may come from outside the inventory, e.g. shop stock). */
 export function simulateEquip(ch: Character, inst: ItemInstance, slot: GearSlot): Character {
   const sim = new Character(JSON.parse(JSON.stringify(ch.data)) as CharacterData);
-  if (!sim.find(inst.uid)) sim.data.inventory.push({ ...inst });
+  // The item as given, even if the bag holds it (a crafted version of a bag item is judged as crafted).
+  const copy = JSON.parse(JSON.stringify(inst)) as ItemInstance;
+  const at = sim.data.inventory.findIndex((it) => it.uid === inst.uid);
+  if (at >= 0) sim.data.inventory[at] = copy;
+  else sim.data.inventory.push(copy);
   sim.data.equipped[slot] = inst.uid;
   return sim;
 }
 
+/** The same character with these units switched on (the Damage tab compares it; nothing changes until they're used). */
+export function simulateUnits(ch: Character, kinds: ItemAffixId[]): Character {
+  const sim = new Character(JSON.parse(JSON.stringify(ch.data)) as CharacterData);
+  sim.setActiveUnits(kinds);
+  return sim;
+}
+
 /**
- * What equipping `inst` would change, against what is in its slot now.
- * Works for items not in the inventory yet (shop stock). Requirements are
- * ignored here; callers show canEquip() separately.
+ * What one more Mag point in `stat` would add to the character's damage per second against `foe`, in percent
+ * (the Mag screen shows it, so the tracks can be weighed now rather than discovered later). Null for the
+ * defense track, which adds no damage.
  */
-export function compareEquip(ch: Character, inst: ItemInstance): { slot: GearSlot; current?: ItemInstance; rows: CompareRow[] } | null {
+export function magPointValue(ch: Character, stat: MagStat, foe: Foe): number | null {
+  if (stat === 'def') return null;
+  const sim = new Character(JSON.parse(JSON.stringify(ch.data)) as CharacterData);
+  sim.data.mag[stat]++;
+  const before = damageRating(ch, foe);
+  return before > 0 ? (damageRating(sim, foe) / before - 1) * 100 : 0;
+}
+
+/** A plain enemy of the character's level, for verdicts made without an expedition in mind (any level: armour ~12%). */
+export function levelFoe(_level: number): Foe {
+  return { armor: 12, techResist: 0, label: 'enemy', mainRace: null, bossRace: null };
+}
+
+/** Damage per second a character deals: its selected technique for casters, its weapon otherwise (against the foe's main race, or all on average). */
+export function damageRating(ch: Character, foe: Foe): number {
+  const e = estimateDamage(ch, foe, ch.prefersMagic);
+  const by = e.spell ?? e.weapon;
+  if (foe.mainRace) return by[foe.mainRace];
+  const v = Object.values(by);
+  return v.reduce((a, b) => a + b, 0) / v.length;
+}
+
+/**
+ * How much a frame or barrier helps, as one number: its stats and affixes, weighted for the class (a Force
+ * values tech damage and TP, a fighter weapon damage). Only differences between two of these mean anything.
+ * A point of damage taken is worth about what 1.5 DFP was (2026-10-14).
+ */
+export function armorRating(ch: Character): number {
+  const s = ch.stats();
+  const caster = ch.prefersMagic;
+  const a = (id: ItemAffixId) => ch.gearAffix(id);
+  const res = a('resPoison') + a('resPara') + a('resBurn') + a('resCorrupt');
+  const cap = AFFIX_CAPS.damageTaken;
+  return (
+    Math.min(cap, s.strike) * 1.6 + Math.min(cap, s.area) * 1.3 + s.hp * 0.12 + s.tp * (caster ? 0.12 : 0.03) + s.atp * (caster ? 0.05 : 0.6) +
+    s.mst * (caster ? 0.6 : 0.05) + s.lck * 0.12 + ch.haste() * 4 + res * 0.08 + a('stability') * 0.04 + a('injPotency') * 0.4 +
+    a('injCharge') * 0.3 + Math.min(20, a('walk')) * 0.3 + a('dashRecharge') * 0.15 + a('regen') * 1.5 +
+    (caster ? (a('techPct') + a('brittle')) * 1.2 : (a('atpPct') + a('reckless') + a('critDmg') * 0.3) * 1.2)
+  );
+}
+
+/**
+ * What equipping `inst` would change, against what is in its slot now. Weapons are judged by damage per
+ * second against `foe` (the current expedition's average enemy), armour by its rating. Works for items not
+ * in the inventory yet (shop stock). Requirements are ignored here; callers show canEquip() separately.
+ */
+export function compareEquip(ch: Character, inst: ItemInstance, foe: Foe = levelFoe(ch.level)): { slot: GearSlot; current?: ItemInstance; rows: CompareRow[] } | null {
   const slot = gearSlot(inst);
   if (!slot || injectorDef(inst)) return null;
-  const before = snapshot(ch);
-  const after = snapshot(simulateEquip(ch, inst, slot));
+  const sim = simulateEquip(ch, inst, slot);
+  const [b, a] = [ch.stats(), sim.stats()];
   const rows: CompareRow[] = [];
-  const num = (stat: StatKey) => {
-    const [a, b] = [before.stats[stat], after.stats[stat]];
-    rows.push({ label: STAT_LABEL[stat], stat, before: `${a}`, after: `${b}`, delta: b - a });
-  };
-  /** The slot's headline stats always, then any other stat (a flat gear bonus) that changes. */
-  const stats = (always: StatKey[]) => {
-    for (const k of always) num(k);
-    for (const k of BONUS_ORDER) if (!always.includes(k) && before.stats[k] !== after.stats[k]) num(k);
-  };
+  const num = (stat: StatKey) => rows.push({ label: STAT_LABEL[stat], stat, before: statValue(stat, b[stat]), after: statValue(stat, a[stat]), delta: a[stat] - b[stat] });
+  // Damage first, armour too (2026-10-13, the user's call: a caster's frame is judged by its techniques).
+  const [d0, d1] = [damageRating(ch, foe), damageRating(sim, foe)];
+  rows.push({ label: ch.prefersMagic ? 'Damage/s (tech)' : 'Damage/s', before: `${Math.round(d0)}`, after: `${Math.round(d1)}`, delta: d1 - d0, key: true });
   if (slot === 'weapon') {
-    const avg = (r: [number, number]) => (r[0] + r[1]) / 2;
-    rows.push({ label: 'ATP', before: `${before.atp[0]}-${before.atp[1]}`, after: `${after.atp[0]}-${after.atp[1]}`, delta: avg(after.atp) - avg(before.atp) });
-    stats(['ata']);
-    for (const a of ATTRS) if (before.attrs[a] || after.attrs[a]) rows.push({ label: ATTR_LABEL[a], before: `${before.attrs[a]}%`, after: `${after.attrs[a]}%`, delta: after.attrs[a] - before.attrs[a] });
-    if (before.special !== after.special) rows.push({ label: 'Special', before: before.special, after: after.special, delta: 0 });
+    const [x, y] = [ch.weaponDamage(), sim.weaponDamage()];
+    rows.push({ label: 'Weapon damage', before: `${x[0]}-${x[1]}`, after: `${y[0]}-${y[1]}`, delta: (y[0] + y[1] - x[0] - x[1]) / 2 });
   } else {
-    stats(['dfp', 'evp']);
+    // Its overall rating (HP, damage taken, resistances, utility) decides between frames that deal the same.
+    const [r0, r1] = [armorRating(ch), armorRating(sim)];
+    rows.push({ label: 'Rating', before: `${Math.round(r0)}`, after: `${Math.round(r1)}`, delta: r1 - r0, tie: true });
+    num('strike');
+    num('area');
   }
-  if (before.haste || after.haste) rows.push({ label: 'Haste', before: `${before.haste}%`, after: `${after.haste}%`, delta: after.haste - before.haste });
+  for (const k of BONUS_ORDER) if (!rows.some((r) => r.stat === k) && b[k] !== a[k]) num(k);
+  const [h0, h1] = [ch.haste(), sim.haste()];
+  if (h0 || h1) rows.push({ label: 'Haste', before: `${h0}%`, after: `${h1}%`, delta: h1 - h0 });
   return { slot, current: ch.equippedItem(slot), rows };
 }
 
-/** How much one point of each armor stat is worth, in rough % of fight outcome (see items.ts). */
-const ARMOR_WEIGHT: Partial<Record<StatKey, number>> = { dfp: 1.5, evp: 0.3, atp: 0.7, ata: 0.5, mst: 0.4, tp: 0.2 };
-
-/** Quick verdict for list rows: +1 better, -1 worse, 0 same (by the slot's headline stats). */
-export function gearVerdict(ch: Character, inst: ItemInstance): number {
-  const c = compareEquip(ch, inst);
+/** Quick verdict for list rows: +1 better, -1 worse, 0 same (by damage per second, then the armour rating). */
+export function gearVerdict(ch: Character, inst: ItemInstance, foe?: Foe): number {
+  const c = compareEquip(ch, inst, foe);
   if (!c || ch.isEquipped(inst.uid)) return 0;
-  return rowsVerdict(c.slot, c.rows);
+  return rowsVerdict(c.rows);
 }
 
-function rowsVerdict(slot: GearSlot, rows: CompareRow[]): number {
-  if (slot !== 'weapon') return Math.sign(rows.reduce((t, r) => t + r.delta * ((r.stat && ARMOR_WEIGHT[r.stat]) ?? 1), 0));
-  // Weapons: ATP first; on a tie, attributes and gaining (or losing) a special decide.
-  if (rows[0].delta) return Math.sign(rows[0].delta);
-  const sp = rows.find((r) => r.label === 'Special');
-  const spDelta = sp ? (sp.before === '—' ? 1 : sp.after === '—' ? -1 : 0) : 0;
-  return Math.sign(rows.slice(1).reduce((t, r) => t + r.delta, 0) + spDelta * 10);
+/** Damage within half a percent is the same; the armour rating needs half a point. */
+function sameRow(r: CompareRow): boolean {
+  return r.tie ? Math.abs(r.delta) < 0.5 : Math.abs(r.delta) / Math.max(1, Number(r.before)) < 0.005;
+}
+
+/** The row a verdict goes by: damage per second, or armour's rating when the damage is the same. */
+export function decidingRow(rows: CompareRow[]): CompareRow | undefined {
+  const key = rows.find((r) => r.key);
+  const tie = rows.find((r) => r.tie);
+  return key && tie && sameRow(key) ? tie : key;
+}
+
+function rowsVerdict(rows: CompareRow[]): number {
+  const d = decidingRow(rows);
+  return !d || sameRow(d) ? 0 : Math.sign(d.delta);
 }
 
 /** How a drop on the floor reads for this character: its look on the ground and the pickup prompt's note. */
 export interface DropVerdict {
-  /** junk: nothing about it beats what is equipped; upgrade: better and equippable now. */
+  /** junk: worse than what is equipped (damage, then armour's rating), even fully crafted; upgrade: better and equippable now. */
   look: 'plain' | 'junk' | 'upgrade';
   /** The inventory's mark: up ▲, down ▼, same =, no ✖ ('' for items that aren't gear). */
   mark: '' | 'up' | 'down' | 'same' | 'no';
-  /** "Needs MST 110 (you have 95)" or the stat changes ("ATP +14 · +Heat"). */
+  /** "Needs Lv 24 (you are Lv 21)" or the change ("Damage/s +14% · Crit chance +0.3%"). */
   note: string;
+  /** Gear photons can still improve: the change fully crafted ("Fully crafted: Rating +6% (1 Crystal · 3 Spheres)"), and whether it beats what is worn. */
+  crafted?: { up: boolean; text: string };
 }
 
 const signed = (n: number) => (n > 0 ? `+${n}` : `−${-n}`);
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-/** The changed stats of a comparison, headline first: "ATP +14 · ATA −3 · +Heat". */
+/** A damage or rating row's change as a whole percent of before. */
+export function rowPct(r: CompareRow): number {
+  return Math.round((r.delta / Math.max(1, Number(r.before))) * 100);
+}
+
+/** The changes of a comparison, damage (and armour's rating) first as a %: "Damage/s +12% · Rating −3% · Crit chance −0.3%". */
 function changesText(rows: CompareRow[], max = 4): string {
   const parts: string[] = [];
   for (const r of rows) {
-    if (r.label === 'Special') parts.push(r.before === '—' ? `+${r.after}` : r.after === '—' ? `no ${r.before}` : `${r.before} → ${r.after}`);
-    else if (Math.round(r.delta)) parts.push(`${r.label} ${signed(Math.round(r.delta))}${r.after.endsWith('%') ? '%' : ''}`);
+    if (r.key || r.tie) {
+      const p = rowPct(r);
+      if (p) parts.push(`${r.label} ${signed(p)}%`);
+    } else if (r.stat && Math.abs(r.delta) >= (r.stat === 'lck' ? 1 : 0.5)) parts.push(statDelta(r.stat, r.delta));
+    else if (!r.stat && Math.round(r.delta)) parts.push(`${r.label} ${signed(Math.round(r.delta))}${r.after.endsWith('%') ? '%' : ''}`);
   }
   return parts.slice(0, max).join(' · ');
 }
 
 /**
- * Verdict for an item lying on the ground. Junk is gear where no stat beats what is equipped (worth only its
- * sell price). Requirements don't make an item junk: a locked upgrade stays plain, so it is still worth
- * carrying until the stat catches up.
+ * Verdict for an item lying on the ground. Junk is gear that is worse than what is equipped (by damage per
+ * second, then armour's rating) even crafted to its best (bestCrafted). Uniques never fade. Requirements don't
+ * make an item junk: a locked upgrade stays plain, so it is still worth carrying until the stat catches up.
  */
-export function dropVerdict(ch: Character, inst: ItemInstance): DropVerdict {
+export function dropVerdict(ch: Character, inst: ItemInstance, foe?: Foe): DropVerdict {
   const def = getDef(inst.id);
+  if (def.type === 'unit') return unitVerdict(ch, inst);
   if (!isGear(def)) return { look: 'plain', mark: '', note: '' };
   const need = itemRequirement(def);
-  const have = need ? ch.reqStats()[need.stat] : 0;
-  const locked = need && have < need.req ? `Needs ${need.stat.toUpperCase()} ${need.req} (you have ${have})` : '';
-  const c = compareEquip(ch, inst);
-  // Injectors aren't compared (two slots, either kind).
+  const locked = need && ch.level < need.level ? `Needs Lv ${need.level} (you are Lv ${ch.level})` : '';
+  const c = compareEquip(ch, inst, foe);
+  // Injectors aren't compared.
   if (!c) return { look: 'plain', mark: locked ? 'no' : '', note: locked };
-  const v = rowsVerdict(c.slot, c.rows);
+  const v = rowsVerdict(c.rows);
   const changes = changesText(c.rows);
-  const better = c.rows.some((r) => (r.label === 'Special' ? r.after !== '—' : Math.round(r.delta) > 0));
-  if (!better) return { look: 'junk', mark: v < 0 ? 'down' : 'same', note: changes ? `Downgrade: ${changes}` : 'Same as equipped' };
-  if (locked) return { look: 'plain', mark: 'no', note: v > 0 ? `${locked} · ${changes}` : locked };
-  return { look: v > 0 ? 'upgrade' : 'plain', mark: v > 0 ? 'up' : v < 0 ? 'down' : 'same', note: changes };
+  const best = bestCrafted(ch, inst, foe);
+  const crafted = best ? craftedLine(best, v) : undefined;
+  const extra = crafted ? { crafted } : {};
+  if (v <= 0 && rarityOf(inst) !== 'unique') {
+    // Not junk if photons can make it an upgrade.
+    const look = crafted?.up ? 'plain' : 'junk';
+    return { look, mark: v < 0 ? 'down' : 'same', note: changes ? `Downgrade: ${changes}` : 'Same as equipped', ...extra };
+  }
+  if (locked) return { look: 'plain', mark: 'no', note: v > 0 ? `${locked} · ${changes}` : locked, ...extra };
+  return { look: v > 0 ? 'upgrade' : 'plain', mark: v > 0 ? 'up' : v < 0 ? 'down' : 'same', note: changes, ...extra };
 }
 
-/** "DFP +13  EVP +4  ATP +2" */
+/** The prompt's second line: "Fully crafted: Damage/s +9% (1 Crystal · 3 Spheres · Drops)", or "Even fully crafted: ...". */
+function craftedLine(best: CraftedBest, now: number): { up: boolean; text: string } {
+  const up = rowsVerdict(best.rows) > 0;
+  const d = decidingRow(best.rows)!;
+  const p = rowPct(d);
+  // Rating deciding means the damage is the same.
+  const change = !p ? 'same as equipped' : d.tie ? `same damage · Rating ${signed(p)}%` : `${d.label} ${signed(p)}%`;
+  return { up, text: `${!up && now <= 0 ? 'Even fully crafted' : 'Fully crafted'}: ${change} (${craftRecipe(best)})` };
+}
+
+/** "1 Crystal · 3 Spheres · Drops": the photons a crafted best takes. */
+export function craftRecipe(best: CraftedBest): string {
+  const parts: string[] = [];
+  if (best.swaps.length) parts.push(plural(best.swaps.length, 'Crystal'));
+  if (best.spheres) parts.push(plural(best.spheres, 'Sphere'));
+  if (best.rerolls) parts.push('Drops');
+  return parts.join(' · ');
+}
+
+/** `inst` crafted to its best for this character, compared with what is worn. */
+export interface CraftedBest {
+  /** The active affixes it ends with. */
+  affixes: AffixRoll[];
+  rows: CompareRow[];
+  /** Photon Crystal swaps, as affix texts: what goes dormant and what comes in. */
+  swaps: { out: string; in: string }[];
+  /** Photon Spheres: strength tiers (or race % / Haste steps) to climb. */
+  spheres: number;
+  /** Affixes Photon Drops must reroll to the top of their range (luck, so not counted out). */
+  rerolls: number;
+}
+
+/**
+ * The best `inst` can be made with photons for this character (by damage per second against `foe`, then for
+ * armour its overall rating): every set of active affixes Crystals can reach (each kind from its active and dormant
+ * affixes), each affix Sphered to the top tier its item level allows and Dropped to the top of its range (a
+ * downside may be better left as it is). Affixes that add nothing are left alone, so the recipe is only what
+ * pays. Null if photons can't improve it (normal items, uniques, nothing left to gain).
+ */
+export function bestCrafted(ch: Character, inst: ItemInstance, foe: Foe = levelFoe(ch.level)): CraftedBest | null {
+  const slot = gearSlot(inst);
+  const def = getDef(inst.id);
+  if (!slot || slot === 'injector' || def.rare || !inst.affixes?.length) return null;
+  const sim = simulateEquip(ch, inst, slot);
+  const worn = sim.find(inst.uid)!;
+  // Damage first, then (armour) the overall rating, like the verdict.
+  const score = (affixes: AffixRoll[]) => {
+    worn.affixes = affixes;
+    return slot === 'weapon' ? [damageRating(sim, foe)] : [damageRating(sim, foe), armorRating(sim)];
+  };
+  const active = inst.affixes;
+  const start = score(active);
+  // Within a rounding hair counts as no better, so ties keep the cheaper recipe.
+  const cmp = (a: number[], b: number[]) => {
+    for (let i = 0; i < a.length; i++) {
+      const tol = Math.abs(b[i]) * 1e-6 + 1e-9;
+      if (a[i] > b[i] + tol) return 1;
+      if (a[i] < b[i] - tol) return -1;
+    }
+    return 0;
+  };
+  const better = (a: number[], b: number[]) => cmp(a, b) > 0;
+  let best = { set: active, rolls: active, score: start };
+  for (const set of craftLoadouts(inst)) {
+    const options = set.map((r) => (ITEM_AFFIXES[r.id].penalty ? [maxedRoll(inst, r), r] : [maxedRoll(inst, r)]));
+    const combos = options.reduce<AffixRoll[][]>((acc, opts) => acc.flatMap((a) => opts.map((o) => [...a, o])), [[]]);
+    const swaps = set.filter((r) => !active.includes(r)).length;
+    for (const rolls of combos) {
+      const s = score(rolls);
+      const bestSwaps = best.set.filter((r) => !active.includes(r)).length;
+      if (better(s, best.score) || (!better(best.score, s) && swaps < bestSwaps)) best = { set, rolls, score: s };
+    }
+  }
+  if (!better(best.score, start)) return null;
+  // Leave affixes that add nothing as they are.
+  const rolls = [...best.rolls];
+  rolls.forEach((r, i) => {
+    const own = best.set[i];
+    if (r === own) return;
+    const trial = [...rolls];
+    trial[i] = own;
+    if (!better(best.score, score(trial))) rolls[i] = own;
+  });
+  let spheres = 0;
+  let rerolls = 0;
+  rolls.forEach((r, i) => {
+    const cost = rollCost(inst, best.set[i], r);
+    spheres += cost.spheres;
+    if (cost.reroll) rerolls++;
+  });
+  // Each swap trades an affix out for one of its kind.
+  const out = active.filter((r) => !best.set.includes(r));
+  const swaps = best.set
+    .filter((r) => !active.includes(r))
+    .map((r) => ({ out: affixText(out.splice(out.findIndex((o) => ITEM_AFFIXES[o.id].kind === ITEM_AFFIXES[r.id].kind), 1)[0]), in: affixText(r) }));
+  const dormant = [...active, ...(inst.dormant ?? [])].filter((r) => !best.set.includes(r));
+  const c = compareEquip(ch, { ...inst, affixes: rolls, dormant }, foe)!;
+  return { affixes: rolls, rows: c.rows, swaps, spheres, rerolls };
+}
+
+/** A unit not learned yet (or a better roll) is worth picking up: it is learned on the spot. Anything else is junk. */
+function unitVerdict(ch: Character, inst: ItemInstance): DropVerdict {
+  const kind = unitKind(inst);
+  const have = kind && ch.learnedUnit(kind);
+  const yours = have ? affixText(have.affixes![0]) : '';
+  switch (ch.unitStatus(inst)) {
+    case 'new':
+      return { look: 'upgrade', mark: 'up', note: 'New unit: learned on pickup' };
+    case 'better':
+      return { look: 'upgrade', mark: 'up', note: `Better than yours (${yours})` };
+    default:
+      return { look: 'junk', mark: 'same', note: have ? `Already learned (${yours})` : 'No use' };
+  }
+}
+
+/** "Damage taken −8%  Weapon damage +2" */
 export function armorStatText(def: ArmorItemDef): string {
-  return [`DFP +${def.dfp}`, `EVP +${def.evp}`, ...bonusText(def.bonus)].join('  ');
+  return [`Damage taken −${def.dr}%`, ...bonusText(def.bonus)].join('  ');
+}
+
+/** "Rare Saber · iLvl 24", "Unique Barrier". */
+export function rarityLine(inst: ItemInstance): string {
+  const def = getDef(inst.id);
+  const r = rarityOf(inst);
+  const what =
+    def.type === 'weapon' ? weaponKinds[def.kind].label : def.type === 'armor' ? `${def.line === 'basic' ? '' : `${armorLines[def.line].label} `}${def.slot === 'frame' ? 'Frame' : 'Barrier'}` : def.type === 'unit' ? 'Unit' : '';
+  const base = r === 'rare' && def.type !== 'unit' ? ` (${def.name})` : '';
+  const ilvl = 'tier' in def && def.type !== 'injector' ? ` · iLvl ${inst.ilvl ?? tierIlvl(def.tier)}` : '';
+  const k = forgeMult(inst);
+  const forged = k > 1 && (def.type === 'weapon' || def.type === 'armor') ? ` · Rift-forged +${Math.round((k - 1) * 100)}%` : '';
+  return `${RARITY_LABEL[r]} ${what}${base}${ilvl}${forged}`;
+}
+
+/** Affix lines of an item (its own, then each inserted unit's). */
+export function affixLines(inst: ItemInstance): string[] {
+  const lines = ownAffixes(inst).map(affixText);
+  return lines;
 }
 
 /** Menu text for one item type. */
 interface ItemText<D extends ItemDef> {
-  /** Its numbers on one line (gear lists): "ATP 40-55  ATA 30" with grind counted; '' if none. */
+  /** Its numbers on one line (gear lists): "Weapon damage 40-55  Tech damage +8" with grind counted; '' if none. */
   headline(def: D, inst: ItemInstance, ch?: Character): string;
   /** Info lines; describeItem adds the requirement, the description and why it can't be worn after them. */
   describe(def: D, inst: ItemInstance, ch?: Character): string[];
 }
 
+/** "Unit slots: 3 (activates 3 of your Mag's units)". */
+function unitsLine(inst: ItemInstance): string {
+  const def = getDef(inst.id);
+  if (def.type !== 'armor' || def.slot !== 'frame') return '';
+  const n = unitSlots(inst);
+  return `Unit slots: ${n || 'none'}`;
+}
+
 const ITEM_TEXT: { [T in ItemType]: ItemText<ItemDefOf<T>> } = {
   weapon: {
     headline: (def, inst) => {
-      const edge = edgeLevels(inst);
+      const edge = grindLevels(inst);
       const g = grindBonus(def, edge);
-      return [`ATP ${def.atpMin + g.atp}-${def.atpMax + g.atp}`, `ATA ${def.ata + g.ata}`, ...bonusText(weaponBonus(def, edge))].join('  ');
+      return [`Weapon damage ${def.atpMin + g.atp}-${def.atpMax + g.atp}`, ...bonusText(weaponBonus(def, edge))].join('  ');
     },
     describe: (def, inst) => {
-      // What the kind itself does (reach, Poise, technique boost, TP on hit) is common knowledge: only this item's numbers.
-      const lines = [`${weaponKinds[def.kind].label}${def.rare ? ' · ★ RARE' : ''}`, ITEM_TEXT.weapon.headline(def, inst), grindText(inst)];
+      const lines = [rarityLine(inst), ITEM_TEXT.weapon.headline(def, inst)];
       const sp = itemSpecial(inst);
       if (sp) lines.push(`Special: ${specials[sp].name}`);
-      const at = attrText(inst);
-      if (at) lines.push(at);
-      if (inst.haste) lines.push(`Haste +${inst.haste}%`);
+      lines.push(...affixLines(inst));
       return lines;
     },
   },
   armor: {
     headline: (def) => armorStatText(def),
     describe: (def, inst) => {
-      const line = armorLines[def.line];
-      const lines = [`${line.label} ${def.slot === 'frame' ? 'Frame' : 'Barrier'}${def.rare ? ' · ★ RARE' : ''}`, armorStatText(def)];
-      if (inst.haste) lines.push(`Haste +${inst.haste}% (faster swings and casts)`);
-      if (def.line !== 'basic') lines.push(line.desc);
+      const lines = [rarityLine(inst), armorStatText(def), ...affixLines(inst)];
+      const units = unitsLine(inst);
+      if (units) lines.push(units);
+      if (def.line !== 'basic') lines.push(armorLines[def.line].desc);
       return lines;
     },
   },
@@ -885,13 +1668,13 @@ const ITEM_TEXT: { [T in ItemType]: ItemText<ItemDefOf<T>> } = {
     headline: () => '',
     describe: (def) => [`Carry up to ${stackCap(def)}${def.fieldOnly ? ' · field only' : ''} · use it from the Items tab or a Q / E quick slot`],
   },
-  grinder: {
+  photon: {
     headline: () => '',
-    describe: (def) => [
-      `Grinds a weapon +${def.amount} (weapons take ${grindCap({ tier: 1 })}-${grindCap({ tier: 9 })} levels, rares 2 more)`,
-      `Edge, per level: +${Math.round(formulas.edgeAtpPct * 100)}% of the weapon's ATP and ATA, +${Math.round(formulas.edgeMstPct * 100)}% of its MST (canes, rods, wands)`,
-      `A race, per level: +${formulas.banePerGrind}% damage against it, up to the tier's attribute cap`,
-    ],
+    describe: () => [],
+  },
+  unit: {
+    headline: (_def, inst) => affixLines(inst).join(' · '),
+    describe: (_def, inst) => [rarityLine(inst), ...affixLines(inst)],
   },
 };
 
@@ -899,21 +1682,22 @@ function itemText<D extends ItemDef>(def: D): ItemText<D> {
   return ITEM_TEXT[def.type] as unknown as ItemText<D>;
 }
 
-/** An item's numbers on one line: "ATP 40-55  ATA 30" (grind counted), "DFP +13  EVP +4", "HP 30% · 3/3 doses"; '' if none. */
+/** An item's numbers on one line: "Weapon damage 40-55" (grind counted), "Damage taken −8%  Weapon damage +2", "HP 30% · 3/3 doses"; '' if none. */
 export function itemHeadline(inst: ItemInstance, ch?: Character): string {
-  const def = getDef(inst.id);
+  const def = statDef(inst);
   return itemText(def).headline(def, inst, ch);
 }
 
 export function describeItem(inst: ItemInstance, ch?: Character): string[] {
-  const def = getDef(inst.id);
-  const lines = itemText(def).describe(def, inst, ch);
+  const def = statDef(inst);
+  const lines = itemText(def).describe(def, inst, ch).filter(Boolean);
   const need = itemRequirement(def);
-  if (need) lines.push(`Req: ${need.stat.toUpperCase()} ${need.req}`);
+  if (need) lines.push(`Req: Lv ${need.level}`);
   if (def.desc) lines.push(def.desc);
+  // An unmet stat requirement shows on the Req line itself (menus colour it); anything else in the way gets a line.
   if (ch && isGear(def)) {
     const c = ch.canEquip(inst);
-    if (!c.ok) lines.push(`✖ ${c.reason}`);
+    if (!c.ok && !c.need) lines.push(`✖ ${c.reason}`);
   }
   return lines;
 }
