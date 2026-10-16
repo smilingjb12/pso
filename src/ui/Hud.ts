@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { CcKind } from '../game/ccResist';
 import type { Race } from '../game/config';
 import type { StatusTimer } from '../game/combat/types';
 import { ATTR_LABEL } from '../game/data/items';
@@ -59,8 +60,18 @@ export interface HudState {
     /** Elite affixes as chips, in their aura colour. */
     affixes: { name: string; color: string }[];
     champion: boolean;
+    /** Crowd-control resistances it has, percent (100: immune). */
+    cc: { kind: CcKind; pct: number }[];
   } | null;
-  boss: { name: string; race: Race | null; weak: boolean } | null;
+  boss: {
+    name: string;
+    race: Race | null;
+    weak: boolean;
+    /** Crowd control it ignores (all four for every boss). */
+    immune: CcKind[];
+    /** Burn and poison running on it. */
+    statuses: StatusTimer[];
+  } | null;
   area: string;
   roomInfo: string | null;
   prompt: string | null;
@@ -99,7 +110,17 @@ const NUDGE_TP = 0.35;
 const TRAIL_HOLD = 0.5;
 const TRAIL_DRAIN = 0.8;
 
-const STATUS_LABEL: Record<string, string> = { stun: 'Stunned', freeze: 'Frozen', burn: 'Burning', poison: 'Poisoned' };
+const STATUS_LABEL: Record<string, string> = { stun: 'Stunned', freeze: 'Frozen', slow: 'Slowed', burn: 'Burning', poison: 'Poisoned' };
+
+const CC_LABEL: Record<CcKind, string> = { stun: 'stun', freeze: 'freeze', slow: 'slow', knockback: 'knockback' };
+
+/** A crowd-control resistance chip: its glyph and %, or struck through and "immune" (glyph only with `bare`). */
+function ccChip(kind: CcKind, pct: number, bare = false): string {
+  const immune = pct >= 100;
+  const title = immune ? `Immune to ${CC_LABEL[kind]}` : `Resists ${CC_LABEL[kind]} ${pct}% of the time`;
+  const text = bare ? '' : immune ? 'immune' : `${pct}%`;
+  return `<span class="ccr-chip${immune ? ' immune' : ''}" title="${title}"><span class="ccr-glyph">${statusIcon(kind)}</span>${text}</span>`;
+}
 
 const el = (cls: string, parent: HTMLElement, html = ''): HTMLDivElement => {
   const d = document.createElement('div');
@@ -156,9 +177,15 @@ export class Hud {
   private targetAffixes: HTMLDivElement;
   private targetAffixKey = '';
   private targetStatusEls = new Map<string, HTMLDivElement>();
+  private targetCc: HTMLDivElement;
+  private targetCcKey = '';
   private bossBox: HTMLDivElement;
   private bossName: HTMLDivElement;
   private bossAttr: HTMLDivElement;
+  private bossCc: HTMLDivElement;
+  private bossCcKey = '';
+  private bossStatus: HTMLDivElement;
+  private bossStatusEls = new Map<string, HTMLDivElement>();
   private reticle: HTMLDivElement;
   private areaEl: HTMLDivElement;
   private roomEl: HTMLDivElement;
@@ -245,10 +272,16 @@ export class Hud {
     this.targetAttr = el('attr-tag', targetHead);
     this.targetStatus = el('target-status', targetHead);
     this.targetAffixes = el('target-affixes', this.targetBox);
+    // Crowd-control resistances (2026-10-16): a row of glyph + % chips under the affixes.
+    this.targetCc = el('target-ccr', this.targetBox);
 
     this.bossBox = el('bossbar', this.root);
     this.bossName = el('boss-name', this.bossBox);
     this.bossAttr = el('attr-tag', this.bossBox);
+    // Under the name: the crowd control it ignores, and the burns and poisons running on it.
+    const bossRow = el('boss-row', this.bossBox);
+    this.bossCc = el('boss-ccr', bossRow);
+    this.bossStatus = el('target-status boss-status', bossRow);
 
     this.reticle = el('reticle', this.root);
     this.ccEl = el('cc', this.root,
@@ -448,19 +481,23 @@ export class Hud {
       this.targetBox.style.display = 'block';
       this.targetName.textContent = s.target.name;
       this.setAttr(this.targetAttr, s.target.race);
-      this.setTargetStatus(s.target.statuses);
+      this.setStatusBadges(this.targetStatus, this.targetStatusEls, s.target.statuses);
       this.setAffixes(s.target.affixes, s.target.champion);
+      this.setCc(s.target.cc);
     } else {
       this.targetBox.style.display = 'none';
-      this.setTargetStatus([]);
+      this.setStatusBadges(this.targetStatus, this.targetStatusEls, []);
     }
     if (s.boss) {
       this.bossBox.style.display = 'block';
       this.bossName.textContent = s.boss.name + (s.boss.weak ? '  — WEAK POINT!' : '');
       this.setAttr(this.bossAttr, s.boss.race);
       this.bossBox.classList.toggle('weak', s.boss.weak);
+      this.setBossCc(s.boss.immune);
+      this.setStatusBadges(this.bossStatus, this.bossStatusEls, s.boss.statuses);
     } else {
       this.bossBox.style.display = 'none';
+      this.setStatusBadges(this.bossStatus, this.bossStatusEls, []);
     }
 
     this.areaEl.textContent = s.area;
@@ -543,6 +580,22 @@ export class Hud {
     this.targetAffixes.innerHTML = list.length ? `<div class="affix-chips">${chips}</div>` : '';
   }
 
+  /** Crowd-control resistance chips under the target's affixes. */
+  private setCc(list: { kind: CcKind; pct: number }[]): void {
+    const key = list.map((c) => `${c.kind}${c.pct}`).join(',');
+    if (key === this.targetCcKey) return;
+    this.targetCcKey = key;
+    this.targetCc.innerHTML = list.map((c) => ccChip(c.kind, c.pct)).join('');
+  }
+
+  /** "Immune" and the crowd control a boss ignores, struck through, under its name. */
+  private setBossCc(immune: CcKind[]): void {
+    const key = immune.join(',');
+    if (key === this.bossCcKey) return;
+    this.bossCcKey = key;
+    this.bossCc.innerHTML = immune.length ? `<span class="ccr-label">Immune</span>${immune.map((k) => ccChip(k, 100, true)).join('')}` : '';
+  }
+
   /** Attribute tag (Native / A.Beast / Machine / Dark) under a target's name. */
   private setAttr(tag: HTMLDivElement, race: Race | null): void {
     tag.style.display = race ? '' : 'none';
@@ -552,29 +605,29 @@ export class Hud {
   }
 
   /**
-   * One badge per status on the target. The ring around the glyph drains
+   * One badge per status on the target (or the boss). The ring around the glyph drains
    * clockwise like a clock as the status runs out (full ring = just applied),
    * with the seconds left underneath; the badge blinks in its last half second.
    */
-  private setTargetStatus(list: StatusTimer[]): void {
+  private setStatusBadges(box: HTMLDivElement, els: Map<string, HTMLDivElement>, list: StatusTimer[]): void {
     const live = new Set<string>();
     for (const st of list) {
       live.add(st.kind);
-      let b = this.targetStatusEls.get(st.kind);
+      let b = els.get(st.kind);
       if (!b) {
-        b = el(`st st-${st.kind}`, this.targetStatus, `<div class="st-glyph">${statusIcon(st.kind)}</div><div class="st-sec"></div>`);
+        b = el(`st st-${st.kind}`, box, `<div class="st-glyph">${statusIcon(st.kind)}</div><div class="st-sec"></div>`);
         b.title = STATUS_LABEL[st.kind];
-        this.targetStatusEls.set(st.kind, b);
+        els.set(st.kind, b);
       }
       const k = st.total > 0 ? Math.min(1, st.left / st.total) : 0;
       b.style.setProperty('--k', k.toFixed(3));
       (b.lastChild as HTMLElement).textContent = st.left < 10 ? st.left.toFixed(1) : String(Math.ceil(st.left));
       b.classList.toggle('ending', st.left < 0.5);
     }
-    for (const [kind, b] of this.targetStatusEls) {
+    for (const [kind, b] of els) {
       if (live.has(kind)) continue;
       b.remove();
-      this.targetStatusEls.delete(kind);
+      els.delete(kind);
     }
   }
 

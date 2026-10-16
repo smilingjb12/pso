@@ -54,6 +54,17 @@
 .bossbar.weak .boss-name {
   color: #ffff70;
 }
+/* Under the boss's name: what crowd control it ignores, then its burns and poisons. */
+.boss-row {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 14px;
+}
+.boss-row .target-status {
+  margin-left: 0;
+  margin-top: 3px;
+}
 
 /* Enemy attribute tag under the target / boss name (matches weapon Native%, A.Beast%, ...). */
 .attr-tag {

@@ -146,7 +146,10 @@ export function itemGlyph(def: ItemDef): string {
   return (ITEM_GLYPH[def.type] as (d: ItemDef) => string)(def);
 }
 
-/** Status glyphs for the target frame (enemy stunned / frozen / burning / poisoned). */
+/**
+ * Status glyphs for the target frame (enemy stunned / frozen / slowed / burning / poisoned), and the crowd-control
+ * resistance chips (stun, freeze, slow, knockback).
+ */
 export function statusIcon(kind: string): string {
   switch (kind) {
     case 'stun':
@@ -155,6 +158,18 @@ export function statusIcon(kind: string): string {
       return svg(
         `<g stroke="#bfeaff" stroke-width="4" stroke-linecap="round" fill="none"><path d="M24 4 V44 M6.7 14 L41.3 34 M6.7 34 L41.3 14"/>` +
           `<path d="M18 7 L24 13 L30 7 M18 41 L24 35 L30 41 M5 21 L13 19 L11 11 M43 27 L35 29 L37 37 M5 27 L13 29 L11 37 M43 21 L35 19 L37 11" stroke-width="3"/></g>`,
+      );
+    case 'slow':
+      // A gauge with its needle low.
+      return svg(
+        `<path d="M14 44 L21 6 H27 L34 44 Z" fill="#a8c8ff" fill-opacity=".3" stroke="#a8c8ff" stroke-width="3.5" stroke-linejoin="round"/>` +
+          `<path d="M24 36 L33 12" fill="none" stroke="#a8c8ff" stroke-width="3.5" stroke-linecap="round"/><circle cx="31" cy="17" r="3.5" fill="#a8c8ff"/>`,
+      );
+    case 'knockback':
+      // A ball pushing out waves.
+      return svg(
+        `<circle cx="9" cy="24" r="5" fill="#e8d8b8"/>` +
+          `<path d="M19 14 Q25 24 19 34 M28 9 Q36 24 28 39 M37 5 Q47 24 37 43" fill="none" stroke="#e8d8b8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>`,
       );
     case 'burn':
       return svg(`<path d="M24 3 C30 13 38 18 36 30 C35 40 28 45 24 45 C18 45 11 40 12 30 C13 22 19 20 20 12 C23 17 25 18 24 3 Z" fill="#ff7a20"/><path d="M24 22 C27 28 31 31 29 37 C27 42 21 42 19 37 C18 32 22 30 24 22 Z" fill="#ffd040"/>`);

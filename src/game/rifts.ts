@@ -1,5 +1,6 @@
 import { newUid, type CharacterData } from './character';
-import { drops, enemies, hard as hardCfg, hell, type EnemyArchetype, type EnemyId, type HardBossScale, type HardScale } from './config';
+import { CC_AFFIXES, type CcKind } from './ccResist';
+import { crowdControl as ccCfg, drops, enemies, hard as hardCfg, hell, type EnemyArchetype, type EnemyId, type HardBossScale, type HardScale } from './config';
 import { AFFIXES, type Affix } from './data/affixes';
 import { areas, expeditions, type AreaDef, type AreaId, type BossId } from './data/areas';
 import { areaDef } from './data/looks';
@@ -64,7 +65,8 @@ export const riftCfg = {
 
 export type RiftModId =
   | 'overclocked' | 'molten' | 'stormcaller' | 'frenzied' | 'regenerating' | 'volatile'
-  | 'champions' | 'elites' | 'corruption' | 'bleed' | 'haste' | 'swift' | 'starved' | 'tough' | 'brutal';
+  | 'champions' | 'elites' | 'corruption' | 'bleed' | 'haste' | 'swift' | 'starved' | 'tough' | 'brutal'
+  | 'steadfast' | 'insulated' | 'relentless' | 'anchored';
 
 export interface RiftModDef {
   id: RiftModId;
@@ -76,12 +78,19 @@ export interface RiftModDef {
   rar: number;
   /** Every enemy carries this affix (on top of its own rolls, where it fits). */
   affix?: Affix;
+  /** Every enemy resists this kind of crowd control, at least ccCfg.riftModFloor % (on top of its own rolls). */
+  cc?: CcKind;
   /** Needs a second region (Bleed: whose hazards). */
   second?: boolean;
 }
 
 const affixMod = (id: RiftModId & Affix, qty: number, rar: number): RiftModDef => ({
   id, name: AFFIXES[id].name, desc: `Every enemy is ${AFFIXES[id].name}`, qty, rar, affix: id,
+});
+
+/** A crowd-control modifier (2026-10-16): every enemy resists one kind, at least ccCfg.riftModFloor %. */
+const ccMod = (id: RiftModId, cc: CcKind): RiftModDef => ({
+  id, name: CC_AFFIXES[cc].name, desc: `Every enemy resists ${CC_AFFIXES[cc].label} (${ccCfg.riftModFloor}%+)`, qty: 8, rar: 6, cc,
 });
 
 export const RIFT_MODS: Record<RiftModId, RiftModDef> = {
@@ -100,6 +109,10 @@ export const RIFT_MODS: Record<RiftModId, RiftModDef> = {
   starved: { id: 'starved', name: 'Starved', desc: 'Injectors charge 30% slower', qty: 10, rar: 10 },
   tough: { id: 'tough', name: 'Hardened', desc: 'Enemies have 40% more HP', qty: 12, rar: 10 },
   brutal: { id: 'brutal', name: 'Brutal', desc: 'Enemies hit 12% harder', qty: 12, rar: 10 },
+  steadfast: ccMod('steadfast', 'stun'),
+  insulated: ccMod('insulated', 'freeze'),
+  relentless: ccMod('relentless', 'slow'),
+  anchored: ccMod('anchored', 'knockback'),
 };
 export const RIFT_MOD_IDS = Object.keys(RIFT_MODS) as RiftModId[];
 const AFFIX_MOD_IDS = RIFT_MOD_IDS.filter((m) => RIFT_MODS[m].affix);
@@ -241,7 +254,10 @@ export function rollShard(tier: number, rng: () => number): RiftShard {
   const n = yellow ? 3 + (rng() < 0.5 ? 1 : 0) : 1 + (rng() < 0.5 ? 1 : 0);
   const mods: RiftModId[] = [];
   while (mods.length < n) {
-    const options = RIFT_MOD_IDS.filter((m) => !mods.includes(m) && !(RIFT_MODS[m].affix && mods.some((x) => RIFT_MODS[x].affix)));
+    // At most one elite-affix modifier and one crowd-control modifier a shard.
+    const options = RIFT_MOD_IDS.filter((m) => !mods.includes(m)
+      && !(RIFT_MODS[m].affix && mods.some((x) => RIFT_MODS[x].affix))
+      && !(RIFT_MODS[m].cc && mods.some((x) => RIFT_MODS[x].cc)));
     mods.push(pick(options, rng));
   }
   const shard: RiftShard = { uid: newUid(), tier: t, mods };
@@ -320,6 +336,19 @@ export function riftScale(home: RiftBiome, r: Pick<RiftInfo, 'tier' | 'mods'>): 
     techResist: Math.round(h.techResist + RIFT_LIFT[home].techResist + g.techResist),
     dropTier: 15,
     elite: riftElite(r),
+  };
+}
+
+/**
+ * What a rift does to its enemies' crowd-control resistances (ccResist.ts): more strength per tier (up to
+ * `capTier`, like armour), one more affix from ccCfg.riftExtraFrom, and the kinds its modifiers give everyone.
+ */
+export function riftCc(r: Pick<RiftInfo, 'tier' | 'mods'>): { grow: number; extra: number; forced: CcKind[] } {
+  const kc = Math.min(Math.max(0, r.tier - 1), riftCfg.capTier - 1);
+  return {
+    grow: ccCfg.riftPerTier * kc,
+    extra: r.tier >= ccCfg.riftExtraFrom ? 1 : 0,
+    forced: r.mods.flatMap((m) => RIFT_MODS[m].cc ?? []),
   };
 }
 

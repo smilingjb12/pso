@@ -69,6 +69,39 @@ Living spec agreed during the kickoff interview. Gameplay first, graphics later.
   wind-up count double, and the meter drains after 1.2 s without hits.
 - Attacks commit you, and positioning is the defence. The **dash** is the way out, at a price.
 
+### Crowd control on enemies (2026-10-16)
+The user's call after a Razonde storm kept whole packs stunned (each strike rolled a 2 s stun that restarted any
+running one, and the strikes flinched a Booma every 2nd strike, every strike with Conductor): crowd control (stun,
+freeze, slow, knockback) is something enemies shrug off by a fixed chance each. **No diminishing returns**: the
+chance never changes from repeated casts (the user: it should always affect a mob, at its own odds).
+- **CC affixes** (`ccResist.ts`, config `crowdControl`): a second set apart from the elite affixes, each a % chance to
+  resist one kind: **Steadfast** (stun), **Insulated** (freeze), **Relentless** (slow), **Anchored** (knockback).
+  Every application rolls it. How many a mob rolls (regular / elite / champion; a fraction is the chance of one
+  more) and how strong, rolled evenly in the range:
+  - Normal 0 / 0.5 / 0.5 at 15-25%; Nightmare 0.3 / 1 / 2 at 20-35%; Hell 1 / 1.5 / 2 at 30-45%.
+  - Rifts: Hell's, +1.5% a tier up to tier 16 (`riftCfg.capTier`, like armour) and one more affix at every rank
+    from tier 10. Shard modifiers can give one to every enemy (see "Modifiers and Rift Shards").
+  - Never above 75%: only bosses are immune. Each affix is a different kind. Rooted mobs (Lilies, the Control
+    Node) can't be knocked back at all and never roll Anchored; the Control Node rolls none. Splitting copies come
+    plain. Frenzied counts as stun-immune once it has frenzied.
+- **Rules** (all CC lands through `Combat.stun / freeze / chillTarget / shove / pull`, which roll `resisted`):
+  - An effect with its own odds (a lightning stun, Crescent's Shock, the Ice and Shock specials) rolls those first,
+    silently, and only then the resistance, so RESIST shows only when resistance stopped something.
+  - A stun or freeze never lands on a mob already stunned or frozen (it isn't extended: the mob acts again when the
+    first one ends). A plain flinch doesn't count.
+  - Zones (ice fields, sticky napalm) roll once per enemy per zone; re-rolling every tick would land within a few.
+  - Knockback on ordinary hits rolls silently; the deliberate shoves and pulls (Push, Blast, Breathing Room, Point
+    Blank, Concussive, Vortex) float RESIST. RESIST floats at most once a second per enemy, IMMUNE every 2 s.
+- **Storm ticks don't flinch:** Razonde's strikes and Rabarta's pulses (all but the freezing last one) add no
+  stagger. They still deal damage and roll their stun or chill.
+- **Bosses** are immune to all four. Chill no longer slows a boss's whole fight (it did, telegraphs included, down
+  to ×0.75), and stuns no longer pretend to stagger one. Burn, poison, venom, weaken, mark and sunder still land.
+- **Frames:** the enemy frame has a row of chips under the affixes, glyph and % (`⚡ 40%`; struck through and
+  "immune" for an immunity), only for the kinds it has. A landed slow gets a badge like stun and freeze. The boss bar
+  shows "Immune" with the four glyphs struck through, and the burns and poisons running on it (hidden before).
+- Considered and left out (2026-10-16): tenacity (each landed stun or freeze raising resistance for a while), a fixed
+  immunity window after each one, and Monster Hunter style buildup meters.
+
 ### Stats: no ATA, no EVP (2026-10-09)
 (Superseded in its names and units by "Stats: named by what they do" below: LCK is Crit chance, ATP Weapon damage,
 MST Tech damage, DFP went.)
@@ -1202,10 +1235,14 @@ expeditions on up the level curve, PSO style, and gets harder through mechanics 
     (your velocity × the 1.2 s warning, up to 5 m), one near you (1.5 m, 40% paralysis). They don't take the
     threat budget (nor do Volatile vents or Molten globs).
   - **Frenzied** (red): crossing 40% HP it roars (3.5 m, knocks you back); then it runs at ×1.3 tempo (capped at ×1.5
-    combined with Overclocked), hits 30% harder and can't be staggered or stunned (freezing still works).
-  Considered and left out: Insulated (half technique damage) and Frost aura (slow).
-- **Enemy frame:** a coloured chip per affix under the name, nothing more (2026-10-07: the first-time description
-  lines and the "[LOCK]" tag were removed; the lock-on reticle already shows the lock).
+    combined with Overclocked), hits 30% harder and can't be staggered or stunned (freezing still works; its frame shows it stun-immune).
+  Considered and left out: Insulated (half technique damage; the name went to the freeze-resistance CC affix on
+  2026-10-16) and Frost aura (slow).
+- **Enemy frame:** a coloured chip per affix under the name (2026-10-07: the first-time description lines and the
+  "[LOCK]" tag were removed; the lock-on reticle already shows the lock), and since 2026-10-16 a row of
+  crowd-control resistance chips under them (see "Crowd control on enemies").
+- **Crowd-control resistance** (2026-10-16): 30% of regular Nightmare enemies roll one CC affix, elites one,
+  champions two, at 20-35% each (see "Crowd control on enemies").
 
 ### Bosses
 - HP ×13.5 / ×7.8 / ×2.45 / ×2.4 and ATP +375 / +345 / +320 / +310 (Dragon / De Rol Le / Warden / Dark Falz; before
@@ -1319,6 +1356,8 @@ mechanics); `src/game/difficulty.ts` names the three difficulties.
 - **Every Hell enemy has affixes** (2026-10-08, the user's call after the Hell Forest still felt easy):
   regular **1**, elite **2**, champion **3** (`hell.affixCount`), on top of Corrupting. A regular with an affix
   gets the affix's body effects but no elite stats, halo or loot. (Before: only elites, one affix.)
+- **Crowd-control resistance** (2026-10-16): every Hell regular rolls one CC affix, elites one or two (half the time),
+  champions two, at 30-45% each (see "Crowd control on enemies").
 - Elites: **40%** of spawns in the Hell Forest, 48% Caves, 56% Mines, **65%** Ruins (`hell.<exp>.elite`;
   Nightmare: 40% since 2026-10-09, so the Hell Forest ties it on elites; its regulars all carry an affix anyway).
 - Champions: **every room** has one; rooms with at least 9 spawns in the Hell Ruins (the last room of each floor)
@@ -1509,7 +1548,7 @@ modifiers, shards, the look), `riftGen.ts` (rooms and waves), `riftTypes.ts`, `u
   Tempo, telegraphs and XP are Hell's, except bosses: **+2% tempo a tier up to tier 16** (×1.3 from there;
   `riftCfg.bossTempoPerTier`), attacks, recoveries and telegraphs alike (2026-10-12: with rift gear's damage, Haste
   and run speed, Hell-speed bosses left long windows and played easier than the mob rooms; the user picked this
-  over more HP). Barta's chill multiplies on top. The shortest boss warnings (the Dragon's enraged charge, 0.66 s)
+  over more HP). (Chill used to multiply on top; bosses ignore crowd control since 2026-10-16.) The shortest boss warnings (the Dragon's enraged charge, 0.66 s)
   come down to about 0.5 s at tier 16 and stay there, so the dash checks stay possible however deep the rift.
 - Where the wall sits (analytic, `estimateDamage`, Lv 100 Hunter, single target, talents and area hits left out):
   Hell-entry gear (tier 14 rares, mid rolls) kills a Booma in 0.9 s and a Chaos Bringer in 2.9 s at tier 1; top
@@ -1520,6 +1559,8 @@ modifiers, shards, the look), `riftGen.ts` (rooms and waves), `riftTypes.ts`, `u
   for every six of forging, so the climb slows to a crawl instead of stopping. Enemy hits on a Hunter at the 75%
   strike cap stay small (3-7% of max HP at tier 25); for them the wall is kill time and Corruption, not damage.
 - Elites: 65% of spawns (the Hell Ruins' share). Rooms with 9+ spawns get two champions anywhere.
+- Crowd-control resistance (2026-10-16): Hell's CC affixes, +1.5% a tier up to tier 16 and one more at every rank
+  from tier 10 (`riftCc`; see "Crowd control on enemies").
 - Balance reference (bot, never dodges; Lv 100 test Hunter, `testCharacter` kit, tier 1, Guardian end): before the
   trim, Mines 8 fight rooms in ~690 s of fight time and ~5000 HP taken (~2.3 bars); after it, Ruins 8 fight rooms in
   ~320 s and ~7300 HP (~3.4 bars). Untuned past that: every number is a first draft.
@@ -1532,7 +1573,7 @@ modifiers, shards, the look), `riftGen.ts` (rooms and waves), `riftTypes.ts`, `u
   taken by walking over them (a violet crystal with a pillar, a yellow halo on 3+ modifiers). A full stash leaves
   them on the ground.
 - A shard: mostly its rift's tier (20% one up, 10% one down), **1-2 modifiers (blue) or 3-4 (yellow, 40%)**, at most
-  one forced affix; Bleeding names the region whose hazards come through (Caves, Mines or Ruins). Shards from before
+  one forced affix and one crowd-control modifier; Bleeding names the region whose hazards come through (Caves, Mines or Ruins). Shards from before
   2026-10-11 lose their region and the two removed modifiers on load (`riftSave`); one left with none is dropped.
 - **Modifiers** (each adds item quantity and rarity, shown on the shard; no immunities):
   - **Forced affix**: every enemy is Overclocked / Molten / Stormcaller / Frenzied / Regenerating / Volatile (added
@@ -1543,6 +1584,9 @@ modifiers, shards, the look), `riftGen.ts` (rooms and waves), `riftTypes.ts`, `u
     rifts: the Forest's only hazard is trees, and every rift mixes every region now.)
   - **Hasted**: enemies move and attack 20% faster. **Swift**: wind-ups 15% shorter, never under 0.8 s.
   - **Starved**: injectors charge 30% slower. **Hardened**: enemy HP +40%. **Brutal**: enemies hit 12% harder.
+  - **Steadfast / Insulated / Relentless / Anchored** (2026-10-16): every enemy resists stun / freeze / slow /
+    knockback at least 50% plus the tier's growth (capped at 75%), on top of its own CC affixes. Quantity +8%,
+    rarity +6% each.
 - **Item quantity** multiplies every enemy's drop chance, which can pass 1: the rest is the chance of a second drop
   (`rollEnemyDrops`). At the end it adds rare gear (weapon, armour or unit) on top of the fixed pieces: quantity x 3
   on a Guardian, x 6 on a boss (+50%: 1.5 or 3 more). **Item rarity** multiplies rare-item odds; a shard's rarity also

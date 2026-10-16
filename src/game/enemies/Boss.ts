@@ -1,7 +1,8 @@
 import type * as THREE from 'three';
 import type { EnemyId, Race } from '../config';
 import type { BossId } from '../data/bosses';
-import type { Hittable } from '../combat/types';
+import type { CcKind } from '../ccResist';
+import type { Hittable, StatusTimer } from '../combat/types';
 import type { Level } from '../world/Level';
 import type { TelegraphShape } from '../world/Telegraph';
 import type { Effect } from '../world/Effects';
@@ -65,8 +66,12 @@ export interface Boss {
   parts(): Hittable[];
   /** Is this hittable part of the boss? */
   owns(h: Hittable): boolean;
+  /** % chance it shrugs off this kind of crowd control: every boss is immune (100). */
+  ccResist(kind: CcKind): number;
+  /** Burn and poison running on it (the boss bar). */
+  statusTimers(): StatusTimer[];
   update(dt: number, ctx: BossContext): void;
-  /** Speed of its state machine and telegraphs (above 1 in higher rift tiers, lower while chilled). */
+  /** Speed of its state machine and telegraphs (above 1 in higher rift tiers). */
   readonly tempo: number;
   /** Keep the player out of the body and the body inside the arena. */
   collide(playerPos: THREE.Vector3, playerRadius: number, level: Level): void;

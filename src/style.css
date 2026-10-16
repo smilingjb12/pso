@@ -216,6 +216,66 @@ canvas {
 .st-poison {
   --c: #6ad84a;
 }
+.st-slow {
+  --c: #a8c8ff;
+}
+/* Crowd-control resistances (2026-10-16): glyph + % chips under the affixes; immune ones struck through. */
+.target-ccr:empty {
+  display: none;
+}
+.target-ccr,
+.boss-ccr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+.ccr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px 1px 3px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: #d8dee8;
+  border: 1px solid rgba(200, 210, 230, 0.35);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.45);
+  text-shadow: 0 1px 2px #000;
+  font-variant-numeric: tabular-nums;
+}
+.ccr-glyph {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.ccr-glyph svg {
+  width: 13px;
+  height: 13px;
+}
+.ccr-chip.immune {
+  color: #9aa2ae;
+}
+.ccr-chip.immune .ccr-glyph::after {
+  content: '';
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: 50%;
+  height: 2px;
+  background: #ff5a4a;
+  transform: rotate(-35deg);
+  box-shadow: 0 0 2px #000;
+}
+.ccr-label {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #9aa2ae;
+  text-shadow: 0 1px 2px #000;
+  margin-right: 2px;
+}
 
 .reticle {
   position: absolute;
@@ -313,6 +373,18 @@ canvas {
 .float.miss {
   color: #a0a0a0;
   font-size: 16px;
+}
+/* A crowd-control effect the enemy shrugged off (its resistance), or ignores outright (bosses). */
+.float.resist {
+  color: #b8c0cc;
+  font-size: 14px;
+  font-style: italic;
+  letter-spacing: 0.08em;
+}
+.float.immune {
+  color: #8a929e;
+  font-size: 14px;
+  letter-spacing: 0.12em;
 }
 .float.hurt {
   color: #ff4a4a;

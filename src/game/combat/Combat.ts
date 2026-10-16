@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { sfx } from '../../audio';
+import type { CcKind } from '../ccResist';
 import type { Character } from '../character';
 import { angleDelta, yawTo } from '../collision';
 import {
@@ -142,6 +143,11 @@ export function chestOf(t: Hittable): THREE.Vector3 {
 /** Frozen right now (a Frozen Shooter shot shatters it). Bosses never are. */
 export function frozen(t: Hittable): boolean {
   return !!t.statusTimers?.().some((s) => s.kind === 'freeze' && s.left > 0);
+}
+
+/** Stunned or frozen right now (a plain flinch isn't): a stun or freeze never extends one (2026-10-16). */
+export function controlled(t: Hittable): boolean {
+  return !!t.statusTimers?.().some((s) => (s.kind === 'stun' || s.kind === 'freeze') && s.left > 0);
 }
 
 /** Stagger state of anything hittable (enemies flinching or frozen). */
@@ -310,33 +316,91 @@ export class Combat {
     return (this.debuffs.get(t)?.chillT ?? 0) > 0 || frozen(t);
   }
 
-  /** Chill: slower movement and attacks for a while. `frost`: what it deals while chilled (Frostbite modifiers). */
-  chillTarget(t: Hittable, mult: number, seconds: number, frost = 1): void {
+  // ------------------------------------------------------- crowd control
+  // Stun, freeze, slow and knockback all land through here (2026-10-16): each rolls the target's resistance
+  // (ccResist.ts; bosses are immune), and a stun or freeze never extends one already running.
+
+  /** Seconds of play so far (RESIST / IMMUNE float throttling). */
+  private clock = 0;
+  /** When each target (a whole boss, for its parts) last showed RESIST or IMMUNE. */
+  private ccFloatAt = new WeakMap<object, number>();
+
+  /**
+   * Does `t` shrug off this crowd control? Rolls its resistance; 100 is immunity (bosses, a Frenzied enemy's stuns,
+   * rooted ones' shoves). A refusal floats RESIST or IMMUNE over it, at most once a second (IMMUNE every 2 s),
+   * unless `quiet` (the knockback on ordinary hits, which would float on nearly every blow).
+   */
+  resisted(t: Hittable, kind: CcKind, quiet = false): boolean {
+    const r = t.ccResist?.(kind) ?? 0;
+    if (r <= 0) return false;
+    const immune = r >= 100;
+    if (!immune && this.h.rng() * 100 >= r) return false;
+    if (quiet) return true;
+    const boss = this.h.world().boss;
+    const key = boss?.owns(t) ? boss : t;
+    if (this.clock - (this.ccFloatAt.get(key) ?? -Infinity) >= (immune ? 2 : 1)) {
+      this.ccFloatAt.set(key, this.clock);
+      this.h.float(tmp.copy(t.pos).setY(t.aimHeight + 1.2), immune ? 'IMMUNE' : 'RESIST', immune ? 'immune' : 'resist');
+    }
+    return true;
+  }
+
+  /** Chill: slower movement and attacks for a while, unless it resists. `frost`: what it deals while chilled (Frostbite). */
+  chillTarget(t: Hittable, mult: number, seconds: number, frost = 1): boolean {
+    if (this.resisted(t, 'slow')) return false;
+    this.applyChill(t, mult, seconds, frost);
+    return true;
+  }
+
+  private applyChill(t: Hittable, mult: number, seconds: number, frost = 1): void {
     t.chill?.(mult, seconds);
     const d = this.debuff(t);
     d.chillT = Math.max(d.chillT, seconds);
     d.frost = Math.min(d.frost, frost);
   }
 
-  /** Freeze a regular enemy for a while; a boss only chills. */
-  freeze(t: Hittable, seconds: number): void {
-    if (isBossPart(t)) {
-      this.chillTarget(t, techScaling.chillMult, seconds + 1);
-      return;
-    }
-    if ((this.debuffs.get(t)?.noFreezeT ?? 0) > 0) return;
-    t.applyStatus('freeze', 0, seconds);
+  /**
+   * A zone's slow (an ice field, sticky napalm), applied every tick: each enemy rolls its resistance once, the first
+   * time the zone reaches it, and the answer holds for the zone (rolling every tick would land it within a few).
+   */
+  zoneChill(mult: number, seconds: number): (t: Hittable) => void {
+    const resists = new Map<Hittable, boolean>();
+    return (t) => {
+      let r = resists.get(t);
+      if (r === undefined) resists.set(t, (r = this.resisted(t, 'slow')));
+      if (!r) this.applyChill(t, mult, seconds);
+    };
   }
 
-  /** Stun a regular enemy; a boss takes a big stagger instead. */
-  stun(t: Hittable, seconds: number): void {
-    if (isBossPart(t)) t.damage(0, this.p.pos.x, this.p.pos.z, 0, stagger.heavy * 2);
-    else t.applyStatus('stun', 0, seconds);
+  /**
+   * Freeze an enemy for a while. `chance`: the effect's own odds, rolled first (so only a hit that would have frozen
+   * can show RESIST). Never one already stunned or frozen, nor one a Frozen Shooter shatter just thawed.
+   */
+  freeze(t: Hittable, seconds: number, chance = 1): boolean {
+    if (chance < 1 && this.h.rng() >= chance) return false;
+    if (controlled(t) || (this.debuffs.get(t)?.noFreezeT ?? 0) > 0) return false;
+    if (this.resisted(t, 'freeze')) return false;
+    t.applyStatus('freeze', 0, seconds);
+    return true;
+  }
+
+  /** Stun an enemy for a while (as freeze: its own odds first, never one already stunned or frozen, resistance). */
+  stun(t: Hittable, seconds: number, chance = 1): boolean {
+    if (chance < 1 && this.h.rng() >= chance) return false;
+    if (controlled(t)) return false;
+    if (this.resisted(t, 'stun')) return false;
+    t.applyStatus('stun', 0, seconds);
+    return true;
+  }
+
+  /** Push an enemy away from a point without damage (Breathing Room, Point Blank, Push), unless it resists. */
+  shove(t: Hittable, fromX: number, fromZ: number, force: number): void {
+    if (!this.resisted(t, 'knockback')) t.shove?.(fromX, fromZ, force);
   }
 
   /** Pull an enemy toward a point (Vortex). */
   pull(t: Hittable, toX: number, toZ: number, force: number): void {
-    t.shove?.(t.pos.x * 2 - toX, t.pos.z * 2 - toZ, force);
+    this.shove(t, t.pos.x * 2 - toX, t.pos.z * 2 - toZ, force);
   }
 
   /** What an enemy (or a boss, through any of its parts) deals right now: weakened, and the frost on chilled ones. */
@@ -393,6 +457,7 @@ export class Combat {
 
   /** Tick debuffs, venom, zones and timers. Called every frame with the player's status tick. */
   private tickEffects(dt: number): void {
+    this.clock += dt;
     for (const [t, d] of this.debuffs) {
       d.weakT -= dt;
       d.markT -= dt;
@@ -433,6 +498,8 @@ export class Combat {
   deal(target: Hittable, dmg: number, fromX: number, fromZ: number, kb: number, staggerPts: number, credit = true): boolean {
     const before = target.hp;
     const wasStaggered = staggered(target);
+    // Knockback resistance shrugs off a hit's push without a float (it would show on nearly every blow).
+    if (kb > 0 && this.resisted(target, 'knockback', true)) kb = 0;
     const killed = target.damage(dmg, fromX, fromZ, kb, staggerPts);
     const dealt = before - Math.max(0, target.hp);
     if (credit && dealt > 0) this.h.onDamage(target, dealt);
@@ -608,7 +675,7 @@ export class Combat {
       if (basic && c.hasPassive('suppress')) this.weaken(target, c.pMult('suppress', T.suppressMult), T.suppressTime);
       if (basic && s.finisher && c.hasPassive('pin')) this.stun(target, T.pinStun);
       if (art && p.pointBlankT <= 0 && c.hasPassive('pointBlank') && Math.hypot(target.pos.x - p.pos.x, target.pos.z - p.pos.z) - target.radius <= T.pointBlankRange) {
-        target.shove?.(p.pos.x, p.pos.z, T.pointBlankKnock);
+        this.shove(target, p.pos.x, p.pos.z, T.pointBlankKnock);
         p.dashCharges = Math.min(p.maxDashCharges, p.dashCharges + 1);
         p.pointBlankT = T.pointBlankCooldown;
         this.h.float(tmp.copy(p.pos).setY(2.6), 'POINT BLANK', 'proc');
@@ -625,13 +692,19 @@ export class Combat {
         p.hp = Math.min(p.maxHp, p.hp + heal);
         this.h.float(tmp.copy(p.pos).setY(2.2), `+${heal}`, 'heal');
         sfx('hit.special');
+        extra += ` <span class="l-proc">${sp.name}</span>`;
       } else {
-        const status = sp.effect === 'burn' ? 'burn' : sp.effect === 'freeze' ? 'freeze' : sp.effect === 'poison' ? 'poison' : 'stun';
-        target.applyStatus(status, sp.power, sp.duration);
-        this.h.float(tmp.copy(target.pos).setY(target.aimHeight + 1.2), sp.name + '!', 'proc');
-        sfx('hit.special', { x: target.pos.x, z: target.pos.z });
+        // Heat and Venom always take; Ice and Shock are crowd control, which the target may resist.
+        let landed = true;
+        if (sp.effect === 'freeze') landed = this.freeze(target, sp.duration);
+        else if (sp.effect === 'stun') landed = this.stun(target, sp.duration);
+        else target.applyStatus(sp.effect === 'burn' ? 'burn' : 'poison', sp.power, sp.duration);
+        if (landed) {
+          this.h.float(tmp.copy(target.pos).setY(target.aimHeight + 1.2), sp.name + '!', 'proc');
+          sfx('hit.special', { x: target.pos.x, z: target.pos.z });
+          extra += ` <span class="l-proc">${sp.name}</span>`;
+        }
       }
-      extra += ` <span class="l-proc">${sp.name}</span>`;
     }
 
     this.h.hitstop(strong ? feel.hitstopHeavy : feel.hitstopNormal);
@@ -689,7 +762,8 @@ export class Combat {
     if (c.hasUnique('reactorRod')) mult *= Math.min(U.reactorCap, 1 + U.reactorStep * Math.max(0, this.reactorRun - 1));
     const power = c.techDamage(s.tech) * mult * raceMult * this.longshot(target, true) * this.takenMult(target) * cutMult(target.techResist ?? 0);
     const dmg = Math.max(1, Math.round(power * target.damageMult(p.pos.x, p.pos.z, (s.stagger ?? 1) > 1) * (crit ? c.critDamage() : 1)));
-    const staggerPts = stagger.light * (s.stagger ?? 1) * (s.share ?? 1) * c.pMult('conductor', T.conductorMult);
+    // A storm's or blizzard's ticks don't flinch (2026-10-16: Razonde strikes kept enemies locked in place).
+    const staggerPts = s.tick ? 0 : stagger.light * (s.stagger ?? 1) * (s.share ?? 1) * c.pMult('conductor', T.conductorMult);
     const killed = this.deal(target, dmg, p.pos.x, p.pos.z, (s.stagger ?? 1) > 1 ? 1.5 : 1, staggerPts);
     if (s.tick) target.quietHit?.();
     this.h.onHit(target);
@@ -701,8 +775,7 @@ export class Combat {
       const kindle = c.pMult('kindle', T.kindleMult);
       if (t.element === 'fire') target.applyStatus('burn', (dmg * techScaling.burnShare * kindle * (s.burn ?? 1)) / techScaling.burnTime, techScaling.burnTime);
       if (t.element === 'ice') this.chillTarget(target, techScaling.chillMult, techScaling.chillTime);
-      if (t.element === 'lightning' && this.h.rng() < (t.statusChance + c.stats().mst * techScaling.statusPerMst) * kindle * (s.stun ?? 1)) {
-        this.stun(target, 2);
+      if (t.element === 'lightning' && this.stun(target, 2, (t.statusChance + c.stats().mst * techScaling.statusPerMst) * kindle * (s.stun ?? 1))) {
         extra += ' <span class="l-proc">stun</span>';
       }
     }
@@ -743,7 +816,7 @@ export class Combat {
       // Breathing Room: a perfect shot pushes back everything close.
       if (streak > 0 && c.hasPassive('breathingRoom')) {
         for (const e of this.h.world().targets()) {
-          if (Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z) - e.radius <= T.breathingRoomRange) e.shove?.(p.pos.x, p.pos.z, T.breathingRoomKnock);
+          if (Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z) - e.radius <= T.breathingRoomRange) this.shove(e, p.pos.x, p.pos.z, T.breathingRoomKnock);
         }
         this.flashShape({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius: T.breathingRoomRange }, 0xffd080);
       }

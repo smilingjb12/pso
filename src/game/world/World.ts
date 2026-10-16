@@ -6,7 +6,8 @@ import {
   type EnemyArchetype, type EnemyId,
 } from '../config';
 import { AFFIXES, affixFits, HARD_AFFIXES, MINES_AFFIXES, rollAffixes } from '../data/affixes';
-import { riftArch, riftBossScale, riftElite, riftForcedAffix, type RiftInfo } from '../rifts';
+import { riftArch, riftBossScale, riftCc, riftElite, riftForcedAffix, type RiftInfo } from '../rifts';
+import { rollCcResist, type CcResist } from '../ccResist';
 import { shieldBubble } from '../enemies/affixFx';
 import { hardArch, hardBoss, hardScale } from '../hard';
 import { separateCircles } from '../collision';
@@ -369,6 +370,7 @@ export class World {
 
   spawnEnemy(type: EnemyId, x: number, z: number, room: string | null, opts: EnemyOptions = {}): Enemy {
     if (!opts.arch && this.run.hard) opts = { ...opts, arch: this.archFor(type) };
+    if (!opts.ccResist) opts = { ...opts, ccResist: this.rollCc(type, opts) };
     const e = createEnemy(type, x, z, this.hooks.rng, opts);
     e.room = room;
     this.level.resolveCircle(e.pos, e.radius);
@@ -382,6 +384,17 @@ export class World {
       for (const b of this.enemies) if (b instanceof Gunbot && b.alive && b.room === room && !b.link) this.link(e, b);
     }
     return e;
+  }
+
+  /** An enemy's crowd-control resistances: by the difficulty, its rank, and a rift's tier and modifiers (ccResist.ts). */
+  private rollCc(type: EnemyId, opts: EnemyOptions): CcResist {
+    const run = this.run;
+    return rollCcResist({
+      difficulty: run.hell ? 'hell' : run.hard ? 'nightmare' : 'normal',
+      rank: opts.champion ? 'champion' : opts.elite ? 'elite' : 'regular',
+      arch: opts.arch ?? enemyDefs[type],
+      ...(run.rift ? riftCc(run.rift) : {}),
+    }, this.hooks.rng);
   }
 
   private link(node: Enemy, bot: Gunbot): void {
@@ -578,7 +591,7 @@ export class World {
         const dx = Math.sin(ang);
         const dz = Math.cos(ang);
         const [x, z] = inRoom(e.pos.x + dx * 0.6, e.pos.z + dz * 0.6);
-        const c = this.spawnEnemy(e.type, x, z, e.room, { arch, noReward: true, elite: false, affixes: [] });
+        const c = this.spawnEnemy(e.type, x, z, e.room, { arch, noReward: true, elite: false, affixes: [], ccResist: {} });
         c.wave = e.wave;
         c.yaw = e.yaw;
         c.state = 'hitstun';

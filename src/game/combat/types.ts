@@ -1,11 +1,12 @@
 import type * as THREE from 'three';
+import type { CcKind } from '../ccResist';
 import type { Race } from '../config';
 
 export type StatusEffect = 'burn' | 'freeze' | 'stun' | 'poison';
 
-/** A status running on a target, for the HUD: seconds left out of the duration it last got. */
+/** A status running on a target, for the HUD: seconds left out of the duration it last got (slow: chilled). */
 export interface StatusTimer {
-  kind: StatusEffect;
+  kind: StatusEffect | 'slow';
   left: number;
   total: number;
 }
@@ -47,4 +48,6 @@ export interface Hittable {
   chill?(mult: number, seconds: number): void;
   /** Push it away from a point without damage (Breathing Room, Point Blank). */
   shove?(fromX: number, fromZ: number, force: number): void;
+  /** % chance it shrugs off this kind of crowd control (none if missing; 100: immune). Combat.resisted rolls it. */
+  ccResist?(kind: CcKind): number;
 }

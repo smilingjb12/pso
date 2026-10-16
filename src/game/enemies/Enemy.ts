@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { affixes as affixCfg, elite as eliteCfg, hard as hardCfg, pylonCfg, stagger as staggerCfg, type EnemyArchetype, type EnemyId, type PlayerStatus, type Race } from '../config';
+import type { CcKind, CcResist } from '../ccResist';
 import { AFFIXES, type Affix } from '../data/affixes';
 import { angleDelta, turnToward, yawTo } from '../collision';
 import type { Hittable, StatusEffect, StatusTimer } from '../combat/types';
@@ -93,6 +94,8 @@ export interface EnemyOptions {
   affixes?: Affix[];
   /** Hard: the room's champion (two affixes, gold aura, tougher, richer drops). */
   champion?: boolean;
+  /** Crowd-control resistances (rolled by the world at spawn; ccResist.ts). */
+  ccResist?: CcResist;
   /** Stats to use instead of the type's own (Hard scaling, Splitting copies). */
   arch?: EnemyArchetype;
 }
@@ -125,6 +128,8 @@ export abstract class Enemy implements Hittable {
   private readonly baseAtp: number;
   readonly affixes: Affix[];
   readonly champion: boolean;
+  /** Its crowd-control resistances, percent (ccResist.ts); see ccResist() for what it resists right now. */
+  readonly ccResists: CcResist;
   /** A Shielding ally tethered to it: it takes reduced damage while that one lives. */
   shieldedBy: Enemy | null = null;
   /** Shielding: allies it protects right now, and where it wants to stand (behind them); set by the world. */
@@ -230,6 +235,7 @@ export abstract class Enemy implements Hittable {
     this.elite = !!opts.elite || this.champion;
     // Hell gives regular enemies an affix too (no elite stats, halo or loot).
     this.affixes = [...(opts.affixes ?? [])];
+    this.ccResists = { ...(opts.ccResist ?? {}) };
     this.noReward = !!opts.noReward;
     this.maxHp = Math.round(arch.hp * (this.champion ? hardCfg.championHp : this.elite ? eliteCfg.hpMult : 1));
     this.baseAtp = Math.round(arch.atp * (this.champion ? hardCfg.championAtp : this.elite ? eliteCfg.atpMult : 1));
@@ -264,6 +270,12 @@ export abstract class Enemy implements Hittable {
   hasAffix(a: Affix): boolean {
     return this.affixes.includes(a);
   }
+  /** % chance it shrugs off this kind of crowd control: its rolled resistance; Frenzied ignores stuns, rooted ones shoves. */
+  ccResist(kind: CcKind): number {
+    if (kind === 'stun' && this.frenzied) return 100;
+    if (kind === 'knockback' && this.rooted) return 100;
+    return this.ccResists[kind] ?? 0;
+  }
   /** Frenzied, and below its threshold. */
   get frenzied(): boolean {
     return this.hasAffix('frenzied') && this.hp < this.maxHp * affixCfg.frenzyAt;
@@ -279,9 +291,13 @@ export abstract class Enemy implements Hittable {
   /** Chill (Barta, a Barta Field): speed multiplier and seconds left. */
   private chillMult = 1;
   private chillT = 0;
+  /** The longest chill it got since this one started (the HUD timer). */
+  private chillTotal = 0;
   chill(mult: number, seconds: number): void {
+    if (this.chillT <= 0) this.chillTotal = 0;
     this.chillMult = this.chillT > 0 ? Math.min(this.chillMult, mult) : mult;
     this.chillT = Math.max(this.chillT, seconds);
+    this.chillTotal = Math.max(this.chillTotal, this.chillT);
   }
   /** Flinching or frozen right now. */
   get staggered(): boolean {
@@ -424,6 +440,7 @@ export abstract class Enemy implements Hittable {
       const total = Math.max(this.arch.hitstun, this.stunFor);
       out.push({ kind: 'stun', left: Math.max(0, total - this.stateT), total });
     }
+    if (this.chillT > 0) out.push({ kind: 'slow', left: this.chillT, total: this.chillTotal });
     if (this.burnT > 0) out.push({ kind: 'burn', left: this.burnT, total: this.burnTotal });
     if (this.poisonT > 0) out.push({ kind: 'poison', left: this.poisonT, total: this.poisonTotal });
     return out;

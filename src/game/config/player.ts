@@ -64,7 +64,7 @@ export const techScaling = {
    */
   burnShare: 0.4,
   burnTime: 3,
-  /** Barta always chills: movement and attacks at this speed for chillTime s (no stacking; bosses too). */
+  /** Ice techniques chill: movement and attacks at this speed for chillTime s (no stacking; it may be resisted, and bosses are immune). */
   chillMult: 0.75,
   chillTime: 3,
 };

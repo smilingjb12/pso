@@ -24,6 +24,7 @@ import { Character, dropVerdict, itemName, makeItem, rarityOf, readAffixData, se
 import { craftWith, salvageYield, upgradeCrafting } from './crafting';
 import { angleDelta, yawTo } from './collision';
 import { Combat } from './combat/Combat';
+import { CC_KINDS, type CcKind } from './ccResist';
 import type { Hittable } from './combat/types';
 import type { ComboEvent } from './combo';
 import { expeditionFoe, type Foe } from './dps';
@@ -2145,6 +2146,12 @@ export class Game implements GameApi {
     return chips;
   }
 
+  /** The target's crowd-control resistances for its frame: the kinds it has, percent (100: immune). */
+  private ccChips(t: Hittable): { kind: CcKind; pct: number }[] {
+    if (!t.ccResist) return [];
+    return CC_KINDS.map((kind) => ({ kind, pct: Math.round(t.ccResist!(kind)) })).filter((c) => c.pct > 0);
+  }
+
   private hudState(): HudState {
     const p = this.player;
     const ch = this.char;
@@ -2248,11 +2255,18 @@ export class Game implements GameApi {
             statuses: shown.statusTimers?.() ?? [],
             affixes: shown instanceof Enemy ? this.affixChips(shown) : [],
             champion: shown instanceof Enemy && shown.champion,
+            cc: this.ccChips(shown),
           }
         : null,
       boss:
         boss && boss.engaged && (boss.alive || boss.deadT < 3)
-          ? { name: boss.name + (boss.alive ? (boss.hudNote ?? '') : ''), race: boss.race, weak: boss.weakPointOpen }
+          ? {
+              name: boss.name + (boss.alive ? (boss.hudNote ?? '') : ''),
+              race: boss.race,
+              weak: boss.weakPointOpen,
+              immune: CC_KINDS.filter((k) => boss.ccResist(k) >= 100),
+              statuses: boss.statusTimers(),
+            }
           : null,
       area: world.def.name + (this.run.rift && world.def.kind !== 'city' ? '' : difficultyTag(this.diff)),
       roomInfo: this.roomInfo,

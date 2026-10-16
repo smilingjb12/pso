@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { sfx, type SfxId } from '../../audio';
+import type { CcKind } from '../ccResist';
 import type { HardBossScale, Race } from '../config';
 import { BOSSES, type BossId } from '../data/bosses';
 import type { Hittable, StatusEffect, StatusTimer } from '../combat/types';
@@ -31,8 +32,6 @@ export type BossBaseState = 'dormant' | 'intro' | 'dead';
 
 /** Poison dps on a boss is capped so it can't melt a big HP pool (Burn isn't: it comes from the hit that lit it). */
 export const BOSS_DOT_CAP = 44;
-/** Chill slows a boss by at most this much (speed multiplier floor), whatever chilled it. */
-export const BOSS_CHILL_FLOOR = 0.75;
 const DOT_TICK = 0.5;
 const FLASH_TIME = 0.08;
 
@@ -99,7 +98,7 @@ export interface PartHost {
   damagePart(p: BossPart, amount: number): boolean;
   partMult(p: BossPart): number;
   applyStatus(effect: StatusEffect, power: number, duration: number): void;
-  chill(mult: number, seconds: number): void;
+  ccResist(kind: CcKind): number;
   statusTimers(): StatusTimer[];
 }
 
@@ -156,8 +155,8 @@ export class BossPart implements Hittable {
   applyStatus(effect: StatusEffect, power: number, duration: number): void {
     this.boss.applyStatus(effect, power, duration);
   }
-  chill(mult: number, seconds: number): void {
-    this.boss.chill(mult, seconds);
+  ccResist(kind: CcKind): number {
+    return this.boss.ccResist(kind);
   }
   statusTimers(): StatusTimer[] {
     return this.boss.statusTimers();
@@ -265,17 +264,16 @@ export abstract class BossBase<S extends string, A extends string = never> imple
     this.dot.apply(effect, power, duration);
   }
 
-  /** Chill (Barta, a Barta Field): the whole fight runs slower for a while, its telegraphs included. */
-  private chillMult = 1;
-  private chillT = 0;
-  chill(mult: number, seconds: number): void {
-    mult = Math.max(BOSS_CHILL_FLOOR, mult);
-    this.chillMult = this.chillT > 0 ? Math.min(this.chillMult, mult) : mult;
-    this.chillT = Math.max(this.chillT, seconds);
+  /**
+   * Bosses shrug off every kind of crowd control: stun, freeze, slow and knockback (2026-10-16, the user's call;
+   * chill used to slow the whole fight, telegraphs included). Burn, poison and the debuffs still land.
+   */
+  ccResist(_kind: CcKind): number {
+    return 100;
   }
-  /** Speed multiplier on its state machine and telegraphs: a rift's tier speeds it up, chill slows it. */
+  /** Speed multiplier on its state machine and telegraphs: a rift's tier speeds it up. */
   get tempo(): number {
-    return (this.hard?.tempo ?? 1) * (this.chillT > 0 && this.alive ? this.chillMult : 1);
+    return this.hard?.tempo ?? 1;
   }
 
   statusTimers(): StatusTimer[] {
@@ -314,9 +312,8 @@ export abstract class BossBase<S extends string, A extends string = never> imple
   // ------------------------------------------------------------- update
 
   update(dt: number, ctx: BossContext): void {
-    // Chill slows everything it does (Burn and Poison still tick in real time).
+    // A rift's tempo speeds everything it does (Burn and Poison still tick in real time).
     const tdt = dt * this.tempo;
-    this.chillT = Math.max(0, this.chillT - dt);
     this.time += tdt;
     this.stateT += tdt;
     this.flashT = Math.max(0, this.flashT - dt);

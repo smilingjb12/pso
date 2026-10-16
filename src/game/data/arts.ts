@@ -229,7 +229,7 @@ const WEAPON_ARTS: ArtDef[] = [
   weaponArt('flashShot', HANDGUN, {
     name: 'Flash Shot', level: 12, tpPct: 0.12, cooldown: 8, windup: 0.2, recovery: 0.35,
     power: 1.2, role: 'control', pose: 'shoot', range: 16, color: 0xffffa0,
-    desc: 'A blinding round: stuns the target for 2 s (a boss only staggers).',
+    desc: 'A blinding round: stuns the target for 2 s (bosses are immune).',
     mods: [
       [m('blinding', 'Blinding', 'Stuns for 3 s.'), m('burst', 'Flash Burst', 'Stuns up to three enemies in a cone.'), m('charged', 'Charged', '+150% damage, a 1 s stun.')],
       [m('exposed', 'Exposed', 'Stunned enemies take 20% more.'), m('quick', 'Quick Draw', 'Cooldown 5 s.'), m('room', 'Breathing Room', 'Also knocks back everything within 4 m of you.')],
@@ -252,7 +252,7 @@ const WEAPON_ARTS: ArtDef[] = [
     desc: 'Charge, then fire a beam 26 m long through everything in its line.',
     mods: [
       [m('deadeye', 'Deadeye', '+20% damage.'), m('quick', 'Quick Charge', 'A 0.55 s wind-up.'), m('wide', 'Wide Beam', 'Twice as wide.')],
-      [m('cryo', 'Cryo Round', 'Freezes the enemies it hits for 1.5 s (bosses only chill).'), m('mark', 'Marking', 'Marks everything it hits.'), m('impact', 'Impact', 'Staggers everything it hits.')],
+      [m('cryo', 'Cryo Round', 'Freezes the enemies it hits for 1.5 s (not bosses).'), m('mark', 'Marking', 'Marks everything it hits.'), m('impact', 'Impact', 'Staggers everything it hits.')],
     ],
   }),
   weaponArt('mark', RIFLE, {
@@ -267,7 +267,7 @@ const WEAPON_ARTS: ArtDef[] = [
   weaponArt('freezeRound', RIFLE, {
     name: 'Freeze Round', level: 28, tpPct: 0.16, windup: 0.3, recovery: 0.4,
     power: 1.6, role: 'control', pose: 'shoot', range: 26, color: 0x80d8ff,
-    desc: 'A cryo round that chills the target; one that is already chilled freezes for 2 s (bosses only chill).',
+    desc: 'A cryo round that chills the target; one that is already chilled freezes for 2 s (bosses are immune to both).',
     mods: [
       [m('deep', 'Deep Freeze', 'Freezes for 3 s.'), m('burst', 'Frost Burst', 'Chills everything within 3 m of the target.'), m('shatter', 'Shatter', 'Against a frozen enemy it deals ×2.5.')],
       [m('frostbite', 'Frostbitten', 'Chilled enemies deal 20% less.'), m('quick', 'Quick Shot', 'Half the wind-up.'), m('glacier', 'Glacier', 'Leaves an ice field for 4 s that chills.')],
@@ -307,7 +307,7 @@ const WEAPON_ARTS: ArtDef[] = [
   weaponArt('freezeTrap', GUNS, {
     name: 'Freeze Trap', level: 5, tpPct: 0.12, cooldown: 12, windup: 0.25, recovery: 0.3,
     power: 2, role: 'control', pose: 'kneel', range: 3, color: 0x80d8ff,
-    desc: 'Set a trap at your feet (it lasts 15 s): the first enemy to step on it freezes everything within 3 m for 2.5 s (bosses only chill).',
+    desc: 'Set a trap at your feet (it lasts 15 s): the first enemy to step on it freezes everything within 3 m for 2.5 s (not bosses).',
     mods: [
       [m('damage', 'Damage Trap', 'Explodes for twice a weapon hit instead of freezing.'), m('wide', 'Wide Trap', 'Reaches 4.5 m.'), m('toss', 'Toss', 'Thrown at the target instead.')],
       [m('twin', 'Twin Traps', 'Sets two.'), m('quick', 'Quick Set', 'Cooldown 8 s.'), m('frostbite', 'Frostbite', 'Frozen enemies take 20% more.')],

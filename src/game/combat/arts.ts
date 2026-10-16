@@ -99,10 +99,11 @@ export class ArtRunner {
 
   /** Burning ground for `seconds`: Burn (`dps` a second) on whatever stands in it. */
   private burnGround(shape: TelegraphShape, seconds: number, dps: number, slow = 0): void {
+    const chill = slow ? this.k.zoneChill(slow, 0.6) : null;
     this.k.zone(shape, seconds, 0.5, (inside) => {
       for (const e of inside) {
         e.applyStatus('burn', dps, 1);
-        if (slow) this.k.chillTarget(e, slow, 0.6);
+        chill?.(e);
       }
     });
     // Scorched ground with embers rising all over it, and a faint warm glow.
@@ -113,8 +114,9 @@ export class ArtRunner {
 
   /** Ice on the ground for `seconds`: enemies in it move and act at `mult` speed. */
   private ice(shape: TelegraphShape, seconds: number, mult: number): void {
+    const chill = this.k.zoneChill(mult, 0.4);
     this.k.zone(shape, seconds, 0.25, (inside) => {
-      for (const e of inside) this.k.chillTarget(e, mult, 0.4);
+      for (const e of inside) chill(e);
     });
     this.k.fx(new Field(shape, seconds, fieldMark(seconds, { color: 0xbfe8ff, opacity: 0.38, look: 'frost' }), Math.min(40, 4 + shapeArea(shape)), FROST_GLITTER));
   }
@@ -201,7 +203,7 @@ export class ArtRunner {
           const onHit = (t: Hittable, mult = 1) => {
             this.wh(t, 1.6, x, { mult: mult * (focused ? 2 : 1) });
             if (!t.alive) return;
-            if (x.has('shock') && this.k.h.rng() < 0.2) this.k.stun(t, 1.5);
+            if (x.has('shock')) this.k.stun(t, 1.5, 0.2);
             if (x.has('frost')) this.k.chillTarget(t, techScaling.chillMult, techScaling.chillTime);
           };
           const hit = new Set<Hittable>();
@@ -340,7 +342,7 @@ export class ArtRunner {
           }, { speed: 40 });
         }
         if (x.has('room')) {
-          for (const e of this.k.targetsIn({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius: 4 })) e.shove?.(p.pos.x, p.pos.z, T.breathingRoomKnock);
+          for (const e of this.k.targetsIn({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius: 4 })) this.k.shove(e, p.pos.x, p.pos.z, T.breathingRoomKnock);
           this.k.flashShape({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius: 4 }, 0xffd080);
         }
         break;
@@ -356,7 +358,7 @@ export class ArtRunner {
           this.bolt(t, ARTS.ricochet.color, (h) => {
             hit.push(h);
             this.wh(h, 1.4, x, { mult });
-            if (h.alive && (x.has('arc') || (x.has('shock') && this.k.h.rng() < 0.2))) this.k.stun(h, x.has('arc') ? 0.8 : 1.5);
+            if (h.alive && (x.has('arc') || x.has('shock'))) this.k.stun(h, x.has('arc') ? 0.8 : 1.5, x.has('arc') ? 1 : 0.2);
             const next = left > 0 ? this.k.nearestOthers(h.pos, hit, 1, 6)[0] : undefined;
             if (next) fly(h.pos.clone().setY(1.25), next, left - 1);
             else {
@@ -505,7 +507,7 @@ export class ArtRunner {
         const away = t ? yawTo(t.pos.x, t.pos.z, p.pos.x, p.pos.z) : p.yaw + Math.PI;
         const d = x.has('far') ? 5 : 3;
         if (x.has('concussive')) {
-          for (const e of this.k.targetsIn({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius: 3 })) e.shove?.(p.pos.x, p.pos.z, T.breathingRoomKnock);
+          for (const e of this.k.targetsIn({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius: 3 })) this.k.shove(e, p.pos.x, p.pos.z, T.breathingRoomKnock);
           this.k.flashShape({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius: 3 }, 0xffd080);
         }
         p.artMove = { fx: p.pos.x, fz: p.pos.z, tx: p.pos.x + Math.sin(away) * d, tz: p.pos.z + Math.cos(away) * d, t: 0, dur: c.artTiming('backflipShot').active };
@@ -754,7 +756,7 @@ export class ArtRunner {
     this.k.fx(new GroundMark(shape, { color: 0x1a0c06, opacity: 0.3 * share, look: 'scorch', fadeIn: 0.3, hold: 0.3, fadeOut: 1 }));
     for (const t of this.k.targetsIn(shape)) {
       this.th(t, x, { share });
-      if (t.alive && x.has('blast')) t.shove?.(p.pos.x, p.pos.z, 12);
+      if (t.alive && x.has('blast')) this.k.shove(t, p.pos.x, p.pos.z, 12);
     }
     if (share === 1 && !x.echo) {
       if (x.has('firewall')) this.burnGround(shape, 3, this.techEstimate('gifoie', 0.25));
@@ -929,7 +931,7 @@ export class ArtRunner {
       this.th(h, x, { share });
       if (!h.alive) continue;
       if (x.has('freezing') && wasChilled) this.k.freeze(h, 1.5);
-      if (x.has('push')) h.shove?.(p.pos.x, p.pos.z, 12);
+      if (x.has('push')) this.k.shove(h, p.pos.x, p.pos.z, 12);
     }
     if (share === 1 && !x.echo) {
       if (x.has('field')) this.ice(shape, 4, 0.6);

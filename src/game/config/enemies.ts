@@ -863,6 +863,35 @@ export const elite = {
 };
 
 /**
+ * Crowd-control resistance (2026-10-16, the user's design; ccResist.ts, DESIGN.md "Crowd control on enemies"): a
+ * second set of affixes, apart from the elite ones, each a % chance to shrug off one kind of crowd control (stun,
+ * freeze, slow, knockback). Every application rolls it; nothing wears it down. How many a mob carries and how
+ * strong they are come from the difficulty, its rank, and a rift's tier and modifiers. First drafts.
+ */
+export const crowdControl = {
+  /** Affixes per rank [regular, elite, champion]; a fraction is the chance of one more. */
+  count: {
+    normal: [0, 0.5, 0.5],
+    nightmare: [0.3, 1, 2],
+    hell: [1, 1.5, 2],
+  } as Record<'normal' | 'nightmare' | 'hell', [number, number, number]>,
+  /** Strength of each, percent, rolled evenly between the two. */
+  strength: {
+    normal: [15, 25],
+    nightmare: [20, 35],
+    hell: [30, 45],
+  } as Record<'normal' | 'nightmare' | 'hell', [number, number]>,
+  /** Rifts roll Hell's, plus this much strength per tier above 1 (up to riftCfg.capTier)... */
+  riftPerTier: 1.5,
+  /** ...and one more affix at every rank from this tier on. */
+  riftExtraFrom: 10,
+  /** A rift's CC modifier (Steadfast and the rest) lifts its kind on every enemy to at least this, plus the tier's growth. */
+  riftModFloor: 50,
+  /** No rolled resistance goes past this: only bosses are immune. */
+  cap: 75,
+};
+
+/**
  * Elite affixes. Normal Mines elites roll Overclocked or Volatile; on Hard every elite (and
  * champion) rolls from the whole pool (see data/affixes.ts).
  */
