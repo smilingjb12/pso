@@ -114,7 +114,7 @@ const STATUS_LABEL: Record<string, string> = { stun: 'Stunned', freeze: 'Frozen'
 
 const CC_LABEL: Record<CcKind, string> = { stun: 'stun', freeze: 'freeze', slow: 'slow', knockback: 'knockback' };
 
-/** A crowd-control resistance chip: its glyph and %, or struck through and "immune" (glyph only with `bare`). */
+/** A crowd-control resistance chip: its glyph and %, or "immune" (glyph only with `bare`). */
 function ccChip(kind: CcKind, pct: number, bare = false): string {
   const immune = pct >= 100;
   const title = immune ? `Immune to ${CC_LABEL[kind]}` : `Resists ${CC_LABEL[kind]} ${pct}% of the time`;
@@ -588,7 +588,7 @@ export class Hud {
     this.targetCc.innerHTML = list.map((c) => ccChip(c.kind, c.pct)).join('');
   }
 
-  /** "Immune" and the crowd control a boss ignores, struck through, under its name. */
+  /** "Immune" and the glyphs of the crowd control a boss ignores, under its name. */
   private setBossCc(immune: CcKind[]): void {
     const key = immune.join(',');
     if (key === this.bossCcKey) return;

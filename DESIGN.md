@@ -96,9 +96,11 @@ chance never changes from repeated casts (the user: it should always affect a mo
   stagger. They still deal damage and roll their stun or chill.
 - **Bosses** are immune to all four. Chill no longer slows a boss's whole fight (it did, telegraphs included, down
   to ×0.75), and stuns no longer pretend to stagger one. Burn, poison, venom, weaken, mark and sunder still land.
-- **Frames:** the enemy frame has a row of chips under the affixes, glyph and % (`⚡ 40%`; struck through and
-  "immune" for an immunity), only for the kinds it has. A landed slow gets a badge like stun and freeze. The boss bar
-  shows "Immune" with the four glyphs struck through, and the burns and poisons running on it (hidden before).
+- **Frames:** the enemy frame has a row of chips under the affixes, glyph and % (`⚡ 40%`, or `⚡ immune`), only
+  for the kinds it has, bigger than the affix chips (14 px bold, 18 px glyphs). A landed slow gets a badge like stun
+  and freeze. The boss bar shows "Immune" with the four glyphs, and the burns and poisons running on it (hidden
+  before). Same day, the user's calls: the frame went dark and nearly opaque with larger text (the see-through red
+  panel was hard to read), and immunities lost a red strike-through over the glyph.
 - Considered and left out (2026-10-16): tenacity (each landed stun or freeze raising resistance for a while), a fixed
   immunity window after each one, and Monster Hunter style buildup meters.
 

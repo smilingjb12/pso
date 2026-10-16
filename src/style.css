@@ -104,16 +104,21 @@ canvas {
   top: 18px;
   left: 50%;
   transform: translateX(-50%);
-  width: 300px;
-  padding: 6px 10px;
-  background: rgba(40, 10, 10, 0.6);
-  border: 1px solid rgba(255, 140, 120, 0.35);
-  border-radius: 5px;
+  width: 340px;
+  padding: 8px 12px 9px;
+  /* Dark and nearly opaque (2026-10-16: the user found the see-through red panel hard to read over the scene). */
+  background: rgba(14, 9, 11, 0.88);
+  border: 1px solid rgba(255, 140, 120, 0.45);
+  border-radius: 6px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
   display: none;
 }
 .target-name {
-  font-size: 13px;
-  letter-spacing: 0.06em;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow: 0 1px 2px #000;
 }
 /* Name, attribute and status badges on one line. */
 .target-head {
@@ -127,6 +132,8 @@ canvas {
   padding: 0;
   border: none;
   background: none;
+  font-size: 12px;
+  font-weight: 600;
 }
 /* Status badges at the right end of the name line: each ring is a clock of the time left. */
 .target-status {
@@ -149,18 +156,20 @@ canvas {
 .affix-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 4px;
+  gap: 5px;
+  margin-top: 6px;
 }
 .affix-chip {
-  padding: 1px 7px;
-  font-size: 10px;
-  letter-spacing: 0.08em;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--c);
+  /* The aura colour lifted toward white, so dark ones (Corrupting's violet) still read. */
+  color: color-mix(in srgb, var(--c) 65%, #fff);
   border: 1px solid var(--c);
   border-radius: 3px;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.6);
   text-shadow: 0 1px 2px #000;
 }
 .st {
@@ -219,7 +228,7 @@ canvas {
 .st-slow {
   --c: #a8c8ff;
 }
-/* Crowd-control resistances (2026-10-16): glyph + % chips under the affixes; immune ones struck through. */
+/* Crowd-control resistances (2026-10-16): glyph + % chips under the affixes ("immune" for an immunity). */
 .target-ccr:empty {
   display: none;
 }
@@ -228,20 +237,22 @@ canvas {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  margin-top: 4px;
+  gap: 6px;
+  margin-top: 7px;
 }
+/* Bigger than the affix chips (2026-10-16, the user's ask): these numbers matter mid-fight. */
 .ccr-chip {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 1px 6px 1px 3px;
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  color: #d8dee8;
-  border: 1px solid rgba(200, 210, 230, 0.35);
-  border-radius: 3px;
-  background: rgba(0, 0, 0, 0.45);
+  gap: 5px;
+  padding: 3px 9px 3px 6px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  color: #f2f6fc;
+  border: 1px solid rgba(220, 228, 240, 0.5);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.6);
   text-shadow: 0 1px 2px #000;
   font-variant-numeric: tabular-nums;
 }
@@ -251,28 +262,24 @@ canvas {
   place-items: center;
 }
 .ccr-glyph svg {
-  width: 13px;
-  height: 13px;
+  width: 18px;
+  height: 18px;
 }
+/* Immune: the plain glyph and the word (no strike-through: the user's call, 2026-10-16). */
 .ccr-chip.immune {
-  color: #9aa2ae;
+  color: #c4ccd8;
+  font-weight: 600;
 }
-.ccr-chip.immune .ccr-glyph::after {
-  content: '';
-  position: absolute;
-  left: -1px;
-  right: -1px;
-  top: 50%;
-  height: 2px;
-  background: #ff5a4a;
-  transform: rotate(-35deg);
-  box-shadow: 0 0 2px #000;
+/* Glyph only on the boss bar: keep the padding even. */
+.boss-ccr .ccr-chip {
+  padding: 3px 6px;
 }
 .ccr-label {
-  font-size: 10px;
+  font-size: 12px;
+  font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #9aa2ae;
+  color: #c4ccd8;
   text-shadow: 0 1px 2px #000;
   margin-right: 2px;
 }
