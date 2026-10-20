@@ -1,4 +1,4 @@
-import { casting, drops, formulas, hasteCfg, magCfg, passiveCfg, skillCfg, uniqueCfg, type AttackTiming, type Race } from './config';
+import { casting, drops, formulas, hasteCfg, magCfg, passiveCfg, skillCfg, uniqueCfg, type AttackTiming } from './config';
 import type { BossId } from './data/bosses';
 import { asDifficulty, type Difficulty } from './difficulty';
 import type { Look } from './models/heroine';
@@ -42,14 +42,14 @@ import {
   type WeaponKindDef,
 } from './data/items';
 import type { RiftSave } from './rifts';
-import { AFFIX_CAPS, AFFIX_TIERS, affixText, ITEM_AFFIXES, RACE_AFFIX, tierIlvl, tierRange, type AffixRoll, type ItemAffixId } from './data/itemAffixes';
+import { AFFIX_CAPS, AFFIX_TIERS, affixText, ITEM_AFFIXES, RIFT_TOP_ILVL, tierIlvl, tierRange, type AffixRoll, type ItemAffixId } from './data/itemAffixes';
 import { critChance } from './formulas';
 import { craftLoadouts, maxedRoll, rollCost } from './craftCeiling';
 import { ATTACK_TECHS, isAttackTech, techAttackPower, techniques, techTpCost, type TechId } from './data/techniques';
 import { ART_IDS, artClasses, ARTS, isTechArt, SUPPORT_ARTS, type ArtId } from './data/arts';
 import { hastened } from './combo';
 import { estimateDamage, type Foe } from './dps';
-import type { UniqueId } from './data/uniques';
+import { UNIQUES, type UniqueId } from './data/uniques';
 import { chargeOf, describeInjector, injectorDef, injectorStats } from './injectors';
 import { GEAR_SLOTS, isGear, isStackable, itemRequirement, itemSlot, stackCap, type GearSlot, type ItemDefOf, type ItemType } from './itemTypes';
 import { magBonuses, magPointsFree, magSpend, newMag, PHOTON_BLASTS, readMag, type MagData, type MagStat, type PhotonBlastId } from './mag';
@@ -67,7 +67,7 @@ export interface ItemInstance {
    * frame and barrier counts as fully ground (`grindLevels`); both fields are dropped on load.
    */
   grind?: number;
-  bane?: Partial<Record<Race, number>>;
+  bane?: Record<string, number>;
   /** A rolled weapon special (counts as a prefix; a unique's fixed one is on its def). */
   special?: SpecialId;
   /** Normal when missing; a def marked `rare` is always unique. */
@@ -125,10 +125,13 @@ export interface CharacterData {
   talents?: unknown;
   /** Mag points per stat (permanent). */
   mag: MagData;
-  /** Learned units: one per kind (its affix), the best roll found. Picking up a better one replaces it. */
+  /**
+   * Learned units: one per kind (its affix, or a unique unit's own), the best roll found. Picking up a better one
+   * replaces it.
+   */
   units: ItemInstance[];
   /** Kinds slotted in the Mag, in priority order: the equipped frame's unit slots decide how many are active. */
-  magUnits: ItemAffixId[];
+  magUnits: UnitKind[];
   stats: {
     kills: number;
     deaths: number;
@@ -202,9 +205,12 @@ export function makeItem(id: string, extra: Partial<ItemInstance> = {}): ItemIns
   return inst;
 }
 
-/** Rift-forged items (item level above 100): how much their base stats are raised (1 = not forged). */
+/**
+ * Rift-forged items (item level above 100): how much their base stats are raised (1 = not forged). It stops at the
+ * deepest rift's item level (drops from the old, deeper tiers count as from there).
+ */
 export function forgeMult(inst: Pick<ItemInstance, 'ilvl'>): number {
-  return inst.ilvl && inst.ilvl > 100 ? 1 + drops.riftForgePerTier * (inst.ilvl - 100) : 1;
+  return inst.ilvl && inst.ilvl > 100 ? 1 + drops.riftForgePerTier * (Math.min(inst.ilvl, RIFT_TOP_ILVL) - 100) : 1;
 }
 
 /**
@@ -243,7 +249,8 @@ export function ownAffixes(inst: ItemInstance): AffixRoll[] {
  * heavy hit-chance cap is gone); anything else unknown is dropped, and Mending rolls are capped at its new top.
  * TP per staff hit became TP a second on 2026-10-10 (capped at its top). Cast speed became Haste on 2026-10-11:
  * capped at the item tier's Haste top, dropped below tier 8 (no Haste there), the larger one kept if the item
- * already has Haste.
+ * already has Haste. Race % went with enemy races on 2026-10-17: those rolls are dropped here (unknown), and
+ * upgradeCrafting tops the item back up to its counts with fresh ones.
  */
 function readAffixes(rolls: AffixRoll[], tier = 1, legacy = false): AffixRoll[] {
   // Foie / Zonde / Barta damage became Fire / Lightning / Ice damage on 2026-10-14 (the Arts redesign).
@@ -319,13 +326,15 @@ function affixSum(rolls: AffixRoll[], id: ItemAffixId): number {
 
 /** What a unit is called: its affix's unit name ("Heart Unit"). */
 function unitName(inst: ItemInstance): string {
+  const def = getDef(inst.id);
+  if (def.unique) return def.name;
   const a = inst.affixes?.[0];
   return a ? `${ITEM_AFFIXES[a.id].unit ?? ITEM_AFFIXES[a.id].word} Unit` : 'Unit';
 }
 
 /**
  * The item's name. Magic items take a word from their prefix (a rolled special or a prefix affix) and their
- * suffix ("Heat Brand of Beasts +3"), rares their rolled name ("Doom Edge +2"), uniques their own.
+ * suffix ("Heat Brand of Luck"), rares their rolled name ("Doom Edge +2"), uniques their own.
  */
 export function itemName(inst: ItemInstance): string {
   const def = getDef(inst.id);
@@ -372,11 +381,6 @@ export function sellPrice(inst: ItemInstance): number {
   let p = (def.price / 4) * RARITY_PRICE[rarityOf(inst)];
   if (inst.mod) p *= 1.4;
   return Math.max(1, Math.floor(p)) * (inst.qty ?? 1);
-}
-
-/** A weapon's % against `race` (its race affix). */
-export function weaponRace(inst: ItemInstance, race: Race): number {
-  return affixSum(ownAffixes(inst), RACE_AFFIX[race]);
 }
 
 /**
@@ -645,15 +649,18 @@ export class Character {
 
   /** TP for one use of an Art now (Combat adds Clarity, Overload and the like). */
   artCost(id: ArtId): number {
-    if (isTechArt(id)) return this.techCost(id);
-    const mult = (id === 'cyclone' && this.artMod(id, 'longSpin') ? 1.4 : 1) * this.artRankTp(id);
+    // The Limiter: every Art costs more.
+    const limiter = this.hasUnique('limiter') ? 1 + this.uval(uniqueCfg.limiterTp) : 1;
+    if (isTechArt(id)) return Math.max(1, Math.round(this.techCost(id) * limiter));
+    const mult = (id === 'cyclone' && this.artMod(id, 'longSpin') ? 1.4 : 1) * this.artRankTp(id) * limiter;
     return Math.max(1, Math.round(ARTS[id].tpPct * this.baseTp() * mult));
   }
 
-  /** Seconds before an Art can be used again (some modifiers shorten it). */
+  /** Seconds before an Art can be used again (some modifiers shorten it, and the Limiter). */
   artCooldown(id: ArtId): number {
     const quick: Partial<Record<ArtId, number>> = { guardStance: 6, shadowStep: 3.5, flashShot: 5, freezeTrap: 8 };
-    return this.artMod(id, 'quick') && quick[id] !== undefined ? quick[id]! : ARTS[id].cooldown;
+    const cd = this.artMod(id, 'quick') && quick[id] !== undefined ? quick[id]! : ARTS[id].cooldown;
+    return this.hasUnique('limiter') ? cd * Math.max(0.1, 1 - this.uval(uniqueCfg.limiterCd)) : cd;
   }
 
   /** Effects a channel Art makes (modifiers add some). */
@@ -820,7 +827,7 @@ export class Character {
   }
 
   /** The learned unit of this kind, if any. */
-  learnedUnit(kind: ItemAffixId): ItemInstance | undefined {
+  learnedUnit(kind: UnitKind): ItemInstance | undefined {
     return this.data.units.find((u) => unitKind(u) === kind);
   }
 
@@ -908,22 +915,42 @@ export class Character {
     }
     addBonus(s, affixStats(this.wornAffixes()));
     if (this.hasUnique('overclockCore')) s.hp = Math.round(s.hp * uniqueCfg.overclockHpMult);
+    // Max TP the Yasakani Magatama and Dark Bridge cost.
+    if (this.hasUnique('yasakani')) s.tp = Math.round(s.tp * Math.max(0.1, 1 - this.uval(uniqueCfg.yasakaniTp)));
+    if (this.hasUnique('darkBridge')) s.tp = Math.round(s.tp * (1 - uniqueCfg.bridgeTp));
     return s;
+  }
+
+  /** Haste % that only lasts a while (Dragon Fang's Rampage), set by combat. Not saved. */
+  extraHaste = 0;
+
+  /** All healing's multiplier (DF Shield takes some away). */
+  healMult(): number {
+    return this.hasUnique('dfShield') ? 1 - uniqueCfg.dfHeal : 1;
   }
 
   /** Haste % from what is worn (Haste and Frail affixes): it adds up (the Overclock Core doubles it). */
   haste(): number {
     const h = this.gearAffix('haste') + this.gearAffix('frail');
-    return this.hasUnique('overclockCore') ? h * uniqueCfg.overclockHasteMult : h;
+    return (this.hasUnique('overclockCore') ? h * uniqueCfg.overclockHasteMult : h) + this.extraHaste;
   }
 
-  /** Is this unique worn (weapon, frame or barrier)? Its effect works while it is. */
+  /** Is this unique worn (weapon, frame or barrier), or a unique unit active in the Mag? Its effect works while it is. */
   hasUnique(id: UniqueId): boolean {
+    if (UNIQUES[id].base.type === 'unit') return this.activeUnits().some((u) => getDef(u.id).unique === id);
     for (const slot of ['weapon', 'frame', 'barrier'] as const) {
       const inst = this.equippedItem(slot);
       if (inst && getDef(inst.id).unique === id) return true;
     }
     return false;
+  }
+
+  /**
+   * A unique unit's number, raised by the Heart of Falz (its own aside): `base` is the effect (or cost) at strength 1.
+   * Effects scale away from 1 for multipliers: uval(0.3) is 0.45 with the Heart.
+   */
+  uval(base: number): number {
+    return this.hasUnique('heartOfFalz') ? base * uniqueCfg.heartMult : base;
   }
 
   /** Crit chance in percent (the crit stat is kept in tenths), capped. */
@@ -933,7 +960,8 @@ export class Character {
 
   /** Damage multiplier of a crit: ×2, plus Crit damage affixes (and the Red Ring's +100%). */
   critDamage(): number {
-    return formulas.critDamage + this.gearAffix('critDmg') / 100 + (this.hasUnique('redRing') ? uniqueCfg.redRingCrit : 0);
+    return formulas.critDamage + this.gearAffix('critDmg') / 100 + (this.hasUnique('redRing') ? uniqueCfg.redRingCrit : 0)
+      - (this.hasUnique('venomSac') ? this.uval(uniqueCfg.venomSacCrit) : 0);
   }
 
   /** Strike or Area damage taken, in % less: gear, Mag and class (Farlla adds in combat), capped. */
@@ -1026,12 +1054,6 @@ export class Character {
   weaponSpecial(): SpecialId | undefined {
     const inst = this.weaponInstance();
     return inst ? itemSpecial(inst) : undefined;
-  }
-
-  /** The equipped weapon's race % (its race affix). */
-  weaponAttr(race: Race): number {
-    const inst = this.weaponInstance();
-    return inst ? weaponRace(inst, race) : 0;
   }
 
   /** The weapon's own damage range, built-in grind included (it adds to the Weapon damage stat on each hit). */
@@ -1161,7 +1183,7 @@ export class Character {
   }
 
   /** Slot a learned unit into the Mag (at the end of its order). */
-  insertUnit(kind: ItemAffixId): string | null {
+  insertUnit(kind: UnitKind): string | null {
     if (!this.learnedUnit(kind)) return 'You have not learned that unit';
     const m = this.data.magUnits;
     if (m.includes(kind)) return 'Already in your Mag';
@@ -1181,7 +1203,7 @@ export class Character {
    * Switch exactly these learned units on: they go first in the Mag's order. Units it held besides stay slotted
    * only when these fill every slot the frame opens (behind them, inactive), so none of them switches on too.
    */
-  setActiveUnits(kinds: ItemAffixId[]): string | null {
+  setActiveUnits(kinds: UnitKind[]): string | null {
     if (kinds.some((k) => !this.learnedUnit(k))) return 'You have not learned that unit';
     const rest = kinds.length >= this.unitSlotsOpen ? this.data.magUnits.filter((k) => !kinds.includes(k)) : [];
     this.data.magUnits = [...kinds, ...rest].slice(0, MAG_UNIT_SLOTS);
@@ -1235,12 +1257,20 @@ export class Character {
   }
 }
 
-/** A unit's kind: the affix it carries. */
-export function unitKind(inst: ItemInstance): ItemAffixId | undefined {
-  return getDef(inst.id).type === 'unit' ? inst.affixes?.[0]?.id : undefined;
+/** A unit's kind: the affix it carries, or (a unique unit) its own. */
+export type UnitKind = ItemAffixId | UniqueId;
+
+/** A unit's kind: the affix it carries, or the unique it is. */
+export function unitKind(inst: ItemInstance): UnitKind | undefined {
+  const def = getDef(inst.id);
+  if (def.type !== 'unit') return undefined;
+  return def.unique ?? inst.affixes?.[0]?.id;
 }
 
-/** A unit roll beats another of its kind: a bigger value, or the same with a smaller penalty. */
+/** A unique unit kind (its effect and cost on the card), not an affix. */
+export const isUniqueKind = (k: UnitKind): k is UniqueId => !!UNIQUES[k as UniqueId];
+
+/** A unit roll beats another of its kind: a bigger value, or the same with a smaller penalty. A unique unit never does. */
 function unitBetter(a: ItemInstance, b: ItemInstance): boolean {
   const x = a.affixes?.[0];
   const y = b.affixes?.[0];
@@ -1298,7 +1328,7 @@ export function simulateEquip(ch: Character, inst: ItemInstance, slot: GearSlot)
 }
 
 /** The same character with these units switched on (the Damage tab compares it; nothing changes until they're used). */
-export function simulateUnits(ch: Character, kinds: ItemAffixId[]): Character {
+export function simulateUnits(ch: Character, kinds: UnitKind[]): Character {
   const sim = new Character(JSON.parse(JSON.stringify(ch.data)) as CharacterData);
   sim.setActiveUnits(kinds);
   return sim;
@@ -1319,16 +1349,13 @@ export function magPointValue(ch: Character, stat: MagStat, foe: Foe): number | 
 
 /** A plain enemy of the character's level, for verdicts made without an expedition in mind (any level: armour ~12%). */
 export function levelFoe(_level: number): Foe {
-  return { armor: 12, techResist: 0, label: 'enemy', mainRace: null, bossRace: null };
+  return { armor: 12, techResist: 0, label: 'enemy' };
 }
 
-/** Damage per second a character deals: its selected technique for casters, its weapon otherwise (against the foe's main race, or all on average). */
+/** Damage per second a character deals: its selected technique for casters, its weapon otherwise. */
 export function damageRating(ch: Character, foe: Foe): number {
   const e = estimateDamage(ch, foe, ch.prefersMagic);
-  const by = e.spell ?? e.weapon;
-  if (foe.mainRace) return by[foe.mainRace];
-  const v = Object.values(by);
-  return v.reduce((a, b) => a + b, 0) / v.length;
+  return e.spell ?? e.weapon;
 }
 
 /**
@@ -1492,7 +1519,7 @@ export interface CraftedBest {
   rows: CompareRow[];
   /** Photon Crystal swaps, as affix texts: what goes dormant and what comes in. */
   swaps: { out: string; in: string }[];
-  /** Photon Spheres: strength tiers (or race % / Haste steps) to climb. */
+  /** Photon Spheres: strength tiers (or Haste steps) to climb. */
   spheres: number;
   /** Affixes Photon Drops must reroll to the top of their range (luck, so not counted out). */
   rerolls: number;
@@ -1570,7 +1597,12 @@ export function bestCrafted(ch: Character, inst: ItemInstance, foe: Foe = levelF
 function unitVerdict(ch: Character, inst: ItemInstance): DropVerdict {
   const kind = unitKind(inst);
   const have = kind && ch.learnedUnit(kind);
-  const yours = have ? affixText(have.affixes![0]) : '';
+  const yours = have?.affixes?.[0] ? affixText(have.affixes[0]) : '';
+  if (getDef(inst.id).unique) {
+    return ch.unitStatus(inst) === 'new'
+      ? { look: 'upgrade', mark: 'up', note: 'New unique unit: learned on pickup' }
+      : { look: 'junk', mark: 'same', note: 'Already learned' };
+  }
   switch (ch.unitStatus(inst)) {
     case 'new':
       return { look: 'upgrade', mark: 'up', note: 'New unit: learned on pickup' };
@@ -1593,7 +1625,7 @@ export function rarityLine(inst: ItemInstance): string {
   const what =
     def.type === 'weapon' ? weaponKinds[def.kind].label : def.type === 'armor' ? `${def.line === 'basic' ? '' : `${armorLines[def.line].label} `}${def.slot === 'frame' ? 'Frame' : 'Barrier'}` : def.type === 'unit' ? 'Unit' : '';
   const base = r === 'rare' && def.type !== 'unit' ? ` (${def.name})` : '';
-  const ilvl = 'tier' in def && def.type !== 'injector' ? ` · iLvl ${inst.ilvl ?? tierIlvl(def.tier)}` : '';
+  const ilvl = 'tier' in def && def.type !== 'injector' && !(def.type === 'unit' && def.unique) ? ` · iLvl ${inst.ilvl ?? tierIlvl(def.tier)}` : '';
   const k = forgeMult(inst);
   const forged = k > 1 && (def.type === 'weapon' || def.type === 'armor') ? ` · Rift-forged +${Math.round((k - 1) * 100)}%` : '';
   return `${RARITY_LABEL[r]} ${what}${base}${ilvl}${forged}`;

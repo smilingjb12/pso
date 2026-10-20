@@ -1,11 +1,11 @@
 import {
   bestCrafted, compareEquip, craftRecipe, decidingRow, describeItem, rowPct, gearSlot, grindBonus, grindLevels, itemName, itemSpecial, ownAffixes, rarityLine, rarityOf,
-  simulateEquip, statDef, unitSlots, weaponRace, type Character, type CompareRow, type ItemInstance,
+  simulateEquip, statDef, unitSlots, type Character, type CompareRow, type ItemInstance,
 } from '../game/character';
 import { PHOTON_RARITY } from '../game/crafting';
-import { estimateDamage, RACES, type Foe } from '../game/dps';
+import { estimateDamage, type Foe } from '../game/dps';
 import { affixText, ITEM_AFFIXES, penaltyText, type AffixRoll, type ItemAffixId } from '../game/data/itemAffixes';
-import { ATTR_LABEL, getDef, specials, type ArmorItemDef } from '../game/data/items';
+import { getDef, specials, type ArmorItemDef } from '../game/data/items';
 import { UNIQUES, type UniqueId } from '../game/data/uniques';
 import { STAT_LABEL, statValue, type StatKey } from '../game/data/stats';
 import { techniques } from '../game/data/techniques';
@@ -125,30 +125,22 @@ function affixLineHtml(r: AffixRoll, delta: string, state: '' | 'lost' | 'dorman
   return `<div class="ic-aff${state ? ` ${state}` : ''}"><i class="ic-dot ${dotOf(r.id)}"></i><span class="ic-txt">${main}${pen}</span>${delta}</div>`;
 }
 
-/** The weapon's damage table (per race, % against the equipped weapon), races without a bonus on either collapsed into one row. */
+/** The weapon's damage per second (and % against the equipped weapon). */
 function damageHtml(ch: Character, inst: ItemInstance, foe: Foe, equipped: boolean): string {
   const caster = ch.prefersMagic;
   const now = estimateDamage(ch, foe, caster);
   const est = equipped ? now : estimateDamage(simulateEquip(ch, inst, 'weapon'), foe, caster);
-  const current = ch.weaponInstance();
   const pct = (v: number, was: number) => {
     if (equipped) return '';
     const p = Math.round((v / Math.max(0.001, was) - 1) * 100);
     return p ? ` <i class="ic-d ${p > 0 ? 'up' : 'down'}">${signed(p)}%</i>` : '';
   };
-  const cells = (r: (typeof RACES)[number]) =>
-    `${est.spell && now.spell ? `<td>${Math.round(est.spell[r])}${pct(est.spell[r], now.spell[r])}</td>` : ''}<td>${Math.round(est.weapon[r])}${pct(est.weapon[r], now.weapon[r])}</td>`;
-  const special = RACES.filter((r) => weaponRace(inst, r) || (!equipped && current && weaponRace(current, r)));
-  const plain = RACES.filter((r) => !special.includes(r));
-  const rows = special.map((r) => {
-    const v = weaponRace(inst, r);
-    return `<tr><td class="attr-${r}">${ATTR_LABEL[r]}${v ? ` <span class="ic-d up">+${v}%</span>` : ''}</td>${cells(r)}</tr>`;
-  });
-  if (plain.length) rows.push(`<tr class="off"><td>${plain.length === RACES.length ? 'All races' : plain.map((r) => ATTR_LABEL[r]).join(' · ')}</td>${cells(plain[0])}</tr>`);
-  const spellHead = est.spell ? `<th title="Chained heavy casts of your selected technique (the mouse wheel changes it)">Heavy ${techniques[est.tech].name}</th>` : '';
-  const how = 'An estimate against one enemy: counts weapon damage, tech damage, race %, crits, talents and swing / cast speed. Leaves out perfect chains, specials, buffs and TP.';
+  const cells =
+    `${est.spell !== null && now.spell !== null ? `<td>${Math.round(est.spell)}${pct(est.spell, now.spell)}</td>` : ''}<td>${Math.round(est.weapon)}${pct(est.weapon, now.weapon)}</td>`;
+  const spellHead = est.spell !== null ? `<th title="Chained heavy casts of your selected technique (the mouse wheel changes it)">Heavy ${techniques[est.tech].name}</th>` : '';
+  const how = 'An estimate against one enemy: counts weapon damage, tech damage, crits, talents and swing / cast speed. Leaves out perfect chains, specials, buffs and TP.';
   return `<div class="ic-sec" title="${esc(how)}">Damage / sec vs. a typical ${esc(foe.label)} enemy</div>
-    <table class="dps ic-dps"><tr><th></th>${spellHead}<th title="The best light / heavy mix of a 3-hit combo on one enemy">Weapon</th></tr>${rows.join('')}</table>`;
+    <table class="dps ic-dps"><tr><th></th>${spellHead}<th title="The best light / heavy mix of a 3-hit combo on one enemy">Weapon</th></tr><tr><td>Per second</td>${cells}</tr></table>`;
 }
 
 /**
@@ -278,7 +270,7 @@ export function itemCardHtml(ch: Character, inst: ItemInstance, foe: Foe): strin
     const rest = describeItem(inst, ch).filter((l) => !l.startsWith('Req:') && l !== rarityLine(inst) && l !== def.desc);
     const affixTexts = new Set(ownAffixes(inst).map(affixText));
     const plain = rest.filter((l) => !affixTexts.has(l));
-    if (def.type === 'unit') html += `<div class="ic-sec">Affix</div>${ownAffixes(inst).map((r) => affixLineHtml(r, '')).join('')}`;
+    if (def.type === 'unit' && !unique) html += `<div class="ic-sec">Affix</div>${ownAffixes(inst).map((r) => affixLineHtml(r, '')).join('')}`;
     if (plain.length) html += `<div class="ic-lines">${plain.map((l) => `<div>${esc(l)}</div>`).join('')}</div>`;
   }
 

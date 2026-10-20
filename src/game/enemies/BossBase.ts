@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { sfx, type SfxId } from '../../audio';
 import type { CcKind } from '../ccResist';
-import type { HardBossScale, Race } from '../config';
+import type { HardBossScale } from '../config';
 import { BOSSES, type BossId } from '../data/bosses';
 import type { Hittable, StatusEffect, StatusTimer } from '../combat/types';
 import type { Level } from '../world/Level';
@@ -88,7 +88,6 @@ export class BossDot {
 /** What a BossPart asks of the boss it belongs to. */
 export interface PartHost {
   readonly name: string;
-  readonly race: Race;
   readonly hp: number;
   readonly maxHp: number;
   readonly armor: number;
@@ -118,9 +117,6 @@ export class BossPart implements Hittable {
 
   get name(): string {
     return this.boss.name;
-  }
-  get race(): Race {
-    return this.boss.race;
   }
   get radius(): number {
     return typeof this.size === 'number' ? this.size : this.size();
@@ -210,9 +206,6 @@ export abstract class BossBase<S extends string, A extends string = never> imple
   get name(): string {
     return BOSSES[this.id].name;
   }
-  get race(): Race {
-    return BOSSES[this.id].race;
-  }
   get atp(): number {
     return Math.round((this.stats.atp + (this.hard?.atp ?? 0)) * (this.hard?.atpMult ?? 1));
   }
@@ -231,6 +224,10 @@ export abstract class BossBase<S extends string, A extends string = never> imple
   }
   get enraged(): boolean {
     return this.hp / this.maxHp <= this.stats.enrageAt;
+  }
+  /** Its state and the last attack it picked, for the fight log ("triple/eclipse"). */
+  get traceState(): string {
+    return this.lastAttack ? `${this.state}/${this.lastAttack}` : this.state;
   }
   /** Nothing can be hurt (asleep, waking, dead). */
   get untouchable(): boolean {

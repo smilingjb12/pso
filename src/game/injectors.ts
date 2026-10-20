@@ -1,4 +1,4 @@
-import { injectorCfg, passiveCfg } from './config';
+import { injectorCfg, passiveCfg, uniqueCfg } from './config';
 import type { Character, ItemInstance } from './character';
 import { getDef, INJECTOR_MODS, type InjectorItemDef, type InjectorKind, type InjectorMod } from './data/items';
 
@@ -50,6 +50,9 @@ export function injectorStats(inst: ItemInstance, ch?: Character): InjectorStats
   if (mod === 'absorbent') chargeMult *= injectorCfg.absorbentMult;
   if (ch) chargeMult *= 1 + ch.gearAffix('injCharge') / 100;
   potency *= 1 + injectorBoost(def.kind, ch).pct / 100;
+  // Rol Carapace's cost (every dose), and DF Shield's on healing (Mate doses).
+  if (ch?.hasUnique('rolCarapace')) potency *= 1 - uniqueCfg.carapaceInjector;
+  if (ch && def.kind === 'mate') potency *= ch.healMult();
   return { kind: def.kind, doses, potency, over, chargeMult, mod };
 }
 

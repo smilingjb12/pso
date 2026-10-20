@@ -1,5 +1,4 @@
 export type EarlyPressPolicy = 'break' | 'ignore';
-export type Race = 'native' | 'abeast' | 'machine' | 'dark';
 
 export interface AttackTiming {
   windup: number; // seconds before the hit lands

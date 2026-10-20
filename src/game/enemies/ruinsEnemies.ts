@@ -529,7 +529,7 @@ export class Sorcerer extends Enemy {
       this.warn(ctx, shape, secs, () => {
         if (!this.alive || this.state !== 'cast') return;
         fx();
-        ctx.areaStrike(this, shape, mult, 3, a.shotStatus, a.shotStatusChance);
+        ctx.shotStrike(this, shape, mult, 3, a.shotStatus, a.shotStatusChance);
         if (last) {
           this.tele.forget();
           this.released = 0.35;

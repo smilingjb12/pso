@@ -5,24 +5,29 @@ export const drops = {
   boxDropRate: 0.6,
   /**
    * Falz Rifts (2026-10-11, the user's pick after rift tier 7 gear still lost to Hell Ruins gear): rift drops are
-   * Rift-forged, their base stats (weapon damage and stat bonuses, armour damage taken and bonuses) raised this much per rift
-   * tier (item level above 100): +21% at tier 7, +48% at tier 16.
+   * Rift-forged, their base stats (weapon damage and stat bonuses, armour damage taken and bonuses) raised this much per
+   * item level above 100 (two a rift tier): +6% at tier 1, +60% at tier 10, the top (2026-10-17, the user's call: gear
+   * keeps adding a little up to the deepest tier, then stops).
    */
   riftForgePerTier: 0.03,
   /**
    * Falz Rifts: every tier adds item quantity and rarity of its own (2026-10-12, the user's call, so plain rifts
-   * pay more as they climb), and a shard's modifiers add theirs on top: quantity +5% a tier (+80% at tier 16),
-   * rarity +6% (+96% at 16).
+   * pay more as they climb), and a shard's modifiers add theirs on top: quantity +10% a tier (+100% at tier 10),
+   * rarity +12% (+120% at 10). Doubled with the 2026-10-17 squish.
    */
-  riftQtyPerTier: 0.05,
-  riftRarePerTier: 0.06,
+  riftQtyPerTier: 0.1,
+  riftRarePerTier: 0.12,
   /**
    * Uniques (2026-10-12, data/uniques.ts) drop from bosses only: a main-game boss kill rolls this chance for the
-   * main pool by difficulty; a rift boss uniqueRift + uniqueRiftPerTier x its tier for the rift pool (16% at 16).
+   * main pool by difficulty. Rift bosses drop their own (Rift Circles, riftCircles.ts: riftUnique* below).
    */
   uniqueBoss: { normal: 0.02, nightmare: 0.04, hell: 0.06 } as Record<'normal' | 'nightmare' | 'hell', number>,
-  uniqueRift: 0.06,
-  uniqueRiftPerTier: 0.005,
+  /**
+   * Rift Circles (2026-10-17): chance a rift boss drops one of its own uniques (gear or unit), plus this much for each
+   * kill of that boss in a row without one; the first kill of each boss in each circle always drops one.
+   */
+  riftUnique: 0.12,
+  riftUniqueDry: 0.04,
   /** In the main pool the class's own weapon counts this many times (the others once). */
   uniqueClassWeight: 2,
 };
@@ -263,4 +268,85 @@ export const uniqueCfg = {
   /** Overclock Core: gear Haste multiplier, and max HP multiplier. */
   overclockHasteMult: 2,
   overclockHpMult: 0.5,
+
+  // Rift Circles (2026-10-17, riftCircles.ts; effects in combat/riftUniques.ts). Unique units' numbers (effects and
+  // costs) are raised by the Heart of Falz.
+  /** Heart of Falz: the other unique units' numbers times this. */
+  heartMult: 1.5,
+  /** Ember Core: Burn stacks your hits can build on an enemy beyond the first; Burn on you deals this much more. */
+  emberExtraStacks: 2,
+  emberSelfBurn: 0.5,
+  /** Flame Visit: the fire pool a burning death leaves (radius m, seconds, share of the dead one's Burn a second); Napalm Shell's fire lasts this much longer. */
+  flamePoolRadius: 3,
+  flamePoolTime: 3,
+  flamePoolShare: 1,
+  flameNapalmMult: 2,
+  /** Dragon Rush: power of the hit on each enemy dashed through (a basic hit is 0.7), and how much slower dashes recharge. */
+  rushPower: 1,
+  rushRange: 1.2,
+  rushDashCost: 0.4,
+  /** Dragon Fang: Rampage damage and Haste % a stack, the most stacks, seconds it lasts after a kill, and the hit (share of max HP) that ends it. */
+  rampageDmg: 0.05,
+  rampageHaste: 3,
+  rampageMax: 10,
+  rampageTime: 3,
+  rampageBreak: 0.15,
+  /** Proof of Sword-Saint: extra damage of the first hit on an enemy at full HP (+2 = ×3), and the cut below half HP. */
+  saintBonus: 2,
+  saintLow: 0.25,
+  /** Plague Mantle: how far a poisoned death spreads; how much longer poison lasts on you. */
+  plagueRadius: 4,
+  plagueSelfPoison: 1,
+  /** Venom Sac: a crit's share its poison deals a second, seconds, most stacks; the crit damage it costs. */
+  venomSacShare: 0.2,
+  venomSacTime: 4,
+  venomSacMax: 10,
+  venomSacCrit: 0.2,
+  /** Rol Carapace: most of your max HP one hit takes; how much less injector doses restore. */
+  carapaceCap: 0.35,
+  carapaceInjector: 0.5,
+  /** Tide Shell: seconds without being hit before it forms, the most of one hit it soaks (share of max HP), and the run speed it costs. */
+  tideDelay: 8,
+  tideSoak: 0.4,
+  tideRun: 0.1,
+  /** Ophelie Seize: a handgun hit's venom (share of the hit a second) and seconds; how far stacks jump on a death. */
+  ophelieShare: 0.15,
+  ophelieTime: 6,
+  ophelieJump: 8,
+  /** HP/Drain: share of the damage you deal that heals you. */
+  drainShare: 0.03,
+  /** Limiter: Art cooldowns cut; extra Art TP. */
+  limiterCd: 0.3,
+  limiterTp: 0.2,
+  /** S-Beat's Blade: seconds a perfect third-step Art takes off the other Arts' cooldowns; TP multiplier off a perfect chain. */
+  sBeatCd: 2,
+  sBeatTp: 2,
+  /** V801: photon blast charge it adds (+1 = twice as fast); how much less basic hits refill. */
+  v801Charge: 1,
+  v801Refill: 0.2,
+  /** Prophets of Motav: the combo's damage, and a repeated element's. */
+  motavMult: 2,
+  motavSame: 0.5,
+  /** Yasakani Magatama: seconds between echoes, the echo's delay and power (1 = the Art's own); max TP it costs. */
+  yasakaniEvery: 12,
+  yasakaniDelay: 0.4,
+  yasakaniShare: 1,
+  yasakaniTp: 0.25,
+  /** Devil/Battle: damage for every 10% of HP missing (nine steps at most). */
+  devilPer10: 0.03,
+  /** Dark Bridge: HP for each TP short, the damage of a cast paid that way; max TP it costs. */
+  bridgeHpPerTp: 2,
+  bridgeMult: 1.25,
+  bridgeTp: 0.4,
+  /** Soul Eater: share of the dead enemy's max HP the Doom deals, seconds before it lands, how far it reaches; extra Corruption you gain (+1 = twice). */
+  soulShare: 0.3,
+  soulDelay: 1.5,
+  soulRange: 8,
+  soulCorrupt: 1,
+  /** DF Shield: seconds of Doom, kills (or share of a boss's HP dealt) to rise, the HP you rise with; all healing it costs. */
+  dfDoomTime: 4,
+  dfKills: 3,
+  dfBossShare: 0.03,
+  dfRise: 0.4,
+  dfHeal: 0.3,
 };

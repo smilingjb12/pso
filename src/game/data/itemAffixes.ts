@@ -1,18 +1,17 @@
-import type { Race } from '../config';
 import { statDelta, type StatKey, type WeaponFamily } from './stats';
 
 // Item affixes (Diablo 2 / Path of Exile style): numbers only. Behaviour changes live in talents; an affix
 // adds a stat, a percentage or a resistance. Each affix has six strength tiers; the item level (from the
 // item's tier) decides the best tier it can roll. Magic items roll 1-2 (one prefix, one suffix), rares 3-6
 // (up to 3 of each). Prefixes are offence plus flat HP and TP, so survivability competes with damage for the
-// same slots; suffixes are defence, utility, race % and resistances. Downside affixes pair a big gain with a
+// same slots; suffixes are defence, utility and resistances. Downside affixes pair a big gain with a
 // penalty: the glass-cannon dial. Units carry exactly one affix and are learned (one per affix) into the Mag.
 // Every text says what it does in the stat's own words (2026-10-14): "Weapon damage +20%", "Crit chance +2.4%",
 // "Strike damage taken −5%".
 
 export type ItemAffixId =
   // weapons, every family
-  | 'atpPct' | 'atpFlat' | 'lck' | 'critDmg' | 'raceNative' | 'raceAbeast' | 'raceMachine' | 'raceDark' | 'haste'
+  | 'atpPct' | 'atpFlat' | 'lck' | 'critDmg' | 'haste' | 'tpRefill'
   // melee / ranged / caster weapons
   | 'staggerPct' | 'finisherPct'
   | 'falloff' | 'perfectPct'
@@ -31,7 +30,7 @@ export interface AffixRoll {
   v: number;
   /** Downside affixes: the penalty (a positive number, taken off). */
   p?: number;
-  /** Strength tier it rolled at (1-8; older rolls go without, see crafting's affixTier). Race % and Haste have none. */
+  /** Strength tier it rolled at (1-8; older rolls go without, see crafting's affixTier). Haste has none. */
   t?: number;
 }
 
@@ -60,9 +59,12 @@ export interface ItemAffixDef {
 
 /**
  * Item level an affix tier needs. Tiers 1-6 cover Normal to Hell (item levels 1-98); tiers 7 and 8 only roll
- * on Falz Rift drops (item level 100 + the rift's tier: tier 7 from rift tier 5, tier 8 from rift tier 12).
+ * on Falz Rift drops (item level 100 + 2 x the rift's tier): tier 7 from rift tier 4 and tier 8 from rift tier 7,
+ * where Rift Circles II and III start (2026-10-17; they opened at old tiers 5 and 12).
  */
-export const AFFIX_TIER_ILVL = [1, 10, 22, 36, 55, 80, 105, 112];
+export const AFFIX_TIER_ILVL = [1, 10, 22, 36, 55, 80, 108, 114];
+/** The deepest rift's item level (tier 10): nothing drops higher, and Rift-forging stops there. */
+export const RIFT_TOP_ILVL = 120;
 /** Strength tiers in all. */
 export const AFFIX_TIERS = AFFIX_TIER_ILVL.length;
 
@@ -114,9 +116,6 @@ const FRAME: AffixSlot[] = ['frame', 'unit'];
 const BARRIER: AffixSlot[] = ['barrier', 'unit'];
 const pct = (label: string) => (v: number) => `${label} +${v}%`;
 const flat = (label: string) => (v: number) => `${label} +${v}`;
-const RACE_ROLL: [number, number][] = [[5, 5], [5, 5], [5, 5], [5, 5], [5, 5], [5, 5]];
-
-export const RACE_AFFIX: Record<Race, ItemAffixId> = { native: 'raceNative', abeast: 'raceAbeast', machine: 'raceMachine', dark: 'raceDark' };
 
 export const ITEM_AFFIXES: Record<ItemAffixId, ItemAffixDef> = {
   // ---------------------------------------------------------------- weapons
@@ -128,13 +127,11 @@ export const ITEM_AFFIXES: Record<ItemAffixId, ItemAffixDef> = {
   lck: { id: 'lck', kind: 'suffix', slots: [...W, ...ARMOR], word: 'of Luck', unit: 'Luck', stat: 'lck', text: (v) => `Crit chance +${(v / 10).toFixed(1)}%`, tiers: [[3, 6], [6, 10], [10, 16], [16, 24], [24, 32], [32, 40]] },
   // Crits deal ×2 plus this (2026-10-14): the crit build's other half, so crit chance has something to multiply.
   critDmg: { id: 'critDmg', kind: 'prefix', slots: [...W, 'unit'], word: 'Savage', unit: 'Fang', text: pct('Crit damage'), tiers: [[6, 10], [10, 16], [16, 24], [24, 32], [32, 42], [42, 55]] },
-  // Race % rolls in 5% steps up to the weapon tier's cap (raceCap).
-  raceNative: { id: 'raceNative', kind: 'suffix', slots: W, word: 'of Natives', text: pct('vs Native'), tiers: RACE_ROLL },
-  raceAbeast: { id: 'raceAbeast', kind: 'suffix', slots: W, word: 'of Beasts', text: pct('vs A.Beast'), tiers: RACE_ROLL },
-  raceMachine: { id: 'raceMachine', kind: 'suffix', slots: W, word: 'of Machines', text: pct('vs Machine'), tiers: RACE_ROLL },
-  raceDark: { id: 'raceDark', kind: 'suffix', slots: W, word: 'of Darkness', text: pct('vs Dark'), tiers: RACE_ROLL },
   // Haste rolls 1% up to the item tier's cap (hasteCfg), from tier 8 (Nightmare).
   haste: { id: 'haste', kind: 'suffix', slots: ['weapon', 'frame', 'barrier'], word: 'of Haste', minTier: 8, text: (v) => `Haste +${v}% (faster swings and casts)`, tiers: [[1, 1], [1, 1], [1, 1], [1, 1], [1, 1], [1, 1]] },
+  // TP refill and Injector charge (also on frames) took the race % suffixes' place on 2026-10-17, when enemy races
+  // went (the user's call): without them melee and ranged rares had only three suffixes to roll.
+  tpRefill: { id: 'tpRefill', kind: 'suffix', slots: W, word: 'of Flow', text: (v) => `Basic hits refill ${v}% more TP`, tiers: [[3, 5], [5, 8], [8, 11], [11, 14], [14, 17], [17, 20]] },
 
   staggerPct: { id: 'staggerPct', kind: 'suffix', slots: W, family: 'melee', word: 'of Impact', text: (v) => `Stagger +${v}%`, tiers: [[5, 8], [8, 12], [12, 16], [16, 20], [20, 25], [25, 30]] },
   finisherPct: { id: 'finisherPct', kind: 'prefix', slots: W, family: 'melee', word: 'Brutal', text: (v) => `Finisher damage +${v}%`, tiers: [[4, 6], [6, 9], [9, 12], [12, 15], [15, 18], [18, 22]] },
@@ -160,7 +157,7 @@ export const ITEM_AFFIXES: Record<ItemAffixId, ItemAffixDef> = {
   strike: { id: 'strike', kind: 'prefix', slots: ARMOR, word: 'Plated', unit: 'Guard', stat: 'strike', text: (v) => `Strike damage taken −${v}%`, tiers: [[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 8]] },
   regen: { id: 'regen', kind: 'suffix', slots: FRAME, word: 'of Mending', unit: 'Mend', text: (v) => `+${v} HP a second, in fights too`, tiers: [[1, 1], [1, 1], [1, 2], [2, 3], [2, 4], [3, 5]] },
   injPotency: { id: 'injPotency', kind: 'suffix', slots: FRAME, word: 'of the Medic', unit: 'Medic', text: (v) => `Injector doses restore ${v}% more`, tiers: [[3, 5], [5, 8], [8, 11], [11, 14], [14, 17], [17, 20]] },
-  injCharge: { id: 'injCharge', kind: 'suffix', slots: FRAME, word: 'of Absorption', unit: 'Absorb', text: (v) => `Injector charges ${v}% faster`, tiers: [[4, 7], [7, 10], [10, 14], [14, 18], [18, 22], [22, 26]] },
+  injCharge: { id: 'injCharge', kind: 'suffix', slots: [...W, ...FRAME], word: 'of Absorption', unit: 'Absorb', text: (v) => `Injector charges ${v}% faster`, tiers: [[4, 7], [7, 10], [10, 14], [14, 18], [18, 22], [22, 26]] },
   walk: { id: 'walk', kind: 'suffix', slots: FRAME, word: 'of Speed', unit: 'Swift', text: (v) => `Run speed +${v}%`, tiers: [[2, 3], [3, 4], [4, 6], [5, 7], [6, 8], [7, 10]] },
   dashRecharge: { id: 'dashRecharge', kind: 'suffix', slots: FRAME, word: 'of the Wind', unit: 'Gale', text: (v) => `Dashes recharge ${v}% faster`, tiers: [[4, 6], [6, 9], [9, 12], [12, 15], [15, 18], [18, 22]] },
   resPoison: { id: 'resPoison', kind: 'suffix', slots: ARMOR, word: 'of Antidote', unit: 'Antidote', text: (v) => `Poison −${v}%`, tiers: [[5, 10], [10, 15], [15, 20], [20, 26], [26, 32], [32, 40]] },

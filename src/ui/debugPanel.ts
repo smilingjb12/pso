@@ -62,6 +62,21 @@ export interface DebugActions {
   riftShards(n: number): void;
   riftMoreTiers(n: number): void;
   riftOpen(boss: boolean): void;
+  /** Skip to the open rift's end (its boss arena, or the Guardian room); with none open, open a boss rift. */
+  riftBoss(): void;
+  /** The fight log as a JSON file (what hit you, where you stood, the boss's telegraphs), and wiping it. */
+  fightLog(): { name: string; text: string };
+  clearFightLog(): void;
+}
+
+/** Hand the browser a text file to save. */
+function download(name: string, text: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export function createDebugPanel(actions: DebugActions): GUI {
@@ -76,6 +91,15 @@ export function createDebugPanel(actions: DebugActions): GUI {
   g.add(debug, 'timeScale', 0.05, 1.5, 0.05).name('time scale');
   g.add(debug, 'showLog').name('combat log');
   g.add(debug, 'invincible');
+  const log = {
+    save: () => {
+      const { name, text } = actions.fightLog();
+      download(name, text);
+    },
+    clear: () => actions.clearFightLog(),
+  };
+  g.add(log, 'save').name('export fight log (JSON)');
+  g.add(log, 'clear').name('clear fight log');
   const act = {
     xp100: () => actions.giveXp(100),
     xp1000: () => actions.giveXp(1000),
@@ -113,14 +137,20 @@ export function createDebugPanel(actions: DebugActions): GUI {
 
   const rf = gui.addFolder('Rifts').close();
   rf.add({ s: () => actions.riftShards(5) }, 's').name('give 5 Rift Shards');
-  rf.add({ t: () => actions.riftMoreTiers(10) }, 't').name('open 10 more rift tiers');
+  rf.add({ t: () => actions.riftMoreTiers(10) }, 't').name('open every rift tier');
   rf.add({ o: () => actions.riftOpen(false) }, 'o').name('enter a rift (Guardian)');
   rf.add({ o: () => actions.riftOpen(true) }, 'o').name('enter a rift (boss)');
-  rf.add(riftCfg, 'hpPerTier', 1, 1.3, 0.005).name('HP x per tier');
-  rf.add(riftCfg, 'dmgPerTier', 1, 1.2, 0.005).name('damage x per tier');
-  rf.add(riftCfg, 'armorPerTier', 0, 3, 0.05).name('armour % + per tier');
-  rf.add(riftCfg, 'techResistPerTier', 0, 3, 0.05).name('tech resist % + per tier');
-  rf.add(riftCfg, 'capTier', 1, 40, 1).name('tempo / resist stop at tier');
+  rf.add({ b: () => actions.riftBoss() }, 'b').name('warp: rift boss / Guardian');
+  rf.add(riftCfg, 'fieldHpPerTier', 1, 1.5, 0.005).name('field HP x per tier (next rift)');
+  rf.add(riftCfg, 'bossHpPerTier', 1, 1.7, 0.005).name('boss HP x per tier (next fight)');
+  rf.add(riftCfg, 'heavyPerTier', 1, 1.4, 0.005).name('heavy hits x per tier (next rift)');
+  rf.add(riftCfg, 'chipPerTier', 1, 1.4, 0.005).name('chip damage x per tier (next rift)');
+  rf.add(riftCfg, 'heavyBase', 1, 20, 0.5).name('heavy hits x at tier 1 (next rift)');
+  rf.add(riftCfg, 'chipBase', 1, 20, 0.5).name('chip damage x at tier 1 (next rift)');
+  rf.add(riftCfg, 'capTier', 1, 10, 1).name('CC resist stops at tier');
+  for (const id of ['dragon', 'derolle', 'warden', 'falz'] as const) rf.add(riftCfg.bossTempo, id, 1, 1.5, 0.01).name(`${id} speed x (next fight)`);
+  rf.add(riftCfg, 'bossHp', 50000, 2000000, 10000).name('boss HP at tier 1 (next fight)');
+  for (const id of ['dragon', 'derolle', 'warden', 'falz'] as const) rf.add(riftCfg.bossHpMult, id, 0.5, 1.5, 0.01).name(`${id} HP x (next fight)`);
   rf.add(riftCfg, 'elite', 0, 1, 0.01).name('elite share');
   rf.add(riftCfg, 'bossChance', 0, 1, 0.01).name('boss chance');
   rf.add(riftCfg, 'guardianShard', 0, 2, 0.05).name('Guardian shard odds');
@@ -184,7 +214,6 @@ export function createDebugPanel(actions: DebugActions): GUI {
   ts.add(techScaling, 'debandShare', 0, 1, 0.01).name('Deband share off damage taken');
   ts.add(techScaling, 'tpFloor', 0, 1, 0.01).name('TP cost floor');
   ts.add(techScaling, 'buffDuration', 5, 300, 5).name('buff duration (s)');
-  ts.add(techScaling, 'statusPerMst', 0, 0.002, 0.0001).name('status chance / tech damage');
   ts.add(techScaling, 'burnShare', 0, 1.5, 0.05).name('burn: share of hit');
   ts.add(techScaling, 'chillMult', 0.3, 1, 0.05).name('chill: speed');
   ts.close();
@@ -277,13 +306,13 @@ export function createDebugPanel(actions: DebugActions): GUI {
   cam.add(camera, 'distance', 2, 15, 0.1);
   cam.add(camera, 'height', 0, 4, 0.1);
   cam.add(camera, 'sensitivity', 0.0005, 0.01, 0.0001);
-  cam.add(lockOn, 'range', 4, 30, 0.5).name('lock range');
+  cam.add(lockOn, 'aimDeg', 2, 45, 1).name('target cone (deg)');
+  cam.add(lockOn, 'holdDeg', 2, 60, 1).name('target hold cone (deg)');
+  cam.add(lockOn, 'meleeRange', 2, 20, 0.5).name('melee target range');
   cam.add(lockOn, 'softAimDeg', 0, 180, 1).name('melee soft aim angle');
   cam.add(lockOn, 'softAimRange', 0, 10, 0.1).name('melee soft aim range');
   cam.add(lockOn, 'rangedSoftAimDeg', 0, 90, 1).name('gun soft aim angle');
-  cam.add(lockOn, 'rangedSoftAimRange', 0, 40, 0.5).name('gun soft aim range');
-  cam.add(lockOn, 'cameraFollow', 0, 15, 0.1).name('lock cam follow');
-  cam.close();
+  cam.add(lockOn, 'rangedSoftAimRange', 0, 40, 0.5).name('gun soft aim range');  cam.close();
 
   const e = gui.addFolder('Enemies');
   e.add(ai, 'maxThreat', 1, 6, 1).name('threat budget (live attacks)');
@@ -321,6 +350,7 @@ export function createDebugPanel(actions: DebugActions): GUI {
   d.add(dragon, 'breathWindup', 0.2, 3, 0.05);
   d.add(dragon, 'breathDuration', 0.2, 5, 0.1);
   d.add(dragon, 'breathTickDamage', 0, 100, 1);
+  d.add(dragon, 'enragedBreathTurn', 0, 2, 0.05).name('enraged breath turn (rad/s)');
   d.add(dragon, 'chargeWindup', 0.2, 3, 0.05);
   d.add(dragon, 'chargeSpeed', 2, 40, 0.5);
   d.add(dragon, 'burrowEvery', 5, 120, 1);
@@ -337,8 +367,6 @@ export function createDebugPanel(actions: DebugActions): GUI {
   drl.add(deRolLe, 'hp', 1000, 100000, 50).name('max HP (next spawn)');
   drl.add(deRolLe, 'atp', 0, 600, 1);
   drl.add(deRolLe, 'armor', 0, 80, 1).name('armour %');
-  drl.add(deRolLe, 'plateMult', 0.05, 1, 0.05).name('damage through plates x');
-  drl.add(deRolLe, 'maskHp', 250, 20000, 10).name('mask HP (next spawn)');
   drl.add(deRolLe, 'phase2At', 0.1, 0.9, 0.05).name('phase 2 at HP %');
   drl.add(deRolLe, 'attackGap', 0.5, 6, 0.1).name('gap between attacks (P1)');
   drl.add(deRolLe, 'attackGap2', 0.5, 6, 0.1).name('gap between attacks (P2)');
@@ -356,6 +384,10 @@ export function createDebugPanel(actions: DebugActions): GUI {
   drl.add(deRolLe, 'headRest', 0.5, 6, 0.1).name('head rest (weak point, s)');
   drl.add(deRolLe, 'sprayWindup', 0.5, 3, 0.05);
   drl.add(deRolLe, 'puddleLife', 2, 30, 1);
+  drl.add(deRolLe, 'hellBombEvery', 5, 40, 0.5).name('Hell bomb every (s)');
+  drl.add(deRolLe, 'hellBombHp', 50, 2000, 10).name('Hell bomb HP (x boss scale)');
+  drl.add(deRolLe, 'hellBombFuse', 3, 20, 0.5).name('Hell bomb fuse (s)');
+  drl.add(deRolLe, 'hellBombPoisonLife', 5, 40, 1).name('Hell bomb poison (s)');
   drl.close();
 
   const cv = gui.addFolder('Caves');
@@ -455,6 +487,7 @@ export function createDebugPanel(actions: DebugActions): GUI {
   fz.add(darkFalz, 'megidSpeed', 0.5, 6, 0.1).name('Megid orb speed (m/s)');
   fz.add(darkFalz, 'slamWindup', 0.3, 4, 0.05).name('teleport slam warning (s)');
   fz.add(darkFalz, 'slamRadius', 1, 8, 0.1).name('teleport slam radius (m)');
+  fz.add(darkFalz, 'angelTempo', 0.5, 1.5, 0.01).name('Hell Angel speed x');
   fz.add(darkFalz, 'halfWindup', 0.3, 4, 0.05).name('halves warning (s)');
   fz.add(darkFalz, 'halfFlip', 0.3, 4, 0.05).name('halves flip (s)');
   fz.add(darkFalz, 'lanceWindup', 0.3, 4, 0.05).name('lance warning (s)');

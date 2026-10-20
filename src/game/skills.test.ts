@@ -5,7 +5,8 @@ import { ART_IDS, artClasses } from './data/arts';
 import { CLASS_IDS } from './data/stats';
 import { passiveRanks, type PassiveId } from './passives';
 import { ARTS } from './data/arts';
-import { readSkills, SKILL_TREES, skillNode, skillNodes, skillPoints, treeCols, treeLines } from './skills';
+import { LANE_COLS, readSkills, SKILL_TREES, skillNode, skillNodes, skillPoints, skillReachable, treeCols, treeLines } from './skills';
+import { modGlyph } from '../ui/skillIcons';
 
 function at(cls: 'hunter' | 'ranger' | 'force', level: number): Character {
   const ch = Character.create('T', cls);
@@ -28,16 +29,49 @@ describe('Skills trees (2026-10-15, Diablo 2 style: ranked Arts and passives wit
       for (const t of SKILL_TREES[cls]) {
         const cells = nodes.filter((n) => n.tree === t.id).map((n) => `${n.row}:${n.col}`);
         expect(new Set(cells).size, `${cls} ${t.id}`).toBe(cells.length);
-        for (const [a, b] of treeLines(cls, t.id)) expect(skillNode(cls, a)!.row, `${a} -> ${b}`).toBeLessThan(skillNode(cls, b)!.row);
+        // Lines run downward (an Art to a passive may run level) and through empty cells only.
+        const at = new Set(cells);
+        const first = t.lanes.length * LANE_COLS;
+        for (const { from, to, kind } of treeLines(cls, t.id)) {
+          const f = skillNode(cls, from)!;
+          const n = skillNode(cls, to)!;
+          expect(f.row, `${from} -> ${to}`).toBeLessThanOrEqual(n.row);
+          const crossed: string[] = [];
+          if (kind === 'branch') {
+            for (let c = f.col + 1; c < first; c++) crossed.push(`${f.row}:${c}`);
+            for (let c = first; c < n.col; c++) crossed.push(`${n.row}:${c}`);
+          } else if (kind === 'chain') {
+            for (let r = f.row + 1; r < n.row; r++) crossed.push(`${r}:${n.col}`);
+          }
+          for (const c of crossed) expect(at.has(c), `${cls} ${t.id}: ${from} -> ${to} crosses ${c}`).toBe(false);
+        }
       }
       for (const n of nodes) {
-        expect(n.col).toBeLessThan(treeCols(SKILL_TREES[cls].find((t) => t.id === n.tree)!));
+        expect(n.col).toBeLessThan(treeCols(cls, n.tree));
+        expect(n.col, `${cls} ${n.id}`).toBeLessThan(SKILL_TREES[cls].find((t) => t.id === n.tree)!.lanes.length * LANE_COLS + 3);
+        expect(n.row, `${cls} ${n.id} placed far down: no clear line`).toBeLessThan(20);
         if (!n.pre) continue;
         const p = skillNode(cls, n.pre)!;
         expect(p.tree, `${cls} ${n.id}`).toBe(n.tree);
-        expect(p.row, `${cls} ${n.id} hangs from a node above it`).toBeLessThan(n.row);
+        expect(p.row, `${cls} ${n.id} hangs from a node above it (or the Art beside it)`).toBeLessThanOrEqual(n.row);
       }
     }
+  });
+
+  it('give the three modifiers of a row three different icons', () => {
+    for (const id of ART_IDS) {
+      for (const row of ARTS[id].mods) expect(new Set(row.map((m) => modGlyph(id, m.id))).size, `${id}: ${row.map((m) => m.id).join(', ')}`).toBe(3);
+    }
+  });
+
+  it('count a skill in reach when its level is met all the way up, whatever ranks, points or a taken sibling', () => {
+    const n = (id: string) => skillNode('force', id)!;
+    expect(skillReachable('force', 20, n('gifoie'))).toBe(true); // Foie has no points yet: spending gets there
+    expect(skillReachable('force', 20, n('rafoie'))).toBe(false); // Lv 36
+    expect(skillReachable('force', 20, n('gifoie:inferno'))).toBe(true); // needs Gifoie at rank 5: points again
+    expect(skillReachable('force', 12, n('gifoie:inferno'))).toBe(false); // Gifoie opens at Lv 15
+    expect(skillReachable('force', 40, n('overload'))).toBe(false); // Lv 56, though Kindle above it is in reach
+    expect(skillReachable('force', 60, n('overload'))).toBe(true);
   });
 
   it('chain the techniques: Foie → Gifoie → Rafoie', () => {

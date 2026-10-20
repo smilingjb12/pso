@@ -3,13 +3,13 @@ import { drops, hasteCfg, type EnemyArchetype } from './config';
 import { expeditionOfBoss } from './data/areas';
 import { BOSS_IDS, BOSSES, type BossId, type ShopUnlock } from './data/bosses';
 import {
-  INJECTOR_MODS, itemDefs, kindFamily, raceCap, weaponKinds, type ArmorLine, type InjectorMod, type ItemDef, type Rarity, type SpecialId,
+  INJECTOR_MODS, itemDefs, kindFamily, weaponKinds, type ArmorLine, type InjectorMod, type ItemDef, type Rarity, type SpecialId,
 } from './data/items';
 import {
   AFFIX_IDS, affixFits, ITEM_AFFIXES, maxAffixTier, RARE_FIRST, RARE_SECOND, tierIlvl, tierRange, type AffixRoll, type AffixSlot, type ItemAffixDef, type ItemAffixId,
 } from './data/itemAffixes';
 import type { WeaponFamily } from './data/stats';
-import { UNIQUE_IDS, UNIQUES, uniqueItemId, type UniqueId, type UniquePool } from './data/uniques';
+import { isUniqueUnit, UNIQUE_IDS, UNIQUES, uniqueDropId, type UniqueId, type UniquePool } from './data/uniques';
 import type { RiftShard } from './rifts';
 import { hardScale } from './hard';
 import { asDifficulty, type Difficulty } from './difficulty';
@@ -71,7 +71,6 @@ export const dormantCount = (ilvl: number) => rareCount(ilvl) - 3;
  * drop's own), often one or two below.
  */
 export function rollAffixValue(def: ItemAffixDef, tier: number, rng: Rng, ilvl = tierIlvl(tier)): AffixRoll {
-  if (def.id.startsWith('race')) return { id: def.id, v: 5 * (1 + Math.floor(rng() * (raceCap(tier) / 5))) };
   if (def.id === 'haste') return { id: def.id, v: 1 + Math.floor(rng() * (hasteCfg.capByTier[tier] ?? 1)) };
   const top = maxAffixTier(ilvl);
   const t = Math.max(1, top - weighted<number>([[0, 50], [1, 30], [2, 20]], rng));
@@ -84,20 +83,14 @@ export function rollAffixValue(def: ItemAffixDef, tier: number, rng: Rng, ilvl =
   return roll;
 }
 
-const isRace = (id: ItemAffixId) => id.startsWith('race');
-
-/**
- * Draw weights: a normal affix 1, a weapon special 1.2, a race % or downside 0.5 (race was 1.5 until 2026-10-13: four
- * of them crowded everything else off weapons, 97% of rift weapons had one).
- */
-const affixWeight = (a: ItemAffixDef) => (a.penalty || isRace(a.id) ? 0.5 : 1);
+/** Draw weights: a normal affix 1, a weapon special 1.2, a downside 0.5. */
+const affixWeight = (a: ItemAffixDef) => (a.penalty ? 0.5 : 1);
 const SPECIAL_WEIGHT = 1.2;
 
 /**
  * Roll `inst`'s affixes for its rarity (2026-10-13, the user's redesign): a magic item one prefix and one suffix; a
  * rare `rareCount` active (up to 3 of each; a weapon's rolled special counts as a prefix) and `dormantCount` dormant
- * ones of any kind, which a Photon Crystal swaps with an active one of the same kind. No affix twice, one race active
- * at most (more can lie dormant). A Hell or rift rare holds at least one downside, active or dormant, and an active
+ * ones of any kind, which a Photon Crystal swaps with an active one of the same kind. No affix twice. A Hell or rift rare holds at least one downside, active or dormant, and an active
  * downside always has a dormant prefix to be swapped for.
  *
  * Tops up what the item already has, so it also fills older items to the new counts (on load, seeded by the uid):
@@ -130,9 +123,8 @@ export function rollAffixes(inst: ItemInstance, def: ItemDef, rarity: Rarity, rn
   const target = { prefix: pre, suffix: n - pre };
   for (const kind of ['prefix', 'suffix'] as const) {
     while (has(kind) < target[kind]) {
-      const raceActive = active.some((r) => isRace(r.id));
       const entries: [ItemAffixDef | 'special', number][] = pool
-        .filter((a) => a.kind === kind && !taken(a.id) && !(raceActive && isRace(a.id)))
+        .filter((a) => a.kind === kind && !taken(a.id))
         .map((a) => [a, affixWeight(a)]);
       if (kind === 'prefix' && canSpecial && !inst.special) entries.push(['special', SPECIAL_WEIGHT]);
       if (!entries.length) break;
@@ -143,7 +135,7 @@ export function rollAffixes(inst: ItemInstance, def: ItemDef, rarity: Rarity, rn
   }
 
   if (rarity === 'rare') {
-    // Dormant: any kind, from what is left (races too, so a weapon can swap one race for another).
+    // Dormant: any kind, from what is left.
     while (dormant.length < dormantCount(ilvl)) {
       const entries = pool.filter((a) => !taken(a.id)).map((a): [ItemAffixDef, number] => [a, affixWeight(a)]);
       if (!entries.length) break;
@@ -237,8 +229,9 @@ export function rollUnique(pool: UniquePool, tier: number, rng: Rng, bias?: Loot
   const entries = UNIQUE_IDS.filter((id) => UNIQUES[id].pool === pool).map(
     (id): [UniqueId, number] => [id, bias && uniqueFamily(id) === bias ? drops.uniqueClassWeight : 1],
   );
-  const inst = makeItem(uniqueItemId(weighted(entries, rng), tier));
-  if (ilvl) inst.ilvl = ilvl;
+  const id = weighted(entries, rng);
+  const inst = makeItem(uniqueDropId(id, tier));
+  if (ilvl && !isUniqueUnit(id)) inst.ilvl = ilvl;
   return inst;
 }
 
@@ -457,10 +450,10 @@ export function rollHellBossDrops(boss: BossId, rng: Rng, bias?: LootBias): Drop
  * Falz Rifts: the end of a rift. A boss drops like its Hell self at the top gear tiers; the Guardian room (rifts
  * without a boss) a little less. Everything rolls at the rift's item level, so affix tiers 7-8 can show up.
  * `qty`: the rift's item quantity (tier and shard, percent), extra rare gear on top of the fixed pieces (+50% on a
- * Guardian's three: one or two more). `shardRar`: a shard's item rarity, raising the boss's unique odds.
+ * Guardian's three: one or two more). The boss's own unique rolls apart (riftCircles.ts).
  */
-export function rollRiftEndDrops(boss: boolean, tier: number, ilvl: number, rng: Rng, bias?: LootBias, qty = 0, shardRar = 0): Drop[] {
-  const base = (boss ? 70000 : 40000) * (1 + 0.05 * tier);
+export function rollRiftEndDrops(boss: boolean, tier: number, ilvl: number, rng: Rng, bias?: LootBias, qty = 0): Drop[] {
+  const base = (boss ? 70000 : 40000) * (1 + 0.1 * tier);
   const out: Drop[] = [{ kind: 'meseta', amount: Math.round(base + rng() * base * 0.5) }];
   const top = 15;
   const t = () => (rng() < 0.5 ? top : top - 1);
@@ -477,10 +470,7 @@ export function rollRiftEndDrops(boss: boolean, tier: number, ilvl: number, rng:
   }
   out.push({ kind: 'item', item: rollPhoton(top, rng, ilvl) }, { kind: 'item', item: rollPhoton(top, rng, ilvl) });
   out.push({ kind: 'item', item: rollPhoton(top, rng, ilvl) }, { kind: 'item', item: rollPhoton(top, rng, ilvl) });
-  // Rift bosses: now and then a unique from the rift pool, at the rift's item level (Rift-forged).
-  if (boss && rng() < (drops.uniqueRift + drops.uniqueRiftPerTier * tier) * (1 + shardRar / 100) * drops.rareMult) {
-    out.push({ kind: 'item', item: rollUnique('rift', top, rng, bias, ilvl) });
-  }
+  // (A rift boss's own unique rolls apart, with the save's first kills: riftCircles.ts rollBossUnique.)
   // Item quantity: more rare gear, a weapon, armour or unit each.
   for (let odds = ((boss ? 6 : 3) * qty) / 100; odds > 0; odds--) {
     if (rng() >= odds) continue;

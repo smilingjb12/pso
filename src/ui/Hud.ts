@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 import type { CcKind } from '../game/ccResist';
-import type { Race } from '../game/config';
 import type { StatusTimer } from '../game/combat/types';
-import { ATTR_LABEL } from '../game/data/items';
 import { statusIcon } from './icons';
 
 // DOM overlay HUD. Kept dumb: the game pushes state in every frame.
@@ -16,6 +14,8 @@ export interface PaletteSlotView {
   count?: string;
   kind: 'basic' | 'art' | 'empty';
   disabled?: boolean;
+  /** The target is beyond this Art's reach (a shorter technique than the farthest on the bar): its icon goes red. */
+  outOfRange?: boolean;
   /** What the slot refills (Resta): it pulses when that gauge is low between fights. */
   restores?: 'hp' | 'tp';
   /** Share of the Art's cooldown still to go (0 = ready): a dark sweep over the hex. */
@@ -52,10 +52,13 @@ export interface HudState {
   comboStreak: number; // the last this-many of them were perfect chains
   comboWindow: boolean;
   comboBroken: boolean;
-  /** No enemy HP is shown (PSO didn't); just the name and its attribute. */
+  /** The locked (or last hit) enemy: name and, since 2026-10-16, its HP bar. */
   target: {
+    /** Identity only: a new target resets the bar's damage trail instead of draining from the old one. */
+    ref: object;
     name: string;
-    race: Race | null;
+    hp: number;
+    maxHp: number;
     statuses: StatusTimer[];
     /** Elite affixes as chips, in their aura colour. */
     affixes: { name: string; color: string }[];
@@ -64,8 +67,12 @@ export interface HudState {
     cc: { kind: CcKind; pct: number }[];
   } | null;
   boss: {
+    /** Identity only, as on the target. */
+    ref: object;
     name: string;
-    race: Race | null;
+    /** Whole-boss HP (every part and form). */
+    hp: number;
+    maxHp: number;
     weak: boolean;
     /** Crowd control it ignores (all four for every boss). */
     immune: CcKind[];
@@ -130,6 +137,23 @@ const el = (cls: string, parent: HTMLElement, html = ''): HTMLDivElement => {
   return d;
 };
 
+/** An enemy or boss HP bar: fill, damage trail and % text, plus whose HP it shows (a new owner resets the trail). */
+interface EnemyHpBar {
+  fill: HTMLDivElement;
+  trail: HTMLDivElement;
+  text: HTMLDivElement;
+  tr: { k: number; last: number; hold: number };
+  ref: object | null;
+}
+
+function enemyHpBar(parent: HTMLElement, cls: string): EnemyHpBar {
+  const bar = el(`enemy-hp ${cls}`, parent);
+  const trail = el('trail', bar);
+  const fill = el('fill', bar);
+  el('ticks', bar);
+  return { fill, trail, text: el('enemy-hp-text', bar), tr: { k: 1, last: 1, hold: 0 }, ref: null };
+}
+
 export class Hud {
   readonly root: HTMLDivElement;
   /** Crowd-control ring in the middle of the screen (paralysis). */
@@ -172,8 +196,8 @@ export class Hud {
   private castFill: HTMLDivElement;
   private targetBox: HTMLDivElement;
   private targetName: HTMLDivElement;
-  private targetAttr: HTMLDivElement;
   private targetStatus: HTMLDivElement;
+  private targetHp: EnemyHpBar;
   private targetAffixes: HTMLDivElement;
   private targetAffixKey = '';
   private targetStatusEls = new Map<string, HTMLDivElement>();
@@ -181,11 +205,11 @@ export class Hud {
   private targetCcKey = '';
   private bossBox: HTMLDivElement;
   private bossName: HTMLDivElement;
-  private bossAttr: HTMLDivElement;
   private bossCc: HTMLDivElement;
   private bossCcKey = '';
   private bossStatus: HTMLDivElement;
   private bossStatusEls = new Map<string, HTMLDivElement>();
+  private bossHp: EnemyHpBar;
   private reticle: HTMLDivElement;
   private areaEl: HTMLDivElement;
   private roomEl: HTMLDivElement;
@@ -266,22 +290,24 @@ export class Hud {
     }
 
     this.targetBox = el('target', this.root);
-    // One line: name, attribute (plain coloured text, so it doesn't read as an affix chip), status badges at the right.
+    // One line: name, status badges at the right.
     const targetHead = el('target-head', this.targetBox);
     this.targetName = el('target-name', targetHead);
-    this.targetAttr = el('attr-tag', targetHead);
     this.targetStatus = el('target-status', targetHead);
     this.targetAffixes = el('target-affixes', this.targetBox);
     // Crowd-control resistances (2026-10-16): a row of glyph + % chips under the affixes.
     this.targetCc = el('target-ccr', this.targetBox);
+    // HP bar at the bottom (2026-10-16, the user's ask): the player's bar in red, with the same lingering damage trail.
+    this.targetHp = enemyHpBar(this.targetBox, 'target-hp');
 
     this.bossBox = el('bossbar', this.root);
     this.bossName = el('boss-name', this.bossBox);
-    this.bossAttr = el('attr-tag', this.bossBox);
     // Under the name: the crowd control it ignores, and the burns and poisons running on it.
     const bossRow = el('boss-row', this.bossBox);
     this.bossCc = el('boss-ccr', bossRow);
     this.bossStatus = el('target-status boss-status', bossRow);
+    // Whole-boss HP at the bottom, as on the enemy frame (Dark Falz's three forms share it).
+    this.bossHp = enemyHpBar(this.bossBox, 'boss-hp');
 
     this.reticle = el('reticle', this.root);
     this.ccEl = el('cc', this.root,
@@ -457,7 +483,10 @@ export class Hud {
     const key = JSON.stringify(s.palette.map((p) => ({ ...p, cooldown: (p.cooldown ?? 0) > 0 })));
     if (key !== this.lastPaletteKey) {
       this.lastPaletteKey = key;
-      s.palette.forEach((p, i) => this.fillHex(this.hexes[i], p.key, p.icon, p.count ?? '', p.label, p.disabled || p.kind === 'empty'));
+      s.palette.forEach((p, i) => {
+        this.fillHex(this.hexes[i], p.key, p.icon, p.count ?? '', p.label, p.disabled || p.kind === 'empty');
+        this.hexes[i].classList.toggle('out-of-range', !!p.outOfRange);
+      });
     }
     s.palette.forEach((p, i) => this.hexes[i].style.setProperty('--cd', (p.cooldown ?? 0).toFixed(3)));
     // Between fights, point at the fix: slots that refill a low gauge pulse.
@@ -480,22 +509,24 @@ export class Hud {
     if (s.target && !s.boss) {
       this.targetBox.style.display = 'block';
       this.targetName.textContent = s.target.name;
-      this.setAttr(this.targetAttr, s.target.race);
       this.setStatusBadges(this.targetStatus, this.targetStatusEls, s.target.statuses);
+      this.setEnemyHp(this.targetHp, s.target.ref, s.target.hp, s.target.maxHp, realDt);
       this.setAffixes(s.target.affixes, s.target.champion);
       this.setCc(s.target.cc);
     } else {
+      this.targetHp.ref = null;
       this.targetBox.style.display = 'none';
       this.setStatusBadges(this.targetStatus, this.targetStatusEls, []);
     }
     if (s.boss) {
       this.bossBox.style.display = 'block';
       this.bossName.textContent = s.boss.name + (s.boss.weak ? '  — WEAK POINT!' : '');
-      this.setAttr(this.bossAttr, s.boss.race);
       this.bossBox.classList.toggle('weak', s.boss.weak);
       this.setBossCc(s.boss.immune);
       this.setStatusBadges(this.bossStatus, this.bossStatusEls, s.boss.statuses);
+      this.setEnemyHp(this.bossHp, s.boss.ref, s.boss.hp, s.boss.maxHp, realDt);
     } else {
+      this.bossHp.ref = null;
       this.bossBox.style.display = 'none';
       this.setStatusBadges(this.bossStatus, this.bossStatusEls, []);
     }
@@ -551,6 +582,18 @@ export class Hud {
     trailEl.style.width = `${tr.k * 100}%`;
   }
 
+  /** An enemy / boss HP bar; a new owner starts with no trail instead of draining from the last one's HP. */
+  private setEnemyHp(bar: EnemyHpBar, ref: object, hp: number, maxHp: number, dt: number): void {
+    const k = maxHp > 0 ? Math.max(0, Math.min(1, hp / maxHp)) : 0;
+    if (ref !== bar.ref) {
+      bar.ref = ref;
+      Object.assign(bar.tr, { k, last: k, hold: 0 });
+    }
+    this.setGauge(bar.fill, bar.trail, bar.tr, k, dt);
+    // Rounded down so a scratch shows (99%), but never 0% while it's alive.
+    bar.text.textContent = `${k > 0 ? Math.max(1, Math.floor(k * 100)) : 0}%`;
+  }
+
   private setInjector(v: { root: HTMLDivElement; cells: HTMLDivElement; key: string }, inj: HudState['injector']): void {
     v.root.style.display = inj ? '' : 'none';
     if (!inj) return;
@@ -594,14 +637,6 @@ export class Hud {
     if (key === this.bossCcKey) return;
     this.bossCcKey = key;
     this.bossCc.innerHTML = immune.length ? `<span class="ccr-label">Immune</span>${immune.map((k) => ccChip(k, 100, true)).join('')}` : '';
-  }
-
-  /** Attribute tag (Native / A.Beast / Machine / Dark) under a target's name. */
-  private setAttr(tag: HTMLDivElement, race: Race | null): void {
-    tag.style.display = race ? '' : 'none';
-    if (!race) return;
-    tag.textContent = ATTR_LABEL[race];
-    tag.className = `attr-tag attr-${race}`;
   }
 
   /**

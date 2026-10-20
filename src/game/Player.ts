@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Character } from './character';
-import { combo as comboCfg, dash as dashCfg, magCfg, passiveCfg as T, player as cfg, statuses, weaponWeights } from './config';
+import { combo as comboCfg, dash as dashCfg, magCfg, passiveCfg as T, player as cfg, statuses, uniqueCfg, weaponWeights } from './config';
 import { AFFIX_CAPS } from './data/itemAffixes';
 import { Combo, hastened, type ComboEvent, type StepId } from './combo';
 import { turnToward } from './collision';
@@ -305,11 +305,14 @@ export class Player {
   get runSpeed(): number {
     let k = this.char.pMult('lightFeet', T.lightFeetRunMult) * (this.rushT > 0 ? this.char.pMult('rush', T.rushRunMult) : 1) * (this.swiftT > 0 ? 1.15 : 1) * (1 + this.char.gearAffix('walk') / 100);
     k = Math.min(1 + AFFIX_CAPS.walk, k);
+    // Tide Shell's cost.
+    if (this.char.hasUnique('tideShell')) k *= Math.max(0.5, 1 - this.char.uval(uniqueCfg.tideRun));
     return cfg.moveSpeed * k;
   }
   /** Dash recharge speed multiplier: Light Feet, Rush and affixes. */
   private get dashRate(): number {
-    return this.char.pMult('lightFeet', T.lightFeetDashMult) * (this.rushT > 0 ? this.char.pMult('rush', T.rushDashMult) : 1) * (1 + this.char.gearAffix('dashRecharge') / 100);
+    const rush = this.char.hasUnique('dragonRush') ? Math.max(0.1, 1 - this.char.uval(uniqueCfg.rushDashCost)) : 1;
+    return this.char.pMult('lightFeet', T.lightFeetDashMult) * (this.rushT > 0 ? this.char.pMult('rush', T.rushDashMult) : 1) * (1 + this.char.gearAffix('dashRecharge') / 100) * rush;
   }
 
   /** Barrier: turn healing past full HP into a shield (capped at a share of max HP) that fades over a few seconds. */

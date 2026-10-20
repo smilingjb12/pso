@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { EnemyId, Race } from '../config';
+import type { EnemyId } from '../config';
 import type { BossId } from '../data/bosses';
 import type { CcKind } from '../ccResist';
 import type { Hittable, StatusTimer } from '../combat/types';
@@ -30,6 +30,13 @@ export interface BossContext {
   paralyse(chance: number): void;
   /** Add Corruption stacks (Dark Falz). */
   corruptPlayer(stacks: number): void;
+  /**
+   * A failed Hell mechanic: `share` of the player's max HP (without Corruption's cut), ignoring armour and damage
+   * taken (see `hell.mechanicHit`). No shape: the caller has decided it lands. True if it did (not dead or invulnerable).
+   */
+  mechanicHit(share: number, fromX: number, fromZ: number, knockback: number, source: string): boolean;
+  /** Is this spot lit (a pylon's light, or light the boss left, like Dark Falz's Grants)? */
+  lightAt(x: number, z: number, r?: number): boolean;
   /** The player's body (for arena machinery, and pulling her around). */
   body(): Body;
   /** Summon a field enemy into the fight (no rewards when it dies). */
@@ -47,7 +54,6 @@ export interface BossContext {
 export interface Boss {
   readonly id: BossId;
   readonly name: string;
-  readonly race: Race;
   readonly atp: number;
   /** Whole-boss HP (damage dealt to it charges injectors). */
   readonly hp: number;
@@ -79,6 +85,8 @@ export interface Boss {
   onDot: ((target: Hittable, damage: number) => void) | null;
   /** Extra text after the name on the boss bar (the Warden's lockdown count). */
   readonly hudNote?: string;
+  /** Its state and the last attack it picked, for the fight log ("triple/eclipse"). */
+  readonly traceState: string;
   /** Light it leaves on the floor (Dark Falz's Grants): cleanses Corruption like a pylon. */
   lightAt?(x: number, z: number, r: number): boolean;
   /** Standing in pylon light right now (set by the world): a Dark boss takes more damage there. */

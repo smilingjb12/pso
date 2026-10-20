@@ -20,7 +20,7 @@ import { hellOpen, nightmareOpen, TitleMenu } from '../ui/title';
 import { DIFFICULTY_NAME, difficultyTag, runDifficulty, type Difficulty } from './difficulty';
 import { AudioCues } from './audioCues';
 import { CameraRig } from './CameraRig';
-import { Character, dropVerdict, itemName, makeItem, rarityOf, readAffixData, sellPrice, type DropVerdict, type ItemInstance } from './character';
+import { Character, dropVerdict, itemName, makeItem, rarityOf, readAffixData, sellPrice, type DropVerdict, type ItemInstance, type UnitKind } from './character';
 import { craftWith, salvageYield, upgradeCrafting } from './crafting';
 import { angleDelta, yawTo } from './collision';
 import { Combat } from './combat/Combat';
@@ -28,6 +28,7 @@ import { CC_KINDS, type CcKind } from './ccResist';
 import type { Hittable } from './combat/types';
 import type { ComboEvent } from './combo';
 import { expeditionFoe, type Foe } from './dps';
+import { fightLog, hex } from './fightLog';
 import { affixes as affixCfg, hard as hardCfg, hell as hellCfg, camera as camCfg, comboDamage, dash as dashCfg, debug, formulas, injectorCfg, lockOn, magCfg, passiveCfg, player as playerCfg, pylonCfg, uniqueCfg } from './config';
 import { AFFIXES } from './data/affixes';
 import { areas, DEFAULT_LIGHT, expeditionOf, expeditionOfBoss, expeditionOpenedBy, expeditions, isCounter, type AreaId, type ExpeditionId } from './data/areas';
@@ -36,7 +37,8 @@ import { areaDef } from './data/looks';
 import { STAT_KEYS, statDelta, type ClassId, type MagStat } from './data/stats';
 import { ART_IDS, artClasses, ARTS, isTechArt, type ArtId } from './data/arts';
 import { getDef, INJECTOR_MODS, PHOTON_STACK, specials, type WeaponKind } from './data/items';
-import { affixText, tierIlvl, type AffixRoll, type ItemAffixId } from './data/itemAffixes';
+import { affixText, tierIlvl, type AffixRoll } from './data/itemAffixes';
+import { UNIQUES } from './data/uniques';
 import { CORRUPT_COLOR, Enemy, type EnemyContext } from './enemies/Enemy';
 import {
   buyPrice, rollArmor, rollBoxDrop, rollBossDrops, rollChampionBonus, rollEliteBonus, rollEnemyDrops, rollRiftEndDrops, rollUnit, rollWeapon,
@@ -57,9 +59,10 @@ import { Interactable } from './world/Interactable';
 import type { Pickup } from './world/Pickup';
 import { newRiftRun, newRun, World, type RunState } from './world/World';
 import {
-  modText, plainRift, RIFT_MODS, riftBonus, riftCfg, riftFoe, riftIlvl, riftLoot, riftName, riftSave, riftsOpen, riftTitle, rollShard, setRiftAreas,
-  shardRift, type RiftInfo,
+  clampTier, modText, pickedTier, plainRift, RIFT_MODS, riftBonus, riftBossOf, riftCfg, riftFoe, riftIlvl, riftLoot, riftName, riftSave, riftsOpen, riftTitle,
+  rollShard, setRiftAreas, shardRift, type RiftInfo,
 } from './rifts';
+import { circleName, circleOf, rollBossUnique } from './riftCircles';
 import { RiftGateMenu } from '../ui/riftGate';
 
 /** LMB: the basic chain. RMB, Q, E, R: the Art bar's four slots (2026-10-14, the Arts redesign). */
@@ -125,6 +128,9 @@ export class Game implements GameApi {
   private hard = false;
   /** Hell (also sets `hard`): picked at login once Dark Falz falls on Nightmare. */
   private hell = false;
+  /** The fight log: seconds to the next position sample, and the boss state last logged. */
+  private traceT = 0;
+  private traceBoss = '';
 
   /** The session's difficulty. */
   private get diff(): Difficulty {
@@ -139,7 +145,8 @@ export class Game implements GameApi {
 
   private last = performance.now();
   private hitstop = 0;
-  private lockTarget: Hittable | null = null;
+  /** The enemy the camera looks at, within reach of the bar (pickCamTarget, every frame): the target and its frame. */
+  private camTarget: Hittable | null = null;
   /** Space went down and hasn't dashed yet (it waits for a direction while held). */
   private dashArmed = false;
   /** Enemy telegraphs the current dash started in (Slipstream checks them when it ends). */
@@ -147,8 +154,6 @@ export class Game implements GameApi {
   /** The swing that just started lands perfect (Slipstream): its hit gets one more streak step. */
   private slipHit = false;
   private lastDashHint = -Infinity;
-  private lastHit: Hittable | null = null;
-  private lastHitT = 0;
   /** Level, Mag and worn gear the drops' verdicts were read against; they are re-read when it changes. */
   private dropKey = '';
   private roomInfo: string | null = null;
@@ -223,17 +228,14 @@ export class Game implements GameApi {
       world: () => this.world!,
       player: () => this.player,
       char: () => this.char,
-      lockTarget: () => this.lockTarget,
+      camTarget: () => this.camTarget,
       moveDir: () => this.moveDir,
+      cameraYaw: () => this.rig.yaw,
       float: (p, t, c) => this.hud.float(p, t, c),
       log: (h) => this.hud.pushLog(h),
       hitstop: (s) => (this.hitstop = Math.max(this.hitstop, s)),
       shake: (m) => this.rig.shake(m),
       onKill: (t) => this.onKill(t),
-      onHit: (t) => {
-        this.lastHit = t;
-        this.lastHitT = 0;
-      },
       onDamage: (t, dealt) => this.chargeFromDamage(t, dealt),
       onPlayerHurt: () => this.onPlayerHurt(),
       onLastStand: () => this.lastStandDose(),
@@ -254,6 +256,10 @@ export class Game implements GameApi {
         // Molten: wherever its area attacks land, the ground burns.
         if (e.hasAffix('molten')) this.world?.moltenMark(shape);
         return this.combat.enemyArea(e, shape, mult, kb, status, chance);
+      },
+      shotStrike: (e, shape, mult, kb, status, chance) => {
+        if (e.hasAffix('molten')) this.world?.moltenMark(shape);
+        return this.combat.enemyArea(e, shape, mult, kb, status, chance, true);
       },
       lob: (from, x, z, dur, color) => {
         this.world?.addEffect(new Lob(from, x, z, dur, color));
@@ -355,13 +361,45 @@ export class Game implements GameApi {
       riftMoreTiers: (n) => {
         this.openRiftsForDebug();
         const save = riftSave(this.char.data);
-        save.tier += n;
+        save.tier = clampTier(save.tier + n);
         this.hud.toast(`Rift tiers 1-${save.tier} are open.`, 'good');
       },
       riftOpen: (boss) => {
-        const info = plainRift(riftSave(this.char.data).tier, this.rng);
+        const info = plainRift(pickedTier(riftSave(this.char.data)), this.rng);
         info.boss = boss;
         this.openRift(info);
+      },
+      fightLog: () => {
+        const p = this.player;
+        const header = {
+          exported: new Date().toISOString(),
+          area: this.world?.areaId,
+          difficulty: this.diff,
+          rift: this.run.rift ? { tier: this.run.rift.tier, mods: this.run.rift.mods } : undefined,
+          cls: this.char.data.cls,
+          level: this.char.level,
+          maxHp: p.trueMaxHp,
+          radius: p.radius,
+          boss: this.world?.boss ? { id: this.world.boss.id, name: this.world.boss.name, hp: this.world.boss.hp / this.world.boss.maxHp, tempo: this.world.boss.tempo } : undefined,
+        };
+        const stamp = header.exported.replace(/[:.]/g, '-').slice(0, 19);
+        return { name: `fight-log-${stamp}.json`, text: fightLog.json(header) };
+      },
+      clearFightLog: () => fightLog.clear(),
+      riftBoss: () => {
+        const r = this.riftRun?.rift;
+        // The tier picked at the Rift Gate: an open rift of another tier gives way to a fresh one.
+        const tier = pickedTier(riftSave(this.char.data));
+        if (!r || r.complete || r.tier !== tier) {
+          const info = plainRift(tier, this.rng);
+          info.boss = true;
+          this.openRift(info, 'riftBoss');
+        } else if (r.boss) {
+          this.enterArea('riftBoss', 'start');
+        } else {
+          if (this.world?.areaId !== 'rift') this.enterArea('rift', 'start');
+          this.warpToGuardian();
+        }
       },
       testCharacter: (cls) => {
         const slot = listSlots().findIndex((s) => !s);
@@ -546,12 +584,14 @@ export class Game implements GameApi {
 
   private enterArea(id: AreaId, spawn: SpawnAt): void {
     this.photonFullTold.clear();
+    this.combat.ufx.reset();
     if (this.world) {
       this.world.resetActiveRoom();
       this.scene.remove(this.world.group);
       this.world.dispose();
     }
     const def = areaDef(id);
+    fightLog.push('area', { id, difficulty: this.diff });
     const inRift = id === 'rift' || id === 'riftBoss';
     if (inRift && !this.riftRun) {
       // No rift open (it can't be reached without one): back to the city.
@@ -580,15 +620,28 @@ export class Game implements GameApi {
         rng: this.rng,
         telegraph: (shape, dur, onFire, color, dash) => {
           if (dash) this.dashHint();
-          const t = this.world?.addTelegraph(shape, dur, onFire, color, dash);
+          // The fight log: the warning (and the boss's state), then where you stood when it fired.
+          const id = fightLog.teleId();
+          fightLog.push('tele', { id, st: this.world?.boss?.traceState, dur, c: hex(color), dash: dash || undefined, shape });
+          const fire = () => {
+            const p = this.player;
+            fightLog.push('fire', { id, x: p.pos.x, z: p.pos.z, inside: inShape(shape, p.pos.x, p.pos.z, p.radius) });
+            onFire();
+          };
+          const t = this.world?.addTelegraph(shape, dur, fire, color, dash);
           if (!t) return noTelegraph;
           // Chill slows the boss and its telegraphs alike.
           const boss = this.world?.boss;
           if (boss) t.rate = () => boss.tempo;
           return t;
         },
-        hitPlayer: (shape, mult, fx, fz, kb, status, chance) =>
-          !!this.world?.boss && this.combat.bossHit(this.world.boss, shape, mult, fx, fz, kb, status, chance),
+        hitPlayer: (shape, mult, fx, fz, kb, status, chance) => {
+          const boss = this.world?.boss;
+          if (!boss) return false;
+          const hit = this.combat.bossHit(boss, shape, mult, fx, fz, kb, status, chance);
+          fightLog.push('bossHit', { st: boss.traceState, mult, hit, iframes: this.player.iframes > 0 || undefined, shape });
+          return hit;
+        },
         tickPlayer: (shape, dmg, fx, fz) => this.combat.bossTick(shape, dmg, fx, fz),
         puddle: (x, z, r, life) => this.world?.addPuddle(x, z, r, life),
         hazardHit: (dmg, fx, fz, kb, source) => this.combat.hazardHurt(dmg, fx, fz, kb, source),
@@ -597,6 +650,8 @@ export class Game implements GameApi {
           if (this.rng() < chance) this.combat.applyPlayerStatus('paralysis');
         },
         corruptPlayer: (n) => this.combat.applyPlayerStatus('corrupt', n),
+        mechanicHit: (share, fx, fz, kb, source) => this.combat.mechanicHurt(share, fx, fz, kb, source),
+        lightAt: (x, z, r) => this.world?.lightAt(x, z, r) ?? false,
         body: () => this.player,
         spawnAdd: (type, x, z) => this.world!.spawnEnemy(type, x, z, null, { noReward: true }),
         effect: (e) => this.world?.addEffect(e),
@@ -616,7 +671,7 @@ export class Game implements GameApi {
       volatileBlast: (e, shape) => {
         sfx('missile.explode', { x: shape.x, z: shape.z, pitch: 0.8 });
         this.rig.shake(0.2);
-        if (this.combat.enemyArea(e, shape, affixCfg.volatileAtpMult, 8)) this.combat.applyPlayerStatus('burn', affixCfg.volatileBurn);
+        if (this.combat.enemyArea(e, shape, affixCfg.volatileAtpMult, 8, undefined, 1, true)) this.combat.applyPlayerStatus('burn', affixCfg.volatileBurn);
       },
       onRoomActivated: () => {
         this.hud.toast('Enemies approaching — the gates are sealed!', 'warn');
@@ -639,6 +694,7 @@ export class Game implements GameApi {
         }
         this.roomInfo = null;
         this.cleanse();
+        this.combat.ufx.roomCleared();
         this.hud.toast('Room cleared. The gates open.', 'good');
         sfx('gate.open');
         sfx('jingle.clear');
@@ -672,8 +728,7 @@ export class Game implements GameApi {
     if (def.startYaw !== undefined && spawn === 'start') this.player.yaw = def.startYaw;
     this.rig.snapBehind(this.player.yaw);
     this.rig.teleport();
-    this.lockTarget = null;
-    this.lastHit = null;
+    this.camTarget = null;
     this.roomInfo = null;
     this.hud.clearFloats();
     this.hud.banner(def.name + (run.rift ? '' : difficultyTag(runDifficulty(run))));
@@ -758,23 +813,20 @@ export class Game implements GameApi {
     }
 
     if (this.playing && this.world) {
-      const lock = this.lockTarget;
-      let lockYaw: number | null = null;
-      if (lock && lock.alive && !this.paused) {
-        const d = Math.hypot(lock.pos.x - this.player.pos.x, lock.pos.z - this.player.pos.z);
-        if (d > 1.5 + lock.radius) lockYaw = yawTo(this.player.pos.x, this.player.pos.z, lock.pos.x, lock.pos.z);
-      }
       const hudDt = this.paused ? 0 : realDt;
-      this.rig.update(hudDt, this.player.pos, lockYaw);
+      this.rig.update(hudDt, this.player.pos);
+      // The camera just moved: what it looks at now is the target for the HUD and the next frame's attacks.
+      if (!this.paused) this.camTarget = this.pickCamTarget();
       const right = this.rig.right(this.tmpB);
       setListener(this.player.pos.x, this.player.pos.z, right.x, right.z);
       this.sun.position.set(this.player.pos.x + 12, 25, this.player.pos.z + 8);
       this.sun.target.position.copy(this.player.pos);
+      const tg = this.camTarget;
       this.hud.update(
         hudDt,
         this.hudState(),
         this.camera,
-        lock && lock.alive ? this.tmpA.copy(lock.pos).setY(lock.aimHeight) : null,
+        tg && tg.alive ? this.tmpA.copy(tg.pos).setY(tg.aimHeight) : null,
       );
       this.hud.logVisible = debug.showLog;
       this.hud.menuOpen = this.menus.isOpen;
@@ -812,7 +864,6 @@ export class Game implements GameApi {
     if (inp.isDown('KeyA')) this.moveDir.sub(r);
     if (this.moveDir.lengthSq() > 0) this.moveDir.normalize();
 
-    if (inp.wasPressed('Tab')) this.cycleLock();
     if (inp.wasPressed('KeyC')) this.rig.snapBehind(p.yaw);
     if (inp.wasPressed('Digit1')) this.useInjector();
     // Space interacts when something is in reach (even mid-move); otherwise it arms a dash.
@@ -846,10 +897,10 @@ export class Game implements GameApi {
       this.hud.dashEmpty();
       return;
     }
-    const lock = this.lockTarget;
+    const lock = this.camTarget;
     let orbit = null;
     if (lock?.alive) {
-      // Locked on: W / S close in or back off, A / D circle the target.
+      // With a target: W / S close in or back off, A / D circle it.
       const fwd = (inp.isDown('KeyW') ? 1 : 0) - (inp.isDown('KeyS') ? 1 : 0);
       const side = (inp.isDown('KeyD') ? 1 : 0) - (inp.isDown('KeyA') ? 1 : 0);
       const n = Math.hypot(fwd, side) || 1;
@@ -857,7 +908,7 @@ export class Game implements GameApi {
     }
     const from = p.pos.clone();
     const inside = this.char.hasPassive('slipstream') ? this.telegraphsAround() : [];
-    // Lunge (toward the locked target) and Backstep Shot (away from it) end in a free light attack.
+    // Lunge (toward the target) and Backstep Shot (away from it) end in a free light attack.
     const free = !!orbit && ((orbit.fwd > 0.5 && this.char.hasPassive('lunge')) || (orbit.fwd < -0.5 && this.char.hasPassive('backstepShot')));
     if (!p.startDash(this.moveDir.x, this.moveDir.z, orbit, { blink: this.char.hasPassive('blink'), free })) return;
     this.slipFrom = inside.length ? inside : null;
@@ -940,6 +991,7 @@ export class Game implements GameApi {
     this.combat.tickPlayerStatus(dt);
 
     world.update(dt, p);
+    this.traceFight(world, dt);
     this.tickInjectors(world, dt);
     this.autoPhotonBlast(world);
     this.cues.update(world);
@@ -956,11 +1008,6 @@ export class Game implements GameApi {
       this.victoryT -= dt;
       if (this.victoryT < 0) this.playAreaMusic();
     }
-
-    if (this.lockTarget && (!this.lockTarget.alive || this.lockTarget.invulnerable)) {
-      this.lockTarget = this.lockTarget.alive ? null : this.pickLockTarget(true);
-    }
-    this.lastHitT += dt;
 
     this.refreshDropVerdicts();
     // Walk-over pickups: meseta, Rift Shards, photons (crafting currency) and units worth learning (no bag slot;
@@ -1008,7 +1055,8 @@ export class Game implements GameApi {
   private chargeFromDamage(t: Hittable, dealt: number): void {
     if (!(t instanceof Enemy) || t.noReward || t.noCharge || t.maxHp <= 0) return;
     const share = (dealt / t.maxHp) * (t.elite ? injectorCfg.eliteChargeMult : 1);
-    this.chargeInjectors(share * injectorCfg.chargePerEnemy * this.char.pMult('bloodlust', passiveCfg.bloodlustMult));
+    // HP/Drain's cost: your damage no longer charges the injector.
+    if (!this.char.hasUnique('hpDrain')) this.chargeInjectors(share * injectorCfg.chargePerEnemy * this.char.pMult('bloodlust', passiveCfg.bloodlustMult));
     this.chargePhotonBlast(share * magCfg.pbChargePerEnemy);
   }
 
@@ -1016,6 +1064,8 @@ export class Game implements GameApi {
   private chargePhotonBlast(amount: number): void {
     const p = this.player;
     if (amount <= 0 || !this.photonBlastName()) return;
+    // V801: it charges faster.
+    if (this.char.hasUnique('v801')) amount *= 1 + this.char.uval(uniqueCfg.v801Charge);
     const before = p.pb;
     p.pb = Math.min(1, p.pb + amount);
     if (before < 1 && p.pb >= 1) sfx('mag.hungry');
@@ -1069,7 +1119,8 @@ export class Game implements GameApi {
       }
     } else this.calmT = 0;
     // Mending (HP) and Spring (TP) affixes: a little back every second, in fights too (between fights the injector covers it).
-    const regen = this.char.gearAffix('regen');
+    // Devil/Battle's cost: gear HP regen does nothing.
+    const regen = this.char.hasUnique('devilBattle') ? 0 : this.char.gearAffix('regen') * this.char.healMult();
     const tpRegen = this.char.gearAffix('tpRegen');
     const p = this.player;
     if (regen && p.alive && world.def.kind !== 'city') p.hp = Math.min(p.maxHp, p.hp + regen * dt);
@@ -1079,7 +1130,7 @@ export class Game implements GameApi {
     if (boss) {
       if (this.bossHpSeen >= 0 && boss.hp < this.bossHpSeen && boss.maxHp > 0) {
         const share = (this.bossHpSeen - Math.max(0, boss.hp)) / boss.maxHp;
-        this.chargeInjectors(share * boss.injectorCharge * this.char.pMult('bloodlust', passiveCfg.bloodlustMult));
+        if (!this.char.hasUnique('hpDrain')) this.chargeInjectors(share * boss.injectorCharge * this.char.pMult('bloodlust', passiveCfg.bloodlustMult));
         this.chargePhotonBlast(share * magCfg.pbBossCharge);
       }
       this.bossHpSeen = boss.hp;
@@ -1090,7 +1141,7 @@ export class Game implements GameApi {
   private darkFlowKill(): void {
     const p = this.player;
     if (!p.alive || !this.char.hasUnique('darkFlow')) return;
-    const heal = Math.min(p.maxHp - p.hp, Math.round(p.maxHp * uniqueCfg.darkFlowHeal));
+    const heal = Math.min(p.maxHp - p.hp, Math.round(p.maxHp * uniqueCfg.darkFlowHeal * this.char.healMult()));
     if (heal > 0) {
       p.hp += heal;
       this.hud.float(this.tmpA.copy(p.pos).setY(2.2), `+${heal}`, 'heal');
@@ -1199,12 +1250,13 @@ export class Game implements GameApi {
           if (ev.step !== 'basic') {
             this.combat.artStart(ev.step as ArtId, ev.hitIndex, ev.perfect);
             p.onStepStart();
-            if (!p.aimYaw && this.moveDir.lengthSq() > 0) p.aimYaw = Math.atan2(this.moveDir.x, this.moveDir.z);
+            if (p.aimYaw === null && this.moveDir.lengthSq() > 0) p.aimYaw = Math.atan2(this.moveDir.x, this.moveDir.z);
             break;
           }
           p.onStepStart();
           const target = this.combat.aimTarget();
           if (target) p.aimYaw = yawTo(p.pos.x, p.pos.z, target.pos.x, target.pos.z);
+          else if (this.char.weaponFamily() === 'caster') p.aimYaw = this.combat.casterYaw();
           else if (this.moveDir.lengthSq() > 0) p.aimYaw = Math.atan2(this.moveDir.x, this.moveDir.z);
           else p.aimYaw = null;
           break;
@@ -1384,6 +1436,14 @@ export class Game implements GameApi {
   /** A unit was learned (picked up or given): say what it adds, re-judge the units still lying around, save. */
   private learnedUnit(unit: ItemInstance, before: AffixRoll | null): void {
     sfx('mag.feed');
+    const unique = getDef(unit.id).unique;
+    if (unique) {
+      // A unique unit (Rift Circles): learned for good; it works once slotted on the Mag tab.
+      this.hud.toast(`Learned the unique unit <b>${itemName(unit)}</b>: ${UNIQUES[unique].effect}. Slot it on the Mag tab.`, 'rare');
+      this.dropKey = '';
+      this.autosave();
+      return;
+    }
     const now = affixText(unit.affixes![0]);
     this.hud.toast(before ? `<b>${itemName(unit)}</b> improved: ${affixText(before)} → ${now}` : `Learned <b>${itemName(unit)}</b>: ${now}`, 'good');
     this.dropKey = '';
@@ -1537,13 +1597,30 @@ export class Game implements GameApi {
     );
   }
 
-  /** Open a rift: build its areas, collapse the one before, and go in. */
-  private openRift(info: RiftInfo): void {
+  /** Open a rift: build its areas, collapse the one before, and go in (debug: straight to its boss arena). */
+  private openRift(info: RiftInfo, at: 'rift' | 'riftBoss' = 'rift'): void {
     this.riftRun = newRiftRun(info);
     this.stashFullTold = false;
     setRiftAreas(info);
     this.autosave();
-    this.enterArea('rift', 'start');
+    this.enterArea(at, 'start');
+  }
+
+  /** Debug: drop the player in the rift floor's Guardian room (its waves start at once). */
+  private warpToGuardian(): void {
+    const world = this.world!;
+    const room = world.level.rooms.find((q) => q.def.guardian);
+    if (!room) return;
+    const q = room.rect;
+    const pos = new THREE.Vector3((q.minX + q.maxX) / 2, 0, (q.minZ + q.maxZ) / 2);
+    // The middle may hold a pillar: step outwards until there's floor.
+    for (let d = 0; world.level.isSolidAt(pos.x, pos.z) && d < 8; d++) pos.x += d % 2 ? -d : d;
+    world.level.resolveCircle(pos, 0.5);
+    this.player.pos.copy(pos);
+    this.player.resetState();
+    this.rig.snapBehind(this.player.yaw);
+    this.rig.teleport();
+    this.camTarget = null;
   }
 
   /** On entering a rift: what it holds (two toasts; each modifier's line goes to the log). */
@@ -1562,7 +1639,7 @@ export class Game implements GameApi {
     this.char.data.stats.kills++;
     this.cleanse();
     this.run.bossDefeated = true;
-    this.lockTarget = null;
+    this.camTarget = null;
     music.stop(0.4);
     sfx('jingle.victory');
     this.victoryT = 8;
@@ -1581,16 +1658,26 @@ export class Game implements GameApi {
     const save = riftSave(this.char.data);
     save.clears++;
     save.best = Math.max(save.best, r.tier);
-    if (r.tier >= save.tier) {
+    if (r.tier >= save.tier && r.tier < riftCfg.maxTier) {
+      // A pick on the top tier follows it up (the gate opens on the new one, as before it remembered picks).
+      if (save.picked === save.tier) save.picked = r.tier + 1;
       save.tier = r.tier + 1;
-      this.hud.toast(`Tier ${save.tier} rifts are open at the Rift Gate.`, 'rare');
+      this.hud.toast(`Tier ${save.tier} rifts are open at the Rift Gate.${circleOf(save.tier) > circleOf(r.tier) ? ` Rift Circle ${circleName(circleOf(save.tier))} begins: its bosses drop new uniques.` : ''}`, 'rare');
+    } else if (r.tier === riftCfg.maxTier && save.best === r.tier && save.clears > 0 && !save.firsts?.includes('top')) {
+      (save.firsts ??= []).push('top');
+      this.hud.toast(`Tier ${riftCfg.maxTier} closed: the deepest rift. Its bosses keep dropping Circle III's uniques.`, 'rare');
     }
     if (!r.boss) {
       sfx('jingle.victory');
       this.hud.banner('RIFT CLOSED', 'boss');
     }
     this.hud.toast(`${riftName(r)} closed. A teleporter to Pioneer 2 stands ${r.boss ? 'in the arena' : 'in the Guardian room'}.`, 'good');
-    const drops: Drop[] = rollRiftEndDrops(r.boss, r.tier, riftIlvl(r.tier), this.rng, this.char.lootBias(), riftLoot(r).qty, riftBonus(r.mods).rar);
+    const drops: Drop[] = rollRiftEndDrops(r.boss, r.tier, riftIlvl(r.tier), this.rng, this.char.lootBias(), riftLoot(r).qty);
+    // Rift Circles: the boss's own unique (its first kill in a circle always drops one).
+    if (r.boss) {
+      const u = rollBossUnique(riftBossOf(r.bossRegion), r.tier, riftIlvl(r.tier), save, this.char.data, this.rng, riftLoot(r).rar);
+      if (u) drops.push({ kind: 'item', item: u });
+    }
     // Shards keep the rifts coming: the Guardian (or boss) always drops one; item quantity is the chance of another.
     for (let odds = riftCfg.guardianShard * (1 + riftBonus(r.mods).qty / 100); odds > 0; odds--) {
       if (this.rng() < odds) drops.push({ kind: 'shard', shard: rollShard(r.tier, this.rng) });
@@ -1683,7 +1770,7 @@ export class Game implements GameApi {
       const first = this.char.addBossKill(def.id, diff) === 1;
       this.cleanse();
       this.run.bossDefeated = true;
-      this.lockTarget = null;
+      this.camTarget = null;
       music.stop(0.4);
       sfx('jingle.victory');
       this.victoryT = 8;
@@ -1779,12 +1866,34 @@ export class Game implements GameApi {
     }
   }
 
+  /** The fight log (debug panel: export): your position five times a second, and the boss's state as it changes. */
+  private traceFight(world: World, dt: number): void {
+    fightLog.tick(dt);
+    if (areaDef(world.areaId).kind === 'city') return;
+    const p = this.player;
+    this.traceT -= dt;
+    if (this.traceT <= 0 && p.alive) {
+      this.traceT = 0.2;
+      const e: Record<string, unknown> = { x: p.pos.x, z: p.pos.z, hp: p.hp, max: p.maxHp };
+      if (p.inLight) e.light = 1;
+      if (p.dash) e.dash = 1;
+      if (p.iframes > 0) e.iframes = 1;
+      if (p.corruption) e.corrupt = p.corruption;
+      fightLog.push('pos', e);
+    }
+    const boss = world.boss;
+    const st = boss?.engaged ? `${boss.traceState}|${boss.name}${boss.hudNote ?? ''}` : '';
+    if (boss && st !== this.traceBoss) fightLog.push('boss', { st: boss.traceState, name: boss.name, note: boss.hudNote || undefined, hp: boss.hp / boss.maxHp });
+    this.traceBoss = st;
+  }
+
   // ============================================================== death
 
   private onPlayerHurt(): void {
     if (this.player.alive || this.deathT >= 0) return;
     this.char.data.stats.deaths++;
-    this.lockTarget = null;
+    fightLog.push('death', { x: this.player.pos.x, z: this.player.pos.z });
+    this.camTarget = null;
     sfx('player.death');
     music.stop(1.2);
     this.hud.pushLog('<span class="l-bad">You have fallen.</span>');
@@ -1814,79 +1923,49 @@ export class Game implements GameApi {
     );
   }
 
-  // ============================================================ lock-on
-
-  /** Tab: lock what you're looking at; when already locked, step to the next target to the right (none left: let go). */
-  private cycleLock(): void {
-    const cur = this.lockTarget?.alive ? this.lockTarget : null;
-    if (!cur) {
-      this.lockTarget = this.pickLockTarget(false);
-      return;
-    }
-    // Sweep clockwise around the player from the current target. The order is camera-independent,
-    // so the camera swinging to the new target can't make Tab bounce between two enemies.
-    const p = this.player.pos;
-    const from = yawTo(p.x, p.z, cur.pos.x, cur.pos.z);
-    let next: Hittable | null = null;
-    let bestSweep = Infinity;
-    for (const e of this.lockCandidates()) {
-      if (e === cur) continue;
-      let sweep = -angleDelta(from, yawTo(p.x, p.z, e.pos.x, e.pos.z)); // + = to the right
-      if (sweep <= 1e-4) sweep += Math.PI * 2;
-      if (sweep < bestSweep) {
-        bestSweep = sweep;
-        next = e;
-      }
-    }
-    // Nothing else to step to: Tab lets go.
-    this.lockTarget = next;
-  }
-
-  /** Targets in lock range with a clear line from the player (no locking through walls). */
-  private lockCandidates(): Hittable[] {
-    if (!this.world) return [];
-    const level = this.world.level;
-    const p = this.player.pos;
-    const eye = this.tmpC.set(p.x, p.y + 1.2, p.z);
-    const dir = this.tmpD;
-    return this.world.targets().filter((e) => {
-      if (Math.hypot(e.pos.x - p.x, e.pos.z - p.z) > lockOn.range + e.radius) return false;
-      dir.set(e.pos.x, e.aimHeight, e.pos.z).sub(eye);
-      const d = dir.length();
-      if (d < 0.01) return true;
-      return level.raycast(eye, dir.divideScalar(d), d) >= d - e.radius;
-    });
-  }
+  // ============================================================ targeting
 
   /**
-   * The target you're looking at: on screen and closest to the middle of the view (measured from
-   * the camera, so it matches what's drawn), nearer ones winning near-ties. With nothing on screen,
-   * an explicit lock press falls back to the nearest target; auto-retargets don't.
+   * What the camera looks at is the target (2026-10-16, the user's ask; Tab lock-on until then): the enemy nearest
+   * the middle of the view (measured from the camera, so it matches what's drawn) within lockOn.aimDeg, ahead of her,
+   * on screen, in sight (never through walls) and within reach of the attacks on her bar (Combat.targetRange), so its
+   * frame shows exactly while an attack can reach it. Nearer ones win near-ties; the current one holds on out to
+   * lockOn.holdDeg and wins near-ties too, so two enemies side by side don't flicker.
    */
-  private pickLockTarget(onScreenOnly: boolean): Hittable | null {
+  private pickCamTarget(): Hittable | null {
+    if (!this.world || !this.player.alive || this.world.def.kind === 'city') return null;
+    const level = this.world.level;
     const p = this.player.pos;
     const cam = this.camera;
     cam.updateMatrixWorld();
+    const range = this.combat.targetRange();
+    const yaw = this.rig.yaw;
+    const fx = Math.sin(yaw);
+    const fz = Math.cos(yaw);
+    const eye = this.tmpC.set(p.x, p.y + 1.2, p.z);
+    const rad = THREE.MathUtils.degToRad;
     let best: Hittable | null = null;
     let bestScore = Infinity;
-    let nearest: Hittable | null = null;
-    let nearestD = Infinity;
-    for (const e of this.lockCandidates()) {
-      const d = Math.hypot(e.pos.x - p.x, e.pos.z - p.z);
-      if (d < nearestD) {
-        nearestD = d;
-        nearest = e;
-      }
-      const v = this.tmpC.set(e.pos.x, e.aimHeight, e.pos.z).project(cam);
-      if (v.z > 1 || Math.abs(v.x) > 1 || Math.abs(v.y) > 1) continue;
-      const ang = Math.abs(angleDelta(this.rig.yaw, yawTo(cam.position.x, cam.position.z, e.pos.x, e.pos.z)));
-      const score = ang + (0.25 * d) / lockOn.range;
-      if (score < bestScore) {
-        bestScore = score;
-        best = e;
-      }
+    for (const e of this.world.targets()) {
+      const dx = e.pos.x - p.x;
+      const dz = e.pos.z - p.z;
+      const d = Math.hypot(dx, dz);
+      if (d - e.radius > range) continue;
+      if (dx * fx + dz * fz < -e.radius) continue; // behind her (between her and the camera)
+      const held = e === this.camTarget;
+      const ang = Math.abs(angleDelta(yaw, yawTo(cam.position.x, cam.position.z, e.pos.x, e.pos.z)));
+      if (ang > rad(held ? lockOn.holdDeg : lockOn.aimDeg)) continue;
+      const score = ang + (0.1 * d) / range - (held ? rad(lockOn.holdBonusDeg) : 0);
+      if (score >= bestScore) continue;
+      const v = this.tmpD.set(e.pos.x, e.aimHeight, e.pos.z).project(cam);
+      if (v.z > 1 || Math.abs(v.y) > 1) continue; // off screen (the camera looks down past it)
+      const dir = this.tmpD.set(e.pos.x, e.aimHeight, e.pos.z).sub(eye);
+      const len = dir.length();
+      if (len > 0.01 && level.raycast(eye, dir.divideScalar(len), len) < len - e.radius) continue;
+      best = e;
+      bestScore = score;
     }
-    return best ?? (onScreenOnly ? null : nearest);
+    return best;
   }
 
   // ============================================================ GameApi
@@ -1976,7 +2055,7 @@ export class Game implements GameApi {
   }
 
   /** Slot a learned unit into the Mag. */
-  unitInsert(kind: ItemAffixId): string | null {
+  unitInsert(kind: UnitKind): string | null {
     const err = this.char.insertUnit(kind);
     if (err) return err;
     sfx('ui.equip', { pitch: 1.1 });
@@ -1994,7 +2073,7 @@ export class Game implements GameApi {
   }
 
   /** Switch exactly these units on (the Damage tab's picks). */
-  unitSet(kinds: ItemAffixId[]): string | null {
+  unitSet(kinds: UnitKind[]): string | null {
     const err = this.char.setActiveUnits(kinds);
     if (err) return err;
     sfx('ui.equip', { pitch: 1.1 });
@@ -2114,7 +2193,7 @@ export class Game implements GameApi {
   damageFoe(): Foe {
     // In a rift (or back in the city from one), against the rift's mix of every expedition. Once rifts are open a
     // Hell session judges gear against them from the start too: a fresh login used to measure against the Hell
-    // Forest (all Native), so a Native % weapon looked far better than it is in a rift (2026-10-11).
+    // Forest, whose numbers aren't a rift's (2026-10-11).
     if (this.run.rift) return riftFoe(this.run.rift);
     if (this.hell && riftsOpen(this.char.data) && expeditionOf(this.world?.areaId ?? 'city') === null) {
       return riftFoe({ tier: riftSave(this.char.data).tier, mods: [] });
@@ -2170,7 +2249,8 @@ export class Game implements GameApi {
       const full = ch.artCooldown(id);
       const label = `${a.name} — ${cost} TP${full ? ` · ${full} s cooldown` : ''}: ${a.desc}`;
       const restores = id === 'resta' ? 'hp' : undefined;
-      return { key, label, icon: isTechArt(id) ? techIcon(id) : artIcon(id), count: String(cost), kind: 'art', disabled: p.tp < cost || cd > 0, restores, cooldown: full ? cd / full : 0 };
+      const outOfRange = this.combat.artAimBlocked(id) === 'Out of range';
+      return { key, label, icon: isTechArt(id) ? techIcon(id) : artIcon(id), count: String(cost), kind: 'art', disabled: p.tp < cost || cd > 0, outOfRange, restores, cooldown: full ? cd / full : 0 };
     };
     const palette: PaletteSlotView[] = [
       { key: 'LMB', label: basicLabel, icon: weaponIcon(weaponKindId), kind: 'basic' },
@@ -2182,11 +2262,8 @@ export class Game implements GameApi {
 
     const world = this.world!;
     const boss = world.boss;
-    const shown = this.lockTarget?.alive
-      ? this.lockTarget
-      : this.lastHit?.alive && this.lastHitT < 4
-        ? this.lastHit
-        : null;
+    // The frame is the camera's target's, shown exactly while it is the target (no lingering after a hit since 2026-10-16).
+    const shown = this.camTarget?.alive ? this.camTarget : null;
 
     let prompt: string | null = null;
     if (p.alive && !this.menus.isOpen) {
@@ -2250,8 +2327,10 @@ export class Game implements GameApi {
       comboBroken: c.phase === 'swing' && c.broken && !c.sealed,
       target: shown
         ? {
+            ref: shown,
             name: shown.name,
-            race: shown.race,
+            hp: shown.hp,
+            maxHp: shown.maxHp,
             statuses: shown.statusTimers?.() ?? [],
             affixes: shown instanceof Enemy ? this.affixChips(shown) : [],
             champion: shown instanceof Enemy && shown.champion,
@@ -2261,8 +2340,11 @@ export class Game implements GameApi {
       boss:
         boss && boss.engaged && (boss.alive || boss.deadT < 3)
           ? {
-              name: boss.name + (boss.alive ? (boss.hudNote ?? '') : ''),
-              race: boss.race,
+              ref: boss,
+              // In a rift, its tier after the name.
+              name: boss.name + (this.run.rift ? ` · Tier ${this.run.rift.tier}` : '') + (boss.alive ? (boss.hudNote ?? '') : ''),
+              hp: boss.hp,
+              maxHp: boss.maxHp,
               weak: boss.weakPointOpen,
               immune: CC_KINDS.filter((k) => boss.ccResist(k) >= 100),
               statuses: boss.statusTimers(),

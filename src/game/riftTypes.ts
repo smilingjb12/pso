@@ -24,4 +24,6 @@ export interface RiftGenOptions {
    * Falz Rifts use it since 2026-10-11: the Forest's look, every expedition's enemies.
    */
   mixAll?: boolean;
+  /** Swarming modifier: more enemies a wave, the extra ones fodder (RIFT_GEN.swarm). */
+  swarm?: boolean;
 }

@@ -48,6 +48,12 @@ export const RIFT_GEN = {
   bossRoom: [8, 10] as [number, number],
   /** Per-wave threat: `min` at `areaLo` tiles², `max` at `areaHi` and above, ± jitter/2. */
   wave: { min: 4, max: 5, areaLo: 120, areaHi: 340, jitter: 0.8, guardian: 6, maxSize: 7 },
+  /**
+   * Swarming (rift modifier, 2026-10-17): each wave's budget times budgetMult, the extra filled with fodder (types of
+   * threat maxThreat or less, never elite) up to maxSize enemies a wave. The attack director still lets only two
+   * attacks be live at once, so it adds targets and steady pressure rather than burst.
+   */
+  swarm: { budgetMult: 1.6, maxSize: 11, maxThreat: 1.25 },
   /** Fight rooms at least this big get a third wave. */
   bigArea: 340,
   ambushChance: 0.28,
@@ -659,6 +665,15 @@ function addWaves(f: Fill, role: Role, o: RiftGenOptions): void {
     fillBudget(rng, RIFT_ROSTERS[region[i]], left, free, perRoom, maxSize);
     const wave: SpawnDef[] = [...free, ...fixed];
     if (!wave.length) wave.push(RIFT_ROSTERS[region[i]][0].e);
+    if (o.swarm) {
+      // Swarming: the extra budget comes in as fodder (cheap types, never elite), up to a bigger wave.
+      const S = G.swarm;
+      const fodder: EnemyId[] = [];
+      const roster = RIFT_ROSTERS[region[i]].filter((r) => threatOf(r.e) <= S.maxThreat);
+      fillBudget(rng, roster, b * (S.budgetMult - 1), fodder, new Map(), S.maxSize - wave.length);
+      (room.fodder ??= [])[i] = wave.length;
+      wave.push(...fodder);
+    }
     return wave;
   });
 

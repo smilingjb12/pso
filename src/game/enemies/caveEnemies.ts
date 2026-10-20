@@ -94,7 +94,7 @@ export class Lily extends Enemy {
     const shape: TelegraphShape = { kind: 'circle', x: tx, z: tz, radius: a.shotRadius ?? 1.6 };
     const color = a.shotStatus === 'paralysis' ? 0xffd040 : 0x9a50ff;
     const dur = a.shotWindup ?? 1.2;
-    ctx.telegraph(shape, dur, () => ctx.areaStrike(this, shape, 0.85, 3, a.shotStatus, a.shotStatusChance), color);
+    ctx.telegraph(shape, dur, () => ctx.shotStrike(this, shape, 0.85, 3, a.shotStatus, a.shotStatusChance), color);
     const mouth = new THREE.Vector3(this.pos.x + Math.sin(this.yaw) * 0.4, 2.1 * a.scale, this.pos.z + Math.cos(this.yaw) * 0.4);
     ctx.lob(mouth, tx, tz, dur, color);
     this.holdThreat(dur);
@@ -192,7 +192,7 @@ export class Migium extends Enemy {
     this.warn(ctx, shape, a.shotWindup ?? 1.3, () => {
       if (!this.alive || this.state !== 'cast') return;
       ctx.bolt(shape.x, shape.z, 0x80e8ff);
-      ctx.areaStrike(this, shape, 0.9, 2, a.shotStatus, a.shotStatusChance);
+      ctx.shotStrike(this, shape, 0.9, 2, a.shotStatus, a.shotStatusChance);
       this.enter('strike');
     }, 0x60d0ff);
   }

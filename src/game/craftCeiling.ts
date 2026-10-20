@@ -1,6 +1,6 @@
 import type { ItemInstance } from './character';
 import { hasteCfg } from './config';
-import { getDef, raceCap, type ArmorItemDef, type WeaponItemDef } from './data/items';
+import { getDef, type ArmorItemDef, type WeaponItemDef } from './data/items';
 import { ITEM_AFFIXES, maxAffixTier, tierIlvl, tierRange, type AffixRoll, type ItemAffixId } from './data/itemAffixes';
 
 // How far photons can take an item (DESIGN.md "Crafting: Photons"): the limits crafting works within, and the
@@ -20,14 +20,12 @@ export function ilvlOf(inst: ItemInstance): number {
   return inst.ilvl ?? (def ? tierIlvl(def.tier) : 1);
 }
 
-export const isRace = (id: ItemAffixId) => id.startsWith('race');
-/** Race % and Haste roll in steps up to the item tier's cap, not in strength tiers. */
-export const capped = (id: ItemAffixId) => isRace(id) || id === 'haste';
+/** Haste rolls in 1% steps up to the item tier's cap, not in strength tiers. */
+export const capped = (id: ItemAffixId) => id === 'haste';
 
-/** Highest value a capped affix (race %, Haste) reaches on this item, and its step. */
-export function capOf(inst: ItemInstance, id: ItemAffixId): { cap: number; step: number } {
-  const tier = gearDef(inst)?.tier ?? 1;
-  return isRace(id) ? { cap: raceCap(tier), step: 5 } : { cap: hasteCfg.capByTier[tier] ?? 1, step: 1 };
+/** Highest value a capped affix (Haste) reaches on this item, and its step. */
+export function capOf(inst: ItemInstance, _id: ItemAffixId): { cap: number; step: number } {
+  return { cap: hasteCfg.capByTier[gearDef(inst)?.tier ?? 1] ?? 1, step: 1 };
 }
 
 /** The strength tier (1-8) an affix roll is at: stored on rolls since crafting, worked out from the value before. */
@@ -40,7 +38,7 @@ export function affixTier(inst: ItemInstance, r: AffixRoll): number {
 
 /**
  * `r` at its best on `inst`: Spheres up to the top strength tier the item level allows, then Drops to the top of
- * that tier's range (a downside at the bottom of its penalty's); race % and Haste at the item tier's cap.
+ * that tier's range (a downside at the bottom of its penalty's); Haste at the item tier's cap.
  */
 export function maxedRoll(inst: ItemInstance, r: AffixRoll): AffixRoll {
   if (capped(r.id)) return { ...r, v: Math.max(r.v, capOf(inst, r.id).cap) };
@@ -67,7 +65,7 @@ export function rollCost(inst: ItemInstance, from: AffixRoll, to: AffixRoll): { 
 /**
  * Every set of active affixes Photon Crystals can give `inst`. A swap keeps the prefix / suffix split and only
  * trades places, so any as many of each kind as are active now can be picked from its active and dormant
- * affixes together (one race at most). Each set lists the item's own rolls (none maxed), the current one first.
+ * affixes together. Each set lists the item's own rolls (none maxed), the current one first.
  */
 export function craftLoadouts(inst: ItemInstance): AffixRoll[][] {
   const active = inst.affixes ?? [];
@@ -84,10 +82,7 @@ export function craftLoadouts(inst: ItemInstance): AffixRoll[][] {
   };
   const out: AffixRoll[][] = [];
   for (const pre of ofKind('prefix')) {
-    for (const suf of ofKind('suffix')) {
-      const set = [...pre, ...suf];
-      if (set.filter((r) => isRace(r.id)).length <= 1) out.push(set);
-    }
+    for (const suf of ofKind('suffix')) out.push([...pre, ...suf]);
   }
   return out;
 }

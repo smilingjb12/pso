@@ -12,6 +12,8 @@ interface Seen {
 }
 
 const RUINS_AI = new Set<string>(['dimenian', 'delsaber', 'sorcerer', 'belra', 'bringer']);
+/** The Mines' machines: they freeze with a clank and die in sparks. */
+const MACHINE_AI = new Set<string>(['gunbot', 'garanz', 'sinow', 'node', 'mite', 'drone']);
 
 export class AudioCues {
   private enemies = new WeakMap<Enemy, Seen>();
@@ -47,7 +49,7 @@ export class AudioCues {
 
     const at = { x: e.pos.x, z: e.pos.z, arg: e.arch.scale };
     const ai = e.arch.ai;
-    if (e.arch.race === 'machine') {
+    if (MACHINE_AI.has(ai)) {
       if (cur === 'frozen') sfx('status.freeze', at);
       if (cur === 'dead' && !e.vanished) sfx(ai === 'node' ? 'node.die' : 'machine.die', at);
       return;

@@ -1,9 +1,8 @@
 import * as THREE from 'three';
-import { camera as cfg, lockOn } from './config';
-import { angleDelta } from './collision';
+import { camera as cfg } from './config';
 
-// Third-person orbit camera. Mouse orbits freely; while locked on, the yaw is
-// pulled toward framing the target from behind the player.
+// Third-person orbit camera. The mouse orbits freely; what it looks at is the target (Game.pickCamTarget), so it
+// never turns by itself (the Tab lock pulled it toward the locked enemy until 2026-10-16).
 
 export class CameraRig {
   yaw = 0; // camera looks along +Z, i.e. behind a player facing +Z
@@ -49,11 +48,7 @@ export class CameraRig {
   }
 
   /** realDt: unscaled time so the camera keeps moving during hitstop. */
-  update(realDt: number, target: THREE.Vector3, lockYaw: number | null): void {
-    if (lockYaw !== null) {
-      this.yaw += angleDelta(this.yaw, lockYaw) * Math.min(1, lockOn.cameraFollow * realDt);
-    }
-
+  update(realDt: number, target: THREE.Vector3): void {
     const goal = this.tmp.set(target.x, target.y + cfg.height, target.z);
     this.focus.lerp(goal, Math.min(1, cfg.followLerp * realDt));
     if (!this.placed || this.focus.distanceToSquared(goal) > 100) this.focus.copy(goal);

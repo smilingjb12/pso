@@ -244,6 +244,7 @@ export class Puff implements Effect {
 
 let frostTex: THREE.DataTexture | null = null;
 let scorchTex: THREE.DataTexture | null = null;
+let shadeTex: THREE.DataTexture | null = null;
 
 function radialTexture(alpha: (d: number, x: number, y: number) => number): THREE.DataTexture {
   const size = 128;
@@ -273,6 +274,11 @@ function scorchTexture(): THREE.DataTexture {
     const edge = 0.7 + 0.25 * n;
     return d < edge ? 0.55 + 0.45 * n : Math.max(0, 1 - (d - edge) / 0.12) * (0.55 + 0.45 * n);
   }));
+}
+
+/** Shade: an even disc with a soft edge, a cloud's shadow (shared, never disposed). */
+function shadeTexture(): THREE.DataTexture {
+  return (shadeTex ??= radialTexture((d) => (d < 0.8 ? 1 : 1 - ((d - 0.8) / 0.2) ** 1.5)));
 }
 
 /** Geometry for a ground shape, lying flat (UVs cover the shape's bounding circle, so radial textures fit). */
@@ -418,7 +424,7 @@ const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1).translate(0, 0, 0.5);
 
 /**
  * A jagged bolt between two points: a thin bright core in a coloured glow, re-forking twice in its short life (one
- * crackle, not a rhythm), with a small side branch.
+ * crackle, not a rhythm), with a small side branch. `bow` lifts its middle that far, so it arcs (a zap off the floor).
  */
 export class Lightning implements Effect {
   readonly object = new THREE.Group();
@@ -430,7 +436,7 @@ export class Lightning implements Effect {
   private glows: THREE.Mesh[] = [];
   private joints: THREE.Vector3[] = [];
 
-  constructor(private a: THREE.Vector3, private b: THREE.Vector3, color: number, private seconds = 0.22, private width = 1) {
+  constructor(private a: THREE.Vector3, private b: THREE.Vector3, color: number, private seconds = 0.22, private width = 1, private bow = 0) {
     this.core = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending });
     this.glow = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.45, depthWrite: false, blending: THREE.AdditiveBlending });
     const n = Math.max(5, Math.min(16, Math.round(a.distanceTo(b) / 0.9)));
@@ -462,6 +468,7 @@ export class Lightning implements Effect {
     for (let i = 0; i <= n; i++) {
       const k = i / n;
       const j = this.joints[i].lerpVectors(this.a, this.b, k);
+      j.y += this.bow * Math.sin(Math.PI * k);
       if (i > 0 && i < n) j.add(new THREE.Vector3(rand(-jag, jag), rand(-jag, jag) * 0.5, rand(-jag, jag)));
     }
     for (let i = 0; i < n; i++) this.place(i, this.joints[i], this.joints[i + 1], 1 - (i / n) * 0.3);
@@ -623,6 +630,315 @@ export class Blizzard implements Effect {
   }
 }
 
+// ------------------------------------------------------------------ static
+
+/** Strip offsets across a floor line, as a share of its half width: dark edges, the colour, a white middle. */
+const ACROSS = [-1, -0.2, 0, 0.2, 1];
+
+/**
+ * Thin glowing lines lying flat on the floor, rebuilt every frame (cracks of current, a crackling rim). Each segment
+ * is a strip five vertices across, black at the edges, the colour, then white down the middle: a hot core in a soft
+ * glow without a texture. Additive, so black is nothing.
+ */
+class FloorLines {
+  readonly mesh: THREE.Mesh;
+  private geo = new THREE.BufferGeometry();
+  private mat: THREE.MeshBasicMaterial;
+  private pos: Float32Array;
+  private col: Float32Array;
+  private n = 0;
+  private glow: THREE.Color;
+  private hot = new THREE.Color(0xfffcf0);
+
+  constructor(private cap: number, color: number) {
+    this.glow = new THREE.Color(color);
+    this.pos = new Float32Array(cap * 30);
+    this.col = new Float32Array(cap * 30);
+    const index: number[] = [];
+    for (let s = 0; s < cap; s++) {
+      const b = s * 10;
+      for (let q = 0; q < 4; q++) index.push(b + q, b + 5 + q, b + q + 1, b + q + 1, b + 5 + q, b + 6 + q);
+    }
+    this.geo.setIndex(index);
+    this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
+    this.geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
+    this.mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    this.mesh = new THREE.Mesh(this.geo, this.mat);
+    this.mesh.frustumCulled = false;
+  }
+
+  begin(): void {
+    this.n = 0;
+  }
+
+  /** A segment from (x0, z0) to (x1, z1), `w` either side of the line, brightness b0 fading to b1. */
+  seg(x0: number, z0: number, x1: number, z1: number, w: number, b0: number, b1: number): void {
+    if (this.n >= this.cap) return;
+    const len = Math.hypot(x1 - x0, z1 - z0) || 1;
+    const nx = -(z1 - z0) / len;
+    const nz = (x1 - x0) / len;
+    for (let end = 0; end < 2; end++) {
+      const x = end ? x1 : x0;
+      const z = end ? z1 : z0;
+      const b = end ? b1 : b0;
+      for (let k = 0; k < 5; k++) {
+        const i = (this.n * 10 + end * 5 + k) * 3;
+        const o = ACROSS[k] * w;
+        this.pos[i] = x + nx * o;
+        this.pos[i + 1] = 0.05;
+        this.pos[i + 2] = z + nz * o;
+        const c = k === 2 ? this.hot : this.glow;
+        const m = k === 0 || k === 4 ? 0 : b;
+        this.col[i] = c.r * m;
+        this.col[i + 1] = c.g * m;
+        this.col[i + 2] = c.b * m;
+      }
+    }
+    this.n++;
+  }
+
+  end(): void {
+    this.geo.setDrawRange(0, this.n * 24);
+    for (const a of [this.geo.attributes.position, this.geo.attributes.color] as THREE.BufferAttribute[]) {
+      a.clearUpdateRanges();
+      a.addUpdateRange(0, this.n * 30);
+      a.needsUpdate = true;
+    }
+  }
+
+  dispose(): void {
+    this.geo.dispose();
+    this.mat.dispose();
+  }
+}
+
+/** A crack of current crawling over the floor: a jagged path, maybe forked, re-routed while it flickers. */
+interface Crawl {
+  x: number;
+  z: number;
+  a: number;
+  len: number;
+  steps: number;
+  fork: boolean;
+  age: number;
+  life: number;
+  reT: number;
+  /** x, z pairs: the main path, then (from `forkAt`) the fork. */
+  path: number[];
+  forkAt: number;
+}
+
+/**
+ * Razonde's charged ground (2026-10-16, replacing a glowing lavender disc the user found too loud): the floor under
+ * the storm darkens a little like a cloud's shadow, a thin jagged rim crackles with current running round it (so the
+ * area still reads at a glance), and short cracks of current crawl over the floor or arc off it here and there.
+ * Every strike that lands spreads a few cracks out from where it hit (`strike`).
+ */
+export class StaticField implements Effect {
+  /** Looks (tunable live from the console while testing). */
+  static readonly LOOK = {
+    shade: 0.28,
+    /** The rim's brightness at rest and where a pulse passes, its half width, and how far it kinks (more in a pulse). */
+    rimBase: 0.12,
+    rimPulse: 0.7,
+    rimWidth: 0.06,
+    rimJag: 0.025,
+    rimPulseJag: 0.09,
+    /** Cracks per second per metre of radius, and how bright and wide. */
+    crawls: 1.6,
+    crawlBright: 0.9,
+    crawlWidth: 0.08,
+    /** Arcs off the floor per second per metre of radius. */
+    zaps: 0.45,
+  };
+
+  readonly object = new THREE.Group();
+  private t = 0;
+  private shade: THREE.MeshBasicMaterial;
+  private disc: THREE.Mesh;
+  private lines: FloorLines;
+  private kink: Float32Array;
+  private flick: Float32Array;
+  private kinkT = 0;
+  private pulses: { at: number; speed: number }[];
+  private crawls: Crawl[] = [];
+  private zaps: Lightning[] = [];
+  private sparks: Sparks;
+  private crawlAcc = 0;
+  private zapAcc = 0;
+  private p = new THREE.Vector3();
+
+  constructor(private x: number, private z: number, private radius: number, private duration: number, private color: number) {
+    this.shade = new THREE.MeshBasicMaterial({ color: 0x05030c, map: shadeTexture(), transparent: true, opacity: 0, depthWrite: false });
+    this.disc = new THREE.Mesh(new THREE.CircleGeometry(radius, 48).rotateX(-Math.PI / 2), this.shade);
+    this.disc.position.y = 0.035;
+    const rimN = Math.round(radius * 14);
+    this.kink = new Float32Array(rimN);
+    this.flick = new Float32Array(rimN);
+    this.lines = new FloorLines(rimN + 200, color);
+    this.sparks = new Sparks(90, { ...STATIC, to: color });
+    this.object.add(this.disc, this.lines.mesh, this.sparks.points);
+    this.object.position.set(x, 0, z);
+    // Pulses of current running round the rim, two one way and one the other.
+    this.pulses = [0, 1, 2].map((i) => ({ at: (i / 3) * Math.PI * 2 + Math.random(), speed: (i === 1 ? -1 : 1) * rand(1.3, 2) }));
+  }
+
+  /** A strike landed at (x, z) (world): current spreads out over the floor from it. */
+  strike(x: number, z: number): void {
+    const lx = x - this.x;
+    const lz = z - this.z;
+    const n = 3 + Math.floor(Math.random() * 2);
+    const a0 = Math.random() * Math.PI * 2;
+    for (let i = 0; i < n; i++) this.crawl(lx, lz, a0 + (i / n) * Math.PI * 2 + rand(-0.4, 0.4), rand(1, 1.8), rand(0.25, 0.4));
+    this.sparks.emit(8, lx, 0.15, lz);
+  }
+
+  private crawl(x: number, z: number, a: number, len: number, life: number): void {
+    const c: Crawl = { x, z, a, len, steps: Math.max(3, Math.round(len / 0.3)), fork: Math.random() < 0.5, age: 0, life, reT: 0.05, path: [], forkAt: 0 };
+    this.route(c);
+    this.crawls.push(c);
+  }
+
+  /** A fresh jagged path for a crack from its start, cut off at the rim. */
+  private route(c: Crawl): void {
+    const R2 = (this.radius * 0.97) ** 2;
+    const step = c.len / c.steps;
+    c.path.length = 0;
+    let x = c.x;
+    let z = c.z;
+    let a = c.a;
+    c.path.push(x, z);
+    for (let i = 0; i < c.steps; i++) {
+      a += rand(-0.8, 0.8);
+      x += Math.cos(a) * step;
+      z += Math.sin(a) * step;
+      if (x * x + z * z > R2) break;
+      c.path.push(x, z);
+    }
+    c.forkAt = c.path.length;
+    if (!c.fork || c.path.length < 6) return;
+    // A short fork off the second joint, heading away to one side.
+    x = c.path[2];
+    z = c.path[3];
+    a = c.a + (Math.random() < 0.5 ? 1 : -1) * rand(0.6, 1.1);
+    c.path.push(x, z);
+    for (let i = 0; i < 2; i++) {
+      a += rand(-0.6, 0.6);
+      x += Math.cos(a) * step * 0.8;
+      z += Math.sin(a) * step * 0.8;
+      if (x * x + z * z > R2) break;
+      c.path.push(x, z);
+    }
+  }
+
+  /** An arc leaping off the floor between two nearby points, sparking where it touches down. */
+  private zap(): void {
+    const R = this.radius * 0.9;
+    pointIn({ kind: 'circle', x: 0, z: 0, radius: R }, this.p);
+    const a = Math.random() * Math.PI * 2;
+    const len = rand(0.6, 1.5);
+    let bx = this.p.x + Math.cos(a) * len;
+    let bz = this.p.z + Math.sin(a) * len;
+    if (bx * bx + bz * bz > R * R) {
+      bx = this.p.x - Math.cos(a) * len;
+      bz = this.p.z - Math.sin(a) * len;
+    }
+    const zap = new Lightning(new THREE.Vector3(this.p.x, 0.04, this.p.z), new THREE.Vector3(bx, 0.04, bz), this.color, rand(0.14, 0.22), rand(0.35, 0.5), len * rand(0.25, 0.45));
+    this.zaps.push(zap);
+    this.object.add(zap.object);
+    this.sparks.emit(3, this.p.x, 0.06, this.p.z);
+    this.sparks.emit(3, bx, 0.06, bz);
+  }
+
+  update(dt: number): boolean {
+    const L = StaticField.LOOK;
+    this.t += dt;
+    const env = Math.max(0, Math.min(1, this.t / 0.3, (this.duration - this.t) / 0.5));
+    this.shade.opacity = L.shade * env;
+    if (this.t < this.duration - 0.3) {
+      this.crawlAcc += L.crawls * this.radius * dt;
+      for (; this.crawlAcc >= 1; this.crawlAcc--) {
+        pointIn({ kind: 'circle', x: 0, z: 0, radius: this.radius * 0.9 }, this.p);
+        this.crawl(this.p.x, this.p.z, Math.random() * Math.PI * 2, rand(0.7, 1.6), rand(0.1, 0.22));
+      }
+      this.zapAcc += L.zaps * this.radius * dt;
+      for (; this.zapAcc >= 1; this.zapAcc--) this.zap();
+    }
+    this.lines.begin();
+
+    // The rim: re-kinked every few frames, most jagged and brightest where a pulse of current is passing.
+    const N = this.kink.length;
+    for (const p of this.pulses) p.at += p.speed * dt;
+    const bump = (a: number) => {
+      let s = 0;
+      for (const p of this.pulses) {
+        const d = Math.abs(((a - p.at) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+        s += Math.exp(-((d / 0.3) ** 2));
+      }
+      return Math.min(1, s);
+    };
+    this.kinkT -= dt;
+    const rekink = this.kinkT <= 0;
+    if (rekink) this.kinkT = 0.06;
+    let px = 0;
+    let pz = 0;
+    let pb = 0;
+    for (let i = 0; i <= N; i++) {
+      const j = i % N;
+      const a = (j / N) * Math.PI * 2;
+      const hot = bump(a);
+      if (rekink && i < N) {
+        this.kink[j] = rand(-1, 1) * (L.rimJag + L.rimPulseJag * hot);
+        this.flick[j] = rand(0.7, 1);
+      }
+      const r = this.radius + this.kink[j];
+      const x = Math.cos(a) * r;
+      const z = Math.sin(a) * r;
+      const b = (L.rimBase + L.rimPulse * hot) * this.flick[j] * env;
+      if (i > 0) this.lines.seg(px, pz, x, z, L.rimWidth, pb, b);
+      px = x;
+      pz = z;
+      pb = b;
+    }
+
+    // The cracks: flicker, fade, and get a new path every few frames.
+    this.crawls = this.crawls.filter((c) => {
+      c.age += dt;
+      if (c.age >= c.life) return false;
+      c.reT -= dt;
+      if (c.reT <= 0) {
+        c.reT = 0.05;
+        this.route(c);
+      }
+      const b = (1 - c.age / c.life) ** 0.7 * L.crawlBright * rand(0.7, 1);
+      const draw = (from: number, to: number, b0: number) => {
+        const n = (to - from) / 2 - 1;
+        for (let i = 0; i < n; i++) {
+          const k = from + i * 2;
+          this.lines.seg(c.path[k], c.path[k + 1], c.path[k + 2], c.path[k + 3], L.crawlWidth * (1 - (i / n) * 0.4), b0 * (1 - (i / n) * 0.6), b0 * (1 - ((i + 1) / n) * 0.6));
+        }
+      };
+      draw(0, c.forkAt, b);
+      draw(c.forkAt, c.path.length, b * 0.6);
+      return true;
+    });
+    this.lines.end();
+
+    this.zaps = this.zaps.filter((z) => {
+      if (z.update(dt)) return true;
+      this.object.remove(z.object);
+      return false;
+    });
+    const sparks = this.sparks.update(dt);
+    if (this.t < this.duration || this.crawls.length || this.zaps.length || sparks) return true;
+    this.disc.geometry.dispose();
+    this.shade.dispose();
+    this.lines.dispose();
+    this.sparks.dispose();
+    return false;
+  }
+}
+
 // ------------------------------------------------------------------ palettes
 
 /** Embers: yellow-white turning red as they rise and die. */
@@ -633,8 +949,8 @@ export const SPARKS: SparkSpec = { color: 0xf4eaff, to: 0x9a6bff, life: [0.15, 0
 export const SNOW: SparkSpec = { color: 0xeaf8ff, to: 0x7ac8ff, life: [0.4, 0.8], speed: [0.8, 2.6], spread: 'up', size: 0.17, gravity: 2.5, drag: 2.5, brightness: 0.7 };
 /** Frost fields: faint glitter drifting up off the ice. */
 export const FROST_GLITTER: SparkSpec = { color: 0xeaf8ff, to: 0x7ac8ff, life: [0.6, 1.2], speed: [0.1, 0.4], spread: 'up', size: 0.12, gravity: -0.3, drag: 1, brightness: 0.5 };
-/** Static crawling over a charged patch (Razonde). */
-export const STATIC: SparkSpec = { color: 0xe8dcff, to: 0x6a4cff, life: [0.25, 0.5], speed: [0.3, 1.2], spread: 'up', size: 0.1, gravity: -0.5, drag: 2, brightness: 0.7 };
+/** Static: quick white sparks where current touches the floor (Razonde), turning the technique's colour. */
+export const STATIC: SparkSpec = { color: 0xfffbe8, life: [0.12, 0.3], speed: [1.2, 3], spread: 'up', size: 0.08, gravity: 7, drag: 3, brightness: 0.9 };
 
 /** Area of a shape in m² (how many particles a lingering field sheds). */
 export function shapeArea(shape: TelegraphShape): number {

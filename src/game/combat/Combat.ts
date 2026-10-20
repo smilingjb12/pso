@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { sfx } from '../../audio';
 import type { CcKind } from '../ccResist';
-import type { Character } from '../character';
+import { ART_SLOTS, type Character } from '../character';
 import { angleDelta, yawTo } from '../collision';
 import {
   basicAttack, comboDamage, debug, feel, formulas, injectorCfg, lockOn, magCfg, passiveCfg as T, player as playerCfg, rangedFalloff,
@@ -9,9 +9,10 @@ import {
 } from '../config';
 import { ARTS, isTechArt, type ArtId } from '../data/arts';
 import { specials } from '../data/items';
-import { isAttackTech, techniques, type TechId } from '../data/techniques';
+import { aimsWithCamera, isAttackTech, techniques, type TechId } from '../data/techniques';
 import type { Boss } from '../enemies/Boss';
 import type { Enemy, PlayerStatusKind } from '../enemies/Enemy';
+import { fightLog } from '../fightLog';
 import { cutMult, enemyDamage, playerDamageRaw, randRange } from '../formulas';
 import type { Player } from '../Player';
 import type { TelegraphShape } from '../world/Telegraph';
@@ -21,20 +22,23 @@ import { Blizzard, Burst, Lightning, MOTES, Puff, SPARKS, Trail } from '../world
 import type { World } from '../world/World';
 import type { Projectile, ProjectileSpec } from '../world/Projectile';
 import { ArtRunner, type ArtCtx } from './arts';
+import { UniqueFx } from './riftUniques';
 import type { Hittable } from './types';
 
 export interface CombatHooks {
   world(): World;
   player(): Player;
   char(): Character;
-  lockTarget(): Hittable | null;
+  /** The enemy the camera is looking at, within reach of the bar (Game.pickCamTarget), or null. */
+  camTarget(): Hittable | null;
   moveDir(): THREE.Vector3;
+  /** Where the camera looks on the ground (yaw). */
+  cameraYaw(): number;
   float(pos: THREE.Vector3, text: string, cls: string): void;
   log(html: string): void;
   hitstop(sec: number): void;
   shake(mag: number): void;
   onKill(target: Hittable): void;
-  onHit(target: Hittable): void;
   /** The player's attack (or DoT) took `dealt` HP off a target (charges injectors and the photon blast). */
   onDamage(target: Hittable, dealt: number): void;
   onPlayerHurt(): void;
@@ -163,9 +167,12 @@ export function isBossPart(t: Hittable): boolean {
 export class Combat {
   /** The Arts' effects (combat/arts.ts). */
   readonly arts: ArtRunner;
+  /** The Rift Circle uniques' effects (combat/riftUniques.ts). */
+  readonly ufx: UniqueFx;
 
   constructor(readonly h: CombatHooks) {
     this.arts = new ArtRunner(this);
+    this.ufx = new UniqueFx(this);
   }
 
   get p(): Player {
@@ -176,23 +183,82 @@ export class Combat {
   }
 
   // ------------------------------------------------------------ aiming
+  // The camera picks the target (2026-10-16, the user's ask, replacing the Tab lock): whatever enemy it looks at,
+  // within reach of the bar, is the target. Casters aim with it alone; melee and guns fall back to soft aim ahead
+  // when an attack doesn't reach it.
 
-  /** Pick a target for the step that is starting now (the lock, or a soft target ahead within `range`). */
+  /** How far the camera's target can be: the farthest the basic chain or an Art on the bar reaches (melee: at least lockOn.meleeRange). */
+  targetRange(): number {
+    const c = this.c;
+    const family = c.weaponFamily();
+    let r = family === 'caster' ? basicAttack.boltRange : family === 'ranged' ? c.weaponKind().range : lockOn.meleeRange;
+    for (let s = 0; s < ART_SLOTS; s++) {
+      const id = c.artInSlot(s);
+      if (id && ARTS[id].role !== 'support') r = Math.max(r, ARTS[id].range);
+    }
+    return r;
+  }
+
+  /** Distance from her to the target's edge. */
+  reachTo(t: Hittable): number {
+    return Math.hypot(t.pos.x - this.p.pos.x, t.pos.z - this.p.pos.z) - t.radius;
+  }
+
+  /** The camera's target if `range` reaches it, else null. */
+  camTarget(range: number): Hittable | null {
+    const t = this.h.camTarget();
+    return t && t.alive && !t.invulnerable && this.reachTo(t) <= range ? t : null;
+  }
+
+  /**
+   * Pick a target for the step that is starting now: the camera's target when `range` reaches it (default: the
+   * basic chain's reach); otherwise melee and guns soft-aim ahead, and casters have none (they shoot where the camera looks).
+   */
   aimTarget(range?: number): Hittable | null {
-    const lock = this.h.lockTarget();
-    if (lock && lock.alive && !lock.invulnerable) return lock;
     const kind = this.c.weaponKind();
-    const ranged = kind.ranged || kind.family === 'caster';
+    const family = this.c.weaponFamily();
+    const t = this.camTarget(range ?? (family === 'caster' ? basicAttack.boltRange : family === 'ranged' ? kind.range : lockOn.softAimRange));
+    if (t || family === 'caster') return t;
+    const ranged = family === 'ranged';
     return this.softTarget(
       ranged ? lockOn.rangedSoftAimDeg : lockOn.softAimDeg,
       range ?? (ranged ? lockOn.rangedSoftAimRange : lockOn.softAimRange),
     );
   }
 
-  softTarget(maxDeg: number, maxRange: number): Hittable | null {
+  /** Which way a caster shoots with no target in reach: toward the camera's target (too far: it falls short), else along the camera. */
+  casterYaw(): number {
+    const t = this.h.camTarget();
+    const p = this.p;
+    return t && t.alive ? yawTo(p.pos.x, p.pos.z, t.pos.x, t.pos.z) : this.h.cameraYaw();
+  }
+
+  /**
+   * An area technique's target along `yaw` (the camera's, when it started): the camera's target in reach, or the
+   * nearest enemy close to that line within `range`.
+   */
+  areaTarget(range: number, yaw: number): Hittable | null {
+    return this.camTarget(range) ?? this.softTarget(lockOn.areaAimDeg, range, yaw);
+  }
+
+  /**
+   * Why a targeted technique can't go now, or null: Zonde and Barta need the camera's target and Foie can't fly
+   * past its range to it ("Out of range"; Foie with no target flies along the camera). Nothing is spent.
+   */
+  artAimBlocked(id: ArtId): string | null {
+    if (!isTechArt(id)) return null;
+    const shape = techniques[id].shape;
+    if (shape !== 'bolt' && shape !== 'chain' && shape !== 'spike') return null;
+    const t = this.h.camTarget();
+    if (!t || !t.alive || t.invulnerable) return shape === 'bolt' ? null : 'No target';
+    return this.reachTo(t) > ARTS[id].range + 2 ? 'Out of range' : null;
+  }
+
+  /** The nearest enemy within `maxDeg` of `baseYaw` (default: where she's moving, else facing) and `maxRange`. */
+  softTarget(maxDeg: number, maxRange: number, baseYaw?: number): Hittable | null {
     const p = this.p;
     const md = this.h.moveDir();
-    const baseYaw = md.lengthSq() > 0 ? Math.atan2(md.x, md.z) : p.yaw;
+    baseYaw ??= md.lengthSq() > 0 ? Math.atan2(md.x, md.z) : p.yaw;
     const maxAng = THREE.MathUtils.degToRad(maxDeg);
     let best: Hittable | null = null;
     let bestD = Infinity;
@@ -502,7 +568,10 @@ export class Combat {
     if (kb > 0 && this.resisted(target, 'knockback', true)) kb = 0;
     const killed = target.damage(dmg, fromX, fromZ, kb, staggerPts);
     const dealt = before - Math.max(0, target.hp);
-    if (credit && dealt > 0) this.h.onDamage(target, dealt);
+    if (credit && dealt > 0) {
+      this.h.onDamage(target, dealt);
+      this.ufx.onDealt(target, dealt);
+    }
     if (!killed && !wasStaggered && staggered(target)) this.onStagger(target);
     if (killed) this.onDeath(target);
     return killed;
@@ -510,6 +579,7 @@ export class Combat {
 
   /** A target the player hurt just died: Bounty (marked), Contagion (venom passes on). */
   private onDeath(target: Hittable): void {
+    this.ufx.onKill(target);
     const d = this.debuffs.get(target);
     if (!d) return;
     if (d.markT > 0 && d.bounty) this.refundTp(this.p.maxTp * 0.2, 'BOUNTY');
@@ -606,8 +676,7 @@ export class Combat {
     const specialId = strong || (basic && s.finisher) ? c.weaponSpecial() : undefined;
     const sp = specialId ? specials[specialId] : undefined;
     const procChance = (sp?.procChance ?? 0) * c.pMult('rounds', T.roundsMult);
-    let wd = this.playerWeaponDamage();
-    if (target.race) wd *= 1 + c.weaponAttr(target.race) / 100;
+    const wd = this.playerWeaponDamage();
     const rangeMult = kind.ranged ? formulas.rangedDamageMult : formulas.meleeDamageMult;
     const comboMult = this.comboMult(s.streak);
     // Passives and affixes on the hit: Crush (sword Arts) ignores part of the armour, finishers (Follow-through,
@@ -620,13 +689,14 @@ export class Combat {
     if (art && kind.kind === 'saber') mult *= c.pMult('balance', T.balanceMult);
     if (s.finisher && staggered(target)) mult *= c.pMult('executioner', T.executionerMult);
     if (s.streak > 0 && kind.ranged) mult *= c.pMult('hotStreak', T.hotStreakMult) * (1 + c.gearAffix('perfectPct') / 100);
-    mult *= this.lowHpMult(false) * this.takenMult(target) * this.haloMult() * (art ? c.artRankPower(art) : 1);
+    mult *= this.lowHpMult(false) * this.takenMult(target) * this.haloMult() * (art ? c.artRankPower(art) : 1) * this.ufx.dealtMult(target);
     // Frozen Shooter: a frozen enemy shatters for more; anything else (bosses included) takes less.
     const shooter = c.hasUnique('frozenShooter');
     const shatter = shooter && frozen(target);
     if (shooter) mult *= shatter ? U.frozenShatterMult : U.frozenOtherMult;
     let dmg = playerDamageRaw(wd, armor, s.power) * kind.damageScale * rangeMult * comboMult * mult * target.damageMult(p.pos.x, p.pos.z, strong);
-    const crit = this.rollCrit(target);
+    const handgun = kind.kind === 'handgun';
+    const crit = this.ufx.canCrit(handgun) && this.rollCrit(target);
     if (crit) dmg *= c.critDamage() * (this.certain && this.ambush ? 1.5 : 1);
     if (this.certain) this.ambush = false;
     dmg = Math.max(formulas.minDamage, Math.round(dmg));
@@ -652,7 +722,7 @@ export class Combat {
     }
 
     const killed = this.deal(target, dmg, p.pos.x, p.pos.z, kb, staggerPts);
-    this.h.onHit(target);
+    if (!killed) this.ufx.afterHit(target, dmg, crit, handgun);
     sfx(crit ? 'hit.crit' : strong || s.finisher ? 'hit.heavy' : 'hit.normal', { x: target.pos.x, z: target.pos.z });
     const cls = crit ? 'dmg crit' : strong ? 'dmg heavy' : 'dmg';
     this.h.float(tmp.copy(target.pos).setY(target.aimHeight + 0.6), crit ? `${dmg}!` : String(dmg), cls);
@@ -752,21 +822,19 @@ export class Combat {
     const c = this.c;
     const t = techniques[s.tech];
     const crit = this.rollCrit(target);
-    // The weapon's race % boosts techniques too, so a caster's weapon attributes matter.
-    const raceMult = target.race ? 1 + c.weaponAttr(target.race) / 100 : 1;
-    let mult = (s.mult ?? 1) * (s.share ?? 1) * this.comboMult(s.streak) * this.lowHpMult(true) * this.haloMult();
+    let mult = (s.mult ?? 1) * (s.share ?? 1) * this.comboMult(s.streak) * this.lowHpMult(true) * this.haloMult() * this.ufx.dealtMult(target);
     // Passives: Resonance (perfectly chained), Focus Bolt (the single-target ones), Overload (the 3rd step).
     if (s.streak > 0) mult *= c.pMult('resonance', T.resonanceMult);
     if ((s.tech === 'foie' || s.tech === 'zonde' || s.tech === 'barta') ) mult *= c.pMult('focusBolt', T.focusBoltMult);
     if (s.finisher) mult *= c.pMult('overload', T.overloadMult);
     if (c.hasUnique('reactorRod')) mult *= Math.min(U.reactorCap, 1 + U.reactorStep * Math.max(0, this.reactorRun - 1));
-    const power = c.techDamage(s.tech) * mult * raceMult * this.longshot(target, true) * this.takenMult(target) * cutMult(target.techResist ?? 0);
+    const power = c.techDamage(s.tech) * mult * this.longshot(target, true) * this.takenMult(target) * cutMult(target.techResist ?? 0);
     const dmg = Math.max(1, Math.round(power * target.damageMult(p.pos.x, p.pos.z, (s.stagger ?? 1) > 1) * (crit ? c.critDamage() : 1)));
     // A storm's or blizzard's ticks don't flinch (2026-10-16: Razonde strikes kept enemies locked in place).
     const staggerPts = s.tick ? 0 : stagger.light * (s.stagger ?? 1) * (s.share ?? 1) * c.pMult('conductor', T.conductorMult);
     const killed = this.deal(target, dmg, p.pos.x, p.pos.z, (s.stagger ?? 1) > 1 ? 1.5 : 1, staggerPts);
+    if (!killed) this.ufx.afterHit(target, dmg, crit, false);
     if (s.tick) target.quietHit?.();
-    this.h.onHit(target);
     if (t.element === 'fire') sfx('tech.foie.hit', { x: target.pos.x, z: target.pos.z });
     if (crit) sfx('hit.crit', { x: target.pos.x, z: target.pos.z });
     this.h.float(tmp.copy(target.pos).setY(target.aimHeight + 0.6), crit ? `${dmg}!` : String(dmg), crit ? 'dmg tech crit' : 'dmg tech');
@@ -775,7 +843,10 @@ export class Combat {
       const kindle = c.pMult('kindle', T.kindleMult);
       if (t.element === 'fire') target.applyStatus('burn', (dmg * techScaling.burnShare * kindle * (s.burn ?? 1)) / techScaling.burnTime, techScaling.burnTime);
       if (t.element === 'ice') this.chillTarget(target, techScaling.chillMult, techScaling.chillTime);
-      if (t.element === 'lightning' && this.stun(target, 2, (t.statusChance + c.stats().mst * techScaling.statusPerMst) * kindle * (s.stun ?? 1))) {
+      // Lightning may stun: the technique's own chance, times Kindle and Paralyze; no longer more with tech damage
+      // (2026-10-16: +0.03% a point reached 100% a strike at endgame tech damage). s.stun 0: this hit doesn't roll.
+      const stunChance = t.statusChance * kindle * (s.stun ?? 1);
+      if (t.element === 'lightning' && stunChance > 0 && this.stun(target, 2, stunChance)) {
         extra += ' <span class="l-proc">stun</span>';
       }
     }
@@ -787,13 +858,15 @@ export class Combat {
 
   // ------------------------------------------------------- the basic step
 
-  /** TP a landed basic step refills: a share of the class's base TP, more on the finisher and a perfect chain. */
+  /** TP a landed basic step refills: a share of the class's base TP, more on the finisher and a perfect chain (and Flow). */
   private basicRefill(finisher: boolean, streak: number): void {
     const c = this.c;
     const kind = c.weaponKind();
     let amount = basicAttack.tpRefill * c.baseTp() * (finisher ? basicAttack.finisherTp : 1) * (streak > 0 ? basicAttack.perfectTp : 1) * (kind.tpRefill ?? 1);
     amount *= c.pMult('hunterFocus', T.focusTpMult) * c.pMult('rangerFocus', T.focusTpMult);
     if (kind.family === 'caster') amount *= c.pMult('siphonStaff', T.siphonMult);
+    amount *= 1 + c.gearAffix('tpRefill') / 100;
+    if (c.hasUnique('v801')) amount *= Math.max(0, 1 - c.uval(U.v801Refill));
     const p = this.p;
     p.tp = Math.min(p.maxTp, p.tp + amount);
   }
@@ -893,11 +966,11 @@ export class Combat {
     return struck;
   }
 
-  /** Enemies in front within `range` and `arcDeg` (point blank always counts), the lock first, then the nearest. */
+  /** Enemies in front within `range` and `arcDeg` (point blank always counts), the camera's target first, then the nearest. */
   inArc(range: number, arcDeg: number, maxTargets: number): Hittable[] {
     const p = this.p;
     const halfArc = THREE.MathUtils.degToRad(arcDeg) / 2;
-    const lock = this.h.lockTarget();
+    const lock = this.h.camTarget();
     return this.h
       .world()
       .hittables()
@@ -967,18 +1040,17 @@ export class Combat {
     const kind = c.weaponKind();
     const target = this.aimTarget(basicAttack.boltRange);
     const finisher = hitIndex === 2;
-    const yaw = target ? yawTo(p.pos.x, p.pos.z, target.pos.x, target.pos.z) : p.yaw;
+    const yaw = target ? yawTo(p.pos.x, p.pos.z, target.pos.x, target.pos.z) : this.casterYaw();
     const size = finisher ? 1.4 : 1;
     const bolt = this.shoot(yaw, {
       speed: basicAttack.boltSpeed, range: basicAttack.boltRange, radius: 0.5, size: 0.12 * size, color: 0xffffff, homing: target, homingRate: 9,
       onHit: (t) => {
         if (t.invulnerable) return false;
         const crit = this.rollCrit(t);
-        const raceMult = t.race ? 1 + c.weaponAttr(t.race) / 100 : 1;
-        const mult = this.comboMult(streak) * (finisher ? c.pMult('followThrough', T.followThroughMult) : 1) * this.lowHpMult(true) * this.haloMult() * this.takenMult(t);
-        const dmg = Math.max(1, Math.round(c.boltDamage() * mult * raceMult * cutMult(t.techResist ?? 0) * t.damageMult(p.pos.x, p.pos.z, false) * (crit ? c.critDamage() : 1)));
+        const mult = this.comboMult(streak) * (finisher ? c.pMult('followThrough', T.followThroughMult) : 1) * this.lowHpMult(true) * this.haloMult() * this.takenMult(t) * this.ufx.dealtMult(t);
+        const dmg = Math.max(1, Math.round(c.boltDamage() * mult * cutMult(t.techResist ?? 0) * t.damageMult(p.pos.x, p.pos.z, false) * (crit ? c.critDamage() : 1)));
         const killed = this.deal(t, dmg, p.pos.x, p.pos.z, 0.8, stagger.light * (finisher ? 2 : 1));
-        this.h.onHit(t);
+        if (!killed) this.ufx.afterHit(t, dmg, crit, false);
         sfx(crit ? 'hit.crit' : 'hit.normal', { x: t.pos.x, z: t.pos.z });
         this.h.float(tmp.copy(t.pos).setY(t.aimHeight + 0.6), crit ? `${dmg}!` : String(dmg), crit ? 'dmg tech crit' : 'dmg tech');
         this.h.log(`${label} → ${t.name}: <b>${dmg}</b>${crit ? ' <span class="l-kill">CRIT</span>' : ''}${killed ? ' <span class="l-kill">KILL</span>' : ''}`);
@@ -1009,6 +1081,10 @@ export class Combat {
 
   /** The target an Art aimed at when it started. */
   artTarget: Hittable | null = null;
+  /** The direction it aimed when it started (area techniques: the camera's, or toward its target). */
+  artYaw = 0;
+  /** How far out along `artYaw` Rafoie and Razonde land with no target (their range when the camera's target is past it). */
+  artDist: number = lockOn.areaAimDist;
 
   /** TP one use of this Art costs now: its own, then Clarity, Overload (as the 3rd step) and Focus (half). */
   artCost(id: ArtId, hitIndex: number): number {
@@ -1018,29 +1094,48 @@ export class Combat {
     let cost = c.artCost(id);
     if (isTechArt(id) && isAttackTech(id) && hitIndex === 2 && c.hasPassive('overload')) cost *= 2;
     if (p.halfCostNext) cost *= 0.5;
+    cost *= this.ufx.costMult(id, hitIndex);
     return Math.round(cost);
   }
 
-  /** Why this Art can't be used now (cooldown, TP), or null. `hitIndex`: the chain step it would be. */
+  /** Why this Art can't be used now (cooldown, TP, no target in reach), or null. `hitIndex`: the chain step it would be. */
   artBlocked(id: ArtId, hitIndex: number): string | null {
     const cd = this.p.cooldownLeft(id);
     if (cd > 0) return `${ARTS[id].name}: ${cd.toFixed(1)} s`;
-    if (this.artCost(id, hitIndex) > this.p.tp) return 'Not enough TP';
-    return null;
+    const cost = this.artCost(id, hitIndex);
+    // Dark Bridge: a technique short of TP can take the rest from HP.
+    if (cost > this.p.tp && this.ufx.bloodCost(id, cost - this.p.tp) === null) return 'Not enough TP';
+    return this.artAimBlocked(id);
   }
 
   /** An Art step started: pay its TP, start its cooldown and aim it. */
   artStart(id: ArtId, hitIndex: number, perfect: boolean): void {
     const p = this.p;
-    const cost = Math.min(p.tp, this.artCost(id, hitIndex));
+    const full = this.artCost(id, hitIndex);
+    const cost = Math.min(p.tp, full);
     p.tp -= cost;
     p.halfCostNext = false;
     this.artCostPaid = cost;
     const cd = this.c.artCooldown(id);
     if (cd > 0) p.cooldowns.set(id, cd);
+    this.ufx.started(id, hitIndex, perfect, full, cost);
     if (isTechArt(id)) sfx('tech.charge');
-    this.artTarget = this.aimTarget(ARTS[id].range + 2);
-    p.aimYaw = this.artTarget ? yawTo(p.pos.x, p.pos.z, this.artTarget.pos.x, this.artTarget.pos.z) : null;
+    this.artDist = lockOn.areaAimDist;
+    if (isTechArt(id) && aimsWithCamera(id)) {
+      // Area techniques go where the camera looks: Gizonde and Gibarta straight along it (at its target, if any), Rafoie
+      // and Razonde onto its target in reach, else the enemy nearest that line, else out along it (as far as they reach
+      // when its target is beyond them).
+      const camYaw = this.casterYaw();
+      const onSpot = techniques[id].shape === 'meteor' || techniques[id].shape === 'storm';
+      this.artTarget = onSpot ? this.areaTarget(ARTS[id].range + 2, camYaw) : this.camTarget(Infinity);
+      this.artYaw = this.artTarget ? yawTo(p.pos.x, p.pos.z, this.artTarget.pos.x, this.artTarget.pos.z) : camYaw;
+      if (onSpot && !this.artTarget && this.h.camTarget()?.alive) this.artDist = ARTS[id].range;
+      p.aimYaw = this.artYaw;
+    } else {
+      this.artTarget = this.aimTarget(ARTS[id].range + 2);
+      p.aimYaw = this.artTarget ? yawTo(p.pos.x, p.pos.z, this.artTarget.pos.x, this.artTarget.pos.z) : isTechArt(id) && isAttackTech(id) ? this.casterYaw() : null;
+      this.artYaw = p.aimYaw ?? p.yaw;
+    }
     // Arts that seal end the chain with them.
     if (ARTS[id].seals) p.combo.seal();
     if (perfect && isTechArt(id) && this.c.hasPassive('calmMind')) p.guard(this.c.pMult('calmMind', T.parryMult), T.parryTime);
@@ -1052,6 +1147,7 @@ export class Combat {
   /** The chain produced an Art's 'hit' (its wind-up ended): its effect, or the start of its channel. */
   artFire(id: ArtId, hitIndex: number, streak: number): void {
     const ctx = this.ctx(id, hitIndex, streak);
+    ctx.mult *= this.ufx.takeCastMult();
     if (isTechArt(id) && isAttackTech(id) && this.c.hasUnique('reactorRod')) {
       if (this.reactorIdle > U.reactorWindow) this.reactorRun = 0;
       this.reactorRun++;
@@ -1069,6 +1165,14 @@ export class Combat {
     }
     this.arts.fire(id, ctx);
     this.swingMult = 1;
+    // Yasakani Magatama: now and then the Art plays again (a channel's every effect too).
+    this.ufx.fired(id, ctx, (echo) => {
+      const target = this.artTarget;
+      if (!target?.alive) this.artTarget = isTechArt(id) && aimsWithCamera(id) ? null : this.aimTarget(ARTS[id].range + 2);
+      this.arts.fire(id, echo);
+      const n = this.c.artTicks(id);
+      for (let i = 0; i < n; i++) this.later((ARTS[id].channel * (i + 1)) / n, () => this.arts.tick(id, i, echo));
+    });
     const tech = isTechArt(id) && isAttackTech(id);
     this.afterStep(ctx.finisher, true, streak, ctx.finisher && streak >= comboDamage.length - 1, isTechArt(id));
     if (tech && ctx.finisher) {
@@ -1077,8 +1181,12 @@ export class Combat {
       // Echo: the technique repeats a moment later at half power, free.
       if (this.c.hasPassive('echo')) {
         const target = this.artTarget;
+        const yaw = this.artYaw;
+        const dist = this.artDist;
         this.later(T.echoDelay, () => {
-          this.artTarget = target?.alive ? target : this.aimTarget(ARTS[id].range + 2);
+          this.artTarget = target?.alive ? target : isTechArt(id) && aimsWithCamera(id) ? null : this.aimTarget(ARTS[id].range + 2);
+          this.artYaw = yaw;
+          this.artDist = dist;
           this.arts.fire(id, { ...this.ctx(id, hitIndex, 0), mult: this.c.pAmt('echo', T.echoShare), echo: true });
         });
       }
@@ -1110,6 +1218,7 @@ export class Combat {
     if (p.pb < 1) return 'Photon blast not charged';
     if (!p.alive || p.paralyzed) return "Can't now";
     p.pb = 0;
+    if (c.hasUnique('v801')) p.dashCharges = p.maxDashCharges;
     const at = tmp.copy(p.pos).setY(2.8);
     sfx('jingle.magEvolve');
     this.h.shake(0.4);
@@ -1242,9 +1351,13 @@ export class Combat {
     if (this.hellCorrupt > 0 && status !== 'corrupt' && this.p.alive && this.h.rng() < this.hellCorrupt) this.applyPlayerStatus('corrupt');
   }
 
-  /** Telegraphed area attack from a field enemy (Lily spit, Migium lightning, petal burst). */
-  enemyArea(e: Enemy, shape: TelegraphShape, atpMult: number, knockback: number, status?: PlayerStatusKind, statusChance = 1): boolean {
-    return this.areaHit(e.atp * atpMult * this.outMult(e), e.name, shape, shape.x, shape.z, knockback, status, statusChance);
+  /**
+   * Telegraphed area attack from a field enemy (Lily spit, Migium lightning, petal burst). `chip`: a ranged shot or an
+   * affix side attack, which deals the chip share of the enemy's ATP in the rifts (heavy hits get all of it).
+   */
+  enemyArea(e: Enemy, shape: TelegraphShape, atpMult: number, knockback: number, status?: PlayerStatusKind, statusChance = 1, chip = false): boolean {
+    const share = chip ? (e.arch.chipMult ?? 1) : 1;
+    return this.areaHit(e.atp * atpMult * share * this.outMult(e), e.name, shape, shape.x, shape.z, knockback, status, statusChance);
   }
 
   /** Boss area attack. */
@@ -1288,9 +1401,10 @@ export class Combat {
   /** Seconds until Last Stand can save the player again. */
   private lastStandT = 0;
 
-  /** Last Stand (passive): a hit that would knock the player out leaves 1 HP, then recharges. */
+  /** Last Stand (passive): a hit that would knock the player out leaves 1 HP, then recharges. DF Shield's Doom comes first. */
   private lastStand(dmg: number): number {
     const p = this.p;
+    dmg = this.ufx.lethal(dmg);
     if (dmg < p.hp || p.hp <= 1 || this.lastStandT > 0 || !this.c.hasPassive('lastStand')) return dmg;
     this.lastStandT = T.lastStandCooldown;
     this.h.float(tmp.copy(p.pos).setY(2.7), 'LAST STAND', 'proc');
@@ -1304,11 +1418,13 @@ export class Combat {
   applyPlayerStatus(kind: PlayerStatusKind, amount?: number): boolean {
     const p = this.p;
     if (!p.alive || debug.invincible) return false;
+    fightLog.push('status', { kind, n: amount });
     const at = tmp.copy(p.pos).setY(2.6);
     const seconds = amount;
     if (kind === 'corrupt') {
       const before = p.corruption;
-      if (p.corrupt(amount ?? 1) <= 0) return false;
+      const more = this.c.hasUnique('soulEater') ? 1 + this.c.uval(U.soulCorrupt) : 1;
+      if (p.corrupt(Math.round((amount ?? 1) * more)) <= 0) return false;
       this.h.float(at, p.corruption > 1 ? `CORRUPTION ×${p.corruption}` : 'CORRUPTION', 'corrupt');
       sfx('status.corrupt');
       if (before === 0) this.h.log('<span class="l-bad">Corruption is eating your max HP: it fades once you stop taking it, and pylon light cleanses it faster</span>');
@@ -1328,7 +1444,8 @@ export class Combat {
     }
     if (kind === 'poison') {
       const fresh = p.poison <= 0;
-      p.poison = Math.max(p.poison, seconds ?? statuses.poisonDuration);
+      const longer = this.c.hasUnique('plagueMantle') ? 1 + U.plagueSelfPoison : 1;
+      p.poison = Math.max(p.poison, (seconds ?? statuses.poisonDuration) * longer);
       if (fresh) {
         this.h.float(at, 'POISON', 'poison');
         sfx('status.poison');
@@ -1357,6 +1474,7 @@ export class Combat {
     const p = this.p;
     this.lastStandT = Math.max(0, this.lastStandT - dt);
     this.tickEffects(dt);
+    this.ufx.tick(dt);
     if (!p.alive) {
       this.poisonTick = 0;
       this.burnTickT = 0;
@@ -1388,9 +1506,10 @@ export class Combat {
       this.burnTickT += dt;
       if (this.burnTickT >= 0.5 && p.burnStacks > 0) {
         this.burnTickT -= 0.5;
-        const res = 1 - this.c.resist('resBurn') / 100;
+        const res = (1 - this.c.resist('resBurn') / 100) * (this.c.hasUnique('emberCore') ? 1 + this.c.uval(U.emberSelfBurn) : 1);
         const dmg = this.lastStand(this.soak(Math.max(1, Math.round(p.maxHp * statuses.burnPctPerStack * p.burnStacks * 0.5 * res))));
         p.hp = Math.max(0, p.hp - dmg);
+        fightLog.push('dot', { kind: 'burn', dmg, hp: p.hp });
         this.h.float(tmp.copy(p.pos).setY(2.2), String(dmg), 'burn');
         if (!p.alive) {
           this.h.onPlayerHurt();
@@ -1410,6 +1529,7 @@ export class Combat {
     const res = 1 - this.c.resist('resPoison') / 100;
     const dmg = this.lastStand(this.soak(Math.max(1, Math.round(p.maxHp * statuses.poisonPctPerSec * 0.5 * res))));
     p.hp = Math.max(0, p.hp - dmg);
+    fightLog.push('dot', { kind: 'poison', dmg, hp: p.hp });
     this.h.float(tmp.copy(p.pos).setY(2.2), String(dmg), 'poison');
     if (!p.alive) this.h.onPlayerHurt();
   }
@@ -1422,18 +1542,31 @@ export class Combat {
     this.hurtPlayer(dmg, fromX, fromZ, knockback, source);
   }
 
+  /** A failed Hell boss mechanic: a share of max HP (Corruption's cut not counted), past armour and damage taken. */
+  mechanicHurt(share: number, fromX: number, fromZ: number, knockback: number, source: string): boolean {
+    const p = this.p;
+    if (!p.alive || p.iframes > 0) return false;
+    const dmg = debug.invincible ? 0 : Math.max(1, Math.round(p.trueMaxHp * share));
+    this.hurtPlayer(dmg, fromX, fromZ, knockback, source, undefined, true);
+    this.hellCorruption();
+    return true;
+  }
+
   bossTick(shape: TelegraphShape, damage: number, fromX: number, fromZ: number): void {
     const p = this.p;
     if (!p.alive || !inShape(shape, p.pos.x, p.pos.z, p.radius)) return;
     const dmg = debug.invincible ? 0 : this.lastStand(this.soak(Math.max(1, Math.round(damage * cutMult(this.damageTaken('area')) * this.bulwark()))));
     p.hp = Math.max(0, p.hp - dmg);
+    fightLog.push('tick', { dmg, hp: p.hp, x: p.pos.x, z: p.pos.z, shape });
     this.h.float(tmp.copy(p.pos).setY(2.2), String(dmg), 'burn');
     if (p.hitstun <= 0 && p.iframes <= 0) p.takeHit(0, fromX, fromZ, 3);
     if (!p.alive) this.h.onPlayerHurt();
   }
 
-  private hurtPlayer(dmg: number, fromX: number, fromZ: number, knockback: number, source: string, src?: Hittable): void {
+  /** `mechanic`: a failed boss mechanic's share of max HP (Rol Carapace doesn't cap it). */
+  private hurtPlayer(dmg: number, fromX: number, fromZ: number, knockback: number, source: string, src?: Hittable, mechanic = false): void {
     const p = this.p;
+    const raw = dmg;
     // Composure: the next hit after a perfect finisher lands softer, then it's spent.
     if (p.composureT > 0 && dmg > 0) {
       dmg = Math.max(1, Math.round(dmg * this.c.pMult('composure', T.composureMult)));
@@ -1449,8 +1582,9 @@ export class Combat {
       }
       if (src && src.alive && this.c.artMod('ironWill', 'thorns')) this.weaponHit(src, { power: basicAttack.damageMult, label: 'Thorns', streak: 0, finisher: false, art: 'ironWill', kb: 0 });
     }
-    dmg = this.lastStand(this.soak(dmg));
+    dmg = this.lastStand(this.ufx.incoming(this.soak(dmg), mechanic));
     p.takeHit(dmg, fromX, fromZ, knockback);
+    fightLog.push('hurt', { src: source, raw, dmg, hp: p.hp, max: p.maxHp, x: p.pos.x, z: p.pos.z, mech: mechanic || undefined });
     sfx('player.hurt');
     this.h.float(tmp.copy(p.pos).setY(2.2), String(dmg), 'hurt');
     this.h.hitstop(feel.hitstopPlayerHurt);

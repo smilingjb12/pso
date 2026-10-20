@@ -28,4 +28,9 @@ export const hell = {
   bigRoomSpawns: 9,
   /** At most this many affix area attacks (Volatile vents, Molten globs, Stormcaller circles) warning at once. */
   maxAffixAreas: 2,
+  /**
+   * Hell boss mechanics (2026-10-16): failing one (no rock between you and the Dragon's rampage, off the Warden's
+   * sequence) lands this share of your max HP (Corruption's cut not counted), whatever your armour or damage taken.
+   */
+  mechanicHit: 0.8,
 };

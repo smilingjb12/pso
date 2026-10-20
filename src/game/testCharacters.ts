@@ -3,7 +3,7 @@ import { CLASSES, MAX_LEVEL } from './data/stats';
 import type { AffixRoll } from './data/itemAffixes';
 import { Character, makeItem, MAG_UNIT_SLOTS, type CharacterData, type ItemInstance } from './character';
 import { magPointsEarned } from './mag';
-import { UNIQUE_IDS, uniqueItemId } from './data/uniques';
+import { isUniqueUnit, UNIQUE_IDS, uniqueItemId, uniqueUnitId } from './data/uniques';
 
 // Dev-only premade characters for testing (debug panel). They go into an empty save slot.
 
@@ -70,14 +70,14 @@ export function testCharacter(cls: TestClass, level = 76): CharacterData {
   const injector = makeItem('mate_6', { mod: 'reserve' });
   d.inventory = [
     ...kit.weapons, kit.frame, kit.barrier, injector,
-    // Every unique, at tier 15.
-    ...UNIQUE_IDS.map((id) => makeItem(uniqueItemId(id, 15))),
+    // Every gear unique, at tier 15 (the unique units are learned below).
+    ...UNIQUE_IDS.filter((id) => !isUniqueUnit(id)).map((id) => makeItem(uniqueItemId(id, 15))),
     makeItem('photon_drop', { qty: 10 }),
     makeItem('photon_sphere', { qty: 3 }),
     makeItem('photon_crystal', { qty: 2 }),
   ];
   d.equipped = { weapon: kit.weapons[0].uid, frame: kit.frame.uid, barrier: kit.barrier.uid, injector: injector.uid };
-  d.units = kit.units;
+  d.units = [...kit.units, ...UNIQUE_IDS.filter(isUniqueUnit).map((id) => makeItem(uniqueUnitId(id)))];
   d.magUnits = kit.units.slice(0, MAG_UNIT_SLOTS).map((u) => u.affixes![0].id);
 
   // Dark Falz down on Normal and Nightmare: every expedition on both, and Hell, are open.

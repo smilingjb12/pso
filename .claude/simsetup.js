@@ -38,8 +38,9 @@
     const ts = g.world.targets();
     // Mines: go for the control node first, as a player would.
     const node = ts.find((t) => t.arch?.ai === 'node');
-    if (node && g.lockTarget !== node) g.lockTarget = node;
-    if (!ts.length || (g.lockTarget && g.lockTarget.alive && !node)) return;
+    // The bot keeps the camera on window.botFocus when set (no Tab lock since 2026-10-16).
+    window.botFocus = node ?? null;
+    if (!ts.length) return;
     const p = g.player.pos;
     ts.sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p));
     const t = node ?? ts[0];
@@ -79,9 +80,10 @@
   const c = g.combat;
   window.dmgBy = {};
   c._hp = c.hurtPlayer.bind(c);
-  c.hurtPlayer = (dmg, fx, fz, kb, src) => {
-    dmgBy[src] = (dmgBy[src] || 0) + dmg;
-    return c._hp(dmg, fx, fz, kb, src);
+  // Every argument passes through (the attacker and the failed-mechanic flag after the source name).
+  c.hurtPlayer = (...args) => {
+    dmgBy[args[4]] = (dmgBy[args[4]] || 0) + args[0];
+    return c._hp(...args);
   };
   const tick = c.tickPlayerStatus.bind(c);
   c.tickPlayerStatus = (dt) => {

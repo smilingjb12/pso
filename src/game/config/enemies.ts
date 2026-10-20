@@ -1,5 +1,3 @@
-import type { Race } from './combat';
-
 /** Which AI / body an archetype uses. */
 export type EnemyAi =
   | 'brawler' | 'lily' | 'panarms' | 'hidoom' | 'migium' | 'gunbot' | 'garanz' | 'sinow' | 'node' | 'mite' | 'drone'
@@ -13,7 +11,6 @@ export interface EnemyArchetype {
   ai: EnemyAi;
   color: number;
   scale: number;
-  race: Race;
   hp: number;
   /** Attack: its hits deal ATP x formulas.enemyDamageScale, less the player's Strike or Area damage taken %. */
   atp: number;
@@ -45,9 +42,14 @@ export interface EnemyArchetype {
   dropRate: number; // chance of any drop
   /** Max item tier this enemy drops. */
   dropTier: number;
-  /** Falz Rifts: the item level its drops roll at (100 + the rift tier), and its rare-item odds multiplier (rarity). */
+  /** Falz Rifts: the item level its drops roll at (100 + 2 x the rift tier), and its rare-item odds multiplier (rarity). */
   ilvl?: number;
   lootRare?: number;
+  /**
+   * Falz Rifts: what its chip damage (ranged shots, elite affix side attacks) deals against its ATP, which is lifted
+   * for heavy hits (rifts.ts riftArch). Unset: 1.
+   */
+  chipMult?: number;
   /** Ranged / caster attacks: seconds between attacks, reach, telegraph time and blast radius. */
   shotCooldown?: number;
   shotRange?: number;
@@ -76,7 +78,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'brawler',
     color: 0x8a5a2b,
     scale: 1.0,
-    race: 'native',
     hp: 417,
     atp: 24,
     armor: 7,
@@ -105,7 +106,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'brawler',
     color: 0x3f6b8a,
     scale: 1.12,
-    race: 'native',
     hp: 667,
     atp: 51,
     armor: 12,
@@ -134,7 +134,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'brawler',
     color: 0x6a2f7a,
     scale: 1.25,
-    race: 'native',
     hp: 1056,
     atp: 84,
     armor: 18,
@@ -166,7 +165,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'brawler',
     color: 0xa8442a,
     scale: 1.04,
-    race: 'abeast',
     hp: 889,
     atp: 67,
     armor: 13,
@@ -195,7 +193,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'brawler',
     color: 0x2f5a6a,
     scale: 1.15,
-    race: 'abeast',
     hp: 1389,
     atp: 90,
     armor: 18,
@@ -224,7 +221,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'brawler',
     color: 0x5a5a62,
     scale: 1.28,
-    race: 'abeast',
     hp: 2000,
     atp: 113,
     armor: 22,
@@ -254,7 +250,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'lily',
     color: 0x6a9a3a,
     scale: 1.0,
-    race: 'native',
     hp: 667,
     atp: 78,
     armor: 11,
@@ -290,7 +285,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'lily',
     color: 0xc0303a,
     scale: 1.12,
-    race: 'native',
     hp: 1556,
     atp: 101,
     armor: 16,
@@ -326,7 +320,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'panarms',
     color: 0x5a4a8a,
     scale: 1.0,
-    race: 'abeast',
     hp: 3111,
     atp: 124,
     armor: 21,
@@ -357,7 +350,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'hidoom',
     color: 0xb03a3a,
     scale: 1.0,
-    race: 'abeast',
     hp: 1111,
     atp: 90,
     armor: 17,
@@ -387,7 +379,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'migium',
     color: 0x3a5ab0,
     scale: 1.0,
-    race: 'abeast',
     hp: 1111,
     atp: 107,
     armor: 17,
@@ -426,7 +417,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'gunbot',
     color: 0x8a96a8,
     scale: 1.0,
-    race: 'machine',
     hp: 1889,
     atp: 130,
     armor: 16,
@@ -461,7 +451,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'garanz',
     color: 0x6a7a5a,
     scale: 1.0,
-    race: 'machine',
     hp: 4000,
     atp: 161,
     armor: 20,
@@ -499,7 +488,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'sinow',
     color: 0x5a6aa0,
     scale: 1.0,
-    race: 'machine',
     hp: 2333,
     atp: 136,
     armor: 15,
@@ -529,7 +517,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'node',
     color: 0x40c0ff,
     scale: 1.0,
-    race: 'machine',
     hp: 2889,
     atp: 0,
     armor: 18,
@@ -560,7 +547,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'mite',
     color: 0x8a7a68,
     scale: 0.6,
-    race: 'machine',
     hp: 389,
     atp: 149,
     armor: 8,
@@ -590,7 +576,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'drone',
     color: 0x6a90a8,
     scale: 0.9,
-    race: 'machine',
     hp: 889,
     atp: 0,
     armor: 12,
@@ -623,7 +608,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'dimenian',
     color: 0x4a5ad0,
     scale: 1.0,
-    race: 'dark',
     hp: 1944,
     atp: 102,
     armor: 15,
@@ -652,7 +636,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'dimenian',
     color: 0xc0383e,
     scale: 1.05,
-    race: 'dark',
     hp: 2361,
     atp: 124,
     armor: 16,
@@ -681,7 +664,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'dimenian',
     color: 0xd8a830,
     scale: 1.1,
-    race: 'dark',
     hp: 2861,
     atp: 156,
     armor: 18,
@@ -714,7 +696,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'delsaber',
     color: 0x3a4a6a,
     scale: 1.0,
-    race: 'dark',
     hp: 3278,
     atp: 144,
     armor: 19,
@@ -745,7 +726,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'sorcerer',
     color: 0x6a2a8a,
     scale: 1.0,
-    race: 'dark',
     hp: 2444,
     atp: 156,
     armor: 14,
@@ -781,7 +761,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'belra',
     color: 0x5a3a7a,
     scale: 1.0,
-    race: 'dark',
     hp: 5278,
     atp: 214,
     armor: 21,
@@ -819,7 +798,6 @@ export const enemies: Record<EnemyId, EnemyArchetype> = {
     ai: 'bringer',
     color: 0x2a2a3a,
     scale: 1.0,
-    race: 'dark',
     hp: 7222,
     atp: 253,
     armor: 22,
@@ -881,10 +859,10 @@ export const crowdControl = {
     nightmare: [20, 35],
     hell: [30, 45],
   } as Record<'normal' | 'nightmare' | 'hell', [number, number]>,
-  /** Rifts roll Hell's, plus this much strength per tier above 1 (up to riftCfg.capTier)... */
-  riftPerTier: 1.5,
+  /** Rifts roll Hell's, plus this much strength per tier above 1 (up to riftCfg.capTier; both doubled with the squish)... */
+  riftPerTier: 3,
   /** ...and one more affix at every rank from this tier on. */
-  riftExtraFrom: 10,
+  riftExtraFrom: 5,
   /** A rift's CC modifier (Steadfast and the rest) lifts its kind on every enemy to at least this, plus the tier's growth. */
   riftModFloor: 50,
   /** No rolled resistance goes past this: only bosses are immune. */

@@ -16,6 +16,12 @@ export const dragon = {
   breathRange: 13,
   breathArcDeg: 50,
   breathTickDamage: 12,
+  /**
+   * Enraged, the breath turns after you at this rate (rad/s; ~20 deg/s, ~36 deg over the breath). Was 0.7, which
+   * outran a walk sideways anywhere past ~6.5 m; at 0.35 a walk out of the cone (started in the windup) keeps ahead
+   * of it to ~13 m.
+   */
+  enragedBreathTurn: 0.35,
   chargeWindup: 0.88,
   chargeSpeed: 12,
   chargeDistance: 20,
@@ -52,23 +58,76 @@ export const dragon = {
   tripleGap: 4,
   /** Nearer than this (m), the wing pocket is tried first. */
   tripleWingRange: 8,
+  /**
+   * Hell: the Hellfire Rampage (2026-10-16), all fight long. She roars, lowers her head and tracks you through a
+   * long windup (a violet lane from her to you); at the launch she charges down that line. A cover rock on it takes
+   * the charge: it shatters and she is stunned, weak point open (`stunDuration`). In the open she runs you down
+   * (homing: no sidestep or dash gets out of it) for `hell.mechanicHit` of your max HP.
+   */
+  rampageFirst: 6, // s of fight before the first is due (her clock: a rift's tempo speeds it up)
+  rampageEvery: 16, // then due this long after the last; waiting for a normal attack's turn makes ~20-25 s apart
+  /** Its windup (s), cut by the enrage like the rest ... */
+  rampageWindup: 2.4,
+  /** ... but never below this in real seconds, however enraged or fast (a rift's tempo): (2.0 - 0.35) x 4.6 = 7.6 m walked. */
+  rampageWindupFloor: 2.0,
+  /** Only when a rock's shadow is within walking reach in the windup less this reaction (else a normal attack; it stays due). */
+  rampageReact: 0.35,
+  /** Never within this many s after an eruption, nor with a timed burrow this close (s of stalking left). */
+  rampageAfterErupt: 6,
+  rampageBeforeBurrow: 4,
+  /** Tracking turn rate in the windup (rad/s); in the open the charge homes at 2.5 times it. */
+  rampageTurn: 4,
+  rampageSpeed: 24,
+  rampageKnockback: 20,
+  /** It gives up after this far (m). */
+  rampageMaxDistance: 40,
+  /**
+   * Cover rocks (Hell only), m from the arena centre (x, z; -z is her side): three round the middle, four out toward
+   * the corners. Of the layouts tried in a coverage sim this one left the shortest walks to a shadow (median 4.6 m;
+   * ~12% of moments out of the base windup's reach, when the rampage waits).
+   */
+  coverRocks: [[0, 7], [6.1, -3.5], [-6.1, -3.5], [-13, -11], [13, -11], [-13, 11], [13, 11]] as [number, number][],
+  coverRockR: 1.5,
+  /** With fewer than this many standing, the broken ones are called up first (the rampage waits for them). */
+  rampageMinRocks: 2,
+  /** A broken rock rises back over this many s (every burrow, and when too few stand), once nobody is on its spot. */
+  rockRise: 1.2,
+  /**
+   * Hell: the fire rain (2026-10-17, the user: the Dragon was a bit too easy). On its own random clock beside
+   * everything else, so it overlaps the rampage, triples and burrows: the first `fireRainFirst` s into the fight,
+   * then every `fireRainEvery` s. Each batch warns `fireRainCount` circles on you one after another,
+   * `fireRainStagger` s apart; each lands `fireRainWindup` s after its warning (a fireball out of the sky), so they
+   * take turns: warn 1, warn 2, land 1, warn 3, land 2, land 3 (it needs stagger < windup < 2 x stagger). A landing
+   * hits for `fireRainAtpMult` x ATP with Burn and leaves burning ground for `fireRainLife` s: `fireRainTick` flat
+   * damage every half second and a Burn stack every second while you stand in it. All in her time (a rift's tempo).
+   */
+  fireRainFirst: 8,
+  fireRainEvery: [12, 18] as [number, number],
+  fireRainCount: 3,
+  fireRainStagger: 1.2,
+  fireRainWindup: 2.0,
+  fireRainRadius: 2.8,
+  fireRainAtpMult: 1.1,
+  fireRainLife: 7,
+  fireRainTick: 12,
 };
 
 export const deRolLe = {
-  hp: 12778,
+  /**
+   * 15000 since its shell stopped soaking damage (2026-10-17, the user's call). It was 12778, with shell plates and a
+   * mask that passed only 30% until the mask broke and +15% taken after: ~1.17x its bar to kill, so the fights outside
+   * rifts keep their length. (Rift bosses all take `riftCfg.bossHp`.)
+   */
+  hp: 15000,
   atp: 161,
   armor: 15,
   techResist: 10,
   xp: 900,
   /** Injector doses its whole HP bar is worth (see injectorCfg). */
   charge: 4.5,
-  /** Shell plates: HP each, and the share of damage the boss itself takes through a plate. */
-  plateHp: 2222,
-  plateMult: 0.3,
-  maskHp: 5278,
-  /** Phase 2 starts by HP fraction even if the mask survives. */
+  /** Phase 2 at this HP share: its shell (only a look now: it soaks nothing) shatters. */
   phase2At: 0.5,
-  phase2DamageMult: 1.15,
+  /** Damage to its head while it rests on the deck after a beam (the weak point). */
   headRestMult: 1.5,
   enrageAt: 0.25,
   /** Few, big body segments: each is a separate target, so multi-target techs mustn't hit a dozen of them. */
@@ -109,6 +168,27 @@ export const deRolLe = {
   triplePocket: 2.5,
   /** Width of the flank the triple beam leaves unswept (the pocket sits in it between the poison and the mines). */
   tripleFlank: 2.6,
+  // Hell: the poison bomb, from the start of the fight. Lobbed onto the deck, it sits armed with a fuse; destroy it
+  // (its own HP: none of it comes off the boss) or it blows and leaves a big poison area.
+  /** Seconds between lobs (boss time; the first this long after the intro). Phase 3 lobs two; never more than hellBombMax on the raft. */
+  hellBombEvery: 17,
+  hellBombFirst: 5,
+  hellBombMax: 2,
+  /** Flight time (s); it lands this far (m) from you, on the deck, clear of the worm's body, the other bomb and old poison. */
+  hellBombLob: 1.1,
+  hellBombRange: [4, 8] as [number, number],
+  /** HP (× the difficulty's boss HP multiplier): about 2.5 s of focused damage from Hell Caves gear. */
+  hellBombHp: 500,
+  /** Fuse (s), its last hellBombWarn s a telegraph. At a rift's tempo the fuse never runs under hellBombFuseFloor real seconds. */
+  hellBombFuse: 9,
+  hellBombFuseFloor: 8,
+  hellBombWarn: 2,
+  /** The blast: radius (m) and × ATP (it poisons). Its poison: a puddle in the middle and seven hellBombRing m out, ~5-5.7 m in all. */
+  hellBombRadius: 5.5,
+  hellBombAtp: 1.2,
+  hellBombPuddle: 2.3,
+  hellBombRing: 3.4,
+  hellBombPoisonLife: 22,
 };
 
 /**
@@ -192,6 +272,45 @@ export const warden = {
   tripleStagger: 0.3,
   /** The safe cell's inner part (0.5 m in from its edges) lies within this many metres of you (walking is 4.6 m/s). */
   tripleReach: 4.5,
+  // Hell, from the start of the fight: the sequence, a memory test. It raises a shield (the cue, and fair to melee
+  // and ranged alike: it takes seqShield of the damage) and lights the first cell under a pillar of light (in the
+  // two rows nearest it) long enough to find it; then the other cells flash one after another, each beside
+  // the one before (never burning or under the core), and go dark; then the whole deck discharges once per cell,
+  // sparing only that beat's cell. Off it: hell.mechanicHit (80% of max HP, past armour). After the last discharge
+  // the shield drops and its core vents. Spark Mites short out when it starts; it never shortens with the enrage.
+  seqCells: 3,
+  /** The first sequence is the fight's seqFirst-th attack, then every seqEvery[0]-[1] attacks (never in a triple's slot). */
+  seqFirst: 2,
+  seqEvery: [4, 5] as [number, number],
+  /** Damage it takes while the shield is up (2026-10-17, the user's call: 80% less). */
+  seqShield: 0.2,
+  /**
+   * Its cells all lie in the first seqRows rows, against the alcove (2026-10-17, the user: you fight close to it, and
+   * cells farther out went unseen); the first within seqFirstReach cells of yours (diagonals count as one), so from
+   * anywhere on the deck. It is ~6.5 s from the first cell lighting to the first discharge: ~25 m on foot.
+   */
+  seqRows: 2,
+  seqFirstReach: 4,
+  /**
+   * The show: the shield rises for seqLead s, then the first cell stays lit seqFind s (time to find it); the next ones
+   * light seqStep s apart, each for seqOn s; then seqPause s of dark.
+   */
+  seqLead: 0.6,
+  seqFind: 2.5,
+  seqStep: 0.75,
+  seqOn: 0.6,
+  seqPause: 0.6,
+  /**
+   * Seconds between beats (each one's whole-deck warning). The worst step, from a cell's far corner to 0.5 m inside
+   * its diagonal neighbour, is 6.36 m: walking needs 0.35 s to react + 1.38 s = 1.73 s.
+   */
+  seqBeat: 1.9,
+  /**
+   * Real seconds the beats never drop under at a rift's tempo (it bites from ×1.27; at the rifts' ×1.15 they are
+   * 1.65 s, 6.0 m walked): walking covers 5.3 m of the worst 6.36 in 1.5 s, walk + one dash 7.8 m. From the middle of
+   * a cell walking alone still makes it.
+   */
+  seqBeatFloor: 1.5,
 };
 
 /**
@@ -292,11 +411,14 @@ export const darkFalz = {
   /** The third telegraph of a triple appears this long after the first two (it fires with them). */
   tripleDelay: 0.3,
   /**
-   * Eclipse: three Grants pillars land (grantsWindup) and leave light; eclipseWindup s after the warnings the whole
-   * altar goes dark, sparing only the light, while feathers rake two of the pools. The safe pool is placed first,
+   * Eclipse: three Grants pillars land (grantsWindup; harmless, they only bring the light) and leave light;
+   * eclipseWindup s after the warnings the whole altar goes dark, sparing anyone touching light (a lit pylon's too),
+   * while feathers rake two of the pools. The safe pool is placed first,
    * `eclipseReach` m from you and `eclipseRing` m from the centre; the other two sit ±120° round the altar from it.
+   * 4 s and never cut by the enrage since 2026-10-17 (the user: too little time to react; it was 2.8 s, 2.2 enraged):
+   * 4.7 real seconds on Hell at the Angel's speed, 4.1 in a rift. The pools' light (`grantsLight`) outlasts it.
    */
-  eclipseWindup: 2.8,
+  eclipseWindup: 4,
   eclipseReach: [4, 6.5] as [number, number],
   eclipseRing: [5, 11] as [number, number],
   /**
@@ -306,4 +428,49 @@ export const darkFalz = {
    */
   judgementWindup: 2.1,
   judgementWingDeg: 100,
+  // ---- Hell: the Dark Tide (form 3) and Doom (forms 2 and 3) ----
+  /**
+   * Hell: the Angel (form 3) runs at this speed: its attacks, telegraphs, triples, the tide and Doom alike, on top of
+   * a rift's tempo (2026-10-17, the user: its mechanics came a bit too fast; 15% slower).
+   */
+  angelTempo: 0.85,
+  /**
+   * Dark Tide: on its own clock beside the attacks (the first `tideFirst` s into form 3, then every `tideEvery` s)
+   * `tideMotes` dark motes rise at `tideRim` m from the centre, spread round the altar, and drift to the Angel at
+   * `tideSpeed` m/s (a rift's tempo speeds them, never past `tideMaxSpeed`: the ~11 m take 7-8 s). Each one that
+   * arrives heals `tideHeal` of max HP (never past form3At). Walking through one (`tideRadius` m) absorbs it: +1
+   * Corruption, no damage. Light dissolves them (a lit pylon, Grants or Eclipse pools). `tidePylonChance` of the tides
+   * come down the rim pylons' spokes, `tideSpoke` degrees off them, so a lit pylon catches the mote on its spoke.
+   */
+  tideFirst: 2,
+  tideEvery: [12, 15] as [number, number],
+  tideMotes: [3, 4] as [number, number],
+  tideRim: 13,
+  tideSpeed: 1.4,
+  tideMaxSpeed: 1.6,
+  tideRadius: 0.55,
+  tideHeal: 0.015,
+  tidePylonChance: 0.6,
+  tideSpoke: [8, 16] as [number, number],
+  /**
+   * Doom: on its own clock (the first `doomFirst` s into form 2, then every `doomEvery` s) a mark lands on you and
+   * counts down `doomTime` s (real seconds; a rift's tempo never takes it under `doomMinTime`). Touch light and it is
+   * cleansed at once; if the count runs out first it bursts: a `doomRadius` m blast round you (× `doomAtpMult` ATP),
+   * `doomStacks` Corruption and Darvants streaking out. It never lands while you stand in light. There is always light
+   * to reach: in form 2 it comes with Grants (no Megid orb) whose pools stay lit until it ends; in form 3 the Angel
+   * casts it (`doomCast` s) only while a pylon within `doomReach` m of you is ready (or lit for the whole count), else
+   * it waits. While a Doom runs the boss uses only
+   * attacks you can sidestep on the way (the scythe, feathers: no slam, lance or triple), none landing within
+   * `doomClear` s of its end. A change of form wipes it.
+   */
+  doomFirst: 8,
+  doomEvery: [20, 28] as [number, number],
+  doomTime: 6,
+  doomMinTime: 5,
+  doomRadius: 3,
+  doomAtpMult: 1.4,
+  doomStacks: 2,
+  doomCast: 0.9,
+  doomReach: 12,
+  doomClear: 1.2,
 };

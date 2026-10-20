@@ -2,12 +2,13 @@ import * as THREE from 'three';
 import { darkFalz as cfg, pylonCfg, type HardBossScale } from '../config';
 import { separateCircles } from '../collision';
 import type { Hittable } from '../combat/types';
+import { areas } from '../data/areas';
 import { AngelModel, FalzModel, falzPoses, HuskModel } from '../models/falz';
 import { darvantModel } from '../models/ruins';
 import type { Pose } from '../models/Rig';
 import { Pillar, Ring, Tracer } from '../world/Effects';
-import { glowDecal, glowTexture } from '../world/glow';
-import type { Level, Rect } from '../world/Level';
+import { glowDecal, glowSprite, glowTexture } from '../world/glow';
+import { TILE, type Level, type Rect } from '../world/Level';
 import { inShape, type TelegraphShape } from '../world/Telegraph';
 import type { BossContext } from './Boss';
 import { BossBase, BossPart } from './BossBase';
@@ -27,18 +28,31 @@ import { CORRUPT_COLOR } from './Enemy';
 // the whole altar going dark and feathers; only the light you can reach is safe) or Judgement (your half
 // going dark, a lance and a wing of feathers; only the quarter past the lance is safe). Pylons on the altar
 // cleanse you and, if it stands in one, expose it.
+// Hell also runs two clocks of its own beside the attacks. The Dark Tide (form 3): motes rise at the rim and drift
+// to the Angel to heal it; walk through one to absorb it (+1 Corruption) or let light dissolve it. Doom (forms 2
+// and 3): a mark on you that bursts unless its count ends in light; there is always some within reach (form 2 casts
+// it with Grants, the Angel only while a pylon you can reach is ready).
 
 type FState =
   | 'dormant' | 'intro' | 'idle' | 'lanes' | 'ring' | 'pulse' | 'open' | 'morph'
-  | 'scythe' | 'cast' | 'vanish' | 'slam' | 'recover' | 'halves' | 'feathers' | 'lance' | 'triple' | 'dead';
+  | 'scythe' | 'cast' | 'vanish' | 'slam' | 'recover' | 'halves' | 'feathers' | 'lance' | 'triple' | 'doom' | 'dead';
 type Attack =
   | 'lanes' | 'ring' | 'pulse' | 'scythe' | 'grants' | 'megid' | 'teleport' | 'halves' | 'feathers' | 'lance'
-  | 'eclipse' | 'judgement';
+  | 'eclipse' | 'judgement' | 'doom';
 
 const RED = 0xff4060;
 const AMBER = 0xffb030;
 const LIGHT = 0xffe8a0;
 const SLOT = 3.6;
+/** Doom's sigil (violet), and the bright rim round a Dark Tide mote. */
+const DOOM = 0xb050ff;
+const MOTE_RIM = 0xe8b8ff;
+/** Seconds a mote takes to rise out of the rim before it sets off. */
+const MOTE_RISE = 0.7;
+/** Spots round a pylon where its light is tested (one our own light doesn't cover). */
+const WATCH_SPOTS: [number, number][] = [[0, 0], [3, 0], [-3, 0], [0, 3], [0, -3]];
+const tmpColor = new THREE.Color();
+const lightColor = new THREE.Color(LIGHT);
 
 /** Darvants streaking from one point to another (purely visual; the telegraph does the damage). */
 interface Flight {
@@ -61,8 +75,49 @@ interface LightPool {
   x: number;
   z: number;
   t: number;
+  /** Doom's Grants: it stays lit while the Doom runs. */
+  hold: boolean;
   decal: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   ring: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+}
+
+/** A Dark Tide mote (Hell, form 3) drifting from the rim to heal the Angel. */
+interface Mote {
+  group: THREE.Group;
+  /** Its glow on the floor, and the sprites trailing behind it. */
+  decal: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  trail: THREE.Sprite[];
+  x: number;
+  z: number;
+  /** Seconds since it appeared (it rises for MOTE_RISE s, then drifts). */
+  t: number;
+}
+
+/** Doom (Hell, forms 2 and 3): the mark on the player and its count. */
+interface Doom {
+  /** Real seconds left, and the whole count. */
+  left: number;
+  total: number;
+  /** 0..1: how far its colour has turned from violet to light (you stand in light). */
+  glow: number;
+  /** The sigil on the floor under you, and the mark over your head. */
+  floor: THREE.Group;
+  mark: THREE.Group;
+  /** The ring that shrinks as the count runs out, and the turning star. */
+  count: THREE.Mesh;
+  star: THREE.Group;
+  /** Its materials and their full opacities (recoloured together). */
+  mats: [THREE.MeshBasicMaterial | THREE.SpriteMaterial, number][];
+}
+
+/** One of the altar's pylons as Dark Falz sees it: it watches their light (lit for how long, then the recharge). */
+interface PylonWatch {
+  x: number;
+  z: number;
+  lit: boolean;
+  /** Real seconds it has been lit, and until it can be lit again once dark. */
+  litFor: number;
+  rest: number;
 }
 
 export class DarkFalz extends BossBase<FState, Attack> {
@@ -112,11 +167,23 @@ export class DarkFalz extends BossBase<FState, Attack> {
   /** Form 3 attacks so far (Hell: every `tripleEvery`-th is a triple) and the last triple. */
   private f3Attacks = 0;
   private lastTriple: Attack | null = null;
+  // Hell: the Dark Tide (form 3) and Doom (forms 2 and 3), each on its own clock.
+  private motes: Mote[] = [];
+  private tideT = 0;
+  private taughtTide = false;
+  /** Seconds the boss bar still says a mote healed it. */
+  private healedT = 0;
+  private doom: Doom | null = null;
+  private doomT = 0;
+  private taughtDoom = false;
+  /** The altar's four pylons (the arena's own, as the world places them). */
+  private watch: PylonWatch[];
 
   constructor(arena: Rect, hard: HardBossScale | null = null) {
     super(cfg, hard);
     this.cx = (arena.minX + arena.maxX) / 2;
     this.cz = (arena.minZ + arena.maxZ) / 2;
+    this.watch = (areas.falz.rooms[0].pylons ?? []).map(([tx, tz]) => ({ x: arena.minX + tx * TILE, z: arena.minZ + tz * TILE, lit: false, litFor: 0, rest: 0 }));
     this.fpos.set(this.cx, 0, this.cz);
     this.body = new BossPart(this, () => this.bodyRadius, () => (this.form === 1 ? 3.4 : this.form === 2 ? 3.0 : 3.6));
     this.body.pos.set(this.cx, 0, this.cz);
@@ -132,6 +199,10 @@ export class DarkFalz extends BossBase<FState, Attack> {
   get name(): string {
     return this.form === 3 ? 'Dark Falz (Angel)' : 'Dark Falz';
   }
+  /** Hell: the Angel runs slower (`angelTempo`): its attacks, telegraphs, triples, tide and Doom alike. */
+  override get tempo(): number {
+    return super.tempo * (this.hard?.hell && this.form === 3 ? cfg.angelTempo : 1);
+  }
   get weakPointOpen(): boolean {
     return this.state === 'open';
   }
@@ -143,7 +214,13 @@ export class DarkFalz extends BossBase<FState, Attack> {
     return this.state === 'dormant' || this.state === 'intro' || this.state === 'morph' || this.state === 'dead' || this.state === 'vanish' || this.state === 'slam';
   }
   get hudNote(): string {
-    return this.form === 1 ? '' : this.form === 2 ? '  — FORM 2' : '  — FORM 3';
+    if (this.form === 1) return '';
+    let note = this.form === 2 ? '  — FORM 2' : '  — FORM 3';
+    // Hell: the motes on their way (and a moment's notice when one heals it), and Doom's count.
+    if (this.motes.length) note += ` · DARK TIDE ×${this.motes.length}`;
+    if (this.healedT > 0) note += ' · HEALED';
+    if (this.doom) note += ` · DOOM ${Math.max(1, Math.ceil(this.doom.left))}`;
+    return note;
   }
   parts(): Hittable[] {
     return [this.body];
@@ -186,6 +263,8 @@ export class DarkFalz extends BossBase<FState, Attack> {
     for (const o of this.orbs) this.fx.remove(o.mesh);
     this.orbs = [];
     this.clearPools();
+    for (const m of [...this.motes]) this.removeMote(m);
+    this.clearDoom();
   }
 
   // -------------------------------------------------------------- update
@@ -194,9 +273,10 @@ export class DarkFalz extends BossBase<FState, Attack> {
     return this.body.pos;
   }
 
-  protected always(dt: number): void {
+  protected always(dt: number, ctx: BossContext): void {
     this.updateFlights(dt);
     this.updatePools(dt);
+    if (this.hard?.hell && this.alive) this.watchPylons(dt / this.tempo, ctx);
   }
 
   protected whileDead(dt: number): void {
@@ -207,6 +287,7 @@ export class DarkFalz extends BossBase<FState, Attack> {
 
   protected think(dt: number, ctx: BossContext): void {
     this.updateOrbs(dt, ctx);
+    if (this.hard?.hell) this.updateHell(dt, ctx);
 
     // A form's threshold crossed: the next one takes over at once.
     if (this.state !== 'morph' && this.state !== 'dormant' && this.state !== 'intro') {
@@ -293,6 +374,12 @@ export class DarkFalz extends BossBase<FState, Attack> {
         cast = this.state === 'halves' || this.state === 'triple' ? 1 : 0.5;
         if (this.stateT > 6) this.endAttack(); // fallback
         break;
+      case 'doom':
+        // Hell: the Angel lays Doom on you.
+        charge = 1;
+        cast = 1;
+        if (this.stateT >= cfg.doomCast) this.endAttack();
+        break;
 
       case 'morph':
         this.updateMorph(dt, ctx);
@@ -343,6 +430,14 @@ export class DarkFalz extends BossBase<FState, Attack> {
   }
 
   private chooseAttack(ctx: BossContext): void {
+    // Hell: Doom takes the attack's turn when its clock runs out (form 2 with Grants; the Angel once a pylon is in reach).
+    if (this.hard?.hell && this.form > 1 && !this.doom && this.doomT <= 0) {
+      // Not on you while you stand in light: it would be cleansed the moment it landed.
+      const inLight = ctx.lightAt(ctx.playerX, ctx.playerZ, 0.45);
+      if (!inLight && (this.form === 2 || this.doomLight(ctx, this.doomCount()))) return this.startDoom(ctx);
+      this.doomT = 2; // in light, or no pylon you could reach: look again in a moment
+    }
+    if (this.doom) return this.chooseDuringDoom(ctx);
     let pick: Attack;
     if (this.form === 1) {
       const close = Math.hypot(ctx.playerX - this.cx, ctx.playerZ - this.cz) < cfg.pulseRange;
@@ -397,6 +492,27 @@ export class DarkFalz extends BossBase<FState, Attack> {
     }
   }
 
+  /**
+   * A Doom running: only attacks you can sidestep on your way to the light (the scythe when you are close, feathers),
+   * and only if they land `doomClear` s before its end; otherwise it waits (no slam, lance or triple until it's over).
+   */
+  private chooseDuringDoom(ctx: BossContext): void {
+    const room = this.doom!.left - cfg.doomClear;
+    const fits = (windup: number) => (windup * this.sm()) / this.tempo <= room;
+    this.hitOnce = false;
+    if (this.form === 2) {
+      const near = Math.hypot(ctx.playerX - this.fpos.x, ctx.playerZ - this.fpos.z) < cfg.scytheRange + 0.8;
+      if (near && fits(cfg.scytheWindup)) {
+        this.lastAttack = 'scythe';
+        return this.startScythe(ctx);
+      }
+    } else if (fits(cfg.featherWindup)) {
+      this.lastAttack = 'feathers';
+      return this.startFeathers(ctx, false);
+    }
+    this.gap = this.stateT + 0.25;
+  }
+
   /** Hit the player if inside `shape` (at most once per attack, unless `again`). */
   private strike(ctx: BossContext, shape: TelegraphShape, mult: number, fx: number, fz: number, kb: number, corrupt = false, again = false): void {
     if (this.hitOnce && !again) return;
@@ -428,7 +544,13 @@ export class DarkFalz extends BossBase<FState, Attack> {
     const slots = [-3, -2, -1, 0, 1, 2, 3];
     const mine = slots.reduce((b, s) => (Math.abs(s * SLOT - off) < Math.abs(b * SLOT - off) ? s : b), 0);
     const pick = new Set([mine]);
-    while (pick.size < cfg.lanes) pick.add(slots[Math.floor(ctx.rng() * slots.length)]);
+    // Never in neighbouring slots: their gap (SLOT - laneWidth = 1 m) looked safe, but a body (0.9 m) fits in it only
+    // dead centre, so standing "between the lines" got hit (2026-10-17, the user). The narrowest gap is now 4.6 m.
+    while (pick.size < cfg.lanes) {
+      const free = slots.filter((s) => [...pick].every((q) => Math.abs(q - s) >= 2));
+      if (!free.length) break;
+      pick.add(free[Math.floor(ctx.rng() * free.length)]);
+    }
     this.lanes = [];
     for (const s of pick) {
       const o = s * SLOT;
@@ -515,8 +637,8 @@ export class DarkFalz extends BossBase<FState, Attack> {
     });
   }
 
-  /** Grants: pillars of light crash down (one on you), then stay as cleansing light. */
-  private startGrants(ctx: BossContext): void {
+  /** Grants: pillars of light crash down (one on you), then stay as cleansing light. `doom`: Doom's, held until it ends. */
+  private startGrants(ctx: BossContext, doom = false): void {
     this.enter('cast');
     this.sound('falz.grants', ctx.playerX, ctx.playerZ);
     const dur = cfg.grantsWindup * this.sm();
@@ -526,27 +648,32 @@ export class DarkFalz extends BossBase<FState, Attack> {
       const at = new THREE.Vector3(ctx.playerX + Math.sin(a) * d, 0, ctx.playerZ + Math.cos(a) * d);
       this.clampOnAltar(at, 1.5);
       const last = i === cfg.grantsCount - 1;
-      this.grantsPillar(ctx, at, dur, () => {
+      const landed = () => {
         if (!last) return;
         this.sound('falz.grantsHit', at.x, at.z);
-        if (!this.taughtLight) {
+        // (Doom's banner has just told you to find the light.)
+        if (!this.taughtLight && !doom) {
           this.taughtLight = true;
           ctx.announce('The light lingers: it cleanses Corruption');
         }
         if (this.state === 'cast') this.enter('recover');
-      });
+      };
+      this.grantsPillar(ctx, at, dur, { landed, hold: doom });
     }
   }
 
-  /** One Grants pillar: it crashes down on `at` after `dur` s, then stays as light. */
-  private grantsPillar(ctx: BossContext, at: { x: number; z: number }, dur: number, landed: () => void = () => {}): void {
+  /**
+   * One Grants pillar: it crashes down on `at` after `dur` s, then stays as light (`hold`: until the Doom ends).
+   * `harmless`: it only brings the light (Eclipse's pools, where you are told to run before they land).
+   */
+  private grantsPillar(ctx: BossContext, at: { x: number; z: number }, dur: number, opts: { landed?: () => void; hold?: boolean; harmless?: boolean } = {}): void {
     const shape: TelegraphShape = { kind: 'circle', x: at.x, z: at.z, radius: cfg.grantsRadius };
     this.warn(ctx, shape, dur, AMBER, () => {
       ctx.effect(new Pillar(at.x, at.z, LIGHT, 0.45, cfg.grantsRadius * 0.7, 14));
       ctx.effect(new Ring(at.x, at.z, LIGHT, cfg.grantsRadius * 1.2, 0.4));
-      this.strike(ctx, shape, cfg.grantsAtpMult, at.x, at.z, 6);
-      this.addPool(at.x, at.z);
-      landed();
+      if (!opts.harmless) this.strike(ctx, shape, cfg.grantsAtpMult, at.x, at.z, 6);
+      this.addPool(at.x, at.z, opts.hold);
+      opts.landed?.();
     });
   }
 
@@ -760,16 +887,19 @@ export class DarkFalz extends BossBase<FState, Attack> {
     const r = Math.hypot(safe.x - this.cx, safe.z - this.cz);
     const a = Math.atan2(safe.x - this.cx, safe.z - this.cz);
     const raked = [1, -1].map((s) => ({ x: this.cx + Math.sin(a + (s * Math.PI * 2) / 3) * r, z: this.cz + Math.cos(a + (s * Math.PI * 2) / 3) * r }));
-    const dur = cfg.eclipseWindup * this.sm();
-    const delay = cfg.tripleDelay * this.sm();
+    // Never cut by the enrage: reading the room and walking to the one safe pool takes the whole warning.
+    const dur = cfg.eclipseWindup;
+    const delay = cfg.tripleDelay;
     this.enter('triple');
     this.flare(ctx);
     this.sound('falz.grants', safe.x, safe.z);
     if (!this.taughtEclipse) {
       this.taughtEclipse = true;
-      ctx.announce('The dark swallows the altar: only the light is safe');
+      ctx.announce('The dark swallows the altar: shelter in the light the feathers spare');
     }
-    for (const at of [safe, ...raked]) this.grantsPillar(ctx, at, cfg.grantsWindup * this.sm());
+    // Harmless: you are told to run into them, and the safe one is a second's walk away, so you are usually in it when
+    // it lands (they used to crash on you there, a hit before the dark; 2026-10-18, the user).
+    for (const at of [safe, ...raked]) this.grantsPillar(ctx, at, cfg.grantsWindup, { harmless: true });
     const yaw = ctx.rng() * Math.PI * 2;
     const halves = [this.half(yaw), this.half(yaw + Math.PI)];
     this.warn(ctx, halves[0], dur, CORRUPT_COLOR);
@@ -778,7 +908,9 @@ export class DarkFalz extends BossBase<FState, Attack> {
       this.washHalf(ctx, yaw);
       this.washHalf(ctx, yaw + Math.PI);
       this.hitOnce = false;
-      if (!this.lightAt(ctx.playerX, ctx.playerZ, 0)) for (const h of halves) this.strike(ctx, h, cfg.halfAtpMult, this.cx, this.cz, 6, true);
+      // Any light spares you (a lit pylon's too, as for Doom), your body touching it is enough: the dark hits
+      // the same body (it used to need your centre inside one of its own pools).
+      if (!ctx.lightAt(ctx.playerX, ctx.playerZ, 0.45)) for (const h of halves) this.strike(ctx, h, cfg.halfAtpMult, this.cx, this.cz, 6, true);
       this.endAttack();
     });
     // The feathers come a moment later and fire with the dark.
@@ -881,6 +1013,293 @@ export class DarkFalz extends BossBase<FState, Attack> {
     });
   }
 
+  // ------------------------------------------ Hell: the Dark Tide and Doom
+
+  /** Hell's own clocks (Doom in forms 2 and 3, the Dark Tide in form 3) and what they have running. */
+  private updateHell(dt: number, ctx: BossContext): void {
+    if (this.form > 1 && this.state !== 'morph') this.doomT -= dt;
+    this.updateDoom(dt, ctx);
+    this.updateTide(dt, ctx);
+  }
+
+  /**
+   * Keep track of the altar's pylons by watching their light (how long one has been lit, then its recharge), so the
+   * Angel only lays Doom while you can reach one. Each is tested at a spot in its light that none of our own light
+   * covers (if every spot is covered, what we knew stands). `dt`: real seconds.
+   */
+  private watchPylons(dt: number, ctx: BossContext): void {
+    for (const p of this.watch) {
+      const spot = WATCH_SPOTS.find(([ox, oz]) => !this.lightAt(p.x + ox, p.z + oz, 0));
+      const lit = spot ? ctx.lightAt(p.x + spot[0], p.z + spot[1], 0) : p.lit;
+      if (lit) {
+        if (!p.lit) p.litFor = 0;
+        p.litFor += dt;
+        p.rest = 0;
+      } else {
+        if (p.lit) p.rest = pylonCfg.recharge;
+        p.rest = Math.max(0, p.rest - dt);
+      }
+      p.lit = lit;
+    }
+  }
+
+  /** Doom's count in real seconds: a rift's tempo shortens it, never under doomMinTime. */
+  private doomCount(): number {
+    return Math.max(cfg.doomMinTime, cfg.doomTime / this.tempo);
+  }
+
+  /** Light you can reach before a Doom of `count` s ends: a ready pylon within doomReach m, or one lit for the whole count. */
+  private doomLight(ctx: BossContext, count: number): boolean {
+    return this.watch.some((p) => {
+      const d = Math.hypot(ctx.playerX - p.x, ctx.playerZ - p.z);
+      if (p.lit) return pylonCfg.litTime - p.litFor >= count + 0.5 && d - pylonCfg.radius <= cfg.doomReach;
+      return p.rest <= 0 && d <= cfg.doomReach;
+    });
+  }
+
+  /** Doom: the mark lands on you. Dark Falz casts it with Grants (their light held until it ends); the Angel on its own. */
+  private startDoom(ctx: BossContext): void {
+    const [lo, hi] = cfg.doomEvery;
+    this.doomT = lo + ctx.rng() * (hi - lo);
+    this.lastAttack = 'doom';
+    this.hitOnce = false;
+    const from = this.body.pos;
+    ctx.effect(new Tracer(from.x, from.z, Math.atan2(ctx.playerX - from.x, ctx.playerZ - from.z), Math.hypot(ctx.playerX - from.x, ctx.playerZ - from.z), DOOM, 0.4, 0.22));
+    this.markDoom(ctx);
+    if (this.form === 2) this.startGrants(ctx, true);
+    else {
+      this.enter('doom');
+      ctx.effect(new Ring(this.cx, this.cz, DOOM, 4, 0.45));
+    }
+    this.sound('falz.megid', ctx.playerX, ctx.playerZ);
+    if (!this.taughtDoom) {
+      this.taughtDoom = true;
+      ctx.announce('Doom: end it in the light!');
+    }
+  }
+
+  /** Doom's sigil under you (a star turning inside a ring that shrinks as the count runs out) and a mark over your head. */
+  private markDoom(ctx: BossContext): void {
+    const total = this.doomCount();
+    const mats: Doom['mats'] = [];
+    const mat = (opacity: number): THREE.MeshBasicMaterial => {
+      const m = new THREE.MeshBasicMaterial({ color: DOOM, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+      mats.push([m, opacity]);
+      return m;
+    };
+    const flat = <G extends THREE.BufferGeometry>(g: G): G => g.rotateX(-Math.PI / 2);
+    const outer = new THREE.Mesh(flat(new THREE.RingGeometry(1.45, 1.6, 48)), mat(0.85));
+    const count = new THREE.Mesh(flat(new THREE.RingGeometry(0.86, 1, 48)), mat(0.95));
+    // Two triangles of thin bars: a six-pointed star.
+    const star = new THREE.Group();
+    const barMat = mat(0.7);
+    for (let i = 0; i < 6; i++) {
+      const a = (i * Math.PI) / 3;
+      const bar = new THREE.Mesh(flat(new THREE.PlaneGeometry(0.08, 2.25)), barMat);
+      bar.position.set(Math.sin(a) * 0.65, 0, Math.cos(a) * 0.65);
+      bar.rotation.y = a + Math.PI / 2;
+      star.add(bar);
+    }
+    const disc = glowDecal(DOOM, 3.6, 0.4);
+    mats.push([disc.material, 0.4]);
+    const floor = new THREE.Group();
+    floor.add(disc, outer, count, star);
+    floor.position.set(ctx.playerX, 0.06, ctx.playerZ);
+    // Over your head: a dark eye in a violet glow, a tilted hoop turning round it.
+    const halo = glowSprite(DOOM, 1.5, 0.9);
+    mats.push([halo.material, 0.9]);
+    const eye = new THREE.Mesh(new THREE.OctahedronGeometry(0.2, 0), new THREE.MeshBasicMaterial({ color: 0x1a0828 }));
+    eye.scale.set(1, 1.5, 1);
+    const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.03, 6, 32), mat(0.9));
+    hoop.rotation.x = Math.PI / 2 - 0.5;
+    const mark = new THREE.Group();
+    mark.add(halo, eye, hoop);
+    mark.position.set(ctx.playerX, 2.9, ctx.playerZ);
+    this.fx.add(floor, mark);
+    this.doom = { left: total, total, glow: 0, floor, mark, count, star, mats };
+    ctx.effect(new Ring(ctx.playerX, ctx.playerZ, DOOM, 2.2, 0.4));
+  }
+
+  /** Doom's count (real seconds). The sigil follows you; the moment you touch light it is cleansed. */
+  private updateDoom(dt: number, ctx: BossContext): void {
+    const d = this.doom;
+    if (!d) return;
+    if (!ctx.playerAlive) return this.clearDoom();
+    d.left -= dt / this.tempo;
+    const lit = ctx.lightAt(ctx.playerX, ctx.playerZ, 0.45);
+    // Cleansed at once in light (2026-10-17, the user's call: it used to wait out its count in there).
+    if (lit) return this.resolveDoom(ctx, true);
+    d.glow += ((lit ? 1 : 0) - d.glow) * Math.min(1, dt * 8);
+    const k = Math.max(0, d.left / d.total);
+    d.floor.position.set(ctx.playerX, 0.06, ctx.playerZ);
+    d.mark.position.set(ctx.playerX, 2.9 + Math.sin(this.time * 3) * 0.08, ctx.playerZ);
+    d.mark.rotation.y += dt * 2.5;
+    d.count.scale.setScalar(0.12 + 1.3 * k);
+    d.star.rotation.y += dt * (1.2 + (1 - k) * 3) * (1 - d.glow * 0.7);
+    // Violet while it threatens, light while you stand in light; the last two seconds throb.
+    const throb = d.left < 2 ? 0.55 + 0.45 * Math.abs(Math.sin(this.time * 9)) : 1;
+    tmpColor.setHex(DOOM).lerp(lightColor, d.glow);
+    for (const [m, o] of d.mats) {
+      m.color.copy(tmpColor);
+      m.opacity = o * throb;
+    }
+    if (d.left <= 0) this.resolveDoom(ctx, lit);
+  }
+
+  /** You touched light (cleansed), or the count ran out: it bursts round you and Darvants streak out. */
+  private resolveDoom(ctx: BossContext, lit: boolean): void {
+    const x = ctx.playerX;
+    const z = ctx.playerZ;
+    this.clearDoom();
+    // Doom had the attack's turn: the usual gap before the next one (a triple waiting on it starts no sooner).
+    if (this.state === 'idle') this.gap = Math.max(this.gap, this.stateT + cfg.attackGap[this.form - 1] * this.sm());
+    if (lit) {
+      ctx.effect(new Pillar(x, z, LIGHT, 0.5, 0.9, 10));
+      ctx.effect(new Ring(x, z, LIGHT, 2.8, 0.45));
+      this.sound('status.cleanse', x, z);
+      return;
+    }
+    const shape: TelegraphShape = { kind: 'circle', x, z, radius: cfg.doomRadius };
+    ctx.effect(new Ring(x, z, CORRUPT_COLOR, cfg.doomRadius * 1.25, 0.45));
+    ctx.effect(new Pillar(x, z, CORRUPT_COLOR, 0.4, 1.3, 9));
+    ctx.shake(0.45);
+    this.sound('falz.pulse', x, z);
+    this.sound('falz.dive', x, z);
+    const a0 = Math.random() * Math.PI * 2;
+    this.addFlight(8, () => new THREE.Vector3(x, 1.2, z), (i) => {
+      const a = a0 + (i / 8) * Math.PI * 2;
+      return new THREE.Vector3(x + Math.sin(a) * 10, 1.4 + (i % 3) * 0.7, z + Math.cos(a) * 10);
+    }, 0.55);
+    // One Corruption stack rides on the hit itself, the rest on top.
+    if (ctx.hitPlayer(shape, cfg.doomAtpMult, this.body.pos.x, this.body.pos.z, 8, 'corrupt')) ctx.corruptPlayer(cfg.doomStacks - 1);
+  }
+
+  private clearDoom(): void {
+    if (!this.doom) return;
+    this.fx.remove(this.doom.floor, this.doom.mark);
+    this.doom = null;
+  }
+
+  /** The Dark Tide (form 3): its clock, and the motes drifting in (light dissolves them, you absorb them, or they feed the Angel). */
+  private updateTide(dt: number, ctx: BossContext): void {
+    this.healedT = Math.max(0, this.healedT - dt);
+    if (this.form === 3) {
+      this.tideT -= dt;
+      if (this.tideT <= 0) this.raiseTide(ctx);
+    }
+    // In boss seconds: a rift's tempo speeds them up to tideMaxSpeed real m/s, no further.
+    const speed = Math.min(cfg.tideSpeed, cfg.tideMaxSpeed / this.tempo);
+    for (const m of [...this.motes]) {
+      // It breaks out of the rim with a dark flare.
+      if (m.t < 0 && m.t + dt >= 0) ctx.effect(new Pillar(m.x, m.z, CORRUPT_COLOR, 0.45, 0.4, 5));
+      m.t += dt;
+      const rise = THREE.MathUtils.clamp(m.t / MOTE_RISE, 0, 1);
+      const dx = this.cx - m.x;
+      const dz = this.cz - m.z;
+      const d = Math.hypot(dx, dz) || 1;
+      if (rise >= 1) {
+        const step = Math.min(d, speed * dt);
+        m.x += (dx / d) * step;
+        m.z += (dz / d) * step;
+      }
+      const y = -1.4 + 2.6 * (1 - (1 - rise) ** 2) + Math.sin(this.time * 3 + m.x) * 0.1 * rise;
+      m.group.position.set(m.x, y, m.z);
+      m.group.rotation.y += dt * 2;
+      m.decal.position.set(m.x, 0.05, m.z);
+      m.decal.material.opacity = 0.55 * rise;
+      // The trail: each sprite follows the one before it.
+      let prev = m.group.position;
+      m.trail.forEach((s, i) => {
+        s.position.lerp(prev, Math.min(1, dt * 9));
+        s.material.opacity = 0.55 * (1 - i / m.trail.length) * rise;
+        prev = s.position;
+      });
+      if (rise < 0.6) continue;
+      if (ctx.lightAt(m.x, m.z, 0)) this.dissolveMote(ctx, m);
+      else if (ctx.playerAlive && Math.hypot(ctx.playerX - m.x, ctx.playerZ - m.z) < cfg.tideRadius + 0.45) this.absorbMote(ctx, m);
+      else if (Math.hypot(m.x - this.cx, m.z - this.cz) <= this.bodyRadius + 0.3) this.feedAngel(ctx, m);
+    }
+  }
+
+  /** A Dark Tide: motes rise one after another round the rim (often down the pylons' spokes) and set off for the Angel. */
+  private raiseTide(ctx: BossContext): void {
+    const [lo, hi] = cfg.tideEvery;
+    this.tideT = lo + ctx.rng() * (hi - lo);
+    const [nLo, nHi] = cfg.tideMotes;
+    const n = nLo + Math.floor(ctx.rng() * (nHi - nLo + 1));
+    const spokes = this.watch.map((p) => Math.atan2(p.x - this.cx, p.z - this.cz));
+    const [s0, s1] = cfg.tideSpoke.map((v) => THREE.MathUtils.degToRad(v));
+    let base = ctx.rng() * Math.PI * 2;
+    if (spokes.length && ctx.rng() < cfg.tidePylonChance) base = spokes[Math.floor(ctx.rng() * spokes.length)] + (ctx.rng() < 0.5 ? -1 : 1) * (s0 + ctx.rng() * (s1 - s0));
+    for (let i = 0; i < n; i++) {
+      let a = base + (i * Math.PI * 2) / n;
+      // Never straight down a spoke, through the pylon itself.
+      for (const s of spokes) {
+        const off = Math.atan2(Math.sin(a - s), Math.cos(a - s));
+        if (Math.abs(off) < s0) a = s + (off < 0 ? -s0 : s0);
+      }
+      this.addMote(this.cx + Math.sin(a) * cfg.tideRim, this.cz + Math.cos(a) * cfg.tideRim, i * 0.35);
+    }
+    this.sound('falz.megid', this.cx, this.cz);
+    if (!this.taughtTide) {
+      this.taughtTide = true;
+      ctx.announce('Dark motes feed the Angel: walk through them or light their way');
+    }
+  }
+
+  /** A mote: a violet-black core with a bright rim, a glow, a trail and its glow on the floor. It rises after `delay` s. */
+  private addMote(x: number, z: number, delay: number): void {
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.3, 14, 10), new THREE.MeshBasicMaterial({ color: 0x12041e }));
+    // The rim: a bigger back-facing shell that only shows round the dark core's edge.
+    const rim = new THREE.Mesh(
+      new THREE.SphereGeometry(0.38, 16, 12),
+      new THREE.MeshBasicMaterial({ color: MOTE_RIM, side: THREE.BackSide, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending }),
+    );
+    const group = new THREE.Group();
+    group.add(core, rim, glowSprite(CORRUPT_COLOR, 2.2, 0.8));
+    group.position.set(x, -1.4, z);
+    const decal = glowDecal(CORRUPT_COLOR, 1.8, 0);
+    decal.position.set(x, 0.05, z);
+    const trail = Array.from({ length: 6 }, (_, i) => {
+      const s = glowSprite(i % 2 ? MOTE_RIM : CORRUPT_COLOR, 0.75 - i * 0.08, 0);
+      s.position.copy(group.position);
+      return s;
+    });
+    this.fx.add(group, decal, ...trail);
+    this.motes.push({ group, decal, trail, x, z, t: -delay });
+  }
+
+  /** Light caught a mote: it burns away. */
+  private dissolveMote(ctx: BossContext, m: Mote): void {
+    ctx.effect(new Ring(m.x, m.z, LIGHT, 1.6, 0.4));
+    ctx.effect(new Pillar(m.x, m.z, LIGHT, 0.35, 0.3, 4));
+    this.sound('status.cleanse', m.x, m.z);
+    this.removeMote(m);
+  }
+
+  /** You walked through a mote: it pops into you, +1 Corruption (no damage). */
+  private absorbMote(ctx: BossContext, m: Mote): void {
+    ctx.effect(new Ring(m.x, m.z, CORRUPT_COLOR, 1.4, 0.35));
+    this.sound('falz.orbPop', m.x, m.z);
+    ctx.corruptPlayer(1);
+    this.removeMote(m);
+  }
+
+  /** A mote reached the Angel: it heals, never past the form's share of the bar. */
+  private feedAngel(ctx: BossContext, m: Mote): void {
+    this.hp = Math.min(this.maxHp * cfg.form3At, this.hp + this.maxHp * cfg.tideHeal);
+    this.healedT = 1.5;
+    ctx.effect(new Pillar(this.cx, this.cz, CORRUPT_COLOR, 0.5, 0.9, 11));
+    ctx.effect(new Ring(this.cx, this.cz, CORRUPT_COLOR, 3.6, 0.5));
+    this.sound('falz.charge', this.cx, this.cz);
+    this.removeMote(m);
+  }
+
+  private removeMote(m: Mote): void {
+    this.fx.remove(m.group, m.decal, ...m.trail);
+    this.motes.splice(this.motes.indexOf(m), 1);
+  }
+
   // ------------------------------------------------------------- morphs
 
   private startMorph(ctx: BossContext): void {
@@ -889,6 +1308,11 @@ export class DarkFalz extends BossBase<FState, Attack> {
     this.slamAt = null;
     for (const o of this.orbs) this.fx.remove(o.mesh);
     this.orbs = [];
+    // A change of form wipes Doom (its Grants may not have landed).
+    if (this.doom) {
+      ctx.effect(new Ring(ctx.playerX, ctx.playerZ, DOOM, 2, 0.4));
+      this.clearDoom();
+    }
     this.enter('morph');
     ctx.shake(0.5);
     this.sound('falz.morph', this.cx, this.cz);
@@ -915,9 +1339,13 @@ export class DarkFalz extends BossBase<FState, Attack> {
       if (this.form === 2) {
         this.shatter = 1;
         this.falzPresence = 1;
+        this.doomT = cfg.doomFirst;
       } else {
         this.falzPresence = 0;
         this.angelPresence = 1;
+        // Hell: the tide rises as the Angel arrives; Doom gives it a moment.
+        this.tideT = cfg.tideFirst;
+        this.doomT = Math.max(this.doomT, cfg.doomFirst);
       }
       this.lastAttack = null;
       this.gap = 0.8;
@@ -963,7 +1391,7 @@ export class DarkFalz extends BossBase<FState, Attack> {
     }
   }
 
-  private addPool(x: number, z: number): void {
+  private addPool(x: number, z: number, hold = false): void {
     const decal = glowDecal(LIGHT, cfg.grantsRadius * 2.6, 0.7);
     decal.position.set(x, 0.04, z);
     const ring = new THREE.Mesh(
@@ -972,12 +1400,12 @@ export class DarkFalz extends BossBase<FState, Attack> {
     );
     ring.position.set(x, 0.05, z);
     this.fx.add(decal, ring);
-    this.pools.push({ x, z, t: cfg.grantsLight, decal, ring });
+    this.pools.push({ x, z, t: cfg.grantsLight, hold, decal, ring });
   }
 
   private updatePools(dt: number): void {
     for (const p of [...this.pools]) {
-      p.t -= dt;
+      if (!(p.hold && this.doom)) p.t -= dt;
       const k = Math.max(0, p.t / cfg.grantsLight);
       p.decal.material.opacity = 0.65 * Math.min(1, k * 2) * (0.85 + Math.sin(this.time * 5 + p.x) * 0.15);
       p.ring.material.opacity = 0.7 * Math.min(1, k * 2);

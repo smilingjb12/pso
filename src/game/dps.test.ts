@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Character, makeItem, simulateEquip } from './character';
-import { damageBreakdown, estimateDamage, expeditionFoe, RACES } from './dps';
+import { damageBreakdown, estimateDamage, expeditionFoe } from './dps';
 
 const force = () => {
   const ch = Character.create('T', 'force');
@@ -19,14 +19,17 @@ describe('damage estimates', () => {
     expect(hard.armor).toBeGreaterThan(forest.armor);
   });
 
-  it('race % multiplies spell and weapon damage alike', () => {
-    const ch = force();
-    const rod = makeItem('rod_5', { affixes: [{ id: 'raceAbeast', v: 40 }] });
-    const e = estimateDamage(simulateEquip(ch, rod, 'weapon'), expeditionFoe('caves', false), true);
-    expect(e.spell!.abeast / e.spell!.native).toBeCloseTo(1.4);
-    expect(e.spell!.machine).toBeCloseTo(e.spell!.native);
-    // Armour is a % cut since 2026-10-14 (DFP came off after race %, so the gain was a bit over 40%).
-    expect(e.weapon.abeast / e.weapon.native).toBeCloseTo(1.4);
+  it('Flow (TP refill) pays for Arts sooner, without touching the chain itself', () => {
+    const ch = Character.create('T', 'hunter');
+    ch.data.level = 60;
+    const foe = expeditionFoe('mines', 'nightmare');
+    const plain = damageBreakdown(simulateEquip(ch, makeItem('saber_8'), 'weapon'), foe);
+    const flow = damageBreakdown(simulateEquip(ch, makeItem('saber_8', { affixes: [{ id: 'tpRefill', v: 20 }] }), 'weapon'), foe);
+    expect(flow.basic.dps).toBeCloseTo(plain.basic.dps, 9);
+    const hits = plain.arts.filter((a) => a.perUse > 0);
+    expect(hits.length).toBeGreaterThan(0);
+    for (const a of hits) expect(flow.arts.find((x) => x.id === a.id)!.sustained).toBeGreaterThanOrEqual(a.sustained - 1e-9);
+    expect(flow.arts.some((x, i) => x.sustained > plain.arts[i].sustained + 1e-9)).toBe(true);
   });
 
   it('more tech damage means more spell damage; only casters get the spell column', () => {
@@ -34,8 +37,8 @@ describe('damage estimates', () => {
     const foe = expeditionFoe('forest', false);
     const low = estimateDamage(simulateEquip(ch, makeItem('rod_2'), 'weapon'), foe, true);
     const high = estimateDamage(simulateEquip(ch, makeItem('rod_6'), 'weapon'), foe, true);
-    expect(high.spell!.native).toBeGreaterThan(low.spell!.native);
-    expect(high.weapon.native).toBeGreaterThan(low.weapon.native);
+    expect(high.spell!).toBeGreaterThan(low.spell!);
+    expect(high.weapon).toBeGreaterThan(low.weapon);
     expect(estimateDamage(Character.create('H', 'hunter'), foe, false).spell).toBeNull();
   });
 });
@@ -47,24 +50,20 @@ describe('damage breakdown (Damage tab)', () => {
       ch.data.level = 60;
       const foe = expeditionFoe('mines', 'nightmare');
       const est = estimateDamage(ch, foe, true);
-      for (const race of RACES) {
-        const b = damageBreakdown(ch, foe, race);
-        expect(b.basic.dps).toBeCloseTo(est.weapon[race], 6);
-        expect(b.basic.steps).toHaveLength(3);
-        expect(b.basic.steps.reduce((t, s) => t + s.secs, 0)).toBeCloseTo(b.basic.secs, 9);
-        // Every Art on the bar has a line; attack ones deal damage, at their TP.
-        for (const a of b.arts) {
-          expect(a.secs).toBeGreaterThan(0);
-          expect(a.tp).toBeGreaterThan(0);
-          // Paid for by basic swings: between the basic chain and the Art back to back.
-          if (a.perUse > 0) expect(a.sustained).toBeGreaterThanOrEqual(Math.min(a.dps, b.basic.dps) - 1e-9);
-          if (a.perUse > 0) expect(a.sustained).toBeLessThanOrEqual(Math.max(a.dps, b.basic.dps) + 1e-9);
-        }
-        const tech = b.arts.find((a) => a.id === est.tech);
-        if (tech) expect(tech.dps).toBeCloseTo(est.spell![race], 6);
+      const b = damageBreakdown(ch, foe);
+      expect(b.basic.dps).toBeCloseTo(est.weapon, 6);
+      expect(b.basic.steps).toHaveLength(3);
+      expect(b.basic.steps.reduce((t, s) => t + s.secs, 0)).toBeCloseTo(b.basic.secs, 9);
+      // Every Art on the bar has a line; attack ones deal damage, at their TP.
+      for (const a of b.arts) {
+        expect(a.secs).toBeGreaterThan(0);
+        expect(a.tp).toBeGreaterThan(0);
+        // Paid for by basic swings: between the basic chain and the Art back to back.
+        if (a.perUse > 0) expect(a.sustained).toBeGreaterThanOrEqual(Math.min(a.dps, b.basic.dps) - 1e-9);
+        if (a.perUse > 0) expect(a.sustained).toBeLessThanOrEqual(Math.max(a.dps, b.basic.dps) + 1e-9);
       }
-      const avg = damageBreakdown(ch, foe, null);
-      expect(avg.basic.dps).toBeCloseTo(RACES.reduce((t, r) => t + est.weapon[r], 0) / RACES.length, 6);
+      const tech = b.arts.find((a) => a.id === est.tech);
+      if (tech) expect(tech.dps).toBeCloseTo(est.spell!, 6);
     }
   });
 });

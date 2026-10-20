@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { bestCrafted, Character, compareEquip, dropVerdict, makeItem, readAffixData, type CharacterData, type ItemInstance } from './character';
 import { craftLoadouts, maxedRoll, rollCost } from './craftCeiling';
 import { affixTier, applyCraft, craftable, craftPlan, craftWith, salvageYield, upgradeCrafting } from './crafting';
-import { getDef, raceCap } from './data/items';
+import { getDef } from './data/items';
 import { ITEM_AFFIXES, tierIlvl, tierRange, type AffixRoll } from './data/itemAffixes';
 import { dormantCount, rareCount, rollArmor, rollPhoton, rollWeapon } from './loot';
 
@@ -22,7 +22,6 @@ function rare(affixes: AffixRoll[], ilvl = 98, dormant?: AffixRoll[]): ItemInsta
 
 const kind = (r: AffixRoll) => ITEM_AFFIXES[r.id].kind;
 const isDown = (r: AffixRoll) => !!ITEM_AFFIXES[r.id].penalty;
-const isRace = (r: AffixRoll) => r.id.startsWith('race');
 /** Active prefixes, a rolled special counted. */
 const prefixes = (it: ItemInstance) => (it.affixes ?? []).filter((r) => kind(r) === 'prefix').length + (it.special ? 1 : 0);
 
@@ -40,7 +39,6 @@ describe('affix counts (fixed by item level)', () => {
           expect(it.affixes!.filter((r) => kind(r) === 'suffix').length).toBeLessThanOrEqual(3);
           const ids = [...it.affixes!, ...it.dormant!].map((r) => r.id);
           expect(new Set(ids).size).toBe(ids.length);
-          expect(it.affixes!.filter(isRace).length).toBeLessThanOrEqual(1);
         }
       }
       for (let i = 0; i < 40; i++) {
@@ -70,18 +68,22 @@ describe('affix counts (fixed by item level)', () => {
     expect(dormant).toBeGreaterThan(100);
   });
 
-  it('each race % draws at half a normal affix (one active at most; more can lie dormant)', () => {
-    // A Normal rare's 2 suffixes: a melee weapon draws from LCK, Stagger and four races.
+  it('Hell melee and ranged rares draw their 3 suffixes from 5, not always the same 3', () => {
+    // LCK, Haste, Stagger / Reach, and since race % went (2026-10-17) TP refill and Injector charge.
     const rng = seq(4);
-    let dark = 0;
-    let lck = 0;
-    for (let i = 0; i < 2000; i++) {
-      const ids = rollWeapon(5, rng, 'melee', 'rare').affixes!.map((r) => r.id);
-      if (ids.includes('raceDark')) dark++;
-      if (ids.includes('lck')) lck++;
+    for (const family of ['melee', 'ranged'] as const) {
+      const sets = new Set<string>();
+      const seen = new Set<string>();
+      for (let i = 0; i < 400; i++) {
+        const suf = rollWeapon(15, rng, family, 'rare').affixes!.filter((r) => kind(r) === 'suffix').map((r) => r.id);
+        expect(suf).toHaveLength(3);
+        sets.add([...suf].sort().join());
+        suf.forEach((id) => seen.add(id));
+      }
+      expect(seen).toContain('tpRefill');
+      expect(seen).toContain('injCharge');
+      expect(sets.size).toBeGreaterThan(4);
     }
-    expect(dark).toBeLessThan(lck * 0.65);
-    expect(dark).toBeGreaterThan(lck * 0.3);
   });
 });
 
@@ -108,8 +110,8 @@ describe('Photon Drop and Photon Sphere', () => {
     expect(plan.choices[1]).toMatchObject({ ok: true, after: 'tier 6: 45-65' });
     expect(applyCraft(hell, 'sphere', '1', seq()).ok).toBe(true);
     expect(hell.affixes![1]).toMatchObject({ t: 6 });
-    // A rift tier 12 drop (item level 112) goes to tier 8.
-    const rift = rare([{ id: 'atpPct', v: 28, t: 6 }], 112);
+    // A rift tier 7 drop (item level 114) goes to tier 8.
+    const rift = rare([{ id: 'atpPct', v: 28, t: 6 }], 114);
     expect(applyCraft(rift, 'sphere', '0', seq()).ok).toBe(true);
     expect(rift.affixes![0].t).toBe(7);
     expect(rift.affixes![0].v).toBeGreaterThanOrEqual(28);
@@ -120,13 +122,12 @@ describe('Photon Drop and Photon Sphere', () => {
     expect(craftPlan(rift, 'sphere').choices[0].ok).toBe(false);
   });
 
-  it('race % and Haste step up to the item tier cap instead', () => {
-    const w = rare([{ id: 'raceDark', v: 75 }, { id: 'haste', v: 12 }]);
-    const plan = craftPlan(w, 'sphere');
-    expect(plan.choices[0]).toMatchObject({ ok: true, after: '75 → 80' });
-    expect(plan.choices[1]).toMatchObject({ ok: false, reason: "At this tier's cap (12)" });
+  it('Haste steps up to the item tier cap instead', () => {
+    const w = rare([{ id: 'haste', v: 11 }]);
+    expect(craftPlan(w, 'sphere').choices[0]).toMatchObject({ ok: true, after: '11 → 12' });
     expect(applyCraft(w, 'sphere', '0', seq()).ok).toBe(true);
-    expect(w.affixes![0].v).toBe(80);
+    expect(w.affixes![0].v).toBe(12);
+    expect(craftPlan(w, 'sphere').choices[0]).toMatchObject({ ok: false, reason: "At this tier's cap (12)" });
   });
 
   it('rolls without a stored tier get one from their value; dormant affixes are left alone', () => {
@@ -146,9 +147,9 @@ describe('Photon Drop and Photon Sphere', () => {
 describe('Photon Crystal (swap)', () => {
   const item = () =>
     rare(
-      [{ id: 'atpPct', v: 26, t: 6 }, { id: 'atpFlat', v: 40, t: 5 }, { id: 'lck', v: 30, t: 6 }, { id: 'raceDark', v: 40 }],
+      [{ id: 'atpPct', v: 26, t: 6 }, { id: 'atpFlat', v: 40, t: 5 }, { id: 'lck', v: 30, t: 6 }, { id: 'tpRefill', v: 15, t: 5 }],
       98,
-      [{ id: 'reckless', v: 27, p: 6, t: 6 }, { id: 'staggerPct', v: 20, t: 5 }, { id: 'raceNative', v: 30 }],
+      [{ id: 'reckless', v: 27, p: 6, t: 6 }, { id: 'staggerPct', v: 20, t: 5 }, { id: 'injCharge', v: 20, t: 5 }],
     );
 
   it('offers each active affix against each dormant one of its kind', () => {
@@ -166,12 +167,6 @@ describe('Photon Crystal (swap)', () => {
     expect(w.dormant![0]).toMatchObject({ id: 'atpFlat', v: 40, t: 5 });
     expect(applyCraft(w, 'crystal', '1:0', seq()).ok).toBe(true);
     expect(w.affixes![1]).toMatchObject({ id: 'atpFlat', v: 40 });
-  });
-
-  it('one race at a time: a dormant race only comes in for the active one', () => {
-    const plan = craftPlan(item(), 'crystal');
-    expect(plan.choices.find((c) => c.key === '2:2')).toMatchObject({ ok: false, reason: 'One race affix at a time' });
-    expect(plan.choices.find((c) => c.key === '3:2')).toMatchObject({ ok: true });
   });
 
   it('needs dormant affixes (rares only)', () => {
@@ -275,27 +270,26 @@ describe('old saves', () => {
 });
 
 describe('fully crafted (the verdict judges gear by its best)', () => {
-  it('maxes an affix to the top tier its item level allows, a race % and Haste to the cap', () => {
+  it('maxes an affix to the top tier its item level allows, Haste to the cap', () => {
     const w = rare([]);
     expect(maxedRoll(w, { id: 'atpPct', v: 16, t: 4 })).toEqual({ id: 'atpPct', v: 28, t: 6 });
     expect(maxedRoll(w, { id: 'reckless', v: 22, p: 5, t: 5 })).toMatchObject({ v: 30, p: 5, t: 6 });
-    expect(maxedRoll(w, { id: 'raceDark', v: 10 }).v).toBe(raceCap(15));
+    expect(maxedRoll(w, { id: 'haste', v: 3 }).v).toBe(12);
     expect(maxedRoll(rare([], 60), { id: 'atpPct', v: 16, t: 4 })).toMatchObject({ v: 23, t: 5 });
     expect(rollCost(w, { id: 'atpPct', v: 16, t: 4 }, { id: 'atpPct', v: 28, t: 6 })).toEqual({ spheres: 2, reroll: true });
-    expect(rollCost(w, { id: 'raceDark', v: 10 }, { id: 'raceDark', v: 20 })).toEqual({ spheres: 2, reroll: false });
+    expect(rollCost(w, { id: 'haste', v: 3 }, { id: 'haste', v: 5 })).toEqual({ spheres: 2, reroll: false });
   });
 
-  it('reaches every active set Crystals can make: same prefix / suffix split, one race', () => {
+  it('reaches every active set Crystals can make: same prefix / suffix split', () => {
     const w = rare(
-      [{ id: 'atpPct', v: 26, t: 6 }, { id: 'atpFlat', v: 40, t: 5 }, { id: 'lck', v: 30, t: 6 }, { id: 'raceDark', v: 40 }],
+      [{ id: 'atpPct', v: 26, t: 6 }, { id: 'atpFlat', v: 40, t: 5 }, { id: 'lck', v: 30, t: 6 }, { id: 'tpRefill', v: 15, t: 5 }],
       98,
-      [{ id: 'reckless', v: 27, p: 6, t: 6 }, { id: 'staggerPct', v: 20, t: 5 }, { id: 'raceNative', v: 30 }],
+      [{ id: 'reckless', v: 27, p: 6, t: 6 }, { id: 'staggerPct', v: 20, t: 5 }, { id: 'injCharge', v: 20, t: 5 }],
     );
     const sets = craftLoadouts(w);
-    // 3 prefixes choose 2, times 4 suffixes choose 2 less the two-race pair.
-    expect(sets.length).toBe(3 * 5);
+    // 3 prefixes choose 2, times 4 suffixes choose 2.
+    expect(sets.length).toBe(3 * 6);
     expect(sets[0]).toEqual(w.affixes);
-    expect(sets.every((s) => s.filter(isRace).length <= 1)).toBe(true);
   });
 
   const holding = (equip: ItemInstance) => {

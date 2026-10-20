@@ -533,10 +533,10 @@ export class World {
     }
   }
 
-  /** A weapon blast (Garanz missile, Volatile elite): machines caught take damage and power switches flip. */
+  /** A weapon blast (Garanz missile, Volatile elite): enemies caught take damage and power switches flip. */
   blast(source: Enemy | null, x: number, z: number, radius: number, enemyPct = machineCfg.missileEnemyPct): void {
     for (const e of this.enemies) {
-      if (e === source || !e.alive || e.invulnerable || e.arch.race !== 'machine') continue;
+      if (e === source || !e.alive || e.invulnerable) continue;
       if (Math.hypot(e.pos.x - x, e.pos.z - z) > radius + e.radius) continue;
       this.hooks.hazards.hurtEnemy(e, Math.max(1, Math.round(e.maxHp * enemyPct)));
     }
@@ -850,7 +850,9 @@ export class World {
       const chance = this.run.hell ? (hellElite ?? hardCfg.eliteChance) : hard ? hardCfg.eliteChance : eliteCfg.chance;
       // Hell: at most one Splitting enemy per room.
       const pool = this.run.hell && a.splitting ? HARD_AFFIXES.filter((x) => x !== 'splitting') : undefined;
-      const opts: EnemyOptions = { elite: elites && type !== 'NarLily' && type !== 'ControlNode' && rng() < chance };
+      // Swarming's fodder never comes in elite.
+      const fodder = i >= (room.def.fodder?.[waveIndex] ?? Infinity);
+      const opts: EnemyOptions = { elite: elites && !fodder && type !== 'NarLily' && type !== 'ControlNode' && rng() < chance };
       const arch = this.archFor(type);
       if (this.run.hell && type !== 'ControlNode') {
         // Hell: every enemy has affixes (regular 1, elite 2, champion 3).
@@ -1125,10 +1127,10 @@ export class World {
       }
     }
 
-    // Pylon light (and any light the boss leaves): cleanses the player, slows and exposes Dark enemies.
+    // Pylon light (and any light the boss leaves): cleanses the player, slows and exposes enemies.
     for (const p of this.pylons) p.update(dt);
     player.inLight = player.alive && this.lightAt(player.pos.x, player.pos.z, player.radius);
-    for (const e of this.enemies) e.lit = e.alive && e.race === 'dark' && this.lightAt(e.pos.x, e.pos.z, e.radius * 0.5);
+    for (const e of this.enemies) e.lit = e.alive && this.lightAt(e.pos.x, e.pos.z, e.radius * 0.5);
 
     // Hazards.
     let slow = 1;

@@ -84,7 +84,7 @@ export const techniques: Record<TechId, TechDef> = {
   razonde: {
     id: 'razonde', name: 'Razonde', shape: 'storm', element: 'lightning', power: 215, tp: 18, level: 46,
     castTime: 0.7, recovery: 0.8, range: 14, radius: 5, color: BOLT, statusChance: 0.12,
-    desc: 'A storm over the target: eight strikes on whatever stands under it over 3 s. May stun.',
+    desc: 'A storm over the target: eight strikes over 3 s on whatever stands under it, at most three on any one enemy. May stun each enemy once.',
   },
   barta: {
     id: 'barta', name: 'Barta', shape: 'spike', element: 'ice', power: 495, tp: 10, level: 1,
@@ -117,6 +117,16 @@ export function isAttackTech(id: TechId): boolean {
 
 /** Attack techniques, in technique order. */
 export const ATTACK_TECHS = TECH_IDS.filter(isAttackTech);
+
+/**
+ * Area techniques that go somewhere (Gizonde's lines, Gibarta's cone, Rafoie's meteor, Razonde's storm) go where the
+ * camera looks, not where she faces (2026-10-16, the user's ask). The single-target ones go to the camera's target
+ * (same day, see Combat "aiming"); the ones around her need no aim.
+ */
+export function aimsWithCamera(id: TechId): boolean {
+  const s = techniques[id].shape;
+  return s === 'lines' || s === 'cone' || s === 'meteor' || s === 'storm';
+}
 
 /** Tech damage relative to the reference (never below a sliver, so a character with none still casts something). */
 function mstRatio(mst: number): number {

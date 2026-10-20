@@ -1,6 +1,6 @@
 import { rarityOf, type Character, type CharacterData, type ItemInstance } from './character';
 import { craftCfg } from './config';
-import { affixTier, capOf, capped, gearDef, ilvlOf, isRace } from './craftCeiling';
+import { affixTier, capOf, capped, gearDef, ilvlOf } from './craftCeiling';
 import { getDef, itemDefs, PHOTON_STACK, type CraftId } from './data/items';
 import { affixText, ITEM_AFFIXES, maxAffixTier, tierRange, type AffixRoll } from './data/itemAffixes';
 import { rollAffixes, type Rng } from './loot';
@@ -94,20 +94,16 @@ function valueChoice(inst: ItemInstance, r: AffixRoll, i: number, craft: 'drop' 
   return { ...base, tier: t, after: `tier ${t + 1}: ${range(Math.max(nlo, r.v + 1), nhi)}${penText}`, ok: true, reason: '' };
 }
 
-/**
- * Every swap a Crystal can make on `inst`: each active affix with each dormant one of its kind. A race can only come
- * in for the active race (one at a time).
- */
+/** Every swap a Crystal can make on `inst`: each active affix with each dormant one of its kind. */
 export function swapChoices(inst: ItemInstance): CraftChoice[] {
   const active = inst.affixes ?? [];
   const out: CraftChoice[] = [];
   active.forEach((a, i) => {
     (inst.dormant ?? []).forEach((d, j) => {
       if (ITEM_AFFIXES[a.id].kind !== ITEM_AFFIXES[d.id].kind) return;
-      const clash = isRace(d.id) && !isRace(a.id) && active.some((x) => isRace(x.id));
       out.push({
         key: `${i}:${j}`, label: affixText(a), tier: a.t, after: affixText(d), downside: !!ITEM_AFFIXES[d.id].penalty,
-        ok: !clash, reason: clash ? 'One race affix at a time' : '',
+        ok: true, reason: '',
       });
     });
   });

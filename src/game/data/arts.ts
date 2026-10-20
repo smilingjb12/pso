@@ -356,7 +356,7 @@ const TECH_MODS: Record<TechId, [ArtMod[], ArtMod[]]> = {
     [m('paralyze', 'Paralyze', 'Twice the stun chance.'), m('arcing', 'Arcing', 'Each bolt jumps to one more enemy at its end.'), m('quick', 'Quick', 'Casts 30% faster.')],
   ],
   razonde: [
-    [m('wide', 'Wide Storm', 'A 7 m storm.'), m('long', 'Long Storm', 'Lasts 5 s (thirteen strikes).'), m('eye', 'Eye of the Storm', 'Strikes favour the target.')],
+    [m('wide', 'Wide Storm', 'A 7 m storm.'), m('long', 'Long Storm', 'Lasts 5 s (thirteen strikes, at most five on any one enemy).'), m('eye', 'Eye of the Storm', 'Strikes favour the target.')],
     [m('paralyze', 'Paralyze', 'Twice the stun chance.'), m('efficient', 'Efficient', '25% less TP.'), m('conductor', 'Conductor', 'Twice the stagger.')],
   ],
   barta: [

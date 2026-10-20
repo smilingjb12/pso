@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { warden as cfg, type HardBossScale } from '../config';
+import { sfx } from '../../audio';
+import { hell, warden as cfg, type HardBossScale } from '../config';
 import { separateCircles } from '../collision';
 import type { Hittable } from '../combat/types';
 import { WARDEN_HAND_REST, WardenModel } from '../models/mines';
@@ -11,6 +12,7 @@ import type { BossContext } from './Boss';
 import { BossBase, BossPart } from './BossBase';
 import { CORRUPT_COLOR, type Enemy } from './Enemy';
 import { RepairDrone, SparkMite } from './mineEnemies';
+import { beatGap, planSequence } from './wardenSequence';
 
 // The Warden: the Mines boss. A colossus built into the north end of its hall; it
 // never moves. The deck in front of it is a grid of cells (`cell` m) and every
@@ -35,10 +37,14 @@ import { RepairDrone, SparkMite } from './mineEnemies';
 // Hell: phase 3 from a third of its HP (its glow turns violet). Every few attacks is a
 // triple: a floor wave, laser wall, hand slam or lockdown, three at once, planned
 // around one safe cell near you; then its core vents.
+// Hell, from the start: every few attacks a sequence, a memory test. It raises a shield
+// (80% less damage) and lights the first cell under a pillar long enough to find it, then
+// flashes the other two; then the whole deck discharges three times, sparing only the
+// cell of each beat in turn. Then the shield drops and its core vents.
 
 type WState =
   | 'dormant' | 'intro' | 'idle' | 'slamPrep' | 'slam' | 'pattern' | 'vent' | 'wallPrep' | 'wall' | 'lockPrep'
-  | 'intakePrep' | 'intake' | 'summon' | 'overclock' | 'triple' | 'dead';
+  | 'intakePrep' | 'intake' | 'summon' | 'overclock' | 'triple' | 'seqShow' | 'seqBeat' | 'dead';
 type Attack = 'slam' | 'pattern' | 'wall' | 'lockdown' | 'intake' | 'summon';
 /** Hell triples: diagonals + wall + slam, three holes + lockdown + slam, bands + wall + lockdown. */
 type Triple = 'diagonals' | 'holes' | 'bands';
@@ -49,6 +55,19 @@ const CELL_INSET = 0.15;
 const INTAKE_MOTES = 110;
 /** A triple's safe cell counts as reached this far inside its edges. */
 const SAFE_INSET = 0.5;
+/** A discharging cell's flash: colour and seconds. */
+const FLASH_COLOR = 0xffb070;
+const FLASH_TIME = 0.35;
+/** The sequence's own colour (a cue, not a warning), and the flash on its cell when you stood there. */
+const SEQ_COLOR = 0x5aa8ff;
+const SAFE_COLOR = 0x60ff90;
+/** Each step of the sequence rings a note higher (semitones: a rising arpeggio). */
+const SEQ_TONES = [0, 4, 7, 12, 16, 19];
+/** The sequence's shield: half-sizes of the dome over the colossus (x, y, z; m), its centre's height, rise and fall (s). */
+const SHIELD_SIZE: [number, number, number] = [8, 7.5, 5.4];
+const SHIELD_Y = 6;
+const SHIELD_RISE = 0.5;
+const SHIELD_FALL = 0.35;
 
 /** Is cell (c, r) lit on this wave? Row 0 is the one against the alcove. */
 const PATTERNS: Record<string, Pattern> = {
@@ -126,7 +145,7 @@ export class Warden extends BossBase<WState, Attack> {
   private waveW = 1;
   private waveT = 0;
   private lit: number[] = [];
-  private flashes: { mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>; t: number }[] = [];
+  private flashes: { mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>; t: number; dur: number }[] = [];
   // Laser wall.
   private wallGroup = new THREE.Group();
   private wallSegs: THREE.Mesh<THREE.BoxGeometry, THREE.MeshBasicMaterial>[] = [];
@@ -167,6 +186,28 @@ export class Warden extends BossBase<WState, Attack> {
   private holdT = 0;
   private zoneTickT = 0;
   private zoneTicks = 0;
+  // Hell sequence: its cells in order, how many have been shown, and the beat that charges next.
+  private seq: number[] = [];
+  private seqShown = 0;
+  private beat = 0;
+  /** Boss seconds between beats (cfg.seqBeat, floored at a rift's tempo). */
+  private seqBeatW = 0;
+  private sinceSeq = 0;
+  private seqDue = cfg.seqFirst;
+  private taughtSeq = false;
+  /** The cell being shown: a glowing plate with a bright frame. */
+  private seqPlate = new THREE.Group();
+  private seqFill: THREE.MeshBasicMaterial;
+  private seqFrame: THREE.MeshBasicMaterial;
+  /** A pillar of light over the first cell while it waits for you to find it. */
+  private seqBeam = new THREE.Group();
+  private seqBeamMat: THREE.MeshBasicMaterial;
+  /** Its shield while a sequence runs: a dome over it, rising (0 to 1) and falling; a hit makes it flare. */
+  private shield = new THREE.Group();
+  private shieldShell: THREE.MeshBasicMaterial;
+  private shieldLattice: THREE.Mesh<THREE.IcosahedronGeometry, THREE.MeshBasicMaterial>;
+  private shieldK = 0;
+  private shieldHit = 0;
   private fx = new THREE.Group();
 
   constructor(arena: Rect, hard: HardBossScale | null = null) {
@@ -195,8 +236,42 @@ export class Warden extends BossBase<WState, Attack> {
       mesh.position.set(x, 0.06, z);
       mesh.visible = false;
       this.fx.add(mesh);
-      this.flashes.push({ mesh, t: 0 });
+      this.flashes.push({ mesh, t: 0, dur: FLASH_TIME });
     }
+    // The sequence's plate, moved onto each cell as it is shown.
+    const pw = this.cw - CELL_INSET * 2;
+    const pd = this.ch - CELL_INSET * 2;
+    this.seqFill = new THREE.MeshBasicMaterial({ color: SEQ_COLOR, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(pw, pd).rotateX(-Math.PI / 2), this.seqFill);
+    plate.position.y = 0.07;
+    this.seqPlate.add(plate);
+    this.seqFrame = new THREE.MeshBasicMaterial({ color: 0xd0e8ff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+    for (const [fw, fd, fx, fz] of [[pw, 0.2, 0, -pd / 2], [pw, 0.2, 0, pd / 2], [0.2, pd, -pw / 2, 0], [0.2, pd, pw / 2, 0]]) {
+      const bar = new THREE.Mesh(new THREE.PlaneGeometry(fw, fd).rotateX(-Math.PI / 2), this.seqFrame);
+      bar.position.set(fx, 0.075, fz);
+      this.seqPlate.add(bar);
+    }
+    this.seqPlate.visible = false;
+    this.fx.add(this.seqPlate);
+    // The first cell's pillar: a wide soft column round a bright core.
+    this.seqBeamMat = new THREE.MeshBasicMaterial({ color: SEQ_COLOR, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    const outer = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.5, 10, 16, 1, true), this.seqBeamMat);
+    const inner = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.45, 10, 10, 1, true), this.seqBeamMat);
+    outer.position.y = inner.position.y = 5;
+    this.seqBeam.add(outer, inner);
+    this.seqBeam.visible = false;
+    this.fx.add(this.seqBeam);
+    // The shield: a faint shell and a turning lattice, centred on the colossus's chest.
+    this.shieldShell = new THREE.MeshBasicMaterial({ color: SEQ_COLOR, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    this.shield.add(new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), this.shieldShell));
+    this.shieldLattice = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(1.01, 3),
+      new THREE.MeshBasicMaterial({ color: 0xbfe0ff, wireframe: true, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }),
+    );
+    this.shield.add(this.shieldLattice);
+    this.shield.position.set(this.cx, SHIELD_Y, this.rootZ + 0.6);
+    this.shield.visible = false;
+    this.fx.add(this.shield);
     // The laser wall: two tall panels either side of the gap.
     for (let i = 0; i < 2; i++) {
       const seg = new THREE.Mesh(
@@ -244,7 +319,13 @@ export class Warden extends BossBase<WState, Attack> {
     if (this.adds.some((e) => e instanceof RepairDrone && e.alive && e.repairing)) note += '  — REPAIRING';
     const n = this.zones.size;
     if (n) note += `  — LOCKDOWN ${n}/${cfg.lockMax}${n >= cfg.lockMax ? ` (reset in ${Math.ceil(this.holdT)})` : ''}`;
+    if (this.state === 'seqShow') note += '  — SEQUENCE · SHIELDED';
+    else if (this.state === 'seqBeat') note += `  — SEQUENCE ${this.beat + 1}/${this.seq.length} · SHIELDED`;
     return note;
+  }
+  /** Its shield is up: from the start of a sequence until its last discharge. */
+  get shielded(): boolean {
+    return this.state === 'seqShow' || this.state === 'seqBeat';
   }
   parts(): Hittable[] {
     return [this.body];
@@ -259,13 +340,22 @@ export class Warden extends BossBase<WState, Attack> {
 
   // -------------------------------------------------------------- damage
 
+  /** ×1.5 while its core vents; the sequence's shield lets only `seqShield` through. */
   partMult(): number {
+    if (this.shielded) return cfg.seqShield;
     return this.state === 'vent' ? cfg.ventMult : 1;
+  }
+
+  damagePart(p: BossPart, amount: number): boolean {
+    if (this.shielded && this.alive && !this.partInvulnerable(p)) this.shieldHit = 1;
+    return super.damagePart(p, amount);
   }
 
   protected onDeath(): void {
     this.wallGroup.visible = false;
     this.motes.visible = false;
+    this.seqPlate.visible = false;
+    this.seqBeam.visible = false;
     this.clearZones();
     // Its adds shut down with it.
     for (const e of this.adds) if (e.alive) e.vanish();
@@ -312,8 +402,30 @@ export class Warden extends BossBase<WState, Attack> {
     this.goalR.set(WARDEN_HAND_REST.x, WARDEN_HAND_REST.y + lift - bob, WARDEN_HAND_REST.z);
   }
 
+  /** Both hands spread high over the deck (it drives the floor: patterns, triples, the sequence). */
+  private raiseHands(): void {
+    this.goalL.set(-7.5, 6.5 + Math.sin(this.time * 3) * 0.3, 4.5);
+    this.goalR.set(7.5, 6.5 - Math.sin(this.time * 3) * 0.3, 4.5);
+  }
+
   protected always(dt: number): void {
     this.updateFlashes(dt);
+    this.updateShield(dt);
+  }
+
+  /** The shield grows out over its chest as a sequence starts, flares when hit, and swells away when it drops. */
+  private updateShield(dt: number): void {
+    const on = this.shielded && this.alive;
+    this.shieldK = on ? Math.min(1, this.shieldK + dt / SHIELD_RISE) : Math.max(0, this.shieldK - dt / SHIELD_FALL);
+    this.shieldHit = Math.max(0, this.shieldHit - dt * 4);
+    this.shield.visible = this.shieldK > 0;
+    if (!this.shield.visible) return;
+    const s = on ? 1 - (1 - this.shieldK) ** 3 : 1 + (1 - this.shieldK) * 0.15;
+    this.shield.scale.set(SHIELD_SIZE[0] * s, SHIELD_SIZE[1] * s, SHIELD_SIZE[2] * s);
+    this.shieldLattice.rotation.y += dt * 0.3;
+    const fade = (on ? 1 : this.shieldK) * (0.85 + 0.15 * Math.sin(this.time * 4));
+    this.shieldShell.opacity = (0.08 + 0.22 * this.shieldHit) * fade;
+    this.shieldLattice.material.opacity = (0.28 + 0.5 * this.shieldHit) * fade;
   }
 
   protected whileDead(dt: number): void {
@@ -376,8 +488,7 @@ export class Warden extends BossBase<WState, Attack> {
       case 'pattern':
         cast = 1;
         charge = 0.5;
-        this.goalL.set(-7.5, 6.5 + Math.sin(this.time * 3) * 0.3, 4.5);
-        this.goalR.set(7.5, 6.5 - Math.sin(this.time * 3) * 0.3, 4.5);
+        this.raiseHands();
         this.waveT += dt;
         if (this.waveT >= this.waveW) {
           this.fireWave(ctx);
@@ -417,8 +528,7 @@ export class Warden extends BossBase<WState, Attack> {
       case 'triple':
         cast = 1;
         charge = 0.8;
-        this.goalL.set(-7.5, 6.5 + Math.sin(this.time * 3) * 0.3, 4.5);
-        this.goalR.set(7.5, 6.5 - Math.sin(this.time * 3) * 0.3, 4.5);
+        this.raiseHands();
         this.posePairSlam(dt, (h) => (handRate = h));
         this.waveT += dt;
         if (!this.thirdOut && this.waveT >= cfg.tripleStagger) this.startThird(ctx);
@@ -436,6 +546,20 @@ export class Warden extends BossBase<WState, Attack> {
           this.pairSlam = null;
           this.startVent(ctx);
         }
+        break;
+
+      // ----------------------------------------------------- Hell sequence
+      case 'seqShow':
+        cast = 1;
+        charge = 0.5;
+        this.raiseHands();
+        this.showSequence(ctx);
+        break;
+      case 'seqBeat':
+        cast = 1;
+        charge = 0.4 + 0.6 * Math.min(1, this.stateT / this.seqBeatW);
+        this.raiseHands();
+        if (this.stateT >= this.seqBeatW) this.fireBeat(ctx);
         break;
 
       // ------------------------------------------------------------- intake
@@ -524,6 +648,8 @@ export class Warden extends BossBase<WState, Attack> {
       this.sinceTriple = 0;
       return;
     }
+    // Hell: every few attacks a sequence (when one falls on a triple's slot, it takes the next).
+    if (this.hard?.hell && ++this.sinceSeq >= this.seqDue && this.startSequence(ctx)) return;
     let pick: Attack;
     // Too close to its alcove: it swats you away.
     if (ctx.playerZ - this.front < cfg.slamRange && this.lastAttack !== 'slam' && ctx.rng() < 0.6) {
@@ -622,9 +748,7 @@ export class Warden extends BossBase<WState, Attack> {
     let hx = 0;
     let hz = 0;
     for (const i of this.lit) {
-      const f = this.flashes[i];
-      f.t = 0.35;
-      f.mesh.visible = true;
+      this.flash(i);
       const [x, z] = this.cellCentre(i);
       if ((i + this.wave) % 2 === 0) ctx.effect(new Pillar(x, z, 0xff8a50, 0.3, 0.25, 5));
       const shape = this.cellShape(i);
@@ -646,12 +770,20 @@ export class Warden extends BossBase<WState, Attack> {
     }
   }
 
+  /** Flash cell i (a discharge; the sequence also flashes its cells in its own colours). */
+  private flash(i: number, color = FLASH_COLOR, dur = FLASH_TIME): void {
+    const f = this.flashes[i];
+    f.t = f.dur = dur;
+    f.mesh.material.color.setHex(color);
+    f.mesh.visible = true;
+  }
+
   private updateFlashes(dt: number): void {
     for (const f of this.flashes) {
       if (!f.mesh.visible) continue;
       f.t -= dt;
       if (f.t <= 0) f.mesh.visible = false;
-      else f.mesh.material.opacity = (f.t / 0.35) * 0.85;
+      else f.mesh.material.opacity = (f.t / f.dur) * 0.85;
     }
   }
 
@@ -1024,6 +1156,135 @@ export class Warden extends BossBase<WState, Attack> {
     const dx = Math.max(0, Math.abs(x - cx) - (this.cw / 2 - SAFE_INSET));
     const dz = Math.max(0, Math.abs(z - cz) - (this.ch / 2 - SAFE_INSET));
     return Math.hypot(dx, dz);
+  }
+
+  // ------------------------------------------------------ Hell sequence
+
+  /** A sequence in the rows nearest it, starting within reach of you; false if none fits (it attacks normally and tries next time). */
+  private startSequence(ctx: BossContext): boolean {
+    const here = this.cellAt(ctx.playerX, ctx.playerZ);
+    const seq = planSequence(this.cols, this.rows, here, (i) => this.seqCellOk(i), ctx.rng, cfg.seqCells, cfg.seqFirstReach);
+    if (!seq) return false;
+    this.seq = seq;
+    this.seqShown = 0;
+    this.beat = 0;
+    this.sinceSeq = 0;
+    this.seqDue = cfg.seqEvery[0] + Math.floor(ctx.rng() * (cfg.seqEvery[1] - cfg.seqEvery[0] + 1));
+    // It vents afterwards: no floor pattern straight after.
+    this.lastAttack = 'pattern';
+    // Its power goes into the deck: Spark Mites short out, so nothing chases you off a cell. Drones keep beaming.
+    for (const e of this.adds) {
+      if (!(e instanceof SparkMite) || !e.alive) continue;
+      ctx.effect(new Ring(e.pos.x, e.pos.z, SEQ_COLOR, 1.6, 0.35));
+      e.vanish();
+    }
+    this.enter('seqShow');
+    // The shield goes up: the sign a sequence has started.
+    this.sound('warden.charge', this.cx, this.front + 6, 1.2);
+    this.sound('warden.reroute', this.body.pos.x, this.body.pos.z, 1.3);
+    ctx.effect(new Ring(this.body.pos.x, this.body.pos.z + 1, SEQ_COLOR, 7, 0.5));
+    if (!this.taughtSeq) {
+      this.taughtSeq = true;
+      ctx.announce('It shields itself: remember the sequence!');
+    }
+    return true;
+  }
+
+  /**
+   * A cell the sequence may use: in the rows nearest it, not burning, not under its core (the collider would shove you
+   * off), no drone parked on it.
+   */
+  private seqCellOk(i: number): boolean {
+    if (Math.floor(i / this.cols) >= cfg.seqRows) return false;
+    if (this.zones.has(i) || this.toCell(i, this.body.pos.x, this.body.pos.z) < cfg.bodyRadius + 1) return false;
+    return !this.adds.some((e) => e instanceof RepairDrone && e.alive && this.cellAt(e.post.x, e.post.z) === i);
+  }
+
+  /** When cell k lights (s after the shield's rise) and for how long: the first waits seqFind s to be found. */
+  private seqSlot(k: number): [number, number] {
+    return k === 0 ? [0, cfg.seqFind] : [cfg.seqFind + (k - 1) * cfg.seqStep, cfg.seqOn];
+  }
+
+  /**
+   * Once the shield is up, the first cell lights under a pillar and stays lit while you find it; then the others light
+   * one after another, each a note higher; after a moment of dark the beats start.
+   */
+  private showSequence(ctx: BossContext): void {
+    const t = this.stateT - cfg.seqLead;
+    let k = -1;
+    for (let i = 0; i < this.seq.length; i++) if (t >= this.seqSlot(i)[0]) k = i;
+    if (k >= 0 && k >= this.seqShown) {
+      this.seqShown = k + 1;
+      const [x, z] = this.cellCentre(this.seq[k]);
+      this.seqPlate.position.set(x, 0, z);
+      this.seqBeam.position.set(x, 0, z);
+      sfx('ui.confirm', { x, z, pitch: this.seqPitch(k) });
+      ctx.effect(new Pillar(x, z, SEQ_COLOR, 0.45, 0.5, 7));
+      ctx.effect(new Ring(x, z, SEQ_COLOR, 2.4, 0.4));
+    }
+    const [t0, on] = k >= 0 ? this.seqSlot(k) : [0, 0];
+    const u = t - t0;
+    this.seqPlate.visible = k >= 0 && u < on;
+    this.seqBeam.visible = k === 0 && this.seqPlate.visible;
+    if (this.seqPlate.visible) {
+      const a = Math.max(0, Math.min(1, u / 0.06, (on - u) / 0.12));
+      this.seqFill.opacity = 0.7 * a;
+      this.seqFrame.opacity = a;
+      this.seqBeamMat.opacity = 0.32 * a * (0.8 + 0.2 * Math.sin(this.time * 6));
+    }
+    const [tl, onl] = this.seqSlot(this.seq.length - 1);
+    if (t >= tl + Math.max(onl, cfg.seqStep) + cfg.seqPause) {
+      this.seqPlate.visible = false;
+      this.seqBeam.visible = false;
+      // The beats keep their spacing when enraged; a rift's tempo shortens them down to the floor.
+      this.seqBeatW = beatGap(cfg.seqBeat, cfg.seqBeatFloor, this.tempo);
+      this.startBeat(ctx);
+    }
+  }
+
+  private seqPitch(k: number): number {
+    return 2 ** (SEQ_TONES[Math.min(k, SEQ_TONES.length - 1)] / 12);
+  }
+
+  /** The whole deck charges for the next beat (nothing marks the safe cell). */
+  private startBeat(ctx: BossContext): void {
+    this.enter('seqBeat');
+    this.warn(ctx, { kind: 'line', x: this.cx, z: this.front, yaw: 0, length: this.back - this.front, width: this.x1 - this.x0 }, this.seqBeatW, 0xff4020);
+    this.sound('warden.charge', this.cx, this.front + 6, 1);
+  }
+
+  /**
+   * The deck discharges everywhere but this beat's cell. On it: it flashes green and its note rings again. Off it: a
+   * failed mechanic (hell.mechanicHit of your max HP), and the right cell flashes in the sequence's colour.
+   */
+  private fireBeat(ctx: BossContext): void {
+    const safe = this.seq[this.beat];
+    this.sound('warden.zap', this.cx, this.front + (this.back - this.front) / 2);
+    ctx.shake(0.3);
+    for (let i = 0; i < this.cols * this.rows; i++) {
+      if (i === safe) continue;
+      this.flash(i);
+      if ((i + this.beat) % 3 === 0) {
+        const [x, z] = this.cellCentre(i);
+        ctx.effect(new Pillar(x, z, 0xff8a50, 0.3, 0.25, 5));
+      }
+    }
+    const [x, z] = this.cellCentre(safe);
+    // Your cell is the one under your centre, as the floor lines show (no grace: on a corner shared by the three cells
+    // you would be safe on every beat without moving).
+    if (ctx.playerAlive && this.cellAt(ctx.playerX, ctx.playerZ) === safe) {
+      this.flash(safe, SAFE_COLOR, 0.8);
+      sfx('ui.confirm', { x, z, pitch: this.seqPitch(this.beat) });
+    } else {
+      if (ctx.playerAlive) ctx.mechanicHit(hell.mechanicHit, this.body.pos.x, this.body.pos.z, 3, 'Sequence');
+      this.flash(safe, SEQ_COLOR, 0.9);
+      ctx.effect(new Pillar(x, z, SEQ_COLOR, 0.6, 0.5, 7));
+    }
+    if (++this.beat < this.seq.length) return this.startBeat(ctx);
+    // The last discharge: the shield drops (see updateShield) and its core vents.
+    ctx.effect(new Ring(this.body.pos.x, this.body.pos.z + 1, SEQ_COLOR, 9, 0.45));
+    this.sound('warden.purge', this.body.pos.x, this.body.pos.z);
+    this.startVent(ctx);
   }
 
   // ------------------------------------------------------------- intake

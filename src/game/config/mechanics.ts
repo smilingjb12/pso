@@ -111,7 +111,7 @@ export const machinery = {
   laserBurn: 2,
   laserEnemyPct: 0.2,
   conveyorSpeed: 2.4,
-  /** Garanz missiles: damage to machines caught in a blast, as a fraction of their max HP. */
+  /** Garanz missiles: damage to enemies caught in a blast, as a fraction of their max HP. */
   missileEnemyPct: 0.12,
   switchRange: 1.8,
 };

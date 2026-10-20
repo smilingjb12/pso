@@ -56,8 +56,6 @@ export const techScaling = {
   debandShare: 0.4,
   /** Seconds Farlla's attack and defence buffs last. */
   buffDuration: 60,
-  /** Stun chance added per point of tech damage (on top of Zonde's own chance). */
-  statusPerMst: 0.0003,
   /**
    * Foie always burns: this share of the hit's damage, spread over burnTime s. Burns don't stack: a new one
    * only replaces the running one if it has more damage left to deal.
@@ -87,15 +85,26 @@ export const casting = {
 };
 
 export const lockOn = {
-  range: 16,
-  /** Soft auto-aim when not locked: max angle off-facing to snap an attack to a target. */
+  /**
+   * The camera's target (2026-10-16, replacing the Tab lock): the enemy nearest the middle of the view within this
+   * many degrees (seen from the camera) and within reach of the attacks on the bar.
+   */
+  aimDeg: 16,
+  /** The current target holds on out to this angle, and wins near-ties by `holdBonusDeg`, so close enemies don't flicker. */
+  holdDeg: 24,
+  holdBonusDeg: 4,
+  /** Melee reaches at least this far for targeting (enemies you are about to close on show their frame). */
+  meleeRange: 8,
+  /** Melee and guns soft-aim when the camera's target is out of an attack's reach: max angle off-facing to snap to a target. */
   softAimDeg: 60,
   softAimRange: 4,
   /** Ranged weapons soft-aim further, in a narrower cone. */
   rangedSoftAimDeg: 30,
   rangedSoftAimRange: 18,
-  /** How strongly the camera turns to frame the locked target (per second). */
-  cameraFollow: 4,
+  /** Rafoie and Razonde land on the nearest enemy within this many degrees of the camera's line (else out along it). */
+  areaAimDeg: 20,
+  /** How far out along the camera's line they land with no enemy on it. */
+  areaAimDist: 8,
 };
 
 export const camera = {

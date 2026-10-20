@@ -9,6 +9,7 @@
 import { mix } from './audio';
 import { engine } from './audio/engine';
 import { ARTS } from './game/data/arts';
+import { fightLog } from './game/fightLog';
 
 export function installHarness(game: any): void {
   // Pointer lock can't be granted to scripted input; failed requests would re-show the pause overlay.
@@ -66,16 +67,25 @@ export function installHarness(game: any): void {
     // Per chain step: basic, basic, then the first ready damaging Art (or a third basic step).
     const seq = opts.seq ?? ['b', 'b', 'a'];
     let walking = false;
+    // The camera picks the target (no Tab lock since 2026-10-16): the bot keeps the camera on the nearest enemy
+    // (window.botFocus overrides it, e.g. a Mines control node).
+    let tg: any = null;
     let t = 0;
     for (; t < sec * 60; t++) {
       if (!p.alive) break;
       const targets = game.world.targets();
       if (!targets.length && !opts.keepGoing) break;
-      if ((!game.lockTarget || !game.lockTarget.alive) && targets.length) {
-        key('Tab');
-        run(1 / 60);
+      const focus = (window as any).botFocus;
+      if (focus?.alive) tg = focus;
+      else if (!tg || !tg.alive || tg.invulnerable) {
+        tg = null;
+        let best = Infinity;
+        for (const e of targets) {
+          const d = Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z);
+          if (d < best) [best, tg] = [d, e];
+        }
       }
-      const tg = game.lockTarget;
+      if (tg) game.rig.yaw = yawTo(p.pos.x, p.pos.z, tg.pos.x, tg.pos.z);
       // Low HP: take a dose from a Mate injector that has one.
       if (p.hp < p.maxHp * 0.35 && p.canMove) {
         const inj = game.char.injector();
@@ -124,5 +134,5 @@ export function installHarness(game: any): void {
     run(0.2);
   };
 
-  (window as any).__h = { key, click, run, bot, start, yawTo, game };
+  (window as any).__h = { key, click, run, bot, start, yawTo, game, fightLog };
 }

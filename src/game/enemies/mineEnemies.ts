@@ -162,7 +162,7 @@ export class Gunbot extends Enemy {
     this.cue('gunbot.charge');
     this.warn(ctx, shape, a.shotWindup ?? 1, () => {
       if (!this.alive || this.state !== 'aim') return;
-      ctx.areaStrike(this, shape, 0.85, 4);
+      ctx.shotStrike(this, shape, 0.85, 4);
       ctx.tracer(shape.x, shape.z, shape.yaw, shape.length, 0xff6040);
       this.cue('gunbot.shot');
       this.fired = true;
@@ -376,7 +376,7 @@ export class Garanz extends Enemy {
     const shape: TelegraphShape = { kind: 'circle', x: tx, z: tz, radius: r };
     const dur = (a.shotWindup ?? 1.25) / this.tempo;
     ctx.telegraph(shape, dur, () => {
-      ctx.areaStrike(this, shape, 0.55, 6, a.shotStatus, a.shotStatusChance);
+      ctx.shotStrike(this, shape, 0.55, 6, a.shotStatus, a.shotStatusChance);
       ctx.blast(this, tx, tz, r);
     }, 0xff6a30);
     const pod = new THREE.Vector3(this.pos.x - Math.sin(this.yaw) * 0.3, 2.2, this.pos.z - Math.cos(this.yaw) * 0.3);

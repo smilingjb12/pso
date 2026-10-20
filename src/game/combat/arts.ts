@@ -7,7 +7,7 @@ import { restaHeal, techniques, type TechId } from '../data/techniques';
 import { cutMult, playerDamageRaw } from '../formulas';
 import type { TelegraphShape } from '../world/Telegraph';
 import type { Projectile } from '../world/Projectile';
-import { Burst, EMBERS, Fall, Field, fieldMark, FROST_GLITTER, GroundMark, IceSpikes, Puff, shapeArea, SNOW, STATIC, Trail } from '../world/spellFx';
+import { Burst, EMBERS, Fall, Field, fieldMark, FROST_GLITTER, GroundMark, IceSpikes, Puff, shapeArea, SNOW, StaticField, Trail } from '../world/spellFx';
 import type { Combat, TechHit, WeaponHit } from './Combat';
 import { chestOf, frozen, isBossPart, staggered } from './Combat';
 import type { Hittable } from './types';
@@ -64,6 +64,19 @@ export class ArtRunner {
     return this.k.aimTarget(range);
   }
 
+  /** An area technique's target: the one it started on, or the enemy nearest the line it aimed along (the camera's). */
+  private areaTarget(range: number): Hittable | null {
+    const t = this.k.artTarget;
+    if (t && t.alive && !t.invulnerable) return t;
+    return this.k.areaTarget(range, this.k.artYaw);
+  }
+
+  /** Which way an area technique goes: at the target it started on, else the way it aimed (the camera's). */
+  private areaYaw(): number {
+    const t = this.k.artTarget;
+    return t && t.alive && !t.invulnerable ? this.yawAt(t) : this.k.artYaw;
+  }
+
   /** The target in melee reach (or the nearest enemy in front of her). */
   private meleeTarget(extra = 0.6): Hittable | null {
     const reach = this.c.weaponKind().range + extra;
@@ -78,10 +91,10 @@ export class ArtRunner {
     return t ? yawTo(p.pos.x, p.pos.z, t.pos.x, t.pos.z) : p.yaw;
   }
 
-  /** A point `d` metres ahead of her (or on the target). */
-  private spot(t: Hittable | null, d: number): THREE.Vector3 {
+  /** A point `d` metres from her along `yaw` (her facing by default), or on the target. */
+  private spot(t: Hittable | null, d: number, yaw = this.p.yaw): THREE.Vector3 {
     const p = this.p;
-    return t ? t.pos.clone() : new THREE.Vector3(p.pos.x + Math.sin(p.yaw) * d, 0, p.pos.z + Math.cos(p.yaw) * d);
+    return t ? t.pos.clone() : new THREE.Vector3(p.pos.x + Math.sin(yaw) * d, 0, p.pos.z + Math.cos(yaw) * d);
   }
 
   /** What a weapon hit of this power deals through `armor` %, before crits and multipliers (for damage over time). */
@@ -105,6 +118,8 @@ export class ArtRunner {
         e.applyStatus('burn', dps, 1);
         chill?.(e);
       }
+      // Flame Visit's cost: your own fire burns you too.
+      this.k.ufx.selfBurn(shape);
     });
     // Scorched ground with embers rising all over it, and a faint warm glow.
     const area = shapeArea(shape);
@@ -458,7 +473,7 @@ export class ArtRunner {
             }
             if (x.echo) return;
             const dps = (est || this.weaponEstimate(0, 1.5 * share)) * 0.3 * (x.has('kindling') ? 1.5 : 1);
-            this.burnGround(shape, x.has('long') ? 7 : 4, dps, x.has('sticky') ? 0.7 : 0);
+            this.burnGround(shape, (x.has('long') ? 7 : 4) * this.k.ufx.napalmMult(), dps, x.has('sticky') ? 0.7 : 0);
           });
         }
         break;
@@ -731,7 +746,7 @@ export class ArtRunner {
           const heal = Math.max(1, Math.round(r.dmg * 0.03));
           p.hp = Math.min(p.maxHp, p.hp + heal);
         }
-      }, { speed: x.has('swift') ? 32 : 16, range: techniques.foie.range, size: 0.22 * size, yaw: this.yawAt(target) + offset });
+      }, { speed: x.has('swift') ? 32 : 16, range: techniques.foie.range, size: 0.22 * size, yaw: (target ? this.yawAt(target) : this.k.artYaw) + offset });
       // A hot core in an orange glow, shedding embers.
       this.k.fx(new Trail(() => (shot.dead ? null : shot.pos), 60 * size, { ...EMBERS, spread: 'sphere', speed: [0.2, 0.7], life: [0.2, 0.45], size: 0.24 * size }, { color: 0xff7a26, size: 1.9 * size }));
     };
@@ -766,8 +781,8 @@ export class ArtRunner {
   }
 
   private rafoie(x: ArtCtx): void {
-    const t = this.target(techniques.rafoie.range);
-    const at = this.spot(t, 8);
+    const t = this.areaTarget(techniques.rafoie.range);
+    const at = this.spot(t, this.k.artDist, this.k.artYaw);
     const r = x.has('cataclysm') ? 5.5 : 4;
     const delay = x.has('swift') ? 0.05 : 0.7;
     const centers = x.has('twin') ? [-1.5, 1.5].map((o) => new THREE.Vector3(at.x + o, 0, at.z + o * 0.5)) : [at];
@@ -823,8 +838,7 @@ export class ArtRunner {
 
   private gizonde(x: ArtCtx): void {
     const p = this.p;
-    const t = this.target(techniques.gizonde.range + 4);
-    const base = this.yawAt(t);
+    const base = this.areaYaw();
     const n = x.has('focused') ? 1 : x.has('five') ? 5 : 3;
     const fan = x.has('five') ? 60 : 40;
     const length = x.has('long') ? 13 : 9;
@@ -856,25 +870,40 @@ export class ArtRunner {
   }
 
   private razonde(x: ArtCtx): void {
-    const t = this.target(techniques.razonde.range);
-    const at = this.spot(t, 8);
+    const t = this.areaTarget(techniques.razonde.range);
+    const at = this.spot(t, this.k.artDist, this.k.artYaw);
     const r = x.has('wide') ? 7 : 5;
     const secs = x.has('long') ? 5 : 3;
     const strikes = x.has('long') ? 13 : 8;
     const shape: TelegraphShape = { kind: 'circle', x: at.x, z: at.z, radius: r };
     sfx('tech.zonde', { x: at.x, z: at.z });
-    // A charged patch with static crawling over it; each strike is its own thin bolt (no hitstop or white flash on
-    // the struck, so eight in 3 s don't strobe).
-    this.k.fx(new Field(shape, secs + 0.2, fieldMark(secs + 0.2, { color: 0x5a3cff, opacity: 0.16, look: 'soft', glow: true }), Math.min(50, 6 + r * r), STATIC));
+    // Charged ground: a faint shadow, a thin crackling rim so the area reads, and current crawling over the floor
+    // (2026-10-16, the user's ask: subtle and electric); each strike is its own thin bolt (no hitstop or white flash
+    // on the struck, so eight in 3 s don't strobe) that spreads current out over the floor where it lands.
+    const field = new StaticField(at.x, at.z, r, secs + 0.2, techniques.razonde.color);
+    this.k.fx(field);
+    // A storm rolls its stun once per enemy, on the first strike that reaches it (spent even if it's already
+    // stunned), so stun resistance counts: rolled on every strike it stun-locked whatever the resistance (2026-10-16).
+    const rolled = new Set<Hittable>();
+    // Each enemy takes at most three of the eight strikes (five of Long's thirteen): a pack still takes the whole
+    // storm, but a lone target (a boss) only its share. All eight on one did about 2.6× Zonde's damage a second
+    // (2026-10-16, the user's call). A strike with nobody left to take it is lost, like one over empty ground.
+    const perEnemy = x.has('long') ? 5 : 3;
+    const struck = new Map<Hittable, number>();
     let left = strikes;
     this.k.zone(shape, secs + 0.05, secs / strikes, (inside) => {
       if (left-- <= 0) return true;
-      if (!inside.length) return false;
-      const pick = x.has('eye') && t && inside.includes(t) && this.k.h.rng() < 0.6 ? t : inside[Math.floor(this.k.h.rng() * inside.length)];
+      const open = inside.filter((e) => (struck.get(e) ?? 0) < perEnemy);
+      if (!open.length) return false;
+      const pick = x.has('eye') && t && open.includes(t) && this.k.h.rng() < 0.6 ? t : open[Math.floor(this.k.h.rng() * open.length)];
+      struck.set(pick, (struck.get(pick) ?? 0) + 1);
       this.k.flashBolt(pick.pos, techniques.razonde.color, 0.35, 9);
+      field.strike(pick.pos.x, pick.pos.z);
       this.k.fx(new GroundMark({ kind: 'circle', x: pick.pos.x, z: pick.pos.z, radius: 0.8 }, { color: 0x1a1020, opacity: 0.35, look: 'scorch', fadeIn: 0.05, hold: 0.4, fadeOut: 0.8 }));
       sfx('tech.zonde', { x: pick.pos.x, z: pick.pos.z, vol: 0.6 });
-      this.th(pick, x, { stun: x.has('paralyze') ? 2 : 1, stagger: x.has('conductor') ? 2 : 1, tick: true });
+      const stun = rolled.has(pick) ? 0 : x.has('paralyze') ? 2 : 1;
+      rolled.add(pick);
+      this.th(pick, x, { stun, stagger: x.has('conductor') ? 2 : 1, tick: true });
       return false;
     });
   }
@@ -903,10 +932,9 @@ export class ArtRunner {
     if (x.has('field') && !x.echo) this.ice({ kind: 'circle', x: t.pos.x, z: t.pos.z, radius: 2.5 }, 4, 0.6);
   }
 
-  private gibarta(x: ArtCtx, share: number): void {
+  private gibarta(x: ArtCtx, share: number, yaw = this.areaYaw()): void {
     const p = this.p;
-    const t = this.target(techniques.gibarta.range + 2);
-    const shape: TelegraphShape = { kind: 'cone', x: p.pos.x, z: p.pos.z, yaw: this.yawAt(t), range: x.has('long') ? 12 : 8, arcDeg: x.has('wide') ? 100 : 70 };
+    const shape: TelegraphShape = { kind: 'cone', x: p.pos.x, z: p.pos.z, yaw, range: x.has('long') ? 12 : 8, arcDeg: x.has('wide') ? 100 : 70 };
     sfx('tech.barta');
     // A wave of ice crystals rolling out across the cone, row by row, over frosted ground.
     const arc = deg(shape.arcDeg);
@@ -935,7 +963,7 @@ export class ArtRunner {
     }
     if (share === 1 && !x.echo) {
       if (x.has('field')) this.ice(shape, 4, 0.6);
-      if (x.has('double')) this.k.later(0.5, () => this.gibarta(x, 0.5));
+      if (x.has('double')) this.k.later(0.5, () => this.gibarta(x, 0.5, yaw));
     }
   }
 
@@ -974,7 +1002,7 @@ export class ArtRunner {
     const c = this.c;
     const lowAtCast = p.hp < p.maxHp * 0.3;
     const crit = this.k.h.rng() * 100 < c.critChance();
-    const amount = Math.round(restaHeal(c.stats().mst) * c.artRankPower('resta') * (x.has('greater') ? 1.4 : 1) * (crit ? formulas.critSupport : 1));
+    const amount = Math.round(restaHeal(c.stats().mst) * c.artRankPower('resta') * (x.has('greater') ? 1.4 : 1) * (crit ? formulas.critSupport : 1) * c.healMult());
     const before = p.hp;
     p.hp = Math.min(p.maxHp, p.hp + amount);
     // Barrier: healing past full HP becomes a fading shield.

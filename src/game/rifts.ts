@@ -1,6 +1,10 @@
 import { newUid, type CharacterData } from './character';
 import { CC_AFFIXES, type CcKind } from './ccResist';
-import { crowdControl as ccCfg, drops, enemies, hard as hardCfg, hell, type EnemyArchetype, type EnemyId, type HardBossScale, type HardScale } from './config';
+import {
+  crowdControl as ccCfg, darkFalz as darkFalzCfg, deRolLe as deRolLeCfg, dragon as dragonCfg, drops, enemies, formulas, hard as hardCfg, hell,
+  warden as wardenCfg, type EnemyArchetype, type EnemyId, type HardBossScale, type HardScale,
+} from './config';
+import { cutMult } from './formulas';
 import { AFFIXES, type Affix } from './data/affixes';
 import { areas, expeditions, type AreaDef, type AreaId, type BossId } from './data/areas';
 import { areaDef } from './data/looks';
@@ -14,34 +18,62 @@ import { RIFT_BIOMES, type RiftBiome } from './riftTypes';
 // filled with enemies from every expedition, one expedition a wave; every one ends at a random one of the four bosses in
 // its own arena (riftCfg.bossChance; a third until 2026-10-12). No region to pick (2026-10-11, the user's call: the
 // Forest was always the easy pick). Plain rifts of any unlocked tier are free from the Rift Gate in Pioneer 2; Rift Shards
-// (dropped in rifts) add modifiers that raise item quantity and rarity. A rift's item level is 100 + its tier,
-// which opens affix tiers 7 and 8 (data/itemAffixes.ts). The ladder has no top (2026-10-14, the user's call:
-// endless depth). Numbers are first drafts; `riftCfg` is live in the tuning panel.
+// (dropped in rifts) add modifiers that raise item quantity and rarity. A rift's item level is 100 + 2 x its tier
+// (120 at tier 10), which opens affix tiers 7 and 8 (data/itemAffixes.ts). Ten tiers (2026-10-17: the old 1-20,
+// squished; endless from 2026-10-14 until then), grouped into three Rift Circles whose bosses drop their own uniques
+// (riftCircles.ts). Numbers are first drafts; `riftCfg` is live in the tuning panel.
 
 export { RIFT_BIOMES, type RiftBiome };
 
 export const riftCfg = {
   /**
-   * Enemy HP and damage (field enemies' and bosses' ATP, bosses' flat damage) grow this much per tier, compounding
-   * (2026-10-14, the user's call: 9 to 10 felt like nothing at HP ×1.065 and ATP +15 a tier). HP doubles about every
-   * six tiers.
+   * The deepest tier (2026-10-17, the user's call: the ladder ends at 10, and a final node with its own boss comes
+   * later as the end of the game). The old tiers 1-20 were squished into these ten, so every step is a real one.
    */
-  hpPerTier: 1.12,
-  dmgPerTier: 1.07,
-  /** Armour % and technique resistance % add this much per tier, up to `capTier`. */
-  armorPerTier: 0.25,
-  techResistPerTier: 0.8,
+  maxTier: 10,
   /**
-   * Rift bosses run this much faster per tier above 1, up to `capTier` (×1.3 at tier 16): attacks, recoveries and
-   * telegraphs alike (2026-10-12, the user's pick: with rift gear's damage, Haste and run speed the Hell tempo left
-   * long windows).
+   * Per tier, compounding: field enemies' HP, bosses' HP (more, so their mechanics stay a test of keeping it up), heavy
+   * hits (melee strikes, slams, charges and every boss attack) and chip damage (ranged shots and elite affix side
+   * attacks). Damage-first (2026-10-17, the user's call: what gets dangerous is what enemies deal, until a heavy hit
+   * almost one-shots at the top). HP first came down to ×1.08 / ×1.15 for quick rooms, but the same day near-top
+   * Force gear (66% Haste, Zonde 49k a cast) killed tier 10 enemies in one cast and bosses in ~22 s, before they could
+   * swing: field HP went back to the old curve (×1.12 per old tier is ×1.25 per new one, ×7.5 at tier 10), bosses
+   * ×1.30 (×10.6), then ×1.40 (×20.7, 8.7M at tier 10) when bosses still died too fast (the user, same day). Gear
+   * grows about 5-8× from Hell entry to the top, and HP has to keep pace or the top tiers are a one-cast zone. No
+   * Haste cap (the user's call).
    */
-  bossTempoPerTier: 0.02,
+  fieldHpPerTier: 1.25,
+  bossHpPerTier: 1.4,
+  heavyPerTier: 1.2,
+  chipPerTier: 1.08,
   /**
-   * Boss tempo, armour and technique resistance stop growing at this tier (the old top of the ladder): telegraphs
-   * stay as long as tier 16's, and resistances can't climb toward immunity. HP and damage go on.
+   * What heavy hits and chip damage deal at tier 1 over the Hell numbers lifted to Lv 100. Rift gear had made enemy
+   * hits tiny (a Hunter took about 1% of max HP a hit, a Force 3%); at ×8 the average heavy hit is about 9% of a
+   * geared Hunter's HP at tier 1 and 45% at tier 10 (Ranger 12% / 60%, Force 26% / 135%).
    */
-  capTier: 16,
+  heavyBase: 8,
+  chipBase: 4,
+  /**
+   * How much faster than on Hell each rift boss runs, the same at every tier: attacks, recoveries and telegraphs
+   * alike. 2026-10-17, the user's call when the Hell boss mechanics came in: deep rifts get harder through the
+   * bosses' damage and HP (the mechanics become a must, and harder to keep flawless), not speed. ×1.15 is the middle
+   * of the old ladder (+2% a tier, ×1.0 at tier 1 to ×1.3 from tier 16; 2026-10-12 to 10-17).
+   */
+  bossTempo: { dragon: 1.15, derolle: 1.15, warden: 1.15, falz: 1.15 } as Record<BossId, number>,
+  /**
+   * Every rift boss has the same HP at a tier (2026-10-17, the user's call: De Rol Le felt tankier than Dark Falz):
+   * `bossHp` at tier 1, grown per tier (`bossHpPerTier`) and by Tough. 420k is about the four's average before, when
+   * each kept its Hell HP lifted to Lv 100 (Dragon 384k, De Rol Le 375k but ~440k to kill through its shell, Warden
+   * 390k, Dark Falz 478k). `bossHpMult` is there to trim one whose bar isn't all it takes (all 1: De Rol Le's shell,
+   * the one that was, soaks nothing since the same day).
+   */
+  bossHp: 420000,
+  bossHpMult: { dragon: 1, derolle: 1, warden: 1, falz: 1 } as Record<BossId, number>,
+  /**
+   * Crowd-control resistance stops growing at this tier (the old tier 16). Armour and technique resistance no longer
+   * grow with the tier at all (2026-10-17: they only made rooms slower).
+   */
+  capTier: 8,
   /** Share of spawns that come in as elites (the Hell Ruins'), and what the Elites modifier adds. */
   elite: 0.65,
   /**
@@ -59,6 +91,8 @@ export const riftCfg = {
   stash: 30,
   /** Chance a shard is yellow (3-4 modifiers) rather than blue (1-2). */
   yellow: 0.4,
+  /** Chance a shard names the boss its rift ends at (Rift Circles, 2026-10-17). */
+  bossShard: 0.3,
 };
 
 // ------------------------------------------------------------------ modifiers
@@ -66,7 +100,7 @@ export const riftCfg = {
 export type RiftModId =
   | 'overclocked' | 'molten' | 'stormcaller' | 'frenzied' | 'regenerating' | 'volatile'
   | 'champions' | 'elites' | 'corruption' | 'bleed' | 'haste' | 'swift' | 'starved' | 'tough' | 'brutal'
-  | 'steadfast' | 'insulated' | 'relentless' | 'anchored';
+  | 'steadfast' | 'insulated' | 'relentless' | 'anchored' | 'swarming';
 
 export interface RiftModDef {
   id: RiftModId;
@@ -113,6 +147,8 @@ export const RIFT_MODS: Record<RiftModId, RiftModDef> = {
   insulated: ccMod('insulated', 'freeze'),
   relentless: ccMod('relentless', 'slow'),
   anchored: ccMod('anchored', 'knockback'),
+  // 2026-10-17, the user's ask: more enemies a wave; the extra ones are fodder (riftGen.ts RIFT_GEN.swarm).
+  swarming: { id: 'swarming', name: 'Swarming', desc: 'Far more enemies in every wave (the extra ones are never elite)', qty: 10, rar: 5 },
 };
 export const RIFT_MOD_IDS = Object.keys(RIFT_MODS) as RiftModId[];
 const AFFIX_MOD_IDS = RIFT_MOD_IDS.filter((m) => RIFT_MODS[m].affix);
@@ -126,6 +162,11 @@ export interface RiftShard {
   mods: RiftModId[];
   /** Bleed: the region whose hazards come through (Caves, Mines or Ruins). */
   second?: RiftBiome;
+  /**
+   * The boss its rift ends at (2026-10-17, Rift Circles: so a hunt for one boss's uniques can be aimed); unset, a
+   * random one. It comes on top of the modifiers and counts as none of them.
+   */
+  boss?: BossId;
 }
 
 /** One open rift (on its run state). */
@@ -154,11 +195,32 @@ export interface RiftSave {
   clears: number;
   /** Highest tier closed. */
   best: number;
+  /** 2: tiers squished into 1-10 (2026-10-17). Saves without it have their tiers halved once. */
+  ladder?: number;
+  /** Rift Circles (riftCircles.ts): the boss + circle kills that already got their first-kill unique ("dragon2"). */
+  firsts?: string[];
+  /** Rift boss kills in a row without a unique, per boss (raises the next one's odds). */
+  dry?: Partial<Record<BossId, number>>;
+  /** The tier last picked at the Rift Gate (unset: the top one open). */
+  picked?: number;
 }
+
+/** A tier on the ladder: 1 to riftCfg.maxTier. */
+export const clampTier = (tier: number) => Math.max(1, Math.min(riftCfg.maxTier, Math.round(tier)));
+
+/** An old (1-20, or deeper) tier on today's ladder. */
+const squish = (tier: number) => clampTier(Math.ceil(tier / 2));
 
 /** The character's rift progress (created on first use). */
 export function riftSave(data: CharacterData): RiftSave {
-  const save = (data.rift ??= { tier: 1, shards: [], clears: 0, best: 0 });
+  const save = (data.rift ??= { tier: 1, shards: [], clears: 0, best: 0, ladder: 2 });
+  if (save.ladder !== 2) {
+    // 2026-10-17: the ladder went from endless to ten tiers, two old tiers to each.
+    save.tier = squish(save.tier);
+    save.best = save.best ? squish(save.best) : 0;
+    for (const s of save.shards) s.tier = squish(s.tier);
+    save.ladder = 2;
+  }
   // Shards from before 2026-10-11 named a region and could carry Ruinous / Convergent: drop what no longer exists.
   if (save.shards.some((s) => 'biome' in s || s.mods.some((m) => !RIFT_MODS[m]))) {
     save.shards = save.shards
@@ -171,12 +233,21 @@ export function riftSave(data: CharacterData): RiftSave {
   return save;
 }
 
+/** The tier picked at the Rift Gate, within the open ones (the gate opens on it; the debug panel's rift warps use it). */
+export function pickedTier(save: RiftSave): number {
+  return Math.max(1, Math.min(save.tier, save.picked ?? save.tier));
+}
+
 /** Rifts open once Dark Falz has fallen on Hell. */
 export function riftsOpen(data: CharacterData): boolean {
   return (data.stats.hellKills?.falz ?? 0) > 0;
 }
 
 export const BIOME_NAME: Record<RiftBiome, string> = { forest: 'Forest', caves: 'Caves', mines: 'Mines', ruins: 'Ruins' };
+
+/** Each region's boss (a rift's `bossRegion` names whose arena it ends in), and back. */
+const BIOME_BOSS: Record<RiftBiome, BossId> = { forest: 'dragon', caves: 'derolle', mines: 'warden', ruins: 'falz' };
+const BOSS_BIOME: Record<BossId, RiftBiome> = { dragon: 'forest', derolle: 'caves', warden: 'mines', falz: 'ruins' };
 
 /** "Rift · Tier 7". */
 export function riftTitle(r: { tier: number }): string {
@@ -209,8 +280,8 @@ export function riftLoot(r: Pick<RiftInfo, 'tier' | 'mods'>): { qty: number; rar
   return { qty: t.qty + m.qty, rar: t.rar + m.rar };
 }
 
-/** Item level of a rift's drops. */
-export const riftIlvl = (tier: number) => 100 + tier;
+/** Item level of a rift's drops: 102 at tier 1, 120 at the top (two a tier, so the squished ladder kept its loot). */
+export const riftIlvl = (tier: number) => 100 + 2 * clampTier(tier);
 
 const pick = <T>(arr: readonly T[], rng: () => number): T => arr[Math.floor(rng() * arr.length)];
 
@@ -234,10 +305,12 @@ export function plainRift(tier: number, rng: () => number): RiftInfo {
   };
 }
 
-/** A rift opened from a shard. */
+/** A rift opened from a shard (its boss, if it names one). */
 export function shardRift(s: RiftShard, rng: () => number): RiftInfo {
+  const region = rollRegion(rng, s.mods.includes('bleed') ? s.second : undefined);
+  const bossRegion = pick(RIFT_BIOMES, rng);
   return {
-    ...rollRegion(rng, s.mods.includes('bleed') ? s.second : undefined), bossRegion: pick(RIFT_BIOMES, rng),
+    ...region, bossRegion: s.boss ? BOSS_BIOME[s.boss] : bossRegion,
     tier: s.tier, mods: [...s.mods], second: s.second,
     seed: Math.floor(rng() * 2 ** 31), boss: rng() < riftCfg.bossChance, shard: true, complete: false,
   };
@@ -249,7 +322,7 @@ const BLEED_REGIONS: RiftBiome[] = ['caves', 'mines', 'ruins'];
 /** A shard dropped in a rift of `tier`: mostly the same tier, now and then one up or down; 1-2 or 3-4 modifiers. */
 export function rollShard(tier: number, rng: () => number): RiftShard {
   const r = rng();
-  const t = Math.max(1, tier + (r < 0.2 ? 1 : r < 0.3 ? -1 : 0));
+  const t = clampTier(tier + (r < 0.2 ? 1 : r < 0.3 ? -1 : 0));
   const yellow = rng() < riftCfg.yellow;
   const n = yellow ? 3 + (rng() < 0.5 ? 1 : 0) : 1 + (rng() < 0.5 ? 1 : 0);
   const mods: RiftModId[] = [];
@@ -262,8 +335,13 @@ export function rollShard(tier: number, rng: () => number): RiftShard {
   }
   const shard: RiftShard = { uid: newUid(), tier: t, mods };
   if (mods.some((m) => RIFT_MODS[m].second)) shard.second = pick(BLEED_REGIONS, rng);
+  if (rng() < riftCfg.bossShard) shard.boss = BIOME_BOSS[pick(RIFT_BIOMES, rng)];
   return shard;
 }
+
+/** "Ends at the Dragon". */
+export const shardBossText = (boss: BossId) => `The rift ends at ${BOSS_NAMES[boss]}`;
+const BOSS_NAMES: Record<BossId, string> = { dragon: 'the Dragon', derolle: 'De Rol Le', warden: 'the Warden', falz: 'Dark Falz' };
 
 /** Yellow shards have 3+ modifiers. */
 export const shardRarity = (s: { mods: RiftModId[] }) => (s.mods.length >= 3 ? 'rare' : s.mods.length ? 'magic' : 'normal');
@@ -302,18 +380,16 @@ const ENEMY_HOME: Partial<Record<EnemyId, RiftBiome>> = {
 export const enemyHome = (id: EnemyId): RiftBiome => ENEMY_HOME[id] ?? 'ruins';
 
 /**
- * What a tier adds over tier 1: HP and damage multipliers that compound without end, armour %, technique
- * resistance % and boss tempo that stop at `riftCfg.capTier`.
+ * What a tier adds over tier 1, compounding (damage-first, 2026-10-17): field enemies' HP, bosses' HP, heavy hits and
+ * chip damage (riftCfg). Tier-1 damage itself is lifted by `heavyBase` / `chipBase` (riftArch, riftBossScale).
  */
-export function riftGrowth(tier: number): { hp: number; dmg: number; armor: number; techResist: number; tempo: number } {
-  const k = Math.max(0, tier - 1);
-  const kc = Math.min(k, riftCfg.capTier - 1);
+export function riftGrowth(tier: number): { hp: number; bossHp: number; heavy: number; chip: number } {
+  const k = clampTier(tier) - 1;
   return {
-    hp: riftCfg.hpPerTier ** k,
-    dmg: riftCfg.dmgPerTier ** k,
-    armor: riftCfg.armorPerTier * kc,
-    techResist: riftCfg.techResistPerTier * kc,
-    tempo: 1 + riftCfg.bossTempoPerTier * kc,
+    hp: riftCfg.fieldHpPerTier ** k,
+    bossHp: riftCfg.bossHpPerTier ** k,
+    heavy: riftCfg.heavyPerTier ** k,
+    chip: riftCfg.chipPerTier ** k,
   };
 }
 
@@ -330,10 +406,10 @@ export function riftScale(home: RiftBiome, r: Pick<RiftInfo, 'tier' | 'mods'>): 
   return {
     hp: h.hp * (CAP / HELL_MID[home]) ** 1.5 * g.hp * (has('tough') ? 1.4 : 1),
     xp: h.xp,
-    meseta: h.meseta * (1 + 0.05 * r.tier),
+    meseta: h.meseta * (1 + 0.1 * r.tier),
     atp: h.atp + RIFT_LIFT[home].atp,
-    armor: Math.round(h.armor + RIFT_LIFT[home].armor + g.armor),
-    techResist: Math.round(h.techResist + RIFT_LIFT[home].techResist + g.techResist),
+    armor: Math.round(h.armor + RIFT_LIFT[home].armor),
+    techResist: Math.round(h.techResist + RIFT_LIFT[home].techResist),
     dropTier: 15,
     elite: riftElite(r),
   };
@@ -365,7 +441,11 @@ export function riftArch(type: EnemyId, r: Pick<RiftInfo, 'tier' | 'mods'>): Ene
   const a = hardArch(enemies[type], riftScale(enemyHome(type), r));
   const has = (m: RiftModId) => r.mods.includes(m);
   const { qty, rar } = riftLoot(r);
-  if (a.atp > 0) a.atp = Math.round(a.atp * riftGrowth(r.tier).dmg * (has('brutal') ? 1.12 : 1));
+  // Heavy hits (strikes, slams, charges) on the enemy's ATP; its ranged shots and affix side attacks take the chip
+  // share of that (Combat.enemyArea).
+  const g = riftGrowth(r.tier);
+  if (a.atp > 0) a.atp = Math.round(a.atp * riftCfg.heavyBase * g.heavy * (has('brutal') ? 1.12 : 1));
+  a.chipMult = (riftCfg.chipBase * g.chip) / (riftCfg.heavyBase * g.heavy);
   if (has('haste')) {
     a.moveSpeed *= 1.2;
     a.recovery /= 1.2;
@@ -385,25 +465,38 @@ export function riftArch(type: EnemyId, r: Pick<RiftInfo, 'tier' | 'mods'>): Ene
   return a;
 }
 
-const BIOME_BOSS: Record<RiftBiome, BossId> = { forest: 'dragon', caves: 'derolle', mines: 'warden', ruins: 'falz' };
 export const riftBossOf = (b: RiftBiome): BossId => BIOME_BOSS[b];
 
-/** A rift boss: its Hell scaling (third phase included) lifted to Lv 100 and grown per tier. */
+/** Each boss's own (Normal) stats block: a rift boss's HP multiplier is worked out against its base HP. */
+const BOSS_STATS: Record<BossId, { hp: number }> = { dragon: dragonCfg, derolle: deRolLeCfg, warden: wardenCfg, falz: darkFalzCfg };
+
+/** A rift boss's max HP: the same for all four at a tier (`riftCfg.bossHp`, De Rol Le's trimmed for its shell). */
+export function riftBossHp(r: Pick<RiftInfo, 'bossRegion' | 'tier' | 'mods'>): number {
+  const id = BIOME_BOSS[r.bossRegion];
+  return riftCfg.bossHp * riftCfg.bossHpMult[id] * riftGrowth(r.tier).bossHp * (r.mods.includes('tough') ? 1.4 : 1);
+}
+
+/**
+ * A rift boss: its Hell scaling (third phase included) lifted to Lv 100 and grown per tier, at its fixed rift tempo,
+ * with the common rift boss HP (`riftBossHp`).
+ */
 export function riftBossScale(r: Pick<RiftInfo, 'bossRegion' | 'tier' | 'mods'>): HardBossScale {
   const id = BIOME_BOSS[r.bossRegion];
   const b = hell.bosses[id];
   const lift = RIFT_BOSS_LIFT[id];
   const g = riftGrowth(r.tier);
   const brutal = r.mods.includes('brutal') ? 1.12 : 1;
+  // Every boss attack is a heavy hit, its flat damage (breath and beam ticks, burning zones) too.
+  const heavy = riftCfg.heavyBase * g.heavy * brutal;
   return {
     ...b,
-    hp: b.hp * (CAP / HELL_MID[r.bossRegion]) ** 1.5 * g.hp * (r.mods.includes('tough') ? 1.4 : 1),
+    hp: riftBossHp(r) / BOSS_STATS[id].hp,
     atp: b.atp + lift.atp,
-    atpMult: g.dmg * brutal,
-    armor: Math.round(b.armor + lift.armor + g.armor),
-    techResist: Math.round(b.techResist + lift.techResist + g.techResist),
-    flat: b.flat * g.dmg * brutal,
-    tempo: g.tempo,
+    atpMult: heavy,
+    armor: Math.round(b.armor + lift.armor),
+    techResist: Math.round(b.techResist + lift.techResist),
+    flat: b.flat * heavy,
+    tempo: riftCfg.bossTempo[id],
     hell: true,
   };
 }
@@ -424,6 +517,7 @@ export function buildRiftArea(r: RiftInfo): AreaDef {
     boss: r.boss,
     mixAll: true,
     hazardBiome: r.mods.includes('bleed') ? r.second : undefined,
+    swarm: r.mods.includes('swarming'),
   });
   return { ...src, id: 'rift', name: riftName(r), elites: true, startYaw: undefined, rooms, links };
 }
@@ -431,7 +525,7 @@ export function buildRiftArea(r: RiftInfo): AreaDef {
 /** The rift's boss arena: the boss's own, as it looks on its expedition. After the kill, the rift floor's music. */
 export function buildRiftBossArea(r: RiftInfo): AreaDef {
   const src = areaDef(BOSS_AREA[r.bossRegion]);
-  return { ...src, id: 'riftBoss', name: `Rift Core · ${src.name}`, audio: { ...src.audio, after: areas[r.look].audio.track ?? src.audio.after } };
+  return { ...src, id: 'riftBoss', name: `Rift Core · Tier ${r.tier} · ${src.name}`, audio: { ...src.audio, after: areas[r.look].audio.track ?? src.audio.after } };
 }
 
 /** Put a rift's two areas in place (the `rift` and `riftBoss` slots of `areas`) before it loads. */
@@ -445,7 +539,20 @@ export function riftFoe(r: Pick<RiftInfo, 'tier' | 'mods'>): Foe {
   const ids = RIFT_BIOMES.flatMap((b) => RIFT_ROSTERS[b].map((x) => x.e));
   const archs = ids.map((id) => riftArch(id, r));
   const avg = (v: (a: EnemyArchetype) => number) => Math.round(archs.reduce((t, a) => t + v(a), 0) / archs.length);
-  return { armor: avg((a) => a.armor), techResist: avg((a) => a.techResist ?? 0), label: riftTitle(r as { tier: number }), mainRace: null, bossRace: null };
+  return { armor: avg((a) => a.armor), techResist: avg((a) => a.techResist ?? 0), label: riftTitle(r as { tier: number }) };
+}
+
+/**
+ * What a tier's field enemies deal to someone with this much max HP and Strike / Area damage taken cut, as % of max
+ * HP: the average heavy hit (a strike at its ATP) over every roster, the hardest one, and the average shot.
+ */
+export function riftThreat(tier: number, maxHp: number, strikeCut: number, areaCut: number): { heavy: number; hardest: number; chip: number } {
+  const archs = RIFT_BIOMES.flatMap((b) => RIFT_ROSTERS[b].map((x) => riftArch(x.e, { tier, mods: [] })));
+  const pct = (atp: number, cut: number) => (100 * atp * formulas.enemyDamageScale * cutMult(cut)) / Math.max(1, maxHp);
+  const heavy = archs.map((a) => pct(a.atp, strikeCut));
+  const chip = archs.map((a) => pct(a.atp * (a.chipMult ?? 1), areaCut));
+  const avg = (v: number[]) => v.reduce((t, x) => t + x, 0) / v.length;
+  return { heavy: avg(heavy), hardest: Math.max(...heavy), chip: avg(chip) };
 }
 
 /** Shards in a stash, highest tier first, then the most modifiers. */

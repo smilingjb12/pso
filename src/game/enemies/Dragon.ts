@@ -1,14 +1,16 @@
 import * as THREE from 'three';
-import { dragon as cfg, player as playerCfg, type HardBossScale } from '../config';
+import { dragon as cfg, hell, player as playerCfg, type HardBossScale } from '../config';
 import { angleDelta, separateCircles, turnToward, yawTo } from '../collision';
 import type { Hittable } from '../combat/types';
 import type { Level } from '../world/Level';
-import { Pillar } from '../world/Effects';
+import { Pillar, Ring } from '../world/Effects';
 import { inShape, type TelegraphShape } from '../world/Telegraph';
 import { DragonModel } from '../models/dragon';
 import type { BossContext } from './Boss';
 import { BossBase } from './BossBase';
 import { CORRUPT_COLOR } from './Enemy';
+import { FirePatches, fireSchedule, Meteor } from './dragonFire';
+import { coverOnLine, coverReach, CoverRocks, RampageLane, rampageWindup, type CoverRock } from './dragonRampage';
 
 /** Breath cone apex, metres ahead of the body centre. */
 const BREATH_OFFSET = 3;
@@ -25,6 +27,8 @@ type DragonState =
   | 'sinking'
   | 'underground'
   | 'eruptWindup'
+  | 'rampageWindup'
+  | 'rampaging'
   | 'stunned'
   | 'recover'
   | 'dead';
@@ -50,6 +54,14 @@ interface TriplePlan {
 
 /** Hell phase 3: the glow under its hide. */
 const HELL_GLOW = 0x4a1270;
+/** Her head through a Hellfire Rampage. */
+const RAMPAGE_HEAD = 0xb04ad0;
+/** Width of the rampage's lane (m). */
+const RAMPAGE_LANE_W = 2.4;
+/** createBoss puts her this far toward -z of the arena's centre (the cover rocks are laid out from the centre). */
+const ARENA_FROM_SPAWN = 6;
+/** Hell fire rain: its warnings' colour (fire, not the violet Hellfire that corrupts). */
+const FIRE_WARN = 0xff6a20;
 
 export class Dragon extends BossBase<DragonState> implements Hittable {
   readonly id = 'dragon' as const;
@@ -82,6 +94,26 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
   private pendingFire: TelegraphShape | null = null;
   /** A triple's charge brushed a rock or wall (it stops there). */
   private grazed = false;
+  /** Hell: the cover rocks of the Hellfire Rampage, and its lane (null below Hell). */
+  private rocks: CoverRocks | null = null;
+  private lane: RampageLane | null = null;
+  /** Seconds of fight (her clock) since the last rampage, or the start. */
+  private rampageT = 0;
+  private rampages = 0;
+  private sinceErupt = Infinity;
+  /** Hell: the fire rain's burning ground, its clock, the batch running (s since it started; -1: none) and its warnings. */
+  private fire: FirePatches | null = null;
+  private fireT = cfg.fireRainFirst;
+  private fireBatchT = -1;
+  private fireWarned = 0;
+  private fireTickT = 0;
+  private fireTicks = 0;
+  private taughtFire = false;
+  /** The rampage's windup (her clock: the floor is in real seconds). */
+  private rampWindup = 0;
+  /** The rock that covered you at the launch (null: she runs you down). */
+  private rampRock: CoverRock | null = null;
+  private rampLeft = 0;
 
   constructor(x: number, z: number, hard: HardBossScale | null = null) {
     // It takes Burn uncapped (Poison is capped like every boss's).
@@ -111,6 +143,12 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
     this.breathArea.rotation.y = Math.PI;
     this.breathArea.visible = false;
     this.group.add(this.breathArea);
+
+    if (hard?.hell) {
+      this.rocks = new CoverRocks(cfg.coverRocks, x, z + ARENA_FROM_SPAWN, cfg.coverRockR, cfg.rockRise);
+      this.lane = new RampageLane(RAMPAGE_LANE_W, CORRUPT_COLOR);
+      this.fire = new FirePatches();
+    }
   }
 
   /** The dirt mound lives outside the dragon group so it can move while the dragon is hidden. */
@@ -121,12 +159,14 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
   // ---------------------------------------------------------------- Boss
 
   get objects(): THREE.Object3D[] {
-    return [this.group, this.mound];
+    return this.rocks ? [this.group, this.mound, this.rocks.group, this.lane!.group, this.fire!.group] : [this.group, this.mound];
   }
   parts(): Hittable[] {
     return [this];
   }
   collide(playerPos: THREE.Vector3, playerRadius: number, level: Level): void {
+    // Hell: the cover rocks block like tree trunks while they stand.
+    this.rocks?.sync(level.trees);
     if (!this.alive || !this.group.visible) return;
     separateCircles(playerPos, playerRadius, 1, this.pos, this.radius, 1000);
     const { x, z } = this.pos;
@@ -166,6 +206,23 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
     this.animate(dt);
   }
 
+  protected always(dt: number, ctx: BossContext): void {
+    // Hell: broken cover rocks rise again once called up, as soon as nobody stands on the spot.
+    const risen = this.rocks?.update(dt, (r) => this.spotClear(r, ctx), (e) => ctx.effect(e)) ?? [];
+    this.rocks?.seeThrough(dt, ctx.playerX, ctx.playerZ);
+    this.fire?.update(dt, this.time);
+    for (const r of risen) {
+      this.sound('dragon.burrow', r.x, r.z);
+      ctx.shake(0.15);
+    }
+  }
+
+  protected onDeath(): void {
+    this.hideRampage();
+    for (const r of this.rocks?.list ?? []) r.regrow = false;
+    this.fire?.clear();
+  }
+
   protected think(dt: number, ctx: BossContext): void {
     const dist = Math.hypot(ctx.playerX - this.pos.x, ctx.playerZ - this.pos.z);
     const toPlayer = yawTo(this.pos.x, this.pos.z, ctx.playerX, ctx.playerZ);
@@ -182,6 +239,12 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
       this.model.headMat.emissive.setHex(HELL_GLOW);
     }
     if (this.pendingFire && this.stateT >= cfg.tripleFireDelay) this.hellfire(ctx);
+    if (this.rocks && this.state !== 'dormant' && this.state !== 'intro') {
+      this.rampageT += dt;
+      this.sinceErupt += dt;
+    }
+    // Hell: the fire rain runs on its own clock, whatever else she is doing.
+    if (this.fire && this.state !== 'dormant' && this.state !== 'intro') this.updateFireRain(dt, ctx);
 
     switch (this.state) {
       case 'dormant':
@@ -210,6 +273,8 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
             this.burrowTimer = 0;
             this.enter('sinking');
             this.sound('dragon.burrow');
+            // Hell: the broken cover rocks rise again while she's under.
+            this.rocks?.regrowAll();
             break;
           }
           const facing = Math.abs(angleDelta(this.yaw, toPlayer)) < 0.6;
@@ -217,7 +282,8 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
           // Hell phase 3: every so often a triple instead (when it leaves her a pocket she can reach).
           if (this.hellPhase && this.tripleDue <= 0 && this.startTriple(dist, ctx)) this.tripleDue = cfg.tripleEvery - 1;
           else {
-            this.chooseAttack(dist, ctx);
+            // Hell: a Hellfire Rampage takes a normal attack's turn when it's due (never a triple's).
+            if (!this.startRampage(ctx)) this.chooseAttack(dist, ctx);
             this.tripleDue--;
           }
         }
@@ -245,7 +311,7 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
 
       case 'breathing': {
         // Enraged: the breath sweeps toward the player (not a triple's: its pocket must stay clear).
-        if (this.enraged && !this.triple) this.yaw = turnToward(this.yaw, toPlayer, 0.7 * dt);
+        if (this.enraged && !this.triple) this.yaw = turnToward(this.yaw, toPlayer, cfg.enragedBreathTurn * dt);
         this.breathTick -= dt;
         if (this.breathTick <= 0) {
           this.breathTick = 0.3;
@@ -275,7 +341,9 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
         const step = cfg.chargeSpeed * dt;
         const nx = this.pos.x + Math.sin(this.yaw) * step;
         const nz = this.pos.z + Math.cos(this.yaw) * step;
-        const blocked = this.grazed || ctx.isSolid(nx + Math.sin(this.yaw) * this.radius, nz + Math.cos(this.yaw) * this.radius);
+        // A cover rock stops a plain charge like a wall (only the rampage breaks them).
+        const blocked =
+          this.grazed || ctx.isSolid(nx + Math.sin(this.yaw) * this.radius, nz + Math.cos(this.yaw) * this.radius) || !!this.rocks?.touching(nx, nz, this.radius);
         if (!blocked) {
           this.pos.x = nx;
           this.pos.z = nz;
@@ -324,7 +392,11 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
             this.pos.set(this.eruptAt[0], 0, this.eruptAt[1]);
             this.group.visible = true;
             this.mound.visible = false;
+            this.sinceErupt = 0;
             ctx.hitPlayer(shape, 1.2, this.eruptAt[0], this.eruptAt[1], 12);
+            // Hell: the blast breaks every cover rock it reaches, so where you lead the mound decides the cover
+            // left for the next rampage (they rise again at the next burrow).
+            if (this.rocks?.blast(shape.x, shape.z, shape.radius, (e) => ctx.effect(e))) this.sound('boss.slam', shape.x, shape.z);
             ctx.shake(0.5);
             this.sound('dragon.erupt');
             ctx.announce('Weak point exposed!');
@@ -336,7 +408,20 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
       }
 
       case 'eruptWindup':
+        // Hell: the cover rocks its blast will break pulse in the warning's red.
+        this.rocks?.markDoomed(this.rocks.inCircle(this.eruptAt[0], this.eruptAt[1], cfg.eruptRadius), this.time);
         break; // resolved by the telegraph callback
+
+      case 'rampageWindup':
+        // She tracks you the whole windup and the lane follows; cover is judged once, at the launch.
+        this.yaw = turnToward(this.yaw, toPlayer, cfg.rampageTurn * dt);
+        this.showRampage(ctx, toPlayer, dist);
+        if (this.stateT >= this.rampWindup) this.launchRampage(ctx, toPlayer);
+        break;
+
+      case 'rampaging':
+        this.rampage(dt, ctx, toPlayer);
+        break;
 
       case 'stunned':
         if (this.stateT >= cfg.stunDuration) this.endAttack(0.6);
@@ -414,6 +499,60 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
   /** Windup of the breath or charge under way: a triple's is its own (the enrage doesn't cut it). */
   private windup(base: number): number {
     return this.triple ? cfg.tripleWindup : base * this.sm();
+  }
+
+  // ---------------------------------------------------- Hell fire rain
+
+  /**
+   * Hell: on its own clock, a batch of fireballs warned on you one after another (each lands fireRainWindup s after
+   * its warning, so warnings and landings take turns), and the burning ground they leave: damage every half second
+   * and a Burn stack every second while you stand in it.
+   */
+  private updateFireRain(dt: number, ctx: BossContext): void {
+    this.fireT -= dt;
+    if (this.fireT <= 0 && this.fireBatchT < 0 && ctx.playerAlive) {
+      const [lo, hi] = cfg.fireRainEvery;
+      this.fireT = lo + ctx.rng() * (hi - lo);
+      this.fireBatchT = 0;
+      this.fireWarned = 0;
+      if (!this.taughtFire) {
+        this.taughtFire = true;
+        ctx.announce('Hellfire rains down: keep moving!');
+      }
+    }
+    if (this.fireBatchT >= 0) {
+      this.fireBatchT += dt;
+      const slots = fireSchedule(cfg.fireRainCount, cfg.fireRainStagger, cfg.fireRainWindup);
+      while (this.fireWarned < slots.length && this.fireBatchT >= slots[this.fireWarned].warn) {
+        this.warnFireball(ctx);
+        this.fireWarned++;
+      }
+      if (this.fireWarned >= slots.length) this.fireBatchT = -1;
+    }
+    this.fireTickT = Math.max(0, this.fireTickT - dt);
+    const patch = ctx.playerAlive ? this.fire!.at(ctx.playerX, ctx.playerZ, playerCfg.radius) : null;
+    if (!patch || this.fireTickT > 0) return;
+    this.fireTickT = 0.5;
+    ctx.tickPlayer({ kind: 'circle', x: patch.x, z: patch.z, radius: patch.r }, this.flat(cfg.fireRainTick), patch.x, patch.z);
+    if ((this.fireTicks = (this.fireTicks + 1) % 2) === 1) ctx.burnPlayer(1);
+  }
+
+  /** A circle on you now; a fireball falls out of the sky onto it as the warning runs out. */
+  private warnFireball(ctx: BossContext): void {
+    const shape: TelegraphShape = { kind: 'circle', x: ctx.playerX, z: ctx.playerZ, radius: cfg.fireRainRadius };
+    const fall = 0.55;
+    ctx.effect(new Meteor(shape.x, shape.z, Math.max(0, cfg.fireRainWindup / this.tempo - fall), fall));
+    this.warn(ctx, shape, cfg.fireRainWindup, FIRE_WARN, () => this.landFireball(ctx, shape));
+  }
+
+  /** It lands: a hit with Burn, and burning ground for fireRainLife s. */
+  private landFireball(ctx: BossContext, shape: TelegraphShape & { kind: 'circle' }): void {
+    ctx.hitPlayer(shape, cfg.fireRainAtpMult, shape.x, shape.z, 6, 'burn');
+    this.fire!.add(shape.x, shape.z, cfg.fireRainRadius, cfg.fireRainLife);
+    ctx.effect(new Pillar(shape.x, shape.z, 0xff8a30, 0.35, 0.8, 7));
+    ctx.effect(new Ring(shape.x, shape.z, 0xffa040, cfg.fireRainRadius * 1.3, 0.4));
+    ctx.shake(0.18);
+    this.sound('dragon.erupt', shape.x, shape.z);
   }
 
   // ------------------------------------------------------- Hell triples
@@ -513,9 +652,12 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
     return { yaw, front, tail, fire };
   }
 
-  /** Open floor a body's width around. */
+  /** Open floor a body's width around (and no cover rock on it). */
   private open(ctx: BossContext, x: number, z: number): boolean {
-    return !ctx.isSolid(x, z) && !ctx.isSolid(x + 1, z) && !ctx.isSolid(x - 1, z) && !ctx.isSolid(x, z + 1) && !ctx.isSolid(x, z - 1);
+    return (
+      !ctx.isSolid(x, z) && !ctx.isSolid(x + 1, z) && !ctx.isSolid(x - 1, z) && !ctx.isSolid(x, z + 1) && !ctx.isSolid(x, z - 1) &&
+      !this.rocks?.touching(x, z, playerCfg.radius + 0.1)
+    );
   }
 
   private runTriple(kind: Triple, plan: TriplePlan, ctx: BossContext): void {
@@ -561,6 +703,124 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
         }
       }
     });
+  }
+
+  // ---------------------------------------------- Hell: Hellfire Rampage
+
+  /**
+   * The Hellfire Rampage, if it's due: not just after an eruption or just before a timed burrow, with at least
+   * `rampageMinRocks` rocks standing (too few: the broken ones are called up first and it waits) and a rock's
+   * shadow within walking reach of you in the windup. False otherwise (a normal attack; it stays due).
+   */
+  private startRampage(ctx: BossContext): boolean {
+    const rocks = this.rocks;
+    if (!rocks || this.rampageT < (this.rampages ? cfg.rampageEvery : cfg.rampageFirst)) return false;
+    if (this.sinceErupt < cfg.rampageAfterErupt || cfg.burrowEvery - this.burrowTimer < cfg.rampageBeforeBurrow) return false;
+    const solid = rocks.solid();
+    if (solid.length < cfg.rampageMinRocks) {
+      rocks.regrowAll();
+      return false;
+    }
+    const real = rampageWindup(this.sm(), this.tempo);
+    const reach = coverReach(this.pos.x, this.pos.z, ctx.playerX, ctx.playerZ, solid, (x, z) => this.open(ctx, x, z), playerCfg.radius);
+    if (reach > playerCfg.moveSpeed * (real - cfg.rampageReact)) return false;
+    this.rampWindup = real * this.tempo;
+    this.rampageT = 0;
+    this.enter('rampageWindup');
+    this.sound('dragon.roar');
+    ctx.shake(0.4);
+    if (this.rampages++ === 0) ctx.announce('Hellfire Rampage: hide behind a rock!');
+    return true;
+  }
+
+  /** The lane to where the charge would end right now (the rock that covers you, or through you) and the rocks' shadows. */
+  private showRampage(ctx: BossContext, toPlayer: number, dist: number): void {
+    const rocks = this.rocks!;
+    const { x, z } = this.pos;
+    const cover = coverOnLine(x, z, ctx.playerX, ctx.playerZ, rocks.solid());
+    let len = dist + 1.5;
+    if (cover) {
+      const fx = Math.sin(toPlayer);
+      const fz = Math.cos(toPlayer);
+      const along = (cover.x - x) * fx + (cover.z - z) * fz;
+      const side = (cover.x - x) * fz - (cover.z - z) * fx;
+      len = along - Math.sqrt(Math.max(0, cover.r * cover.r - side * side));
+    }
+    this.lane!.show(x, z, toPlayer, len, Math.min(1, this.stateT / this.rampWindup), this.time);
+    rocks.showCover(x, z, Math.min(1, this.stateT / 0.3), cover, this.time);
+  }
+
+  private hideRampage(): void {
+    this.lane?.hide();
+    this.rocks?.showCover(0, 0, 0, null, 0);
+  }
+
+  private launchRampage(ctx: BossContext, toPlayer: number): void {
+    this.yaw = toPlayer;
+    // Judged now, once: the rock on the line to you takes the charge; with none she runs you down wherever you go.
+    this.rampRock = coverOnLine(this.pos.x, this.pos.z, ctx.playerX, ctx.playerZ, this.rocks!.solid());
+    this.rampLeft = cfg.rampageMaxDistance;
+    this.enter('rampaging');
+    this.hideRampage();
+    this.sound('dragon.growl');
+    ctx.shake(0.35);
+  }
+
+  private rampage(dt: number, ctx: BossContext, toPlayer: number): void {
+    // In the open she homes in: neither a sidestep nor a dash gets out of it.
+    if (!this.rampRock) this.yaw = turnToward(this.yaw, toPlayer, cfg.rampageTurn * 2.5 * dt);
+    const step = cfg.rampageSpeed * dt;
+    const fx = Math.sin(this.yaw);
+    const fz = Math.cos(this.yaw);
+    const nx = this.pos.x + fx * step;
+    const nz = this.pos.z + fz * step;
+    const rock = this.rocks!.touching(nx, nz, this.radius);
+    if (rock && this.rampRock) {
+      this.crash(rock, ctx);
+      return;
+    }
+    if (!this.rampRock && ctx.playerAlive && Math.hypot(ctx.playerX - nx, ctx.playerZ - nz) <= this.radius + playerCfg.radius + 0.6) {
+      ctx.mechanicHit(hell.mechanicHit, this.pos.x, this.pos.z, cfg.rampageKnockback, 'Hellfire Rampage');
+      ctx.shake(0.8);
+      this.sound('boss.slam');
+      this.endAttack(1.4);
+      return;
+    }
+    if (rock) {
+      // Running you down, she ploughs straight through (no stun: you weren't behind it in time).
+      this.rocks!.shatter(rock, (e) => ctx.effect(e));
+      ctx.shake(0.4);
+      this.sound('boss.slam', rock.x, rock.z);
+    }
+    if (ctx.isSolid(nx + fx * this.radius, nz + fz * this.radius)) {
+      ctx.shake(0.3);
+      this.sound('boss.slam');
+      this.endAttack(2.0);
+      return;
+    }
+    this.pos.x = nx;
+    this.pos.z = nz;
+    this.rampLeft -= step;
+    if (this.rampLeft <= 0 || !ctx.playerAlive) this.endAttack(1.4);
+  }
+
+  /** Head first into the rock you hid behind: it shatters and she reels, weak point open. */
+  private crash(rock: CoverRock, ctx: BossContext): void {
+    this.rocks!.shatter(rock, (e) => ctx.effect(e));
+    ctx.shake(0.8);
+    this.sound('boss.slam', rock.x, rock.z);
+    this.sound('dragon.erupt', rock.x, rock.z);
+    ctx.announce('Weak point exposed!');
+    this.sound('boss.weak');
+    this.enter('stunned');
+  }
+
+  /** Nobody on a broken rock's spot (it can rise without trapping anyone). */
+  private spotClear(r: CoverRock, ctx: BossContext): boolean {
+    if (Math.hypot(ctx.playerX - r.x, ctx.playerZ - r.z) < r.r + playerCfg.radius + 0.4) return false;
+    // Not inside an eruption's warning (its blast would only break it again).
+    if (this.state === 'eruptWindup' && Math.hypot(this.eruptAt[0] - r.x, this.eruptAt[1] - r.z) < r.r + cfg.eruptRadius) return false;
+    return !this.group.visible || Math.hypot(this.pos.x - r.x, this.pos.z - r.z) >= r.r + this.radius + 0.4;
   }
 
   // ---------------------------------------------------------- animation
@@ -624,6 +884,24 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
         bodyPitch = 0.15;
         wingFlap = Math.sin(t * 14) * 0.4;
         break;
+      case 'rampageWindup': {
+        // Head down, wings up, pawing the ground.
+        const k = Math.min(1, this.stateT / this.rampWindup);
+        neckPitch = 0.3 + 0.35 * k;
+        bodyPitch = 0.12 * k;
+        bodyLift = Math.abs(Math.sin(t * 7)) * 0.12 * k;
+        jaw = 0.4 + 0.3 * k;
+        wingFlap = 0.45 + 0.25 * k + Math.sin(t * 9) * 0.1;
+        headColor = RAMPAGE_HEAD;
+        break;
+      }
+      case 'rampaging':
+        neckPitch = 0.5;
+        bodyPitch = 0.2;
+        jaw = 0.8;
+        wingFlap = Math.sin(t * 16) * 0.45;
+        headColor = RAMPAGE_HEAD;
+        break;
       case 'sinking':
         bodyLift = -this.stateT * 5;
         break;
@@ -649,6 +927,13 @@ export class Dragon extends BossBase<DragonState> implements Hittable {
       flash: this.flashT > 0, enraged: this.enraged, walk: this.walkPhase, time: t,
     });
     if (this.hellPhase && this.alive && this.flashT <= 0) this.model.bodyMat.emissive.setHex(HELL_GLOW).multiplyScalar(0.75 + 0.25 * Math.sin(t * 3));
+    // Hell: a rampage sets her hide and head aglow.
+    if (this.rocks) {
+      const rampaging = this.state === 'rampageWindup' || this.state === 'rampaging';
+      if (rampaging && this.flashT <= 0) this.model.bodyMat.emissive.setHex(HELL_GLOW).multiplyScalar(0.9 + 0.35 * Math.sin(t * 9));
+      this.model.headMat.emissive.setHex(rampaging || this.hellPhase ? HELL_GLOW : 0x000000);
+      if (rampaging) this.model.headMat.emissive.multiplyScalar(1.3 + 0.5 * Math.sin(t * 9));
+    }
     if (this.mound.visible) this.mound.rotation.y += dt * 4;
   }
 }

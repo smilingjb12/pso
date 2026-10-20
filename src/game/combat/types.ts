@@ -1,6 +1,5 @@
 import type * as THREE from 'three';
 import type { CcKind } from '../ccResist';
-import type { Race } from '../config';
 
 export type StatusEffect = 'burn' | 'freeze' | 'stun' | 'poison';
 
@@ -23,7 +22,6 @@ export interface Hittable {
   readonly armor: number;
   /** % of technique damage it shrugs off (none if missing; below 0 it takes more). */
   readonly techResist?: number;
-  readonly race: Race | null;
   /** Height of the point damage numbers / reticle attach to. */
   readonly aimHeight: number;
   /** Not damageable right now (e.g. boss burrowed). */

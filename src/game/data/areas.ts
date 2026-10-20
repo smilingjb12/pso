@@ -52,6 +52,8 @@ export interface RoomDef {
   ambush?: number[];
   /** The next wave starts once a third (or less) of the current one is left. */
   overlap?: boolean;
+  /** Rifts, Swarming: per wave, the index its fodder starts at (those spawns never come in elite). */
+  fodder?: number[];
   /** Lava vents: tile position and a phase offset (seconds). */
   vents?: [number, number, number?][];
   /** Poison marsh pools: tile centre and radii in tiles. */

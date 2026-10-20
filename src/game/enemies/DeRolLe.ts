@@ -7,10 +7,12 @@ import { DeRolLeModel, drlSegRadius } from '../models/derolle';
 import { Lob, Pillar, Ring } from '../world/Effects';
 import { glowMaterial } from '../world/glow';
 import { WATER_Y, type Level, type Rect } from '../world/Level';
+import { Puff } from '../world/spellFx';
 import type { TelegraphShape } from '../world/Telegraph';
 import type { BossContext } from './Boss';
 import { BossBase, BossPart } from './BossBase';
 import { CORRUPT_COLOR } from './Enemy';
+import { PoisonBomb } from './PoisonBomb';
 
 // De Rol Le: the Cave boss. A giant armoured worm that swims around (and under)
 // the raft the player stands on. It attacks from the water and only offers
@@ -23,12 +25,13 @@ import { CORRUPT_COLOR } from './Enemy';
 //    (the outline shows the whole sweep; the far end is out of range), then
 //    rests its head on the deck (weak point).
 //  - Poison spray (phase 2): lingering puddles that shrink the safe space.
-// Phase 1: shell plates on every segment and a bone mask on the head take
-// most of the damage. Breaking the mask (or dropping it to half HP) shatters
-// the shell: phase 2 is faster, meaner and takes more damage.
+// At half HP its shell (plates on the segments, a bone mask on the head: only a
+// look, they soak nothing since 2026-10-17) shatters: phase 2 is faster and meaner.
 // Hell: at a third of its HP it turns to the dark (phase 3). Every second attack
 // is then a triple: three warnings at once with one safe pocket (see slamTriple
-// and beamTriple).
+// and beamTriple). From the start of a Hell fight it also lobs poison bombs onto
+// the raft on a clock (two at a time in phase 3): destroy one before its fuse
+// runs out or it blows and leaves a big poison area (see updateBombs).
 
 type DrlState =
   | 'dormant'
@@ -63,6 +66,8 @@ const HEAD_RADIUS = 1.5;
 const HARD_ROW_GAP = 2.5;
 /** The player's body radius: telegraphs hit if they reach it (inShape), so triple pockets keep this clear too. */
 const BODY = 0.45;
+/** While a triple is up (from its approach to the end of its beam), no bomb starts the warning before its blast. */
+const TRIPLE_STATES: ReadonlySet<DrlState> = new Set<DrlState>(['slamPrep', 'slamRise', 'slamCross', 'beamPrep', 'beamRise', 'beaming']);
 
 /** Polyline of where the head has been (newest first); the body follows it. */
 class Trail {
@@ -113,6 +118,14 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
   private lastTriple: 'slam' | 'beam' = 'beam';
   /** Phase 3's violet glow goes on these (the body segments' materials). */
   private hellMats: THREE.MeshStandardMaterial[];
+  /** Hell: its poison bombs (a pool of hellBombMax; none on Normal and Nightmare) and the clock to the next lob. */
+  private bombs: PoisonBomb[] = [];
+  private bombT = cfg.hellBombFirst;
+  private bombHinted = false;
+  /** The puddles the bombs that blew left, while they last (boss time): a triple's pocket must stay clear of them. */
+  private bombPools: { x: number; z: number; r: number; until: number }[] = [];
+  /** What the player can hit: the head and segments, then any bomb on the deck. */
+  private hitList: Hittable[] = [];
 
   private model: DeRolLeModel;
   private head: THREE.Vector3;
@@ -121,8 +134,6 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
   private trail: Trail;
   /** The head (index -1), then the body segments. */
   private readonly partsList: BossPart[] = [];
-  private plates: number[];
-  private maskHp: number;
   private wantShatter = false;
   private jaw = 0;
   private charge = 0;
@@ -158,14 +169,12 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
     hard: HardBossScale | null = null,
   ) {
     super(cfg, hard);
-    this.maskHp = Math.round(cfg.maskHp * (hard?.hp ?? 1));
     this.cx = (raft.minX + raft.maxX) / 2;
     this.cz = (raft.minZ + raft.maxZ) / 2;
     this.hw = (raft.maxX - raft.minX) / 2;
     this.hl = (raft.maxZ - raft.minZ) / 2;
     this.model = new DeRolLeModel(cfg.segments);
     this.hellMats = [...new Set(this.model.segs.slice(0, 2).map((g) => (g.children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial))];
-    this.plates = Array.from({ length: cfg.segments }, () => Math.round(cfg.plateHp * (hard?.hp ?? 1)));
     this.head = new THREE.Vector3(this.cx, DEEP - 2, raft.minZ - 16);
     this.trail = new Trail(this.head, new THREE.Vector3(0, 0, -1), (cfg.segments + 1) * cfg.segSpacing);
     this.partsList.push(new BossPart(this, HEAD_RADIUS, partAim, -1));
@@ -186,6 +195,11 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
     this.beamGround.visible = false;
     this.beamGround.renderOrder = 1;
     this.objects = [this.model.root, this.beam, this.beamGround];
+    if (hard?.hell) {
+      for (let i = 0; i < cfg.hellBombMax; i++) this.bombs.push(new PoisonBomb(this.armor, this.techResist, cfg.hellBombRadius));
+      this.objects.push(...this.bombs.map((b) => b.group));
+    }
+    this.listTargets();
     this.placeParts();
   }
 
@@ -195,10 +209,16 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
     return this.state === 'headRest';
   }
   parts(): Hittable[] {
-    return this.partsList;
+    return this.hitList;
+  }
+
+  /** Only the worm itself: a bomb is a target of its own (its HP, its kill and its debuffs are nothing to the boss). */
+  owns(h: Hittable): boolean {
+    return (this.partsList as Hittable[]).includes(h);
   }
 
   collide(playerPos: THREE.Vector3, playerRadius: number, level: Level): void {
+    for (const b of this.bombs) if (b.alive) separateCircles(playerPos, playerRadius, 1, b.pos, b.radius, 1e6);
     // The body only blocks you while it lies on the deck.
     if (this.state !== 'slamRest' && this.state !== 'headRest' && this.state !== 'shatter') return;
     for (const p of this.partsList) {
@@ -216,27 +236,13 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
     return p.pos.y < SUBMERGED;
   }
 
-  /** Damage multiplier shown on the hit (shell plates soak most of a blow). */
+  /** Damage multiplier shown on the hit: its head resting on the deck is the weak point. */
   partMult(p: BossPart): number {
-    if (this.phase === 1) {
-      if (p.index < 0) return cfg.plateMult * (this.state === 'headRest' ? cfg.headRestMult : 1);
-      return this.plates[p.index] > 0 ? cfg.plateMult : 1;
-    }
-    return cfg.phase2DamageMult * (p.index < 0 && this.state === 'headRest' ? cfg.headRestMult : 1);
+    return p.index < 0 && this.state === 'headRest' ? cfg.headRestMult : 1;
   }
 
   damagePart(p: BossPart, amount: number): boolean {
     if (!this.alive || this.partInvulnerable(p)) return false;
-    if (this.phase === 1) {
-      // Mask and plates take the blow at full strength; the boss only feels the share that gets through.
-      if (p.index < 0) {
-        this.maskHp -= amount / cfg.plateMult;
-        if (this.maskHp <= 0) this.wantShatter = true;
-      } else if (this.plates[p.index] > 0) {
-        this.plates[p.index] -= amount / cfg.plateMult;
-        if (this.plates[p.index] <= 0) this.breakPlate(p.index);
-      }
-    }
     const killed = this.loseHp(amount);
     if (!killed && this.phase === 1 && this.hp <= this.maxHp * cfg.phase2At) this.wantShatter = true;
     return killed;
@@ -244,16 +250,23 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
 
   protected onDeath(): void {
     this.hideBeam();
+    // Its bombs fizzle out with it (always() plays the puffs; dying called their blasts off).
+    for (const b of this.bombs) {
+      if (b.state !== 'flying' && b.state !== 'armed') continue;
+      b.state = 'gone';
+      b.fizzled = true;
+    }
   }
 
-  private breakPlate(i: number): void {
-    this.plates[i] = 0;
-    this.model.plates[i].visible = false;
-    this.pendingFx.push({ kind: 'plate', i });
+  /** Damage over time lands on the worm, never on a bomb. */
+  protected dotTarget(): Hittable | null {
+    return this.partsList.find((p) => !p.invulnerable) ?? null;
   }
 
-  /** Effects queued from damage() (which has no context), played on the next update. */
-  private pendingFx: { kind: 'plate'; i: number }[] = [];
+  /** The head and segments, then the bombs on the deck (after one lands or goes). */
+  private listTargets(): void {
+    this.hitList = [...this.partsList, ...this.bombs.filter((b) => b.alive)];
+  }
 
   // -------------------------------------------------------------- update
 
@@ -297,14 +310,17 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
   }
 
   protected always(_dt: number, ctx: BossContext): void {
-    for (const fx of this.pendingFx) {
-      const p = this.partsList[fx.i + 1].pos;
-      ctx.effect(new Ring(p.x, p.z, 0xe8e0c0, 3, 0.4));
-      ctx.shake(0.12);
-      this.sound('drl.plate', p.x, p.z);
+    // Bombs destroyed since the last tick (damage has no context), or left behind by its death: a harmless puff.
+    for (const b of this.bombs) {
+      if (!b.fizzled) continue;
+      b.fizzled = false;
+      const { x, z } = b.pos;
+      b.remove();
+      this.listTargets();
+      ctx.effect(new Puff(x, 0.8, z, 0x9cff70, 4.5, 0.6, 0.8));
+      ctx.effect(new Ring(x, z, 0x9cff70, 2.2, 0.4, 0.6));
+      this.sound('pylon.snuff', x, z);
     }
-    if (this.pendingFx.length) ctx.announce(this.plates.some((v) => v > 0) ? 'Shell plate broken!' : 'Every plate is broken!');
-    this.pendingFx.length = 0;
   }
 
   protected whileDead(dt: number): void {
@@ -314,12 +330,13 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
     this.placeParts();
   }
 
-  // Damage over time lands on the first part above water (BossBase.dotTarget).
+  // Damage over time lands on the first part above water (dotTarget).
 
   protected think(dt: number, ctx: BossContext): void {
     if (this.wantShatter && this.phase === 1 && this.state !== 'intro' && this.state !== 'dormant') this.startShatter(ctx);
     if (this.hard?.hell && this.phase === 2 && !this.phase3 && this.state !== 'shatter' && this.hp <= this.maxHp * cfg.phase3At) this.startPhase3(ctx);
     this.announceEnrage(ctx, this.phase === 2, 'De Rol Le is enraged!', 'drl.screech');
+    if (this.bombs.length) this.updateBombs(dt, ctx);
 
     const sm = this.sm();
     this.jaw += (0 - this.jaw) * Math.min(1, 3 * dt);
@@ -361,7 +378,7 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
         const tx = this.cx + Math.sin(this.swimAngle) * (this.hw + 9);
         const tz = this.cz + Math.cos(this.swimAngle) * (this.hl + 9);
         this.steer(dt, tx, DEEP, tz, 12);
-        if (this.stateT >= this.gap) this.chooseAttack(ctx);
+        if (this.stateT >= this.gap && !this.bombHoldsTriple()) this.chooseAttack(ctx);
         break;
       }
 
@@ -615,6 +632,10 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
     this.sound('dragon.growl');
     // A triple's lane is on wherever you stand now (the head steers over to it as it rears).
     if (this.triple) this.laneZ = this.clampToRaft(0, ctx.playerZ, 2.6)[1];
+    // Its mines go on a side of the lane where their row fits on the raft and the pocket is clear of bombs and
+    // their poison (Hell). No such side: a plain slam this time.
+    const sides = this.triple ? this.tripleSides(ctx) : [];
+    if (!sides.length) this.triple = false;
     const dur = this.triple ? cfg.tripleWindup : (this.phase === 2 ? cfg.slamWindup2 : cfg.slamWindup) * this.sm();
     const s = this.side;
     const shape: TelegraphShape = {
@@ -639,7 +660,7 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
       this.enter('slamCross');
     }, 0xff3030, this.phase === 2 && !this.triple);
     if (this.triple) {
-      this.slamTriple(ctx, dur);
+      this.slamTriple(ctx, dur, sides[Math.floor(ctx.rng() * sides.length)]);
       return;
     }
     // Hard, phase 2, the first slam of the pair: the back segments lob a row of mines a little way
@@ -713,19 +734,29 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
   }
 
   /**
-   * Hell triple: the lane slam on you, a row of mines on one side of it and two rows of poison on the other.
+   * The sides of the lane (±1) a slam triple can put its mines on: their whole row lands on the deck (one side
+   * always does: the raft is 30 m long) and the pocket before it, near you, is clear of bombs and their poison.
+   */
+  private tripleSides(ctx: BossContext): number[] {
+    const r = this.raft;
+    const off = cfg.slamWidth / 2 + BODY + cfg.triplePocket + BODY + cfg.bombRadius;
+    return [1, -1].filter((d) => {
+      const z = this.laneZ + d * off;
+      if (z < r.minZ + 0.3 || z > r.maxZ - 0.3) return false;
+      const z0 = this.laneZ + d * (cfg.slamWidth / 2 + BODY);
+      const z1 = z0 + d * cfg.triplePocket;
+      return this.clearOfBombs(ctx.playerX - 2, ctx.playerX + 2, Math.min(z0, z1), Math.max(z0, z1));
+    });
+  }
+
+  /**
+   * Hell triple: the lane slam on you, a row of mines on one side of it (`d`) and two rows of poison on the other.
    * The one safe pocket is the strip (triplePocket deep, for your centre) between the lane and the mines. The
    * poison starts at the lane's edge, so that side has no gap, and past the mines is too far to reach in time.
    */
-  private slamTriple(ctx: BossContext, dur: number): void {
+  private slamTriple(ctx: BossContext, dur: number, d: number): void {
     const r = this.raft;
     const off = cfg.slamWidth / 2 + BODY + cfg.triplePocket + BODY + cfg.bombRadius;
-    // The mines go where their whole row lands on the deck (one side always fits: the raft is 30 m long).
-    const sides = [1, -1].filter((d) => {
-      const z = this.laneZ + d * off;
-      return z >= r.minZ + 0.3 && z <= r.maxZ - 0.3;
-    });
-    const d = sides[Math.floor(ctx.rng() * sides.length)];
     this.launchBombs(ctx, this.rowAt(this.laneZ + d * off), dur + 0.25);
     // Three puddles across the deck per row, overlapping the lane's edge. When the lane runs to the raft's end the
     // first row is pulled back onto the deck (over the lane) and the second is left out.
@@ -745,7 +776,7 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
    * in from that edge and its sweep, beam width included, ends on the line straight down the deck), poison down
    * that flank toward the head, and a row of mines across the deck past you. The one safe pocket is the flank
    * beside you between the poison and the mines. False when you are already too far down the raft for it (the
-   * mines would no longer close off the far end): the Nightmare pair instead.
+   * mines would no longer close off the far end), or a bomb or its poison sits in the pocket: the Nightmare pair instead.
    */
   private beamTriple(ctx: BossContext, c: number, apexZ: number, fire: () => void): boolean {
     const r = this.raft;
@@ -761,7 +792,9 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
     // The pocket: on your flank, level with you, leaving room for a puddle between it and the raft's end.
     const dMin = (near - apexZ) * f + g + BODY + cfg.sprayRadius + 0.4;
     const pz = apexZ + f * Math.min(dMax, Math.max(dMin, dYou));
-    this.beamX = this.cx + u * (this.hw - cfg.tripleFlank);
+    const flank = this.cx + u * (this.hw - cfg.tripleFlank);
+    if (!this.clearOfBombs(Math.min(flank, this.cx + u * this.hw), Math.max(flank, this.cx + u * this.hw), pz - g, pz + g)) return false;
+    this.beamX = flank;
     // `toward` turns the yaw toward your flank; the beam's covered edge stops a degree short of straight down the deck.
     const toward = -this.end * u;
     const deg = THREE.MathUtils.degToRad;
@@ -790,6 +823,132 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
     return true;
   }
 
+  // ------------------------------------------------------- Hell bombs
+
+  /**
+   * Hell, from the start of the fight: every hellBombEvery s it lobs a poison bomb onto the deck (two in phase 3,
+   * never more than hellBombMax at once). It sits armed for its fuse, the last hellBombWarn s of it a telegraph,
+   * then blows (× ATP, with poison) and leaves puddles filling about its blast radius for hellBombPoisonLife s.
+   * Anything can destroy it first (its own HP; none off the boss): it fizzles. Around the triples: no lob while one
+   * is up, a bomb never starts its last warning during one, a triple waits for a bomb already in it to blow, and a
+   * triple's pocket must be clear of bombs and old poison (else the attack isn't a triple this time).
+   */
+  private updateBombs(dt: number, ctx: BossContext): void {
+    const fighting = this.state !== 'dormant' && this.state !== 'intro' && this.state !== 'shatter';
+    if (fighting) this.bombT -= dt;
+    if (this.bombT <= 0 && fighting && !this.triple) {
+      this.bombT = cfg.hellBombEvery;
+      const free = this.bombs.filter((b) => b.state === 'idle');
+      for (let i = 0; i < Math.min(free.length, this.phase3 ? 2 : 1); i++) this.lobBomb(ctx, free[i], i);
+    }
+    this.bombPools = this.bombPools.filter((p) => p.until > this.time);
+    const held = this.triple && TRIPLE_STATES.has(this.state);
+    for (const b of this.bombs) {
+      if (b.state === 'flying' && b.fly(dt)) this.landBomb(ctx, b);
+      if (b.state !== 'armed') continue;
+      // Held at the start of its warning while a triple is up (it never blows in the middle of one).
+      b.fuse = b.warning || !held ? b.fuse - dt : Math.max(cfg.hellBombWarn + 0.01, b.fuse - dt);
+      if (!b.warning && b.fuse <= cfg.hellBombWarn) this.warnBomb(ctx, b);
+      b.animate(dt);
+    }
+  }
+
+  /** The next attack is a triple and a bomb's blast is already warning: it waits for that (no blast mid-triple). */
+  private bombHoldsTriple(): boolean {
+    return this.phase3 && this.attacks3 % cfg.tripleEvery === 0 && this.bombs.some((b) => b.warning);
+  }
+
+  /** Lob a bomb from a back segment above water (from under the surface if none is), onto the deck near you. */
+  private lobBomb(ctx: BossContext, b: PoisonBomb, i: number): void {
+    const [x, z] = this.bombSpot(ctx);
+    const up = this.partsList.slice(2).filter((p) => p.pos.y > SUBMERGED);
+    const seg = up[i % Math.max(1, up.length)];
+    const from = this.tmp2;
+    if (seg) from.set(seg.pos.x, seg.pos.y + 1.2, seg.pos.z);
+    else {
+      from.set(this.head.x, WATER_Y, this.head.z);
+      ctx.effect(new Ring(from.x, from.z, 0xd8f0ff, 2.5, 0.45));
+      this.sound('drl.splash', from.x, from.z);
+    }
+    // At a rift's tempo the fuse is longer in boss time, so it never burns down in under hellBombFuseFloor s.
+    b.launch(from, x, z, cfg.hellBombLob, Math.round(cfg.hellBombHp * (this.hard?.hp ?? 1)), Math.max(cfg.hellBombFuse, cfg.hellBombFuseFloor * this.tempo));
+    this.sound('drl.bomb', from.x, from.z);
+    if (!this.bombHinted) {
+      this.bombHinted = true;
+      ctx.announce('Destroy the bomb before it blows!');
+    }
+  }
+
+  /**
+   * Where a bomb lands: on the deck hellBombRange m from you, clear of the raft's edges, of the worm's body where it
+   * lies on the deck, and of the other bomb and old poison (so two never stack). Fallback: straight down the raft.
+   */
+  private bombSpot(ctx: BossContext): [number, number] {
+    const [lo, hi] = cfg.hellBombRange;
+    const R = cfg.hellBombRadius;
+    for (let tries = 0; tries < 40; tries++) {
+      const a = ctx.rng() * Math.PI * 2;
+      const d = lo + ctx.rng() * (hi - lo);
+      const x = ctx.playerX + Math.sin(a) * d;
+      const z = ctx.playerZ + Math.cos(a) * d;
+      const [cx, cz] = this.clampToRaft(x, z, 1.2);
+      if (cx !== x || cz !== z) continue;
+      if (this.partsList.some((p) => p.pos.y > SUBMERGED && p.pos.y < 2.6 && Math.hypot(p.pos.x - x, p.pos.z - z) < p.radius + 1.2)) continue;
+      if (this.bombs.some((b) => b.state !== 'idle' && Math.hypot(b.pos.x - x, b.pos.z - z) < R)) continue;
+      if (this.bombPools.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + 1)) continue;
+      return [x, z];
+    }
+    return this.clampToRaft(ctx.playerX, ctx.playerZ + (ctx.playerZ < this.cz ? lo : -lo), 1.2);
+  }
+
+  private landBomb(ctx: BossContext, b: PoisonBomb): void {
+    this.listTargets();
+    ctx.effect(new Ring(b.pos.x, b.pos.z, 0x9cff60, 2.4, 0.35));
+    ctx.shake(0.12);
+    this.sound('boss.step', b.pos.x, b.pos.z);
+  }
+
+  /** The last seconds of the fuse: the blast's own telegraph (called off if the bomb is destroyed). */
+  private warnBomb(ctx: BossContext, b: PoisonBomb): void {
+    const { x, z } = b.pos;
+    b.warning = this.tele.add(ctx.telegraph({ kind: 'circle', x, z, radius: cfg.hellBombRadius }, cfg.hellBombWarn, () => this.blowBomb(ctx, b), 0x60e040));
+    this.sound('volatile.warn', x, z);
+  }
+
+  /** The fuse ran out: the blast, then the poison it leaves. */
+  private blowBomb(ctx: BossContext, b: PoisonBomb): void {
+    if (b.state !== 'armed') return;
+    const { x, z } = b.pos;
+    const shape: TelegraphShape = { kind: 'circle', x, z, radius: cfg.hellBombRadius };
+    b.remove();
+    this.listTargets();
+    sfx('drl.explode', { x, z });
+    ctx.hitPlayer(shape, cfg.hellBombAtp, x, z, 9, 'poison', 1);
+    ctx.effect(new Ring(x, z, 0x9cff60, cfg.hellBombRadius * 1.1, 0.5));
+    ctx.effect(new Pillar(x, z, 0x7dff4a, 0.4, 0.9, 5));
+    ctx.effect(new Puff(x, 1, z, 0x9cff70, 7, 0.7, 0.8));
+    ctx.shake(0.35);
+    // Puddles: one in the middle and seven around it, pulled onto the deck where the circle runs past its edge.
+    const r = cfg.hellBombPuddle;
+    const pts: [number, number][] = [[x, z]];
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2 + this.time;
+      pts.push(this.clampToRaft(x + Math.sin(a) * cfg.hellBombRing, z + Math.cos(a) * cfg.hellBombRing, 0.8));
+    }
+    for (const [px, pz] of pts) {
+      ctx.puddle(px, pz, r, cfg.hellBombPoisonLife);
+      this.bombPools.push({ x: px, z: pz, r, until: this.time + cfg.hellBombPoisonLife * this.tempo });
+    }
+    this.sound('drl.spray', x, z);
+  }
+
+  /** Is this box of deck (for your centre) clear of the bombs' bodies and the poison they left? */
+  private clearOfBombs(x0: number, x1: number, z0: number, z1: number): boolean {
+    const touches = (x: number, z: number, r: number) => Math.hypot(x - Math.min(x1, Math.max(x0, x)), z - Math.min(z1, Math.max(z0, z))) < r;
+    if (this.bombPools.some((p) => touches(p.x, p.z, p.r))) return false;
+    return !this.bombs.some((b) => b.state !== 'idle' && touches(b.pos.x, b.pos.z, b.radius + BODY));
+  }
+
   /** Hell: the last third. It turns to the dark (a violet pulse through the body) and starts mixing in triples. */
   private startPhase3(ctx: BossContext): void {
     this.phase3 = true;
@@ -805,15 +964,11 @@ export class DeRolLe extends BossBase<DrlState, Attack> {
     this.wantShatter = false;
     this.phase = 2;
     this.hideBeam();
-    this.maskHp = 0;
     this.model.mask.visible = false;
-    for (let i = 0; i < this.plates.length; i++) {
-      if (this.plates[i] > 0) {
-        this.plates[i] = 0;
-        this.model.plates[i].visible = false;
-        const p = this.partsList[i + 1].pos;
-        ctx.effect(new Ring(p.x, p.z, 0xe8e0c0, 3, 0.5));
-      }
+    for (let i = 0; i < this.model.plates.length; i++) {
+      this.model.plates[i].visible = false;
+      const p = this.partsList[i + 1].pos;
+      ctx.effect(new Ring(p.x, p.z, 0xe8e0c0, 3, 0.5));
     }
     this.escalate(ctx, "De Rol Le's shell shatters!");
     ctx.shake(0.6);

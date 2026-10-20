@@ -3,7 +3,7 @@ import { Character, compareEquip, dropVerdict, gearVerdict, grindBonus, itemName
 import { enemies } from './config';
 import { areas } from './data/areas';
 import { CLASS_IDS, MAX_LEVEL, xpToNext, type ClassId } from './data/stats';
-import { getDef, grindCap, INVENTORY_SIZE, itemDefs, kindFamily, PHOTON_STACK, raceCap, weaponKinds, type ArmorItemDef } from './data/items';
+import { getDef, grindCap, INVENTORY_SIZE, itemDefs, kindFamily, PHOTON_STACK, weaponKinds, type ArmorItemDef } from './data/items';
 import { ITEM_AFFIXES } from './data/itemAffixes';
 import { restaHeal } from './data/techniques';
 import {
@@ -272,7 +272,6 @@ describe('loot', () => {
     const rng = mulberry32(15);
     const tiers = new Set<number>();
     for (const arch of Object.values(enemies).filter((a) => a.dropTier === 7)) {
-      expect(arch.race).toBe('dark');
       for (let i = 0; i < 2000; i++) {
         const d = i % 2 ? rollEnemyDrop(arch, rng) : rollEliteBonus(arch, rng);
         if (d?.kind !== 'item') continue;
@@ -365,7 +364,6 @@ describe('affixes', () => {
         expect(suffixes(it)).toBeLessThanOrEqual(3);
         const ids = (it.affixes ?? []).map((r) => r.id);
         expect(new Set(ids).size).toBe(ids.length);
-        expect(ids.filter((id) => id.startsWith('race')).length).toBeLessThanOrEqual(1);
         expect(it.name).toBeTruthy();
         most = Math.max(most, n);
       }
@@ -383,21 +381,6 @@ describe('affixes', () => {
         expect(def.slots).toContain('weapon');
         if (def.family) expect(def.family).toBe(fam);
       }
-    }
-  });
-
-  it('rolls race % in 5% steps up to the weapon tier cap', () => {
-    const rng = mulberry32(3);
-    for (const tier of [1, 4, 8]) {
-      let top = 0;
-      for (let i = 0; i < 3000; i++) {
-        for (const r of rollWeapon(tier, rng, undefined, 'rare').affixes ?? []) {
-          if (!r.id.startsWith('race')) continue;
-          expect(r.v % 5).toBe(0);
-          top = Math.max(top, r.v);
-        }
-      }
-      expect(top).toBe(raceCap(tier));
     }
   });
 
@@ -586,7 +569,7 @@ describe('Level', () => {
 
 describe('Item names', () => {
   it('names magic items by their prefix (a special or an affix) and suffix', () => {
-    expect(itemName(makeItem('saber_3', { rarity: 'magic', special: 'heat', affixes: [{ id: 'raceAbeast', v: 10 }] }))).toBe('Heat Buster of Beasts');
+    expect(itemName(makeItem('saber_3', { rarity: 'magic', special: 'heat', affixes: [{ id: 'tpRefill', v: 10 }] }))).toBe('Heat Buster of Flow');
     expect(itemName(makeItem('saber_3', { rarity: 'magic', affixes: [{ id: 'atpFlat', v: 5 }] }))).toBe('Heavy Buster');
     expect(itemName(makeItem('frame_guard_2', { rarity: 'magic', affixes: [{ id: 'resBurn', v: 5 }] }))).toBe('Guard Armor of Cooling');
     expect(itemName(makeItem('saber_8'))).toBe('Nova Blade');
@@ -608,7 +591,7 @@ describe('Equipment comparison', () => {
   it('previews a stronger weapon as a gain without changing the character', () => {
     const ch = Character.create('T', 'hunter');
     const before = JSON.stringify(ch.data);
-    const better = makeItem('saber_2', { grind: 3, affixes: [{ id: 'raceNative', v: 20 }] });
+    const better = makeItem('saber_2', { grind: 3, affixes: [{ id: 'atpPct', v: 10 }] });
     const c = compareEquip(ch, better)!;
     expect(c.slot).toBe('weapon');
     expect(c.current?.id).toBe('saber_1');

@@ -1,5 +1,5 @@
 import type { TrackId } from '../../audio';
-import { darkFalz, deRolLe, dragon, warden, type Race } from '../config';
+import { darkFalz, deRolLe, dragon, warden } from '../config';
 
 // One entry per area boss: everything the rest of the game needs to know about it besides its fight
 // (the class in enemies/, built by enemies/createBoss.ts) and its loot (loot.ts BOSS_DROPS / HARD_BOSS_LOOT).
@@ -18,7 +18,6 @@ export interface BossDef {
   name: string;
   /** As it reads in a sentence: "Defeat the Warden to unlock". */
   title: string;
-  race: Race;
   /** Its fight's track (the battle layer comes in with its last phase). */
   music: TrackId;
   /** Normal XP, read live from the tuning config. Nightmare XP is `hard.bosses[id].xp`, Hell's `hell.bosses[id].xp`. */
@@ -38,7 +37,7 @@ export interface BossDef {
 
 export const BOSSES: Record<BossId, BossDef> = {
   dragon: {
-    id: 'dragon', name: 'Dragon', title: 'the Dragon', race: 'native', music: 'dragon',
+    id: 'dragon', name: 'Dragon', title: 'the Dragon', music: 'dragon',
     xp: () => dragon.xp,
     shop: [],
     // Characters who played Nightmare before the Ruins got tier 7 from its Dragon: they keep it.
@@ -47,7 +46,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     dropsAt: 'body', dropRing: 3,
   },
   derolle: {
-    id: 'derolle', name: 'De Rol Le', title: 'De Rol Le', race: 'dark', music: 'derolle',
+    id: 'derolle', name: 'De Rol Le', title: 'De Rol Le', music: 'derolle',
     xp: () => deRolLe.xp,
     shop: [{ tier: 5, level: 24 }],
     hardShop: [{ tier: 9, level: 62 }],
@@ -55,7 +54,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     dropsAt: 'center', dropRing: 2.6, dropStretch: 2,
   },
   warden: {
-    id: 'warden', name: 'Warden', title: 'the Warden', race: 'machine', music: 'warden',
+    id: 'warden', name: 'Warden', title: 'the Warden', music: 'warden',
     xp: () => warden.xp,
     shop: [{ tier: 6, level: 32 }],
     hardShop: [{ tier: 10, level: 72 }],
@@ -63,7 +62,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     dropsAt: 'center', dropRing: 3,
   },
   falz: {
-    id: 'falz', name: 'Dark Falz', title: 'Dark Falz', race: 'dark', music: 'falz',
+    id: 'falz', name: 'Dark Falz', title: 'Dark Falz', music: 'falz',
     xp: () => darkFalz.xp,
     shop: [{ tier: 7, level: 42 }],
     hardShop: [{ tier: 11, level: 82 }],

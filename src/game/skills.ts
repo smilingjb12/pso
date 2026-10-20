@@ -51,9 +51,9 @@ export interface SkillPicks {
 
 export const emptySkills = (): SkillPicks => ({ ranks: {} });
 
-/** Grid columns a lane of Arts takes (one per modifier of a row); passives take two more. */
+/** Grid columns a lane of Arts takes (one per modifier of a row); passives take up to MAX_PASSIVE_COLS more. */
 export const LANE_COLS = 3;
-export const PASSIVE_COLS = 2;
+const MAX_PASSIVE_COLS = 3;
 
 /** Grid rows an Art takes in its lane: itself and its two modifier rows. */
 const ART_ROWS = 3;
@@ -102,7 +102,7 @@ export const SKILL_TREES: Record<ClassId, SkillTreeDef[]> = {
     // with Lightning and Fire, healing and shields with Ice).
     {
       id: 'fire', name: 'Fire', lanes: [['foie', 'gifoie', 'rafoie']],
-      passives: [P('resonance'), P('overcast', 'foie'), P('focusBolt', 'resonance'), P('kindle', 'overcast'), P('efficiency', 'resonance'), P('overload', 'kindle')],
+      passives: [P('resonance'), P('overcast', 'foie'), P('focusBolt', 'resonance'), P('kindle', 'overcast'), P('efficiency', 'focusBolt'), P('overload', 'kindle')],
     },
     {
       id: 'lightning', name: 'Lightning', lanes: [['zonde', 'gizonde', 'razonde']],
@@ -120,8 +120,10 @@ const isArt = (id: string): id is ArtId => Object.hasOwn(ARTS, id);
 /** A modifier's node id. */
 export const modNodeId = (art: ArtId, mod: string): string => `${art}:${mod}`;
 
-/** Grid columns a tree takes. */
-export const treeCols = (t: SkillTreeDef): number => t.lanes.length * LANE_COLS + PASSIVE_COLS;
+/** Grid columns a tree takes (its lanes, and as many passive columns as its lines need to stay clear). */
+export function treeCols(cls: ClassId, tree: string): number {
+  return Math.max(...skillNodes(cls).filter((n) => n.tree === tree).map((n) => n.col)) + 1;
+}
 
 function buildTree(t: SkillTreeDef): SkillNode[] {
   const out: SkillNode[] = [];
@@ -141,25 +143,41 @@ function buildTree(t: SkillTreeDef): SkillNode[] {
       });
     });
   });
-  // Passives: in the columns right of the lanes, no higher than what they hang from or the Arts open by their level.
+  // Passives: columns right of the lanes (a third only when two can't keep the lines clear), no higher than what they hang from or the Arts open by their level, and
+  // placed so their lines run through empty cells only (the cells a line crosses are kept free for later passives too).
+  // One hanging from an Art takes a line from the Art's right side across its row, down the gutter and in from the
+  // left; one hanging from a passive drops straight down its column, or turns in the gap below it to another column.
   const first = t.lanes.length * LANE_COLS;
-  const rowOf = (id: string) => out.find((n) => n.id === id)?.row;
+  const reserved = new Set<string>();
+  const free = (row: number, col: number) => !taken.has(at(row, col)) && !reserved.has(at(row, col));
   const levelRow = (lv: number) => Math.max(0, ...out.filter((n) => n.kind === 'art' && n.level <= lv).map((n) => n.row));
   const todo = [...t.passives].sort(([a], [b]) => passiveLevel(a) - passiveLevel(b));
   while (todo.length) {
-    const i = todo.findIndex(([, pre]) => !pre || rowOf(pre) !== undefined);
+    const i = todo.findIndex(([, pre]) => !pre || out.some((n) => n.id === pre));
     const [id, pre] = todo.splice(i < 0 ? 0 : i, 1)[0];
-    const preNode = pre ? out.find((n) => n.id === pre) : undefined;
-    let row = Math.max(preNode ? preNode.row + 1 : 0, levelRow(passiveLevel(id)));
-    const cols = preNode?.kind === 'passive' ? [preNode.col, ...[first, first + 1].filter((c) => c !== preNode.col)] : [first, first + 1];
-    for (;;) {
-      const col = cols.find((c) => !taken.has(at(row, c)));
-      if (col !== undefined) {
-        out.push({ kind: 'passive', id, tree: t.id, row, col, pre, level: passiveLevel(id), max: passiveRanks(id) });
-        taken.add(at(row, col));
-        break;
+    const from = pre ? out.find((n) => n.id === pre) : undefined;
+    const all = Array.from({ length: MAX_PASSIVE_COLS }, (_, i) => first + i);
+    const cols = from?.kind === 'passive' ? [from.col, ...all.filter((c) => c !== from.col)] : all;
+    // The cells a line to (row, col) would cross, or null if it can't get there.
+    const path = (row: number, col: number): string[] | null => {
+      const cells: string[] = [];
+      if (from?.kind === 'art') {
+        for (let c = from.col + 1; c < first; c++) cells.push(at(from.row, c));
+        for (let c = first; c < col; c++) cells.push(at(row, c));
+      } else if (from) {
+        for (let r = from.row + 1; r < row; r++) cells.push(at(r, col));
       }
-      row++;
+      return cells.every((c) => !taken.has(c)) ? cells : null;
+    };
+    let row = Math.max(from ? from.row + (from.kind === 'art' ? 0 : 1) : 0, levelRow(passiveLevel(id)));
+    for (;; row++) {
+      // (Far down, a line that can't be kept clear is drawn anyway: the tests check none of the trees needs that.)
+      const col = cols.find((c) => free(row, c) && (path(row, c) || row > 40));
+      if (col === undefined) continue;
+      out.push({ kind: 'passive', id, tree: t.id, row, col, pre, level: passiveLevel(id), max: passiveRanks(id) });
+      taken.add(at(row, col));
+      for (const c of path(row, col) ?? []) reserved.add(c);
+      break;
     }
   }
   return out;
@@ -188,22 +206,38 @@ export function treeOf(cls: ClassId, id: string): SkillTreeDef | undefined {
   return n && SKILL_TREES[cls].find((t) => t.id === n.tree);
 }
 
-/**
- * The lines a tree draws, as [from, to] node ids (lit once `to` has a point): an Art to its first modifiers, each
- * first modifier to the one below it, the middle second modifier to the next Art, a passive to what it hangs from.
- */
-export function treeLines(cls: ClassId, tree: string): [string, string][] {
+/** How a line runs (the menu draws each at right angles). */
+export type SkillLineKind =
+  /** An Art to the next in its lane, down the lane's left side. */
+  | 'spine'
+  /** An Art to one of its first-row modifiers. */
+  | 'fork'
+  /** A first-row modifier to a second-row one (drawn from the first-row pick, once there is one). */
+  | 'fork2'
+  /** An Art to a passive: out of its right side, down the gutter, into the passive's left side. */
+  | 'branch'
+  /** A passive to the one below it. */
+  | 'chain';
+
+export interface SkillLine {
+  from: string;
+  to: string;
+  kind: SkillLineKind;
+}
+
+/** The lines a tree draws (each lit once `to` has a point). */
+export function treeLines(cls: ClassId, tree: string): SkillLine[] {
   const nodes = skillNodes(cls).filter((n) => n.tree === tree);
-  const lines: [string, string][] = [];
+  const lines: SkillLine[] = [];
   const mods = (art: string, row: 0 | 1) => nodes.filter((n) => n.art === art && n.modRow === row);
   for (const n of nodes) {
     if (n.kind === 'art') {
-      for (const m of mods(n.id, 0)) lines.push([n.id, m.id]);
-      if (n.pre) lines.push([mods(n.pre, 1)[1].id, n.id]);
+      for (const m of mods(n.id, 0)) lines.push({ from: n.id, to: m.id, kind: 'fork' });
+      if (n.pre) lines.push({ from: n.pre, to: n.id, kind: 'spine' });
     } else if (n.kind === 'mod' && n.modRow === 1) {
-      lines.push([mods(n.art!, 0)[n.col % LANE_COLS].id, n.id]);
+      lines.push({ from: mods(n.art!, 0)[1].id, to: n.id, kind: 'fork2' });
     } else if (n.kind === 'passive' && n.pre) {
-      lines.push([n.pre, n.id]);
+      lines.push({ from: n.pre, to: n.id, kind: skillNode(cls, n.pre)!.kind === 'art' ? 'branch' : 'chain' });
     }
   }
   return lines;
@@ -248,6 +282,17 @@ export function rankUpBlock(cls: ClassId, level: number, picks: SkillPicks, n: S
   }
   if (pointsSpent(picks) >= skillPoints(level)) return 'No skill points left';
   return null;
+}
+
+/**
+ * Could points ever reach this node at this level: its level met, and the same up the nodes it hangs from (a
+ * modifier's: its Art's)? Ranks, points and a taken sibling modifier don't count: those only take spending (or a
+ * swap). The tree outlines these in their colour so what is in reach stands out from what still waits on a level.
+ */
+export function skillReachable(cls: ClassId, level: number, n: SkillNode): boolean {
+  if (level < n.level) return false;
+  const up = n.kind === 'mod' ? n.art : n.pre;
+  return !up || skillReachable(cls, level, skillNode(cls, up)!);
 }
 
 /** Why a rank can't come out of this node, or null. */

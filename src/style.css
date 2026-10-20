@@ -120,20 +120,11 @@ canvas {
   color: #fff;
   text-shadow: 0 1px 2px #000;
 }
-/* Name, attribute and status badges on one line. */
+/* Name and status badges on one line. */
 .target-head {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-/* The attribute next to the name is plain coloured text: chips under it are affixes. */
-.target-head .attr-tag {
-  margin-top: 0;
-  padding: 0;
-  border: none;
-  background: none;
-  font-size: 12px;
-  font-weight: 600;
 }
 /* Status badges at the right end of the name line: each ring is a clock of the time left. */
 .target-status {
@@ -143,6 +134,57 @@ canvas {
 }
 .target-status:not(:empty) {
   padding-bottom: 10px;
+}
+/* Enemy and boss HP bars (2026-10-16): red, quarter ticks, the % over the middle, at the bottom of the frame. */
+.enemy-hp {
+  position: relative;
+  height: 14px;
+  margin-top: 8px;
+  background: #1a0608;
+  border: 1px solid #3a1014;
+  overflow: hidden;
+}
+.enemy-hp .fill,
+.enemy-hp .trail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+}
+.enemy-hp .fill {
+  background: linear-gradient(#ff5a4a, #b01818);
+  transition: width 0.1s;
+  box-shadow: 1px 0 0 rgba(0, 0, 0, 0.7);
+}
+/* The chunk a hit just took: lingers, then drains (as on the player's bar). */
+.enemy-hp .trail {
+  background: #ffe0c0;
+}
+.enemy-hp .ticks {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 calc(25% - 2px), rgba(26, 6, 8, 0.75) calc(25% - 2px) 25%);
+}
+.enemy-hp-text {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 0 3px #000, 0 1px 2px #000;
+  font-variant-numeric: tabular-nums;
+}
+/* The boss bar has no panel behind it: a taller bar with a shadow to lift it off the scene. */
+.boss-hp {
+  height: 18px;
+  border-color: #5a1a1e;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+.boss-hp .enemy-hp-text {
+  font-size: 12px;
 }
 /* Champions (Hard): a gold frame. */
 .target.champion {

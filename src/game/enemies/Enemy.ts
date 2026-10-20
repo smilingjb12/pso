@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { affixes as affixCfg, elite as eliteCfg, hard as hardCfg, pylonCfg, stagger as staggerCfg, type EnemyArchetype, type EnemyId, type PlayerStatus, type Race } from '../config';
+import { affixes as affixCfg, elite as eliteCfg, hard as hardCfg, pylonCfg, stagger as staggerCfg, type EnemyArchetype, type EnemyId, type PlayerStatus } from '../config';
 import type { CcKind, CcResist } from '../ccResist';
 import { AFFIXES, type Affix } from '../data/affixes';
 import { angleDelta, turnToward, yawTo } from '../collision';
@@ -55,6 +55,11 @@ export interface EnemyContext {
   telegraph(shape: TelegraphShape, duration: number, onFire: () => void, color?: number): TelegraphHandle;
   /** Area attack from this enemy: damage (its ATP x mult) and an optional status if the player is inside. */
   areaStrike(enemy: Enemy, shape: TelegraphShape, atpMult: number, knockback: number, status?: PlayerStatusKind, chance?: number): boolean;
+  /**
+   * The same for chip damage: a ranged shot or an elite affix's side attack (Volatile vents, Molten globs, Frenzied
+   * roars, Stormcaller circles). In the rifts it grows slower than heavy hits (arch.chipMult).
+   */
+  shotStrike(enemy: Enemy, shape: TelegraphShape, atpMult: number, knockback: number, status?: PlayerStatusKind, chance?: number): boolean;
   /** Cosmetic arcing glob (Lily spit). */
   lob(from: THREE.Vector3, toX: number, toZ: number, duration: number, color: number): void;
   /** Cosmetic lightning strike. */
@@ -114,6 +119,9 @@ const MOLTEN_COLOR = new THREE.Color(0x2a140c);
 export const SPAWN_TIME = 0.8;
 /** Poison on enemies is capped so bosses and big HP pools don't melt. */
 const POISON_DPS_CAP = 18;
+
+/** How Burns on enemies stack: the player's Ember Core raises the cap (combat/riftUniques.ts sets it every frame). */
+export const burnRules = { stackCap: 1 };
 /** States an attack's threat share is held through (it is released on entering any other). */
 const ATTACK_STATES: ReadonlySet<EnemyState> = new Set(['windup', 'strike', 'aim', 'cast', 'burst']);
 
@@ -150,6 +158,8 @@ export abstract class Enemy implements Hittable {
   readonly knock = new THREE.Vector3();
   burnT = 0;
   burnDps = 0;
+  /** Burns stacked on it (Ember Core). */
+  burnStacks = 0;
   poisonT = 0;
   poisonDps = 0;
   /** Duration the running burn / poison started from (for the HUD timer). */
@@ -329,9 +339,6 @@ export abstract class Enemy implements Hittable {
   get techResist(): number {
     return this.arch.techResist ?? 0;
   }
-  get race(): Race {
-    return this.arch.race;
-  }
   get aimHeight(): number {
     return 1.6 * this.arch.scale;
   }
@@ -412,9 +419,19 @@ export abstract class Enemy implements Hittable {
     if (effect === 'burn' && this.hasAffix('molten')) return; // made of the stuff
     if (effect === 'stun' && this.frenzied) return;
     if (effect === 'burn') {
+      // Ember Core: the player's Burns stack (each adds its damage) up to the cap, and keep the longest time.
+      if (burnRules.stackCap > 1 && this.burnT > 0) {
+        if (this.burnStacks < burnRules.stackCap) {
+          this.burnStacks++;
+          this.burnDps += power;
+        } else this.burnDps = Math.max(this.burnDps, power);
+        if (duration > this.burnT) this.burnT = this.burnTotal = duration;
+        return;
+      }
       // Burns don't stack: a new one takes over only if it has more damage left to deal.
       if (power * duration < this.burnDps * this.burnT) return;
       this.burnDps = power;
+      this.burnStacks = 1;
       this.burnT = this.burnTotal = duration;
     } else if (effect === 'poison') {
       // power: fraction of max HP per second.
@@ -622,7 +639,7 @@ export abstract class Enemy implements Hittable {
     ctx.telegraph(shape, affixCfg.ventWindup, () => {
       if (!this.alive) return;
       ctx.boom(shape.x, shape.z, shape.radius, AFFIXES.volatile.color);
-      ctx.areaStrike(this, shape, affixCfg.ventAtpMult, 6, 'burn', 1);
+      ctx.shotStrike(this, shape, affixCfg.ventAtpMult, 6, 'burn', 1);
     }, 0xff6a20);
   }
 
@@ -645,7 +662,7 @@ export abstract class Enemy implements Hittable {
       const shape: TelegraphShape = { kind: 'circle', x, z, radius: affixCfg.spewRadius };
       ctx.telegraph(shape, affixCfg.spewWindup, () => {
         // areaStrike leaves the burning patch (any Molten area attack does).
-        ctx.areaStrike(this, shape, affixCfg.spewAtpMult, 2, 'burn', 1);
+        ctx.shotStrike(this, shape, affixCfg.spewAtpMult, 2, 'burn', 1);
       }, AFFIXES.molten.color);
       ctx.lob(from, x, z, affixCfg.spewWindup, AFFIXES.molten.color);
     }
@@ -655,7 +672,7 @@ export abstract class Enemy implements Hittable {
   private roar(ctx: EnemyContext): void {
     const shape: TelegraphShape = { kind: 'circle', x: this.pos.x, z: this.pos.z, radius: affixCfg.roarRadius };
     ctx.boom(shape.x, shape.z, shape.radius, AFFIXES.frenzied.color);
-    ctx.areaStrike(this, shape, affixCfg.roarAtpMult, affixCfg.roarKnockback);
+    ctx.shotStrike(this, shape, affixCfg.roarAtpMult, affixCfg.roarKnockback);
     this.cue('booma.growl');
     // The roar shrugs off a flinch it was in.
     if (this.state === 'hitstun') {
@@ -685,7 +702,7 @@ export abstract class Enemy implements Hittable {
       ctx.telegraph(shape, affixCfg.stormWindup, () => {
         if (!this.alive) return;
         ctx.bolt(x, z, 0xc0a0ff);
-        ctx.areaStrike(this, shape, affixCfg.stormAtpMult, 2, 'paralysis', affixCfg.stormParalysis);
+        ctx.shotStrike(this, shape, affixCfg.stormAtpMult, 2, 'paralysis', affixCfg.stormParalysis);
       }, 0xb090ff);
     }
   }

@@ -1,26 +1,11 @@
-import type { AttackTiming, Race, WeaponWeight } from '../config';
+import type { AttackTiming, WeaponWeight } from '../config';
 import type { AffixRoll } from './itemAffixes';
 import type { StatBonus, StatKey, WeaponFamily } from './stats';
-import { UNIQUES, uniqueItemId, type UniqueId } from './uniques';
-
-/** Enemy races a weapon's race % (an affix) counts against. */
-export type Attr = Race;
-export const ATTRS: Race[] = ['native', 'abeast', 'machine', 'dark'];
-export const ATTR_LABEL: Record<Race, string> = {
-  native: 'Native',
-  abeast: 'A.Beast',
-  machine: 'Machine',
-  dark: 'Dark',
-};
+import { UNIQUES, uniqueItemId, uniqueUnitId, type UniqueId } from './uniques';
 
 /** Normal (white, no affixes), magic (blue, 1-2), rare (yellow, 3-6) and unique (purple, a fixed set). */
 export type Rarity = 'normal' | 'magic' | 'rare' | 'unique';
 export const RARITY_LABEL: Record<Rarity, string> = { normal: 'Normal', magic: 'Magic', rare: 'Rare', unique: 'Unique' };
-
-/** Highest race % a weapon of `tier` can roll (5% steps): 10% at tier 1 up to 60% at tier 11. */
-export function raceCap(tier: number): number {
-  return 5 + tier * 5;
-}
 
 /**
  * Grind levels a weapon, frame or barrier counts as having: 5 at tiers 1-2 up to 12 at tier 15, uniques 2 more.
@@ -29,14 +14,6 @@ export function raceCap(tier: number): number {
 export function grindCap(def: { tier: number; rare?: boolean }): number {
   return 4 + Math.ceil(def.tier / 2) + (def.rare ? 2 : 0);
 }
-
-/** Name suffix for a weapon whose best race % is at least half its tier's cap ("Brand of Beasts"). */
-export const RACE_SUFFIX: Record<Race, string> = {
-  native: 'of Natives',
-  abeast: 'of Beasts',
-  machine: 'of Machines',
-  dark: 'of Darkness',
-};
 
 // ------------------------------------------------------------------ specials
 
@@ -526,6 +503,11 @@ add({ id: 'barrier_6', type: 'armor', slot: 'barrier', line: 'basic', name: 'Pho
 // Weapons have their kind's stats at that tier (and its requirement); armour no requirement and damage taken between
 // the Guard and Combat lines', with no line bonus: the unique effect is the point.
 for (const u of Object.values(UNIQUES)) {
+  if (u.base.type === 'unit') {
+    // A unique unit: one def (no base stats), learned into the Mag on pickup.
+    add({ id: uniqueUnitId(u.id), type: 'unit', name: u.name, tier: 15, rare: true, unique: u.id, desc: u.flavour, price: 90000 });
+    continue;
+  }
   for (let tier = 1; tier <= TIER_PRICE.length; tier++) {
     const id = uniqueItemId(u.id, tier);
     const common = { id, name: u.name, tier, rare: true, unique: u.id, desc: u.flavour, price: TIER_PRICE[tier - 1] };

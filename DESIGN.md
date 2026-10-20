@@ -23,7 +23,20 @@ Living spec agreed during the kickoff interview. Gameplay first, graphics later.
 
 ## Controls (keyboard + mouse only)
 - WASD movement, mouse-orbit third-person camera.
-- **Lock-on** (**Tab**; F until 2026-10-14) targets what the camera is looking at: the on-screen enemy closest to the middle of the view, never through walls (nearest enemy if none is on screen). While locked, Tab steps to the next enemy to the right, and lets go when there is none left to step to. Attacks auto-face the target.
+- **The camera picks the target** (2026-10-16, the user's ask; Tab lock-on until then, F before 2026-10-14): the
+  enemy nearest the middle of the view (within 16° of it, seen from the camera; the current one holds on out to 24°
+  and wins near-ties, so neighbours don't flicker), ahead of her, on screen, never through walls, and **within reach
+  of her bar**: the farthest the basic chain or a slotted Art reaches (a Force with Foie 18 m, else the 13 m bolt;
+  a gun its range; melee at least 8 m). The target frame and reticle show exactly while that holds, so walking up
+  to an enemy you look at brings its frame up the moment it is in range, and backing off drops it. There is no
+  lingering frame after a hit any more. The camera never turns by itself. Attacks auto-face the target.
+  - **Casters aim with the camera only**: bolts and techniques go to the target, or with none along the camera
+    (toward a target too far for that attack: a bolt falls short). Zonde and Barta need a target ("No target"), and
+    one past their reach while Foie's longer one shows it says "Out of range" (nothing spent; the slot's icon goes
+    red). Rafoie and Razonde land on the target, else on the enemy nearest the camera's line, else 8 m out (or as far
+    as they reach toward a target past them).
+  - **Melee and guns** use the target when an attack reaches it, else soft-aim ahead as before (60° / 4 m melee,
+    30° / 18 m guns).
 - **C** snaps the camera behind the player.
 - **Attacks** (2026-10-14, see "Arts"): **LMB** is the basic chain; **RMB, Q, E and R** are the four Art slots
   (Menu → Arts). The HUD's hex cluster shows them with their TP cost and a cooldown sweep. The photon blast fires
@@ -94,6 +107,15 @@ chance never changes from repeated casts (the user: it should always affect a mo
     Blank, Concussive, Vortex) float RESIST. RESIST floats at most once a second per enemy, IMMUNE every 2 s.
 - **Storm ticks don't flinch:** Razonde's strikes and Rabarta's pulses (all but the freezing last one) add no
   stagger. They still deal damage and roll their stun or chill.
+- **Lightning stuns stop scaling, and a storm stuns once** (same day: the user found Razonde still stun-locked
+  whatever the resistance). The stun chance is the technique's own 12% × Kindle (1.5) × Paralyze (2), at most 36%;
+  it used to add 0.03% per point of tech damage, which made 81-100% a strike with Paralyze and Kindle from Lv 46 on.
+  Razonde rolls its stun once per enemy per cast, on the first strike that reaches it (spent if it's already
+  stunned), not on every strike: with a strike every 0.375 s and casts overlapping, a mob got about five tries a
+  second, so a 2 s stun came back within half a second at any resistance. Measured on a Lv 90 Hell Force recasting
+  every 1.5 s (Paralyze, Kindle) against a Booma: stunned 89% / 84% / 77% of the time at 0 / 45 / 75% stun
+  resistance before (0-2 attacks a minute), 33% / 16% / 10% after (12 / 16 / 16 attacks a minute; 22 with no
+  storm on it).
 - **Bosses** are immune to all four. Chill no longer slows a boss's whole fight (it did, telegraphs included, down
   to ×0.75), and stuns no longer pretend to stagger one. Burn, poison, venom, weaken, mark and sunder still land.
 - **Frames:** the enemy frame has a row of chips under the affixes, glyph and % (`⚡ 40%`, or `⚡ immune`), only
@@ -197,8 +219,8 @@ combos feel like traps. The combos stay slow; the dash gives a way out that cost
   mid-dash (a dose is instant), and a dash cancels the drinking pose.
 - A short **recovery** (0.15 s) after it blocks attacks and casts, so it is no free gap-closer. Walking and a
   second dash are fine.
-- **Direction:** camera-relative WASD, and she turns to face it. **Locked on**, W / S close in or back off and
-  A / D circle the target at the same distance, so it doubles as a strafe while she keeps facing it.
+- **Direction:** camera-relative WASD, and she turns to face it. **With a target** (the camera's), W / S close in or
+  back off and A / D circle it at the same distance, so it doubles as a strafe while she keeps facing it.
 - Each dash **sheds one Burn stack** and counts as moving.
 - A photon streak on the floor marks the path; `player.dash` sound (3 variants in the sound lab).
 - Tuning panel: **Dash** folder. Talents change it: **Fleet** (+1 charge), **Slipstream** (dash out of a telegraph
@@ -298,8 +320,9 @@ of anything).
     costs more per cast (the user's call), but damage grows faster than cost, so a Force gets more damage per TP.
   - **Resta** heals 0.6 HP per MST: the MST build heals clearly more at the same level (a Lv 42 Force about 65%
     of her bar, a pure-ATP Hunter about 5%). **Shifta / Deband**: 6.5% per 100 MST, capped at 35%, 60 s.
-  - Zonde's stun chance gets +0.03% per MST. Foie always burns (40% of the hit's damage over 3 s) and Barta always
-    chills (25% slower movement and attacks for 3 s, bosses too: their state machine and telegraphs run slower).
+  - Zonde's stun chance got +0.03% per MST (gone on 2026-10-16: at endgame tech damage it reached 100% a strike; see
+    "Crowd control on enemies"). Foie always burns (40% of the hit's damage over 3 s) and Barta always
+    chills (25% slower movement and attacks for 3 s, bosses too until 2026-10-16: they are immune to slow now).
     Neither stacks: a new burn only replaces the running one if it has more damage left, chill just refreshes.
     Boss Burn is uncapped now (Poison keeps its cap). (2026-10-10: Burn used to be a chance and tick 5 + MST / 40;
     freeze was the same 2 s lockout as Zonde's stun, and bosses ignored both.)
@@ -328,7 +351,7 @@ user, bored at rift tier 16, asked for separate abilities you keybind and use in
 Exile abilities or Diablo spells": pure area ones, single target ones with debuffs. Their calls: **generator +
 spender**; Arts come **from the weapon kind**; customisation by **Art modifiers**, and talents removed completely
 (they became passives, see "Classes, the Mag and passives"); **LMB basic chain, RMB / Q / E / R Arts**, lock-on on Tab
-only, key 1 injector, Space dash and interact; a Force's basic chain is a **free photon bolt**; the photon blast is
+only (gone 2026-10-16: the camera picks the target), key 1 injector, Space dash and interact; a Force's basic chain is a **free photon bolt**; the photon blast is
 picked **on the Mag tab**. Data in `data/arts.ts`, behaviour in `combat/arts.ts`.
 - **Generator + spender.** The **basic chain** (LMB, `basicAttack`) costs nothing, and every step that lands
   refills TP: 6% of the class's base TP at your level, the finisher ×2, a perfect step ×1.5, × the kind's
@@ -365,6 +388,19 @@ picked **on the Mag tab**. Data in `data/arts.ts`, behaviour in `combat/arts.ts`
   burning ground), 46 **Razonde** (a 3 s storm, eight strikes). Base TP 10 / 14 / 18 by tier, Resta 15, through the MST
   formula (`techTpCost`). The fire / lightning / ice damage affixes (foie / zonde / barta
   % until now) cover each element's three.
+- **Razonde's strikes per enemy** (2026-10-16, the user's call): each enemy takes at most 3 of a storm's 8 strikes
+  (Long Storm: 5 of 13); strikes with nobody left to take them are lost. Before, all eight landed on a lone target:
+  casting nonstop (storms overlap, one every 1.5 s) that was about 1,150 power a second on a boss, 2.6× Zonde's
+  ~440 and 1.7× Foie's ~680 with its burn, and about twice Zonde's damage per TP, while you were free to dodge. Now a
+  boss takes 645 a cast, about Zonde's rate for 1.8× the TP; a pack of three or more still takes the whole storm.
+  Considered and left out: bosses taking 75% less from area damage (it would also gut Hunter and Ranger area Arts
+  such as Charged Shot and miss lone champions), and one storm at a time (the user: it ruins room clearing).
+- **Aiming techniques** (2026-10-16, the user's ask): the area techniques that go somewhere (Gibarta, Gizonde,
+  Rafoie, Razonde) go where the camera looks, not where she faces: Gibarta and Gizonde straight along the camera,
+  Rafoie and Razonde onto the nearest enemy within 20° of its line (else 8 m out along it). A lock still wins. She
+  turns to face that way through the cast. The single-target ones (Foie, Zonde, Barta) still soft-aim as before, and
+  Gifoie and Rabarta are around her. Later the same day the single-target ones and the bolt went to the camera too,
+  and the camera's target replaced the lock (see "Controls").
 - **Modifiers**: every Art has two rows of three, one pick per row, opening at the Art's level +10 and +25 (90 at
   most). They change numbers (Long Spin: two more sweeps for +40% TP; Quick Guard: 6 s cooldown), add effects
   (Burning Blade, Vortex, Marking) or change the shape (Twin Crescent, Boomerang). Since 2026-10-15 every modifier is a
@@ -375,7 +411,10 @@ picked **on the Mag tab**. Data in `data/arts.ts`, behaviour in `combat/arts.ts`
   out of the floor replace the additive rings, solid telegraph-style fills and 10 m light columns. Fire: Foie is a
   hot core in an orange glow shedding embers, bursting with a scorch; Gifoie a ring of flame rolling out; Rafoie a
   meteor falling in from beyond the spot onto a glowing landing mark. Lightning: Zonde strikes from above, then
-  arcs enemy to enemy; Gizonde races out along the floor; Razonde's strikes fall on a patch of crawling static.
+  arcs enemy to enemy; Gizonde races out along the floor; Razonde's strikes fall on subtly charged ground (`StaticField`, 2026-10-16: the user found the glowing disc
+  too loud and asked for something subtler and more electric): a faint cloud shadow, a thin jagged rim with pulses of
+  current running round it (so the area still reads), cracks of current flickering over the floor, the odd arc
+  jumping off it, and a few cracks spreading out from each strike.
   Ice: Barta and Gibarta grow crystals (Gibarta row by row across the cone); Rabarta is a swirling snowstorm over
   frost that blows out at the freeze. Supports: motes rising over a glow at her feet. Burning and frozen ground
   (any Art's) are scorch or frost with embers or glitter rising. Hits that repeat on a rhythm (Rabarta's pulses,
@@ -467,8 +506,19 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
   Later the same day the user asked for the modifiers to be part of the tree too (they sat in the Art's details), for
   Force's Support tree to go (its nodes spread over the other trees), and for Shifta and Deband to go from the game.
   - **Trees, one on screen at a time** (`skills.ts` lays them out): lanes of Arts on the left, each Art over its
-    **modifier fork** (two rows of three), the next Art of the lane below that; passives in two wider columns on the
-    right, below what they hang from. Hunter Sword · Saber · Dagger · Combat (Leap → War Cry → Iron Will, and a Resta
+    **modifier fork** (two rows of three) on a faint panel, the next Art of the lane below that; passives in up to
+    three columns on the right, beside or below what they hang from. Every node is the **same square icon** (the user,
+    2026-10-15: "instead of text put an icon on each node"): Arts their own glyph, passives a symbol in their role's
+    colour, modifiers a symbol in their Art's colour (`ui/skillIcons.ts`; the three of a row always differ). Names show
+    on hover and in the details pane, which leads with the icon large. Lines run at right angles: an Art spine down
+    each lane's left side, org-chart forks under each Art, Art-to-passive lines out of the Art's right side and down
+    a gutter, passive chains straight down; placement keeps every line off other nodes (a test checks it). Lit lines
+    (gold) lead to skills with points; the rank sits in a corner badge, gold at the top rank. Three looks (the user's
+    calls, 2026-10-15/16): **learned** (frame, fill and glow in its colour), **in reach** (its colour as the frame
+    only, the icon grey until a point goes in: points could get it at this level, even if it first needs ranks in what it hangs from or a sibling modifier
+    swapped out; `skillReachable`), **out of reach** (the whole square faded far back: a level stands in the way, there
+    or up its chain). The tree keeps its scroll while you click about in it (`data-scroll` on a menu element keeps its scroll
+    across re-renders while its value stays the same). Hunter Sword · Saber · Dagger · Combat (Leap → War Cry → Iron Will, and a Resta
     lane, with the general passives); Ranger Handgun · Rifle · Shot · Gunnery (Freeze Trap → Backflip Shot → Grenade,
     and Resta); Force Fire · Lightning · Ice (Resta's lane sits in Ice, with Barrier / Purify / Composure; Calm Mind,
     Siphon Staff and Clarity in Lightning; Efficiency in Fire). Chains: Foie → Gifoie → Rafoie, Cyclone → Ground
@@ -523,16 +573,17 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
   Field drops roll 40% normal / 47% magic / 13% rare (elites 2.5× the rares); boss gear is at least magic, the
   Nightmare top weapon and all Hell boss gear rare. Shops sell white and blue only.
   - **Prefixes** are offence plus flat HP and TP, so survivability competes with damage for the same 3 slots;
-    **suffixes** are defence, utility, race % and resistances. A weapon's rolled special (Heat, Ice, Shock, Draw,
-    Dim, Venom) counts as a prefix. No affix twice, one race active at most. Counts are fixed (2026-10-13, the
+    **suffixes** are defence, utility and resistances. A weapon's rolled special (Heat, Ice, Shock, Draw,
+    Dim, Venom) counts as a prefix. No affix twice. Counts are fixed (2026-10-13, the
     user's redesign; they were ranges) and rares hold **dormant** affixes too (see "Crafting: Photons"). Draw
-    weights: 1 a normal affix, 1.2 a weapon special, 0.5 a race % or downside (race was 1.5, and 97% of rift
-    weapons had one; still ~90% on melee, whose only other suffixes are LCK, Haste and Stagger).
+    weights: 1 a normal affix, 1.2 a weapon special, 0.5 a downside. (Race % drew at 0.5 too, 1.5 before
+    2026-10-13, until it went with enemy races on 2026-10-17; see "No enemy races".)
   - **Item level** = the band the item's tier drops in (T1 1 ... T7 37, T11 77, T15 98); it decides the best of six
     strength tiers an affix can roll (tier 1 from iLvl 1, 10, 22, 36, 55, 80), usually the top one, sometimes one or
-    two below. Race % rolls in 5% steps up to the weapon tier's cap (`raceCap`); Haste (and Frail) only from tier 8, 1% up to
+    two below. Haste (and Frail) only from tier 8, 1% up to
     `hasteCfg.capByTier`.
-  - Pools (numbers only): every weapon ATP %, flat ATP, LCK (crit), race %, Haste; melee stagger % and
+  - Pools (numbers only): every weapon ATP %, flat ATP, LCK (crit), Haste, TP refill % (Flow) and injector charge;
+    melee stagger % and
     finisher damage; guns damage falloff distance and perfect-shot damage; staves technique damage,
     flat MST, Foie / Zonde / Barta damage, TP cost and TP regen (1-2 TP/s, in fights too: a fighting
     chance once the injector is dry; it was +TP per staff hit until 2026-10-10). Cast speed (casts only, caster
@@ -560,11 +611,29 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
     learned unit isn't slotted). Frame cards show "Unit slots: N", and the frame verdict counts them (more slots, more
     active units). Old saves learn every unit they had (Mag and bag, the best of each kind) and keep the Mag's slots.
     Units are the deliberate part of a build: four TP units behind a 4-slot frame is a glass cannon on purpose.
+    **Unique units** (2026-10-17, Rift Circles; `uunit_<id>`, see "Uniques") are learned the same way, a kind of
+    their own each (`unitKind` is the unique's id), with an effect and a cost instead of an affix; as many as the
+    frame's unit slots allow can run (unique frames have 2). A second copy is junk.
   - **Uniques**: the thirty from this pass were deleted on 2026-10-12 (see "Uniques").
   - **Hit %** is gone (accuracy was already capped). Grinders are unchanged (Edge or a race per level).
-- **Races follow the expeditions** (2026-10-07, like PSO): Forest (Boomas, Dragon) **Native**, Caves **A.Beast**
-  (except the Native lilies and the Dark De Rol Le), Mines **Machine**, Ruins (and Dark Falz) **Dark**.
-- **Item names** (`itemName`): magic items take a word from their prefix and their suffix (`Heat Brand of Beasts +3`,
+- **No enemy races** (2026-10-17, the user's call). From 2026-10-07 they followed the expeditions like PSO's: Forest
+  (Boomas, Dragon) Native, Caves A.Beast (the lilies Native, De Rol Le Dark), Mines Machine, Ruins and Dark Falz
+  Dark, and a weapon's race % affix (up to 80% at tier 15) multiplied its damage on that race. It made bosses a
+  gear check: a rift ends at a random one of the four bosses, two of them Dark, so a Dark 80% weapon fought them as
+  if five rift tiers lower (the ladder's HP ×1.12 a tier), and you only learned which at the teleporter. Gone with
+  them: the four race % affixes (and their "of Beasts" names), the attribute tag under a target's and boss's name,
+  the Damage tab's race picker, the card's per-race table and the Photons' race rules. The user's picks:
+  - **Two weapon suffixes take race %'s place**, so a Hell melee or ranged rare draws its 3 suffixes from 5 (LCK,
+    Haste, Stagger / Reach and these), not always the same 3: **TP refill** (`tpRefill`, "of Flow", every weapon:
+    basic hits refill 3-20% more TP, counted in the Damage tab's sustained Art rates) and **Injector charge**
+    (`injCharge`, now on weapons as well as frames).
+  - **Pylon light and blasts hit every enemy**: the light slowed and exposed only Dark enemies, Garanz missiles and
+    Volatile blasts hurt only machines. In their home areas that was everyone anyway; in a rift it was a hidden rule.
+  - **No damage given back**: race % was a bonus on top (about +20% on average across a rift's mixed waves for a
+    max-race weapon, +80% on a matching boss), and the rift numbers stay.
+  - **Old saves:** race rolls are dropped on load (`readAffixes`: unknown ids) and `upgradeCrafting` tops the item
+    back up to its counts with fresh rolls (seeded by its uid). The Mines' clank and spark sounds key on their AIs.
+- **Item names** (`itemName`): magic items take a word from their prefix and their suffix (`Heat Brand of Luck`,
   `Heavy Buster`, `Guard Armor of Grace`); rares a rolled two-word name by what they are (`Doom Edge +2`, the base
   shown on the card); uniques their own name; injectors their mod (`Steady Star Fluid Injector`); units their
   affix's unit name (`Heart Unit`).
@@ -576,8 +645,8 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
   flat affixes of a tile's stat fold in as a blue +N, and each tile shows its change against the equipped piece.
   **Affixes** (the rest): a green dot, or a red one for a downside affix (2026-10-09: per-role colours read red as "bad"), each tagged **new** or with its
   change; flat stats compare as totals, penalties included. **You'd lose**: what only the equipped piece has, struck
-  through. **Chips**: special, unit slots as pips. Weapons end with the damage table (races without a
-  bonus on either weapon collapse into one row; cells show % against the equipped weapon). Flavour text only where
+  through. **Chips**: special, unit slots as pips. Weapons end with their damage per second (cells show %
+  against the equipped weapon). Flavour text only where
   an item has its own (uniques, units, consumables); the armour lines' repeated blurb is gone.
 - **Verdicts**: all gear is judged by **damage per second** against the current expedition's average enemy (the
   selected technique for casters); armour falls back to its **rating** (its stats and affixes weighted for the
@@ -613,9 +682,6 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
   - **Supply:** the drop table's grinder share (8) went to photons (4 -> 12); bosses' grinders became photons of the
     boss's tier (Normal tiers only make Photon Drops). Pre-ground drops are gone.
   - **Old saves:** grinders leave the bag (unknown items are dropped on load); saved grind and Bane levels are dropped.
-  - Races per expedition, for race affixes: Forest trash and the Dragon are **Native**; Caves trash ~70% A.Beast /
-    30% Native (Poison Lilies) with a **Dark** De Rol Le; Mines trash and the Warden are **Machine**; the Ruins and
-    Dark Falz are all **Dark**.
   - (History: 2026-10-07 grinding became Edge or a race per level, caps 5-9; 2026-10-11 races went and armour took
     levels too, then the same day grinders went entirely.)
 - Requirements to equip are **the character's level** (the item's item level) since 2026-10-14; they checked base +
@@ -698,11 +764,13 @@ player deep in an expedition without them had no way back up; and the consumable
 - One or two switch/key puzzles. The layout is the same every run.
 
 ## Enemies (first playable)
-- **Booma family:** Booma → Gobooma → Gigobooma (stat/behaviour tiers). Native, like the Dragon.
+- **Booma family:** Booma → Gobooma → Gigobooma (stat/behaviour tiers).
   Melee brawlers with slow, clearly telegraphed swipes. Wave composition varies the mix.
 - **Boss — Dragon-style:** arena fight with phases: ground stomps, fire-breath cone, burrow phase,
   head/belly weak point. The eruption out of the burrow is the game's first **dash check** (see Dash checks);
-  enraged stomps hit 7 m instead of 6.
+  enraged stomps hit 7 m instead of 6. Below 40% HP (enraged) the breath turns after you while it fires, at
+  `enragedBreathTurn` 0.35 rad/s (~36° over the 1.8 s breath; 2026-10-17, the user: was 0.7, "very hard to dodge").
+  A walk out of the cone started in the windup keeps ahead of it to ~13 m. A Hell triple's breath holds its aim.
 
 ## Hub
 - **Shops:** weapon, armor, item. Buy/sell, with partly random stock that scales with level.
@@ -897,7 +965,7 @@ in `config/` (the tuning panel's **De Rol Le** and **Caves** folders edit them l
 ### Hazards (`world/Hazard.ts`)
 - **Lava vents**: a 6.5 s cycle with a 1.6 s countdown (the ring fills) and a 1.4 s fire column. It hits the
   player once per eruption (70, softened by DFP) and enemies for 30% of their max HP, so luring brutes in pays.
-- **Poison marsh**: elliptical pools that poison you and slow you to 70%. Natives ignore them. Lilies sit behind
+- **Poison marsh**: elliptical pools that poison you and slow you to 70%. Enemies ignore them. Lilies sit behind
   them.
 
 ### Waves
@@ -908,9 +976,11 @@ in `config/` (the tuning panel's **De Rol Le** and **Caves** folders edit them l
 ### Boss — De Rol Le (`enemies/DeRolLe.ts`, `models/derolle.ts`)
 - **Arena**: a 10 × 30 m raft. Water, foam, mist and canyon walls scroll past while the raft stays still.
   The worm is a head plus 3 big segments that follow the head's swim trail (few parts, so multi-target techs can't hit a crowd of them). Parts under water can't be hit.
-- **Phase 1**: each segment's shell plate passes 30% of damage to the boss until it breaks. The mask works the
-  same way (950 HP, ×1.5 while the head rests). Breaking the mask, or dropping the boss to 50%, shatters the
-  shell and starts **phase 2** (+15% damage taken, faster, shorter gaps).
+- **Phase 1**: its shell (plates on the segments, a bone mask on the head) is only a look: every hit lands in full,
+  ×1.5 on the head while it rests. At 50% the shell shatters and **phase 2** starts (faster, shorter gaps).
+  (Until 2026-10-17 each plate and the mask passed only 30% of damage until broken, breaking the mask started phase
+  2 early, and phase 2 took +15%: about 1.17× its bar to kill. The user dropped it when rift bosses were evened out;
+  base HP went 12778 → 15000 so fights outside rifts keep their length.)
 - **Attacks**:
   - **Bomb barrage**: swims alongside, in reach of the deck edge. 3 volleys (4 in phase 2), each a row across
     the deck, a cross on you, or a scatter. Phase 2 barrages end on a **bomb ring** around you (a dash check).
@@ -979,11 +1049,11 @@ Agreed in the third design interview (2026-10-07) and built the same day. Number
   blasts, the Warden's laser wall, its lockdown zones and Spark Mites.
 
 ### Enemies (`enemies/mineEnemies.ts`, `models/mines.ts`)
-- Machines are plain fights; the weapon's **Machine** attribute % is what matters (no plating or weak points).
+- Machines are plain fights (no plating or weak points).
 - **Gillchic** (gunbot): closes to ~9 m (never backs off, so melee can catch it), telegraphs a line shot (0.95 s),
   swipes with its pincer up close. The one gunbot type; node links make the difference.
 - **Garanz** (artillery tank): walks slowly, **plants** (it can't turn) and fires a 5-missile barrage at where you
-  stand; missiles only reach targets in front of it. Missile blasts also hurt other machines (12% max HP) and
+  stand; missiles only reach targets in front of it. Missile blasts also hurt other enemies caught (12% max HP; only machines until 2026-10-17) and
   **flip power switches**. Crowd it while it walks and it stomps.
 - **Sinow Beat**: circles at 5–8 m, crouches (landing circle), **leaps** in with a 3-hit combo (the last hit
   burns), then **backflips** away and lands in a 1.25 s recovery: the punish window. Pairs take turns.
@@ -1055,7 +1125,7 @@ asked for the environment to be **darker and more ominous** than the first, brig
 - **Unlock:** the city teleporter offers the Ruins once the Warden is dead (`needs: 'warden'`).
 - **Ruin 1** (the outer temple, 7 rooms with a gate switch side room) → teleporter → **Ruin 2** (the inner sanctum,
   7 rooms; its first room has the teleporter to Pioneer 2) → teleporter to **the Altar** (Dark Falz).
-- Tuned for **Lv 32–42**; every enemy is **Dark** (Dark % and Dark grinding finally pay).
+- Tuned for **Lv 32–42**.
 - Normal elites (1 in 12) roll **Shielding** or **Regenerating** (`RUINS_AFFIXES`; the Mines roll Overclocked /
   Volatile).
 
@@ -1083,8 +1153,8 @@ asked for the environment to be **darker and more ominous** than the first, brig
 - 1–2 per room (`pylons` in the room data), solid obelisks with a crystal. **R lights one**: a **5 m** circle for
   **10 s**, then **20 s** to recharge (a ring fills; the prompt counts down). A faint inlaid ring on the floor shows
   each pylon's reach even while dark.
-- Inside the light: Corruption sheds, and **Dark enemies are slowed (tempo ×0.7) and take +25% damage** (Dark Falz
-  too, if it stands in one). Luring pays.
+- Inside the light: Corruption sheds, and **enemies are slowed (tempo ×0.7) and take +25% damage** (Dark Falz
+  too, if it stands in one). Luring pays. (Only Dark enemies until races went on 2026-10-17: all of the Ruins'.)
 - **Chaos Sorcerers** blink beside a lit pylon in their room and drain it out (1.2 s, violet tendrils on the pylon);
   any hit interrupts them. The Seal / Halo make pylons you light burn 50% longer.
 - Four pylons stand near the Altar's rim.
@@ -1116,7 +1186,11 @@ On a round altar (14 m radius) floating over the void. **14000 HP, 450 ATP**, th
 skipped. Each change of form takes 2.6 s (untouchable).
 - **Form 1, the husk (100–70%):** a crystal cocoon with a great eye hovers at the centre. **Darvant lanes**: three
   waves of three parallel lanes across the altar (one always on you), each wave's warning showing as the last one
-  fires, Darvants streaking along them; a **ring dive** (a 3.2 m circle on you, Darvants spiralling in); stand
+  fires, Darvants streaking along them. Lanes (2.6 m) sit on slots 3.6 m apart and never on neighbouring ones
+  (2026-10-17, the user stood between two and was hit: their 1 m gap looked safe, but every hit counts your body,
+  0.45 m round, so only its middle 0.1 m was; 74% of waves had one). The narrowest gap is now 4.6 m. Checked: the
+  drawn red areas match the hit areas exactly (7,200 sampled points), and standing midway between two lanes took no
+  hit over 30 waves. A **ring dive** (a 3.2 m circle on you, Darvants spiralling in); stand
   within 6 m and it often **pulses** a corrupting 5.5 m shockwave. After a lane or ring flight **the husk opens for
   3 s (×1.5 damage)**. Everything is walkable.
 - **Form 2, Dark Falz (70–35%):** a winged demon with scythe arms glides after you. **Scythe** sweep up close (110°
@@ -1241,15 +1315,20 @@ expeditions on up the level curve, PSO style, and gets harder through mechanics 
   Considered and left out: Insulated (half technique damage; the name went to the freeze-resistance CC affix on
   2026-10-16) and Frost aura (slow).
 - **Enemy frame:** a coloured chip per affix under the name (2026-10-07: the first-time description lines and the
-  "[LOCK]" tag were removed; the lock-on reticle already shows the lock), and since 2026-10-16 a row of
+  "[LOCK]" tag were removed; the lock-on reticle already shows the lock; since 2026-10-16 the frame is the camera's
+  target's, see "Controls"), and since 2026-10-16 a row of
   crowd-control resistance chips under them (see "Crowd control on enemies").
+- **Enemy HP bar** (2026-10-16, the user's ask; PSO showed none): a red bar across the bottom of the frame, under
+  the CC chips, quarter ticks, the % in its middle (rounded down, never 0% while alive), and the player bar's damage
+  trail (a hit's chunk lingers 0.5 s, then drains). Switching targets resets the trail. The boss bar has the same bar
+  at its bottom, taller (18 px), for the whole boss's HP (Dark Falz's three forms share one bar).
 - **Crowd-control resistance** (2026-10-16): 30% of regular Nightmare enemies roll one CC affix, elites one,
   champions two, at 20-35% each (see "Crowd control on enemies").
 
 ### Bosses
 - HP ×13.5 / ×7.8 / ×2.45 / ×2.4 and ATP +375 / +345 / +320 / +310 (Dragon / De Rol Le / Warden / Dark Falz; before
   the shift ×9 / ×6.5 / ×1.9 and +330 / +300 / +270). Flat damage (breath and beam ticks, the laser wall, burning
-  zones) ×3.2 / ×2.4 / ×1.9; mask and shell plates scale with HP. The Warden's Repair Drones
+  zones) ×3.2 / ×2.4 / ×1.9; mask and shell plates scaled with HP (the shell soaks nothing since 2026-10-17). The Warden's Repair Drones
   heal off the Normal HP pool (times the flat multiplier), not the bigger bar, or two drones would out-heal a
   Lv 70 player. XP 3600 / 6400 / 9000 / 12000.
 - **Paired attacks:** two telegraphs at once in the later phase, always with a safe route:
@@ -1434,15 +1513,145 @@ mechanics); `src/game/difficulty.ts` names the three difficulties.
     - First two warn 2.0 s (1.6 s enraged), the third 0.3 s later; the wall sweeps as usual and the core vents after.
 - **Dark Falz**: no fourth form. On Hell its **third form** (the Angel; "empowered by Hell!") makes every second
   attack a triple, the two taking turns, each opening with a violet ring and pillar flare:
-  - **Eclipse** (first one says "The dark swallows the altar: only the light is safe"): the safe Grants pillar lands
-    4–6.5 m from you (5–11 m from the centre), two more at ±120° round the altar; they land at 1.3 s and leave light.
-    At 2.8 s both halves go dark at once (violet, corrupting) and anyone in a light pool is spared; feathers fire with
-    the dark, fanned so the two other pools have no gap. Walk to the near pool, step in when its pillar lands.
+  - **Eclipse** (first one says "The dark swallows the altar: shelter in the light the feathers spare"): the safe
+    Grants pillar lands 4–6.5 m from you (5–11 m from the centre), two more at ±120° round the altar; they land at
+    1.3 s and leave light. The pillars are harmless (2026-10-18, the user got hit walking into the safe pool before its
+    pillar landed: it used to strike, and "step in when it lands" was never told). At **4 s** both halves go dark at
+    once (violet, corrupting) and anyone whose body touches light (a pool, or a lit pylon) is spared (it used to need
+    your centre in one of the pools); feathers fire with the dark, fanned so the two other pools have no gap. (It was
+    2.8 s, cut ×0.8 by the enrage; 2026-10-17, the user: too little time to react. Now `eclipseWindup` 4, never cut:
+    4.7 real seconds on Hell at the Angel's ×0.85, 4.1 in a rift; the pools' 4 s of light still outlast it.)
   - **Judgement**: the altar splits and your half goes violet; a 100° feather wing covers the far quarter of the
     other half and a 7 m lance runs from the Angel across it. All fire at 2.1 s (×0.8 enraged). Safe: the near
     quarter of the other half, past the lance.
 - Numbers in each boss's block of `config/bosses.ts` (`phase3At` / `hellPhaseAt`, `tripleEvery`, the windups and
   widths). Smoke test (bot, HP lowered): all four reach the Hell phase, Nightmare bosses never show more than their pairs.
+
+### Boss mechanics
+Built 2026-10-16/17 (the user: "tree of savior / world of warcraft kind, where you need to soak something or do
+something besides just dodging"; one agent per boss, each in its own worktree). Hell only, all fight long (not just
+the third phase), so rift bosses have them too; Normal and Nightmare are unchanged. The user picked each boss's
+mechanic from a pitch: the Dragon's and the Warden's are their own reworks of it, De Rol Le's they cut down to a bomb
+that poisons, and Dark Falz's they took as pitched. Not done: rift-only boss affixes. Each one keeps its windows
+possible at a rift's tempo with a floor (noted below); they were built when rifts reached ×1.3, and since
+2026-10-17 rift bosses run at a fixed ×1.15 (see "Falz Rifts" > "Scaling"), so most floors no longer bite.
+- **A failed mechanic** (the Dragon's rampage in the open, a beat off the Warden's cell) lands `hell.mechanicHit`,
+  **80% of max HP** (Corruption's cut not counted), past armour and damage taken (`BossContext.mechanicHit`,
+  `Combat.mechanicHurt`). Two in a row kill from full; Corruption makes one do it. `BossContext.lightAt` gives bosses
+  the pylon / Grants light test.
+- **Dragon: Hellfire Rampage.** She roars, lowers her head and tracks you through a 2.4 s windup (`rampageWindup`, cut
+  by the enrage, never under **2.0 real seconds**, `rampageWindupFloor`: 7.6 m walked after a 0.35 s reaction). A
+  violet lane runs from her to you and ends at the rock covering you, if one does; every standing rock lays its shadow
+  on the floor (a dark wedge with pale edges: the area the cover check counts) and the rock covering you lights up. The
+  first one says "Hellfire Rampage: hide behind a rock!". At the launch she charges down the line (24 m/s): through a
+  **cover rock** short of you, she crashes into it, the rock shatters and she is **stunned, weak point open**
+  (`stunDuration`); in the open she homes in (no sidestep or dash gets out of it) for the failed-mechanic hit, knockback
+  20. Due 6 s into the fight, then 16 s after the last (`rampageFirst` / `rampageEvery`), on a normal attack's turn,
+  never a triple's (~20-25 s apart); never within 6 s of an eruption or 4 s of stalking before a timed burrow; only when
+  a shadow is within walking reach (else a normal attack, and it stays due).
+  - **Cover rocks** (Hell and rift arenas): 7 dark standing stones with pale veins and a ring at the foot
+    (`coverRocks`, `coverRockR` 1.5 m), three round the middle and four toward the corners (the coverage sim's best
+    layout: median walk to a shadow 4.6 m). They block like tree trunks (`level.trees`), and a plain or triple charge
+    stops at one like at a wall; the rampage and the eruption break them, leaving rubble. Broken ones **rise again** over 1.2 s
+    (`rockRise`) at every burrow, and whenever a rampage is due with fewer than 2 standing (`rampageMinRocks`; it
+    waits), each only once nobody stands on its spot. Placed from her spawn + 6 m (`ARENA_FROM_SPAWN` in
+    `enemies/dragonRampage.ts`, matching `createBoss`). A rock within 4.5 m of you fades to 30% (`seeThrough`): the
+    3.7 m stones filled the screen when you hid behind one (the camera trails you; there is no occlusion fade
+    anywhere else).
+  - **The eruption breaks them** (2026-10-17, the user: "so you don't just mindless run and dash out of the circle").
+    Every rock whose footprint the red eruption circle reaches shatters with the blast (`CoverRocks.blast`), and a
+    broken one inside it stops waiting to rise; while it winds up, the doomed rocks' veins and foot ring pulse in the
+    warning's red, and no rock rises inside it. They come back at the next burrow, like the rampage's, and no rampage
+    comes within 6 s of an eruption, so where you lead the mound in its 4 s chase decides the cover you have for the
+    next rampage. One blast breaks at most the three middle rocks (in the middle of them), never a corner one with
+    them, so at least 4 always stand (a test pins it). Checked in the game: an eruption at the centre broke the three
+    middle rocks; one 3 m off it broke the two it reached.
+  - Scripted player (0.35 s reaction, then walk to the nearest shadow): 14 of 14 random rampages ended in a crash at
+    base tempo; 16 of 16 at tempo 1.3 enraged (windup 2.02 s; 4 more setups had no shadow in reach and waited). In the
+    open: exactly 80% of max HP.
+- **Dragon: fire rain** (2026-10-17, the user: the Dragon was a bit too easy; "it should overlap with other mechanics
+  or be on a random timer"). On its own clock, beside everything else (rampage, triples, burrows): 8 s into the fight,
+  then every **12-18 s** (`fireRainFirst` / `fireRainEvery`). Each batch warns **three orange circles on you** (2.8 m,
+  `fireRainRadius`), 1.2 s apart (`fireRainStagger`); each lands **2 s after its warning** (`fireRainWindup`) as a
+  fireball falls out of the sky onto it, so warnings and landings take turns: warn 1, warn 2, land 1, warn 3, land 2,
+  land 3 (`fireSchedule`, `enemies/dragonFire.ts`; it needs stagger < windup < 2 × stagger, which a test pins). A
+  landing hits for 1.1 × ATP with Burn and leaves **burning ground for 7 s** (`fireRainLife`; a glowing disc with a
+  bright rim and rising embers): 12 flat damage (× the difficulty's flat multiplier: 48 on Hell) every half second and a
+  Burn stack every second while you stand in it. The first batch says "Hellfire rains down: keep moving!". Her time
+  throughout (a rift's tempo); the enrage doesn't shorten it. Checked in the game (Hell, Lv 85): first warning 8.15 s
+  in, then warn 2 at 9.45, land 1 at 10.25, warn 3 at 10.75, land 2 at 11.55, land 3 at 12.75; standing in a patch
+  took 4 ticks of 48 in 2 s and built Burn to 5 stacks.
+- **De Rol Le: poison bombs.** Every 17 s of fight (`hellBombEvery`; the first 5 s after the intro; phase 3 lobs two;
+  never more than 2 on the raft) it lobs a spiked mine (`enemies/PoisonBomb.ts`) from a back segment, or out of the
+  water, onto the deck 4-8 m from you, clear of its body, the other bomb and old poison. The first says "Destroy the
+  bomb before it blows!". It sits armed for a **9 s fuse** (`hellBombFuse`; a ring round its base fills green to red,
+  the light on top blinks faster, an outline marks the 5.5 m blast, the last 2 s a normal telegraph). **Anything can
+  destroy it**: it is a camera target of its own (`DeRolLe.parts()` includes armed bombs; `owns()` counts only the worm)
+  with `hellBombHp` 500 × the difficulty's boss HP (12,310 on Hell, growing with the rift tier), the boss's armour,
+  technique resistance and race, and an HP bar over it; none of it comes off the boss, it gives no injector charge and
+  CC, Burn and poison don't take. Destroyed, it fizzles. Otherwise it blows for 1.2 × ATP with poison within 5.5 m and
+  leaves **eight 2.3 m poison puddles** (one in the middle, seven 3.4 m out; ~5-5.7 m in all) for 22 s. The fuse never
+  runs under 8 real seconds (`hellBombFuseFloor`). Around the triples: no lob while one is up, no bomb starts its
+  warning during one, a triple waits for a bomb already warning, and a triple whose pocket would hold a bomb or its
+  poison isn't one this time (the slam tries the other side, else slams once; the beam falls back to the Nightmare
+  pair). Bot, Lv 90, shop-clean tier 12: a Hunter destroys one in 1-2.4 s of focused damage, a Ranger 1.8-2.6 s, a
+  Force 1.4-5 s. Ignored bombs soften phase 3 (7 of 11 triples fell back with the raft full of poison).
+- **Warden: the sequence** (a memory test). The fight's 2nd attack, then every 4-5 (`seqFirst`, `seqEvery`; on a
+  triple's slot it takes the next one; never during the intake).
+  - **The shield** (2026-10-17, the user's call: the sign a sequence starts, and fair to melee and ranged alike): it
+    opens by raising a dome over its chest (a faint shell and a turning wireframe lattice, 0.5 s to grow; it flares
+    when hit). While it is up it takes **20% of damage** (`seqShield`); the bar shows `SEQUENCE · SHIELDED`. It stays
+    up through all three discharges and drops (a ring, `warden.purge`) as the last one fires, when the core vents.
+    The first says "It shields itself: remember the sequence!".
+  - **The show**: 0.6 s after the shield (`seqLead`) the **first cell** lights in blue under a **pillar of light** and
+    stays lit **2.5 s** (`seqFind`) so you can find it; then the other two light 0.75 s apart, 0.6 s each. Each rings a
+    higher note (`ui.confirm` ×1 / ×1.26 / ×1.5). All three lie in the **two rows nearest it** (`seqRows`; 2026-10-17,
+    the user: you fight close to it, and cells farther out went unseen), the first within 4 cells of yours
+    (`seqFirstReach`: ~6.5 s from it lighting to the first discharge is ~25 m on foot, so from anywhere on the deck),
+    each next one beside the one before, all different, never burning, in front of the core (the triples' rule) or
+    under a parked Repair Drone (`planSequence`, `enemies/wardenSequence.ts`; with no chain that fits it attacks
+    normally). (Until 2026-10-17 the first cell was yours or a neighbour anywhere on the deck, the three flashed 0.75 s
+    apart with no hold, and there was no shield.) Then they go dark (0.6 s) and the **whole
+  deck discharges three times, 1.9 s apart** (`seqBeat`; one red warning over the whole deck that never shows the safe
+  cell; the bar shows `SEQUENCE k/3`), sparing only that beat's cell. Safe only if your centre's cell is that beat's
+  (no grace: a corner shared by an L-shaped sequence would otherwise dodge every beat): the cell flashes green; off it,
+  the failed-mechanic hit and the right cell flashes blue. Then its **core vents**. Spark Mites short out when it starts,
+  drones keep beaming, lockdown cells keep burning, no other attacks, and the enrage doesn't shorten it. Reach: the
+  worst step (a cell's far corner to 0.5 m inside its diagonal neighbour) is 6.36 m, 1.73 s on foot with a 0.35 s
+  reaction. At a rift's tempo the beats never drop under **1.5 real seconds** (`seqBeatFloor`, from tempo ~1.27):
+  walking covers 5.3 m and walk + a dash 7.8 m, so a diagonal step from a far corner is a dash check there. Sim (Lv 93
+  Hunter, max HP 1408): standing still took 1126 on every off-cell beat; a walker following the cells took nothing.
+  With the shield (Lv 95): the show runs 5.2 s and the discharges 5.7 s, all of it shielded (a 1000 hit lands 200);
+  a walker stepping onto each beat's cell took nothing and the shield dropped with the vent.
+- **Dark Falz: the Dark Tide and Doom** (the user's pick of the pitch: "the four altar pylons become your tool instead
+  of decoration"). Each on its own clock beside the attacks (`tide*`, `doom*`).
+  - **Dark Tide** (form 3; the first 2 s after the Angel arrives: "Dark motes feed the Angel: walk through them or light
+    their way"): every 12-15 s, **3-4 motes** rise one after another at the rim (13 m out, spread evenly) and drift to
+    the Angel at 1.4 m/s (~8 s). Each that arrives **heals 1.5% of max HP** (never past the 35% form share).
+    **Walking through one absorbs it: +1 Corruption**, no damage. **Light dissolves them** (a lit pylon, Grants or
+    Eclipse pools). 60% of tides come down the pylons' spokes, 8-16° off them, so each path crosses a pylon's light
+    ~2.7 m from it. Violet-black with a bright rim, a trail and a floor glow; the bar shows `DARK TIDE ×n` and `HEALED`.
+    Ignoring a whole tide of four heals 6%, about 17% of the form-3 bar.
+  - **Doom** (forms 2 and 3; the first 8 s into form 2, then every 20-28 s; "Doom: end it in the light!"): a violet
+    sigil under you (a shrinking ring, gold while you stand in light), a mark over your head and a line from the boss
+    count down **6 s** (real time; the bar shows `DOOM n`). **Touching light cleanses it at once** (2026-10-17, the
+    user's call: it used to wait out its count while you stood in the light), and it is never laid on you while you
+    stand in light (it looks again in 2 s). If the count runs out first it
+    **bursts**: ×1.4 ATP in a 3 m blast, **2 Corruption**, Darvants streaking out (visual). **There is always light to
+    reach**: in form 2 it comes with Grants (no Megid orb) whose pools stay lit until it ends; in form 3 the Angel casts
+    it only while a pylon within 12 m of you is ready (or lit for the whole count), watching the pylons' light to know
+    (positions from `areas.falz.rooms[0].pylons`), else it waits. While a Doom runs it uses only the scythe (form 2) or
+    feathers (form 3), none landing within 1.2 s of its end; no slam, lance or triple until it is over. A change of form
+    wipes it. At a rift's tempo the Doom never drops under 5 s and motes never pass 1.6 m/s.
+  - **The Angel runs 15% slower on Hell** (`angelTempo` 0.85, tuning panel **Dark Falz**; 2026-10-17, the user: its
+    mechanics came a bit too fast): attacks, telegraphs, triples, the tide and Doom alike, on top of a rift's ×1.15
+    (×0.98 in all there). So on Hell its windups are ~18% longer, motes drift at 1.2 m/s, tides come every 14-18 s and
+    Doom counts 6.9 s. Forms 1 and 2 and Normal / Nightmare are unchanged.
+  - Checked in the browser: motes heal, absorb (+1) and dissolve in a lit pylon; Doom is cleansed in Grants or pylon
+    light and bursts outside it (Corruption 3 → 5); over 240 s no damaging telegraph landed within 1.5 s before or 2.7 s
+    after a Doom's end.
+- Untuned past first numbers: no balance run (the bot never moves, lights pylons or hits bombs, so it would fail
+  every mechanic and its numbers would mean nothing).
 
 ### Balance reference (bot, never dodges; `.claude/simsetup.js` SETUPS hXF / rXF / hXC / hXM / hXR, last arg 'hell')
 - Each band entered with the band-before's gear and no Haste: Hell Forest Hunter Lv 86 tier 11: 375-500 s /
@@ -1465,6 +1674,14 @@ and pinnacle bosses (Episode 2's Barba Ray, Gol Dragon, Gal Gryphon, Olga Flow).
 modifiers, shards, the look), `riftGen.ts` (rooms and waves), `riftTypes.ts`, `ui/riftGate.ts`; numbers in `riftCfg`
 (tuning panel **Rifts**, which also gives shards, opens every tier and warps into a rift).
 
+**2026-10-17 redesign** (the user's plan, built in one go): the ladder was **squished** (old tiers 1-20 into 1-10)
+and **ends at tier 10** (a separate final node with its own boss comes later as the end of the game);
+**damage-first scaling** (heavy hits approach one-shots at the top; enemy HP back on the old curve the same day, see Scaling); regular gear keeps
+improving **up to tier 10** (item level and Rift-forging), then stops; **Rift Circles**: every boss drops its own
+gear unique and unique unit in each of three circles (see "Uniques"); **unique units** in the Mag; the **Swarming**
+modifier; shards that **name their boss**. Not taken: uniques that rank up with boss kills (the user said no), the
+Onslaught modifier, density rising with depth, Paragon levels, separate multiplier buckets.
+
 ### Structure
 - **Fiction:** Dark Falz's death on Hell tears rifts in Ragol that pull the planet's creatures together.
 - **Every rift rolls a random region, with every expedition's enemies** (2026-10-14, the user's call: always the
@@ -1485,21 +1702,31 @@ modifiers, shards, the look), `riftGen.ts` (rooms and waves), `riftTypes.ts`, `u
   spikes, holding a swirling violet vortex shader, with orbiting shards and rising motes; it replaced a flat jagged
   tear on 2026-10-10 that the user found janky).
 - **Rift Gate menu** (`RiftGateMenu`): *Open a rift* (tier 1 up to the highest open, with a preview of what the tier
-  does: enemy HP / damage / armour against tier 1 and the step from the tier below, boss speed, technique defence,
+  does: enemy HP / damage / armour against tier 1 and the step from the tier below, technique defence (boss speed
+  until 2026-10-17, when it stopped growing with the tier),
   the item level, Rift-forging and the affix odds, the next loot step) and *Shards* (the stash, each shard's
   modifiers, item quantity and rarity, Enter or Shatter). A rift left open shows a Return button; opening another
-  collapses it.
-- **Tier ladder: endless** (2026-10-14, the user's call: at tier 16 with near-best gear most enemies died in one
-  hit, and the only chase left was 1% upgrades with nothing to spend them on). Closing a rift of the highest open
-  tier opens the next, with no top; the Gate shows the best tier closed. It was 16 tiers until then. Debug: "open
-  10 more rift tiers".
+  collapses it. The Gate remembers the tier you pick (`RiftSave.picked`, `pickedTier`; a pick on the top tier follows
+  it up when the next one opens), and the debug panel's rift warps open that tier (2026-10-18, the user's ask; they
+  used the highest open one).
+- **Tier ladder: 1-10** (2026-10-17, the user's call: there was very little difference between tiers, so the old
+  1-20 became 1-10, two old tiers to each; the ladder ends at 10, and a separate final node with a special boss will
+  come later as the end of the game). Closing the highest open tier opens the next; tier 10 is the top (a toast says
+  so the first time). Old saves are squished once on load (`riftSave`, `RiftSave.ladder` 2): the open tier, the best
+  tier and every shard's tier become half, rounded up, at most 10. Before: endless from 2026-10-14 (at tier 16 with
+  near-best gear most enemies died in one hit), 16 tiers until then. Debug: "open every rift tier".
+- **Rift Circles** (2026-10-17): tiers **1-3 (I), 4-6 (II), 7-10 (III)**. Each circle's bosses drop new uniques
+  (see "Uniques"), and circles II and III open affix tiers 7 and 8. The Gate shows the tier's circle, and its
+  **Rift Circles** tab lists every boss's uniques by circle (found ones ticked, hover for the effect and cost,
+  "First kill here drops one" where it's owed).
 - **A rift's run** (`newRiftRun`, `Game.riftRun`): one per session, like an expedition run (cleared rooms stay
   cleared, death sends you to Pioneer 2 and the Gate brings you back to the start of the floor you reached).
   The run's `expedition` is the Forest (whatever the region); `run.rift` carries the region and look, tier, seed,
   modifiers, whether it ends at a boss and whose (`bossRegion`, rolled apart from the region). Damage estimates and ▲ verdicts measure against the average of every roster (`riftFoe`).
 - **Two areas filled at runtime:** `rift` (the generated floor) and `riftBoss` (the boss's own arena, as it looks on
   its expedition); `setRiftAreas` writes both into `areas` before a rift loads. Area names: "Rift · Tier 7 · Caves",
-  "Rift Core · Control Core", with no "(Hell)" tag. After the boss, the arena plays the rift floor's music.
+  "Rift Core · Tier 7 · Control Core", with no "(Hell)" tag; the boss bar reads "Warden · Tier 7" (2026-10-18, the
+  user's ask). After the boss, the arena plays the rift floor's music.
 
 ### Layout (riftGen.ts)
 - `generateRift(options)` is pure: everything comes from the seed (mixed with the region, so one seed differs per
@@ -1534,25 +1761,62 @@ modifiers, shards, the look), `riftGen.ts` (rooms and waves), `riftTypes.ts`, `u
   Pioneer 2) is still in the code for `bossChance` below 1, but no rift rolls it.
 - **Closing a rift:** "RIFT CLOSED" banner (the boss's own on a boss), the next tier opens, and the end loot drops
   (`rollRiftEndDrops`): Meseta, a rare tier 15 weapon, a rare tier 14-15 armour piece and a unit; a boss adds a
-  second weapon, armour piece and unit, a modded tier 6 injector and a grinder. All at the rift's item level.
+  second weapon, armour piece and unit, a modded tier 6 injector and a grinder. All at the rift's item level. The
+  boss's **own unique** rolls apart (`rollBossUnique`, riftCircles.ts; see "Uniques").
 
 ### Scaling (`riftScale`, `riftBossScale`)
+- **Damage-first** (2026-10-17, the user's call: the danger is what enemies deal, until a heavy hit almost
+  one-shots at the top). Per tier, compounding (`riftGrowth`, all on the tuning panel):
+
+  | Per tier | Field enemy HP | Boss HP | Heavy hits | Chip damage |
+  |---|---|---|---|---|
+  | `riftCfg` | ×1.25 | ×1.40 | ×1.20 | ×1.08 |
+  | at tier 10 | ×7.5 | ×20.7 | ×5.2 | ×2.0 |
+
+  **HP retune, same day:** HP first came down to ×1.08 / ×1.15 a tier (×2.0 / ×3.5 at tier 10) so rooms would be
+  quick, but the user's near-top Force (66% Haste from Haste and Frail on every piece plus a Frail unit, Lightning
+  +48%, three Brittle; Zonde 49k a cast, 67k a second) killed tier 10 enemies in one cast and bosses in about 22 s,
+  before they could swing, while a tier 10 heavy hit would have taken about five times its HP: "everything dies
+  first, or one touch kills you". Gear grows about 5-8× from Hell entry to the top, so HP has to keep pace: field HP
+  went back to the old curve (×1.12 per old tier is ×1.25 per new one), bosses ×1.30, then ×1.40 when bosses still
+  died too fast (the user's call, same day). With that gear a tier 10 enemy takes about 2 Zondes, an elite 3.5, a
+  Chaos Bringer elite 6, and a boss about 130 s of pure damage. Tier 1 is unchanged (bosses 420k, like Hell's). A
+  Haste cap was offered (+40% / +50%) and declined (the user's call).
+
+  **Heavy hits** are melee strikes, slams, charges and every boss attack (its flat damage too: breath and beam ticks,
+  burning zones). **Chip damage** is ranged shots (Lily spit, Migium lightning, gunbot and Garanz shots, Sorcerer
+  spells) and elite affix side attacks (Volatile vents, Molten globs, Frenzied roars, Stormcaller circles): those
+  call `ctx.shotStrike`, which takes the enemy's `arch.chipMult` share of its ATP. A failed boss mechanic is still a
+  fixed share of max HP. Rift gear had made hits tiny (a geared Hunter took about 1% of max HP a hit at tier 1, a
+  Force 3%), so tier-1 damage is lifted too: heavy ×8 (`heavyBase`), chip ×4 (`chipBase`). Measured before the HP
+  retune (Lv 100 Hunter, tier 15 rares at affix tier 8, 75% Strike cut, bot that never dodges): tier 1 hits average
+  4.5% of max HP (worst 11%), tier 10 average 25% (worst 58%, 80% in a Swarming rift).
+  The Rift Gate shows what a tier deals to you ("a heavy hit takes about 45% of your HP, the hardest 69%, a shot
+  9%", `riftThreat`). Forces take about three times a Hunter's share. **Armour and technique resistance no longer
+  climb with the tier** (they only made rooms slower). Before: HP ×1.12 and damage ×1.07 per old tier, armour and
+  resistance creeping up to tier 16.
+- **Every rift boss has the same HP** (`riftBossHp`; 2026-10-17, the user: De Rol Le felt tankier than Dark Falz,
+  and the numbers should be even and grow with the tier): **420k at tier 1** (`riftCfg.bossHp`, about the four's
+  average before), ×1.40 a tier (1.6M at tier 5, 8.7M at tier 10; ×1.15 and then ×1.30 for a few hours on 2026-10-17) and ×1.4 with Tough; `bossHpMult` (all 1) can trim one, and both
+  are on the tuning panel. Before, each kept its own Hell HP lifted to Lv 100: Dragon 384k,
+  De Rol Le 375k (but ~440k to kill through its shell, since dropped), Warden 390k, Dark Falz 478k at tier 1.
+  Damage still differs per boss (`RIFT_BOSS_LIFT`).
 - **Each enemy scales from its home expedition** (`enemyHome`): that region's Hell numbers lifted to Lv 100 (HP by
   (100 / the band's middle)^1.5, ATP +4 and DFP +1.5 a level, the rule used when the Hell bands were squeezed; since
   2026-10-14 ATP, armour % and technique resistance % by a per-region lift refit against tier-15 gear, `RIFT_LIFT`). So a
   Booma and a Chaos Bringer stand as far apart as on Hell, and tier 1 is about the Hell Ruins everywhere.
-- Per tier (`riftGrowth`), since 2026-10-14 (the user's call: tier 9 to 10 felt like nothing): **HP ×1.12 and
-  damage ×1.07, both compounding without end** (HP doubles about every six tiers: ×5.5 at tier 16, ×8.6 at 20,
-  ×15 at 25; damage ×2.8 / ×3.6 / ×5.1). Damage is a multiplier on the enemy's whole ATP (field enemies in
-  `riftArch`; bosses through `HardBossScale.atpMult`) and on bosses' flat damage. Armour +0.25% and technique
-  resistance +0.8% a tier **up to tier 16** (`riftCfg.capTier`), so resistances never creep toward immunity.
-  (Before: HP ×1.065, ATP +15 flat, bosses' flat damage +3% a tier; earlier still ATP +12, DFP +4, MDF 50 to 75.)
-  Tempo, telegraphs and XP are Hell's, except bosses: **+2% tempo a tier up to tier 16** (×1.3 from there;
-  `riftCfg.bossTempoPerTier`), attacks, recoveries and telegraphs alike (2026-10-12: with rift gear's damage, Haste
-  and run speed, Hell-speed bosses left long windows and played easier than the mob rooms; the user picked this
-  over more HP). (Chill used to multiply on top; bosses ignore crowd control since 2026-10-16.) The shortest boss warnings (the Dragon's enraged charge, 0.66 s)
-  come down to about 0.5 s at tier 16 and stay there, so the dash checks stay possible however deep the rift.
-- Where the wall sits (analytic, `estimateDamage`, Lv 100 Hunter, single target, talents and area hits left out):
+- Old per-tier numbers (2026-10-14 to 10-17): HP ×1.12 and damage ×1.07 compounding without end, armour +0.25% and
+  technique resistance +0.8% a tier up to tier 16. (Before that: HP ×1.065, ATP +15 flat, bosses' flat damage +3% a
+  tier; earlier still ATP +12, DFP +4, MDF 50 to 75.)
+  Tempo, telegraphs and XP are Hell's, except bosses: each runs at a **fixed ×1.15 at every tier**
+  (`riftCfg.bossTempo`, one per boss, tuning panel **Rifts**), attacks, recoveries, telegraphs and its mechanics'
+  clocks alike. 2026-10-17, the user's call once the Hell boss mechanics came in: deeper rifts get harder through
+  the bosses' damage (doing the mechanics becomes a must) and HP (longer to keep executing flawlessly), not speed;
+  ×1.15 is the middle of what it replaced. From 2026-10-12 it was **+2% a tier up to tier 16** (×1.3 from there;
+  with rift gear's damage, Haste and run speed, Hell-speed bosses had left long windows and played easier than the
+  mob rooms), which made the mechanics come ever faster. (Chill used to multiply on top; bosses ignore crowd control
+  since 2026-10-16.) The shortest boss warning (the Dragon's enraged charge, 0.66 s) is about 0.57 s in a rift.
+- Where the wall sat before the 2026-10-17 redesign (analytic, `estimateDamage`, Lv 100 Hunter, single target, talents and area hits left out):
   Hell-entry gear (tier 14 rares, mid rolls) kills a Booma in 0.9 s and a Chaos Bringer in 2.9 s at tier 1; top
   tier 16 rift gear (tier 15 rares, every affix maxed at tier 8, Rift-forged +48%) about twice as fast. With the new
   steps that top gear takes 2.8 s / 8.7 s at tier 16 (1.3 s / 4.1 s before), 4.3 s / 13.7 s at tier 20 and 7.6 s /
@@ -1561,8 +1825,8 @@ modifiers, shards, the look), `riftGen.ts` (rooms and waves), `riftTypes.ts`, `u
   for every six of forging, so the climb slows to a crawl instead of stopping. Enemy hits on a Hunter at the 75%
   strike cap stay small (3-7% of max HP at tier 25); for them the wall is kill time and Corruption, not damage.
 - Elites: 65% of spawns (the Hell Ruins' share). Rooms with 9+ spawns get two champions anywhere.
-- Crowd-control resistance (2026-10-16): Hell's CC affixes, +1.5% a tier up to tier 16 and one more at every rank
-  from tier 10 (`riftCc`; see "Crowd control on enemies").
+- Crowd-control resistance (2026-10-16): Hell's CC affixes, +3% a tier up to tier 8 and one more at every rank
+  from tier 5 (`riftCc`; both doubled with the squish; see "Crowd control on enemies").
 - Balance reference (bot, never dodges; Lv 100 test Hunter, `testCharacter` kit, tier 1, Guardian end): before the
   trim, Mines 8 fight rooms in ~690 s of fight time and ~5000 HP taken (~2.3 bars); after it, Ruins 8 fight rooms in
   ~320 s and ~7300 HP (~3.4 bars). Untuned past that: every number is a first draft.
@@ -1589,29 +1853,38 @@ modifiers, shards, the look), `riftGen.ts` (rooms and waves), `riftTypes.ts`, `u
   - **Steadfast / Insulated / Relentless / Anchored** (2026-10-16): every enemy resists stun / freeze / slow /
     knockback at least 50% plus the tier's growth (capped at 75%), on top of its own CC affixes. Quantity +8%,
     rarity +6% each.
+  - **Swarming** (2026-10-17, the user's ask): far more enemies in every wave. Each wave's threat budget ×1.6, the
+    extra filled with fodder (threat 1.25 or less) up to 11 a wave (`RIFT_GEN.swarm`); fodder never comes in elite
+    (`RoomDef.fodder`). The attack director still lets two attacks be live at once, so it adds targets and steady
+    pressure, not burst. Quantity +10%, rarity +5%.
+- **Boss-pick shards** (2026-10-17, Rift Circles): 30% of shards name the boss their rift ends at ("Summons: the
+  rift ends at the Dragon", `RiftShard.boss`, `riftCfg.bossShard`), on top of their modifiers, so a hunt for one
+  boss's uniques can be aimed. Plain rifts still end at a random one.
 - **Item quantity** multiplies every enemy's drop chance, which can pass 1: the rest is the chance of a second drop
   (`rollEnemyDrops`). At the end it adds rare gear (weapon, armour or unit) on top of the fixed pieces: quantity x 3
-  on a Guardian, x 6 on a boss (+50%: 1.5 or 3 more). **Item rarity** multiplies rare-item odds; a shard's rarity also
-  raises a rift boss's unique odds. Rift Shard odds use only the shard's own quantity, so the stash doesn't flood.
-- **Every tier adds its own** (2026-10-12, the user's call): item quantity +5% and rarity +6% per tier (+80% / +96%
-  at tier 16; `drops.riftQtyPerTier` / `riftRarePerTier`), and a shard's modifiers add theirs on top (`riftLoot`).
-  The Rift Gate shows the tier's bonus in its preview, and a shard's total (tier plus modifiers). Past tier 16 it
-  keeps going (+100% / +120% at tier 20), as do Meseta (+5% a tier) and the rift unique odds (+0.5% a tier).
+  on a Guardian, x 6 on a boss (+50%: 1.5 or 3 more). **Item rarity** multiplies rare-item odds; the rift's rarity
+  also raises a rift boss's unique odds. Rift Shard odds use only the shard's own quantity, so the stash doesn't flood.
+- **Every tier adds its own** (2026-10-12, the user's call): item quantity +10% and rarity +12% per tier (+100% /
+  +120% at tier 10, doubled with the squish; `drops.riftQtyPerTier` / `riftRarePerTier`), and a shard's modifiers
+  add theirs on top (`riftLoot`). The Rift Gate shows the tier's bonus in its preview, and a shard's total (tier plus
+  modifiers). Meseta +10% a tier.
 
 ### Item level and affix tiers 7-8
-- A rift's drops roll at **item level 100 + its tier** (`ItemInstance.ilvl`; the card's type line shows it). Gear
-  bases stay tiers 13-15.
-- Two new affix strength tiers: **tier 7 from item level 105** (rift tier 5), **tier 8 from 112** (rift tier 12).
+- A rift's drops roll at **item level 100 + 2 x its tier** (102 to 120; `riftIlvl`, `ItemInstance.ilvl`; the card's
+  type line shows it), so the squished ladder kept its loot. Gear bases stay tiers 13-15.
+- Two new affix strength tiers: **tier 7 from item level 108** (rift tier 4, Circle II), **tier 8 from 114** (rift
+  tier 7, Circle III; until 2026-10-17 105 and 112, old tiers 5 and 12).
   They extend each affix's authored six: tier 7 adds half of the tier 5-to-6 step, tier 8 the whole step
   (`tierRange`; e.g. weapon ATP% 26-32 at tier 6, 29-35 at 7, 32-38 at 8). Penalties grow the same way.
-  Race %, Haste and unit kinds are unchanged.
+  Haste and unit kinds are unchanged.
 - Rift rares, like Hell's, have **6 affixes and 3 dormant** (they rolled 5-6 from item level 110 until 2026-10-13).
 - **Rift-forged** (2026-10-11, the user's pick after rift tier 7 gear still lost to their Hell Ruins rod): rift drops'
-  base stats (weapon ATP and stat bonuses, armour DFP and bonuses) are raised **3% per rift tier** (+21% at tier 7,
-  +48% at tier 16; `drops.riftForgePerTier`, `statDef` / `forgeMult` in character.ts); the card's type line says
-  "Rift-forged +21%". The built-in grind (Edge, and armour's) is a share of the forged numbers. With the endless
-  ladder (2026-10-14) it has no top either (+60% at tier 20, +75% at 25): the only gear stat that still grows past
-  affix tier 8, so a new best tier always means better drops. Affix tiers stay capped at 8.
+  base stats (weapon ATP and stat bonuses, armour DFP and bonuses) are raised **3% per item level above 100**, 6% a
+  rift tier (+6% at tier 1, +48% at tier 8, **+60% at tier 10**, the top; `drops.riftForgePerTier`, `statDef` /
+  `forgeMult` in character.ts); the card's type line says "Rift-forged +48%". The built-in grind (Edge, and
+  armour's) is a share of the forged numbers. 2026-10-17, the user's call: regular gear keeps adding a little up to
+  the deepest tier while you farm for uniques, then stops (`RIFT_TOP_ILVL` 120; drops from the old, deeper tiers
+  count as from tier 10). Affix tiers stay capped at 8.
 - **More and rarer finds per tier:** see "Every tier adds its own" above.
 - Why (simulated, Lv 97 Force, heavy Zonde against the rift mix): a Hell Ruins tier 14 rare rod at +11 beat all but
   2.2% of tier 7 field caster weapons and 82% of the end-of-rift rare tier 15 ones. Its 11 grind levels were worth
@@ -1625,42 +1898,79 @@ modifiers, shards, the look), `riftGen.ts` (rooms and waves), `riftTypes.ts`, `u
 ## Uniques
 Redesigned 2026-10-12 (the user's call): the thirty old uniques (fixed specials, a few fixed affixes, dropped by
 enemies and as boss signatures) were **deleted**, saves included (unknown items leave the bag on load). In their
-place, **six uniques**, each with **one effect nothing else has and a real cost**, meant as chase items. Code:
-`data/uniques.ts` (definitions), `uniqueCfg` in config/progression.ts (numbers), `Character.hasUnique` and its
-callers (Combat, Game, dps).
-- **Bosses only.** Two pools by how far into the game you are:
-  - **Main pool** (Normal, Nightmare and Hell bosses), one weapon per class. A boss kill rolls 2% / 4% / 6% (Normal /
+place, uniques each with **one effect nothing else has and a real cost**, meant as chase items. **Rift Circles**
+(2026-10-17, the user's design) gave every rift boss its own: 24 rift uniques, half of them unique units. Code:
+`data/uniques.ts` (definitions), `riftCircles.ts` (circles and drops), `combat/riftUniques.ts` (the rift uniques'
+effects), `uniqueCfg` in config/progression.ts (numbers), `Character.hasUnique` and its callers (Combat, Game, dps).
+- **Bosses only.** Nothing else drops them (enemies, elites, champions and boxes never do).
+  - **Main game** (Normal, Nightmare and Hell bosses): one weapon per class. A boss kill rolls 2% / 4% / 6% (Normal /
     Nightmare / Hell, `drops.uniqueBoss`); the class's own weapon counts double (`uniqueClassWeight`).
-  - **Rift pool** (rift bosses), armour anyone can wear: 6% + 0.5% per rift tier (16% at tier 16).
-  - Nothing else drops them (enemies, elites, champions and boxes never do).
-- **Base stats from an item level.** Each unique exists at all 15 gear tiers (`unique_<id>_<tier>`): a drop is the
-  tier the boss drops at (Normal: Dragon 3, De Rol Le 5, Warden 6, Dark Falz 7; Nightmare and Hell: the
-  expedition's top tier, `bossUniqueTier`), so finding it again deeper in the game is the upgrade. Weapons carry their
-  kind's stats and requirement at that tier; armour no requirement and DFP between the Guard and Combat lines',
-  with no line bonus (the Overclock Core frame opens 2 unit slots). Rift drops are tier 15 at the rift's item level,
-  so Rift-forged. **No affixes, no crafting** (grinding counts 2 levels more, as before).
-- The six:
+  - **Rift Circles**: each rift boss drops **only its own**, a gear piece and a unit per circle (tiers 1-3, 4-6,
+    7-10), the earlier circles' too when fought deeper (this circle's two count double). The **first kill of each
+    boss in each circle always drops one** of that circle's two (one you don't have yet, if any:
+    `RiftSave.firsts`); after that a kill rolls 12% (`drops.riftUnique`) plus 4% for every kill of that boss in a
+    row without one (`riftUniqueDry`, `RiftSave.dry`), times the rift's item rarity. So every boss, and every
+    circle's bosses, are worth farming for the power to clear the next. Boss-pick shards aim the hunt.
+- **Gear base stats from an item level.** Each gear unique exists at all 15 gear tiers (`unique_<id>_<tier>`): a
+  main-game drop is the tier the boss drops at (Normal: Dragon 3, De Rol Le 5, Warden 6, Dark Falz 7; Nightmare and
+  Hell: the expedition's top tier, `bossUniqueTier`); a rift drop is tier 15 at the rift's item level, so
+  Rift-forged. Weapons carry their kind's stats and requirement; armour no requirement and DFP between the Guard and
+  Combat lines', with no line bonus (unique frames open 2 unit slots). **No affixes, no crafting.** The user turned
+  down uniques that rank up with boss kills (2026-10-17).
+- **Unique units** (`uunit_<id>`, one def each): learned into the Mag on pickup like any unit (walk-over, a toast,
+  "N unique" on the Mag tab's list), slotted like any unit, **as many as the frame's unit slots allow** (the user's
+  call). Their numbers (effect and cost) are raised by the Heart of Falz (`Character.uval`).
+- The main game's three:
 
-  | Unique | Slot | Pool | Effect | Cost |
-  |---|---|---|---|---|
-  | Dark Flow | Sword (Hunter) | main | Kills heal 5% max HP and remove a Corruption stack | Mate injectors don't work |
-  | Frozen Shooter | Rifle (Ranger) | main | Heavy shots freeze; a shot on a frozen enemy shatters it for ×2.5 (thawed, then 3 s before it can freeze again) | 50% less damage to anything not frozen; bosses never freeze |
-  | Reactor Rod | Rod (Force) | main | Each attack cast within 1.5 s of the last adds 30%, up to ×2 (×1, 1.3, 1.6, 1.9, 2) | Techniques cost 3× TP |
-  | Falz Halo | Barrier | rift | Each Corruption stack adds 10% damage | Corruption doesn't wear off and pylon light doesn't shed it (a cleared room or Pioneer 2 still does) |
-  | Red Ring | Barrier | rift | Crits deal ×3 instead of ×2 | Corruption resistance −50% (resistances now floor at −50%) |
-  | Overclock Core | Frame | rift | Haste from gear counts double | Max HP −50% |
+  | Unique | Slot | Effect | Cost |
+  |---|---|---|---|
+  | Dark Flow | Sword (Hunter) | Kills heal 5% max HP and remove a Corruption stack | Mate injectors don't work |
+  | Frozen Shooter | Rifle (Ranger) | Heavy shots freeze; a shot on a frozen enemy shatters it for ×2.5 (thawed, then 3 s before it can freeze again) | 50% less damage to anything not frozen; bosses never freeze |
+  | Reactor Rod | Rod (Force) | Each attack cast within 1.5 s of the last adds 30%, up to ×2 (×1, 1.3, 1.6, 1.9, 2) | Techniques cost 3× TP |
 
-  The user picked these six from a longer list. Rules settled while building (my calls, open to change): the
-  Reactor Rod's "chain" is any attack cast within 1.5 s of the last (the 3-cast chain never reaches ×2); the Falz
-  Halo's cost also stops pylon light (as worded, "doesn't wear off in combat", it cost almost nothing in rifts,
-  where every hit re-corrupts); the Frozen Shooter's shatter thaws the enemy and makes it immune for 3 s (else
-  heavy shots would lock rooms down).
-- **Estimates** (Damage tab, ▲ verdicts) count Red Ring crits, the Reactor Rod's ramp (its average over a 10-cast
-  run) and the Frozen Shooter's freeze-shatter rhythm against a regular enemy; not the Falz Halo (it depends on
-  stacks carried). The item card lists the effect (green) and cost (red) under "Unique", and "You'd lose" names an
-  equipped unique's.
+- The rift bosses' (circle I: tiers 1-3, II: 4-6, III: 7-10). Each boss has a theme; every class gets two rift
+  weapons; the armour is anyone's:
+
+  | Boss | Circle | Unique | Slot | Effect | Cost |
+  |---|---|---|---|---|---|
+  | Dragon | I | Red Ring | Barrier | Crit damage +100% | Corruption resistance −50% |
+  | Dragon | I | Ember Core | Unit | Your Burns stack, up to 3 on an enemy | Burn on you deals 50% more |
+  | Dragon | II | Flame Visit | Shot (Ranger) | Enemies that die Burning leave a 3 m fire pool for 3 s (pools chain); Napalm Shell burns twice as long | You Burn in your own fire too |
+  | Dragon | II | Dragon Rush | Unit | Dashing through enemies hits each for a weapon hit (power 1) and staggers it | Dashes recharge 40% slower |
+  | Dragon | III | Dragon Fang | Dagger (Hunter) | Kills build Rampage: +5% damage and +3% Haste a stack, up to 10, gone 3 s after the last kill; at 10, Leap and Shadow Step have no cooldown | A hit for 15% of max HP or more ends Rampage |
+  | Dragon | III | Proof of Sword-Saint | Unit | First hit on an enemy at full HP deals ×3 | 25% less damage to enemies below half HP |
+  | De Rol Le | I | Plague Mantle | Frame | Enemies that die poisoned burst, poisoning everything within 4 m with what they carried | Poison on you lasts twice as long |
+  | De Rol Le | I | Venom Sac | Unit | Your crits poison: 20% of the crit a second for 4 s, stacking (up to 10) | Crit damage −20% |
+  | De Rol Le | II | Rol Carapace | Frame | No single hit takes more than 35% of max HP (failed boss mechanics aside) | Injector doses restore 50% less |
+  | De Rol Le | II | Tide Shell | Unit | After 8 s without being hit, a shell soaks one hit (up to 40% of max HP) | Run speed −10% |
+  | De Rol Le | III | Ophelie Seize | Handgun (Ranger) | Every handgun hit adds a venom stack (15% of the hit a second, 6 s), no cap; a poisoned enemy's stacks jump to the nearest enemy when it dies | Handgun hits can't crit |
+  | De Rol Le | III | HP/Drain | Unit | 3% of the damage you deal heals you | Injectors don't charge from your damage (they still refill after a fight) |
+  | Warden | I | Overclock Core | Frame | Haste from gear counts double | Max HP −50% |
+  | Warden | I | Limiter | Unit | Art cooldowns 30% shorter | Arts cost 20% more TP |
+  | Warden | II | S-Beat's Blade | Saber (Hunter) | An Art as a perfect chain's third step costs no TP and takes 2 s off the other Arts' cooldowns | Arts outside a perfect chain cost double TP |
+  | Warden | II | V801 | Unit | Photon blast charges twice as fast; firing it refills your dashes | Basic hits refill 20% less TP |
+  | Warden | III | Prophets of Motav | Rod (Force) | Two different elements in a row complete a combo: the second hits ×2 and costs no TP, then it starts over (the user's call: two, not three) | The same element twice in a row hits 50% less |
+  | Warden | III | Yasakani Magatama | Unit | Every 12 s the next damaging Art plays again 0.4 s later, free (a channel's every effect too) | Max TP −25% |
+  | Dark Falz | I | Falz Halo | Barrier | Each Corruption stack adds 10% damage | Corruption doesn't wear off and pylon light doesn't shed it (a cleared room or Pioneer 2 still does) |
+  | Dark Falz | I | Devil/Battle | Unit | +3% damage for every 10% of HP missing (up to +27%) | HP regen from gear does nothing |
+  | Dark Falz | II | Dark Bridge | Wand (Force) | With too little TP, techniques cast from HP (2 HP per TP short) and hit 25% harder | Max TP −40% |
+  | Dark Falz | II | Soul Eater | Unit | A kill Dooms the nearest enemy within 8 m: 1.5 s later it takes 30% of the dead one's max HP (it chains) | You gain Corruption twice as fast |
+  | Dark Falz | III | DF Shield | Barrier | A killing blow Dooms you instead: 4 s unkillable at 1 HP; kill 3 enemies (or deal 3% of a boss's HP) to rise at 40% HP, or die. Once a room (a boss: every quarter of its HP) | All healing −30% (Mate doses, Resta, regen, HP/Drain, Dark Flow) |
+  | Dark Falz | III | Heart of Falz | Unit | Your other unique units' numbers are 50% stronger | So are their costs |
+
+  The answers to one-shots are Rol Carapace (a cap), Tide Shell (a soak) and DF Shield (a second chance); the chain
+  killers for Swarming rooms Flame Visit, Plague Mantle, Ophelie Seize and Soul Eater. Few costs are max HP, since Rol
+  Carapace's cap would make them nearly free. Rules settled while building (my calls, open to change): Rol Carapace
+  doesn't cap a failed boss mechanic (they must stay a must); Yasakani's echo skips movement, defence and support
+  Arts; S-Beat's Blade counts the third step perfect as the chain does; Dragon Rush hits once per enemy per dash.
+  Rule notes from 2026-10-12: the Reactor Rod's "chain" is any attack cast within 1.5 s of the last; the Falz Halo's
+  cost also stops pylon light; the Frozen Shooter's shatter thaws and makes the enemy immune for 3 s.
+- **Estimates** (Damage tab, ▲ verdicts) count Red Ring crits, the Reactor Rod's ramp and the Frozen Shooter's
+  rhythm; not the rift uniques' conditional effects (Rampage, Sword-Saint, combos). The item card lists the effect
+  (green) and cost (red) under "Unique", for unique units too, and "You'd lose" names an equipped unique's.
 - Old notes: the Seal of Light / Falz Halo pylon and Corruption affixes, the Warden Core's hazard affix and the
-  bosses' signature drops all went with the old set. Venom (a special) is on no item now.
+  bosses' signature drops all went with the old set. Venom (a special) is on no item now: poison comes from Venom
+  Edge, Venom Sac and Ophelie Seize.
 
 ## Crafting: Photons
 First built 2026-10-11 (a Path of Exile-like system replacing grinding's race picks, with five photons and a
@@ -1673,7 +1983,7 @@ not the player").
   Nightmare from tier 8's / Hell and rifts from tier 12's), at most 3 of each kind (a 5 splits either way).
 - **Dormant affixes:** a rare also rolls 1 / 2 / 3 **dormant** ones (so 9 on a Hell or rift rare), of any kind, from
   what its active ones left, at drop like the rest (value and strength tier). They do nothing until swapped in; the
-  card lists them greyed under "Dormant". More than one race can lie dormant (one active at most).
+  card lists them greyed under "Dormant".
 - **Downsides:** every Hell and rift rare holds at least one, active or dormant (one of the prefixes it drew turns
   into one if none came up; about two thirds of rift armour drew one anyway). An active downside always has a plain
   dormant prefix to be swapped for. Barriers have only 5 prefixes, so their dormant ones lean to suffixes.
@@ -1684,14 +1994,14 @@ not the player").
 
   | Photon | Rarity | What it does |
   |---|---|---|
-  | Photon Drop | common | Rerolls one affix's value within its strength tier (a downside's penalty too). Race % and Haste: 5% / 1% steps up to the item tier's cap. |
-  | Photon Sphere | rare | One affix a strength tier up, up to what the item level allows (tier 6 on Hell, 7 from rift tier 5, 8 from rift tier 12); never comes out lower (at least +1). Race % +5 / Haste +1 up to the cap. |
-  | Photon Crystal | very rare | Swaps an active affix for a dormant one of the same kind (prefix for prefix, suffix for suffix); the player picks the pair. Both keep their rolls, so it can be swapped back. A dormant race only comes in for the active race. |
+  | Photon Drop | common | Rerolls one affix's value within its strength tier (a downside's penalty too). Haste: 1% steps up to the item tier's cap. |
+  | Photon Sphere | rare | One affix a strength tier up, up to what the item level allows (tier 6 on Hell, 7 from rift tier 4, 8 from rift tier 7); never comes out lower (at least +1). Haste +1 up to the cap. |
+  | Photon Crystal | very rare | Swaps an active affix for a dormant one of the same kind (prefix for prefix, suffix for suffix); the player picks the pair. Both keep their rolls, so it can be swapped back. |
 
 - **What stays a chase:** the base (line, gear tier, item level, a frame's unit slots) and the item's own 9 affixes:
   with photons enough, a drop becomes the best 6 of its 9 at the item level's top values. The verdict judges that
   fully crafted self too (2026-10-13, the user's ask; `bestCrafted`): every active set Crystals can reach (same
-  prefix / suffix split, one race), each affix at the top tier and value its item level allows (a downside may stay
+  prefix / suffix split), each affix at the top tier and value its item level allows (a downside may stay
   as it is), scored like the ▲ (damage / sec, then armour's rating) against what is worn. Affixes that add
   nothing are left out of the recipe. The pickup prompt adds a second line, "◆ Fully crafted: Damage/s +9% (1 Crystal
   · 3 Spheres · Drops)", green if that beats what is worn ("Even fully crafted: ..." grey if not), and the item card a

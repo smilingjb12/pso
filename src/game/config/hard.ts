@@ -29,7 +29,7 @@ export interface HardBossScale {
   xp: number;
   /** Hell: the boss gets its third phase (triple telegraphs; Dark Falz's third form takes them). */
   hell?: boolean;
-  /** Rifts: speed of its state machine and telegraphs (1 = Hell's; grows with the tier). */
+  /** Rifts: speed of its state machine and telegraphs (1 = Hell's; a fixed one per boss, `riftCfg.bossTempo`). */
   tempo?: number;
   /** Rifts: multiplier on its whole ATP (its own plus `atp`), compounding with the tier. */
   atpMult?: number;
