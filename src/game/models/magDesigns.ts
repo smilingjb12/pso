@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mat, part } from './Rig';
 
 // Alternative Mag looks, compared in the Mag Lab (/maglab.html). A design gives each arm
-// (DEF, POW, DEX, MIND) its own shape; stage 1 uses the class's own arm in a lighter form,
+// (DEF, POW, DEX, MIND; the game's Mag has only MIND and DEF since 2026-10-21) its own shape; stage 1 uses MIND in a lighter form,
 // stage 0 stays the shared plain Mag and stage 4 is two stage-3 Mags. Every design keeps
 // the glow stripes (lit while Mag points wait to be spent) and faces +Z like the classic Mag.
 // Parts are built for the right-hand side; `mirrored` copies them to the left.

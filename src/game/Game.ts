@@ -3,7 +3,7 @@ import type GUI from 'lil-gui';
 import { initAudio, music, setListener, setMuffled, setSpace, sfx, type SfxId } from '../audio';
 import { Input } from '../engine/Input';
 import { Hud, type HudState, type PaletteSlotView } from '../ui/Hud';
-import { artIcon, techIcon, weaponIcon } from '../ui/icons';
+import { techIcon, weaponIcon } from '../ui/icons';
 import { createDebugPanel } from '../ui/debugPanel';
 import {
   ChoiceMenu,
@@ -34,9 +34,9 @@ import { AFFIXES } from './data/affixes';
 import { areas, DEFAULT_LIGHT, expeditionOf, expeditionOfBoss, expeditionOpenedBy, expeditions, isCounter, type AreaId, type ExpeditionId } from './data/areas';
 import { BOSS_IDS, BOSSES, type BossDef } from './data/bosses';
 import { areaDef } from './data/looks';
-import { STAT_KEYS, statDelta, type ClassId, type MagStat } from './data/stats';
-import { ART_IDS, artClasses, ARTS, isTechArt, type ArtId } from './data/arts';
-import { getDef, INJECTOR_MODS, PHOTON_STACK, specials, type WeaponKind } from './data/items';
+import { STAT_KEYS, statDelta, type MagStat } from './data/stats';
+import { ART_IDS, ARTS, type ArtId } from './data/arts';
+import { getDef, INJECTOR_MODS, PHOTON_STACK, type WeaponKind } from './data/items';
 import { affixText, tierIlvl, type AffixRoll } from './data/itemAffixes';
 import { UNIQUES } from './data/uniques';
 import { CORRUPT_COLOR, Enemy, type EnemyContext } from './enemies/Enemy';
@@ -76,12 +76,8 @@ type SpawnAt = 'start' | { x: number; z: number };
 /** Stand-in when there is no world to show a telegraph in. */
 const noTelegraph = { cancel: () => {} };
 
-/** Each weapon kind's attack sound: a shot for guns, a whoosh for blades, a heavier one for staves. */
-const ATTACK_SFX: Record<WeaponKind, SfxId> = {
-  saber: 'swing.blade', sword: 'swing.blade', dagger: 'swing.blade',
-  rod: 'swing.blunt', wand: 'swing.blunt',
-  handgun: 'shot.handgun', rifle: 'shot.rifle', shot: 'shot.shot',
-};
+/** Each weapon kind's bolt sound. */
+const ATTACK_SFX: Record<WeaponKind, SfxId> = { rod: 'swing.blunt', wand: 'swing.blunt' };
 
 /** Seconds of field play between periodic autosaves. */
 const AUTOSAVE_PERIOD = 60;
@@ -104,7 +100,7 @@ export class Game implements GameApi {
   private rng = Math.random;
   private combat: Combat;
 
-  char: Character = Character.create('Nobody', 'hunter');
+  char: Character = Character.create('Nobody');
   private slot = -1;
   // Autosave: the character is written after important events (throttled),
   // every AUTOSAVE_PERIOD seconds in the field, and when the page is hidden.
@@ -305,14 +301,13 @@ export class Game implements GameApi {
       giveMeseta: (n) => {
         this.char.data.meseta += n;
       },
-      giveWeapon: () => this.giveItem(rollWeapon(1 + Math.floor(this.rng() * 3), this.rng, this.char.lootBias())),
+      giveWeapon: () => this.giveItem(rollWeapon(1 + Math.floor(this.rng() * 3), this.rng)),
       giveRare: () => {
         // A rare (yellow) weapon, frame or barrier at your level's gear tier (the highest tier whose item level
-        // you've reached), leaning to your class like drops do.
+        // you've reached).
         let tier = 1;
         for (let t = 1; t <= 15; t++) if (tierIlvl(t) <= this.char.level) tier = t;
-        const bias = this.char.lootBias();
-        this.giveItem(this.rng() < 1 / 3 ? rollWeapon(tier, this.rng, bias, 'rare') : rollArmor(tier, this.rng, bias, 'rare'));
+        this.giveItem(this.rng() < 1 / 3 ? rollWeapon(tier, this.rng, 'rare') : rollArmor(tier, this.rng, 'rare'));
       },
       giveUnit: () => this.giveItem(rollUnit(Math.max(1, Math.min(15, Math.ceil(this.char.level / 7))), this.rng)),
       givePhotons: () => {
@@ -376,7 +371,6 @@ export class Game implements GameApi {
           area: this.world?.areaId,
           difficulty: this.diff,
           rift: this.run.rift ? { tier: this.run.rift.tier, mods: this.run.rift.mods } : undefined,
-          cls: this.char.data.cls,
           level: this.char.level,
           maxHp: p.trueMaxHp,
           radius: p.radius,
@@ -401,13 +395,13 @@ export class Game implements GameApi {
           this.warpToGuardian();
         }
       },
-      testCharacter: (cls) => {
+      testCharacter: () => {
         const slot = listSlots().findIndex((s) => !s);
         if (slot < 0) {
           this.hud.toast('No empty save slot for a test character.', 'warn');
           return;
         }
-        const data = testCharacter(cls);
+        const data = testCharacter();
         saveSlot(slot, data);
         // On the title screen, show it in the slot list.
         if (!this.playing) this.openTitle();
@@ -462,8 +456,8 @@ export class Game implements GameApi {
           const data = listSlots()[slot];
           if (data) this.startCharacter(slot, new Character(upgradeCrafting(readAffixData(data))), difficulty);
         },
-        create: (slot, name, cls: ClassId, appearance) => {
-          const ch = Character.create(name, cls, appearance);
+        create: (slot, name, appearance) => {
+          const ch = Character.create(name, appearance);
           saveSlot(slot, ch.data);
           this.startCharacter(slot, ch);
         },
@@ -745,9 +739,9 @@ export class Game implements GameApi {
         u.hell![id] = this.char.bossKills(id, 'hell') > 0;
       }
       this.stock = {
-        weapon: shopStock('weapon', this.char.level, this.char.lootBias(), this.rng, u),
-        armor: shopStock('armor', this.char.level, this.char.lootBias(), this.rng, u),
-        item: shopStock('item', this.char.level, this.char.lootBias(), this.rng, u),
+        weapon: shopStock('weapon', this.char.level, this.rng, u),
+        armor: shopStock('armor', this.char.level, this.rng, u),
+        item: shopStock('item', this.char.level, this.rng, u),
       };
       this.player.clearBuffs();
       this.save();
@@ -908,9 +902,7 @@ export class Game implements GameApi {
     }
     const from = p.pos.clone();
     const inside = this.char.hasPassive('slipstream') ? this.telegraphsAround() : [];
-    // Lunge (toward the target) and Backstep Shot (away from it) end in a free light attack.
-    const free = !!orbit && ((orbit.fwd > 0.5 && this.char.hasPassive('lunge')) || (orbit.fwd < -0.5 && this.char.hasPassive('backstepShot')));
-    if (!p.startDash(this.moveDir.x, this.moveDir.z, orbit, { blink: this.char.hasPassive('blink'), free })) return;
+    if (!p.startDash(this.moveDir.x, this.moveDir.z, orbit, { blink: this.char.hasPassive('blink') })) return;
     this.slipFrom = inside.length ? inside : null;
     const st = this.char.data.stats;
     st.dashes = (st.dashes ?? 0) + 1;
@@ -977,17 +969,10 @@ export class Game implements GameApi {
   private update(dt: number): void {
     const p = this.player;
     const world = this.world!;
-    const { events, ticks } = p.update(dt, this.moveDir);
+    const events = p.update(dt, this.moveDir);
     this.checkSlipstream();
-    if (p.freeAttack) {
-      p.freeAttack = false;
-      p.dashRecover = 0;
-      this.handleCombo(p.pressStep('basic'));
-    }
     if (formulas.tpRegen > 0 && p.alive) p.tp = Math.min(p.maxTp, p.tp + formulas.tpRegen * dt);
     this.handleCombo(events);
-    const art = p.artStep;
-    if (art) for (const i of ticks) this.combat.artTick(art, i, p.combo.hitIndex, p.combo.streak);
     this.combat.tickPlayerStatus(dt);
 
     world.update(dt, p);
@@ -1249,16 +1234,11 @@ export class Game implements GameApi {
         case 'start': {
           if (ev.step !== 'basic') {
             this.combat.artStart(ev.step as ArtId, ev.hitIndex, ev.perfect);
-            p.onStepStart();
             if (p.aimYaw === null && this.moveDir.lengthSq() > 0) p.aimYaw = Math.atan2(this.moveDir.x, this.moveDir.z);
             break;
           }
-          p.onStepStart();
           const target = this.combat.aimTarget();
-          if (target) p.aimYaw = yawTo(p.pos.x, p.pos.z, target.pos.x, target.pos.z);
-          else if (this.char.weaponFamily() === 'caster') p.aimYaw = this.combat.casterYaw();
-          else if (this.moveDir.lengthSq() > 0) p.aimYaw = Math.atan2(this.moveDir.x, this.moveDir.z);
-          else p.aimYaw = null;
+          p.aimYaw = target ? yawTo(p.pos.x, p.pos.z, target.pos.x, target.pos.z) : this.combat.casterYaw();
           break;
         }
         case 'hit': {
@@ -1325,7 +1305,7 @@ export class Game implements GameApi {
     if (!b.smash()) return;
     sfx('box.break', { x: b.pos.x, z: b.pos.z });
     this.world!.breakBox(b);
-    this.spawnDrop(rollBoxDrop(this.rng, this.char.lootBias()), b.pos.x, b.pos.z);
+    this.spawnDrop(rollBoxDrop(this.rng), b.pos.x, b.pos.z);
   }
 
   /** Junk / upgrade looks of the drops: re-read after a level-up, attribute or Mag point, equip, grind or craft. */
@@ -1672,7 +1652,7 @@ export class Game implements GameApi {
       this.hud.banner('RIFT CLOSED', 'boss');
     }
     this.hud.toast(`${riftName(r)} closed. A teleporter to Pioneer 2 stands ${r.boss ? 'in the arena' : 'in the Guardian room'}.`, 'good');
-    const drops: Drop[] = rollRiftEndDrops(r.boss, r.tier, riftIlvl(r.tier), this.rng, this.char.lootBias(), riftLoot(r).qty);
+    const drops: Drop[] = rollRiftEndDrops(r.boss, r.tier, riftIlvl(r.tier), this.rng, riftLoot(r).qty);
     // Rift Circles: the boss's own unique (its first kill in a circle always drops one).
     if (r.boss) {
       const u = rollBossUnique(riftBossOf(r.bossRegion), r.tier, riftIlvl(r.tier), save, this.char.data, this.rng, riftLoot(r).rar);
@@ -1745,14 +1725,13 @@ export class Game implements GameApi {
       this.darkFlowKill();
       this.char.data.stats.kills++;
       this.gainXp(t.xp);
-      const cls = this.char.lootBias();
-      for (const d of rollEnemyDrops(t.arch, this.rng, cls)) this.spawnDrop(d, t.pos.x, t.pos.z);
-      if (t.champion) for (const d of rollChampionBonus(t.arch, this.rng, cls)) this.spawnDrop(d, t.pos.x, t.pos.z);
+      for (const d of rollEnemyDrops(t.arch, this.rng)) this.spawnDrop(d, t.pos.x, t.pos.z);
+      if (t.champion) for (const d of rollChampionBonus(t.arch, this.rng)) this.spawnDrop(d, t.pos.x, t.pos.z);
       const rift = this.run.rift;
       if (rift && t.champion && this.rng() < riftCfg.championShard * (1 + riftBonus(rift.mods).qty / 100)) {
         this.spawnDrop({ kind: 'shard', shard: rollShard(rift.tier, this.rng) }, t.pos.x, t.pos.z);
       }
-      else if (t.elite) this.spawnDrop(rollEliteBonus(t.arch, this.rng, cls), t.pos.x, t.pos.z);
+      else if (t.elite) this.spawnDrop(rollEliteBonus(t.arch, this.rng), t.pos.x, t.pos.z);
       return;
     }
     const boss = world.boss;
@@ -1781,7 +1760,7 @@ export class Game implements GameApi {
       this.gainXp(diff === 'hell' ? hellCfg.bosses[def.id].xp : diff === 'nightmare' ? hardCfg.bosses[def.id].xp : def.xp());
       // Loot lands on the deck / arena floor around the centre, or where it fell.
       const at = def.dropsAt === 'center' ? world.level.center() : t.pos;
-      const drops = rollBossDrops(def.id, diff, this.rng, this.char.lootBias());
+      const drops = rollBossDrops(def.id, diff, this.rng);
       drops.forEach((d, i) => {
         const a = (i / drops.length) * Math.PI * 2;
         this.spawnDrop(d, at.x + Math.sin(a) * def.dropRing, at.z + Math.cos(a) * def.dropRing * (def.dropStretch ?? 1));
@@ -1841,11 +1820,10 @@ export class Game implements GameApi {
   /** What levels `from` (exclusive) to `to` opened: skill points, Arts that can now be learned, the photon blast. */
   private announceLevelUnlocks(from: number, to: number): void {
     const ch = this.char;
-    const cls = ch.data.cls;
     const opened = (lv: number) => lv > from && lv <= to;
     const gained = skillPoints(to) - skillPoints(from);
     if (gained > 0) this.hud.toast(`+${gained} skill point${gained > 1 ? 's' : ''}: ${ch.skillPointsLeft} to spend (Menu → Skills).`, 'rare');
-    const arts = ART_IDS.filter((a) => opened(ARTS[a].level) && artClasses(a).includes(cls));
+    const arts = ART_IDS.filter((a) => opened(ARTS[a].level));
     if (arts.length) this.hud.toast(`Can be learned now: ${arts.map((id) => `<b>${ARTS[id].name}</b>`).join(', ')} (Menu → Skills).`, 'good');
     if (opened(magCfg.pbLevel)) this.hud.toast('Your Mag can teach a photon blast (Menu → Mag).', 'rare');
     this.player.refreshMag();
@@ -1991,12 +1969,12 @@ export class Game implements GameApi {
   /** Put Mag points into a stat (permanent); the Mag may evolve. */
   magSpend(stat: MagStat, n = 1): string | null {
     const ch = this.char;
-    const formBefore = magForm(ch.mag, ch.magStat).name;
+    const formBefore = magForm(ch.mag).name;
     const err = ch.spendMag(stat, n);
     if (err) return err;
     this.player.refreshMag();
     this.autosave();
-    const form = magForm(ch.mag, ch.magStat).name;
+    const form = magForm(ch.mag).name;
     sfx(form !== formBefore ? 'jingle.magEvolve' : 'mag.feed');
     if (form !== formBefore) {
       this.hud.banner(`MAG EVOLVED: ${form.toUpperCase()}`, 'good');
@@ -2236,21 +2214,18 @@ export class Game implements GameApi {
     const ch = this.char;
     // The Art bar: LMB the basic chain, then RMB / Q / E / R.
     const weaponKindId = ch.weaponInstance() ? ch.weaponKind().kind : 'none';
-    const sp = ch.weaponSpecial();
-    const basicLabel = `Basic chain: ${ch.weaponKind().family === 'caster' && ch.weaponInstance() ? 'photon bolts' : 'three steps'}, refills TP${sp ? ` · ${specials[sp].name} on the finisher` : ''}`;
+    const basicLabel = 'Basic chain: photon bolts, refills TP';
     const next = p.combo.phase === 'idle' ? 0 : p.combo.hitIndex + 1;
     const artView = (slot: number): PaletteSlotView => {
       const key = ART_KEY_LABELS[slot];
       const id = ch.artInSlot(slot);
-      if (!id) return { key, label: ch.artBar()[slot] ? "Can't use that with this weapon" : 'Empty (Menu → Arts)', icon: '', kind: 'empty' };
+      if (!id) return { key, label: 'Empty (Menu → Arts)', icon: '', kind: 'empty' };
       const a = ARTS[id];
       const cost = this.combat.artCost(id, Math.min(2, next));
-      const cd = p.cooldownLeft(id);
-      const full = ch.artCooldown(id);
-      const label = `${a.name} — ${cost} TP${full ? ` · ${full} s cooldown` : ''}: ${a.desc}`;
+      const label = `${a.name} — ${cost} TP: ${a.desc}`;
       const restores = id === 'resta' ? 'hp' : undefined;
       const outOfRange = this.combat.artAimBlocked(id) === 'Out of range';
-      return { key, label, icon: isTechArt(id) ? techIcon(id) : artIcon(id), count: String(cost), kind: 'art', disabled: p.tp < cost || cd > 0, outOfRange, restores, cooldown: full ? cd / full : 0 };
+      return { key, label, icon: techIcon(id), count: String(cost), kind: 'art', disabled: p.tp < cost, outOfRange, restores };
     };
     const palette: PaletteSlotView[] = [
       { key: 'LMB', label: basicLabel, icon: weaponIcon(weaponKindId), kind: 'basic' },
@@ -2289,7 +2264,7 @@ export class Game implements GameApi {
     }
 
     const buffs: string[] = [];
-    if (p.buffs.atp.t > 0) buffs.push(`▲ATK ${Math.ceil(p.buffs.atp.t)}s`);
+    if (p.buffs.tech.t > 0) buffs.push(`▲TECH ${Math.ceil(p.buffs.tech.t)}s`);
     if (p.buffs.def.t > 0) buffs.push(`▲DEF ${Math.ceil(p.buffs.def.t)}s`);
     const statuses: { label: string; cls: string }[] = [];
     if (p.corruption > 0) statuses.push({ label: `CORRUPT ×${p.corruption} · ${p.inLight ? 'LIGHT' : p.corruptTimer > 0 ? `${Math.ceil(p.corruptTimer)}s` : 'FADING'}`, cls: 'corrupt' });
@@ -2306,7 +2281,6 @@ export class Game implements GameApi {
     if (p.clarity > 0) buffs.push(`FREE CAST ${Math.ceil(p.clarity)}s`);
     if (p.shield > 0) buffs.push(`◆SHIELD ${Math.ceil(p.shield)}`);
     if (p.slipstream > 0) buffs.push(`★PERFECT ${Math.ceil(p.slipstream)}s`);
-    if (p.retaliate > 0) buffs.push('▲RETALIATE');
     const dr = p.damageTakenMult();
     if (dr < 1) buffs.push(`▼DMG ${Math.round((1 - dr) * 100)}%`);
     if (p.composureT > 0) buffs.push('◇COMPOSURE');

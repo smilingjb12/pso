@@ -77,16 +77,10 @@ export function glyphSvg(g: SkillGlyph, color: string): string {
 }
 
 const PASSIVE_GLYPH: Record<PassiveId, SkillGlyph> = {
-  tempo: 'tempo', fleet: 'boot', slipstream: 'eye', lastStand: 'heal', bulwark: 'shield', bloodlust: 'cycle', composure: 'shield',
-  rush: 'speed', lightFeet: 'speed', adrenaline: 'rage',
-  followThrough: 'up', parry: 'shield', lunge: 'boot', cleave: 'wide', sweepGuard: 'shield', shockwave: 'knock', retaliate: 'cycle',
-  steadfast: 'armor', crush: 'armor', balance: 'up', flurry: 'blade', secondWind: 'heal', hunterFocus: 'tp', executioner: 'skull',
-  ironFinish: 'shield', whirl: 'burst', breaker: 'stagger', daunt: 'down', shatter: 'burst', fervor: 'speed',
-  hotStreak: 'up', breathingRoom: 'knock', backstepShot: 'boot', spread: 'multi', suppress: 'down', pierce: 'pierce',
-  deadeye: 'eye', pointBlank: 'knock', fieldMedic: 'heal', rangerFocus: 'tp', piercingRound: 'pierce', pin: 'shock', arc: 'chain',
-  longshot: 'range', pinningFire: 'stagger', rounds: 'star', rapidFire: 'speed',
-  resonance: 'up', calmMind: 'shield', blink: 'boot', overcast: 'rage', barrier: 'shield', purify: 'heal', focusBolt: 'focus',
-  ward: 'shield', conductor: 'stagger', efficiency: 'tp', clarity: 'tp', siphonStaff: 'tp', overload: 'burst', aegis: 'shield',
+  tempo: 'tempo', fleet: 'boot', slipstream: 'eye', lastStand: 'heal', bulwark: 'shield', bloodlust: 'cycle',
+  composure: 'shield', rush: 'speed', lightFeet: 'speed', fieldMedic: 'heal', resonance: 'up', calmMind: 'shield',
+  blink: 'boot', overcast: 'rage', barrier: 'shield', purify: 'heal', focusBolt: 'focus', ward: 'shield',
+  conductor: 'stagger', efficiency: 'tp', clarity: 'tp', siphonStaff: 'tp', overload: 'burst', aegis: 'shield',
   echo: 'cycle', kindle: 'fire', frostbite: 'ice', techLongshot: 'range', swiftCast: 'speed',
 };
 
@@ -102,28 +96,15 @@ export function passiveIcon(id: PassiveId): string {
 
 /** Modifiers by id (the same id means the same kind of change on every Art); `art:id` overrides where it doesn't. */
 const MOD_GLYPH: Record<string, SkillGlyph> = {
-  aftershock: 'twin', airSlash: 'wide', ambush: 'star', anti: 'heal', ap: 'pierce', arc: 'chain', arcing: 'chain', backstab: 'blade',
-  balanced: 'up', battle: 'up', big: 'grow', blast: 'burst', blinding: 'eye', bloodlust: 'cycle', boomerang: 'cycle', bounty: 'star',
-  braced: 'shield', breaker: 'stagger', buckshot: 'multi', burning: 'fire', burst: 'burst', cataclysm: 'burst', chain: 'chain',
-  charged: 'up', cluster: 'multi', concussive: 'shock', conductor: 'chain', contagion: 'poison', crater: 'wide', crush: 'armor',
-  cryo: 'ice', damage: 'burst', daunt: 'down', deadeye: 'eye', deadly: 'up', deep: 'armor', desperate: 'tp', double: 'twin',
-  draining: 'heal', efficient: 'tp', enduring: 'clock', evasive: 'boot', execute: 'skull', executioner: 'skull', expose: 'armor',
-  exposed: 'armor', extended: 'multi', eye: 'focus', far: 'range', fearsome: 'down', fervent: 'speed', field: 'ground', finale: 'stagger',
-  firewall: 'ground', fissure: 'ground', five: 'multi', flashbang: 'shock', fleet: 'boot', flurry: 'blade', focus: 'tp', focused: 'focus',
-  followUp: 'twin', freezing: 'ice', frost: 'ice', frostbite: 'down', glacial: 'grow', glacier: 'ice', greater: 'heal', guarded: 'shield',
-  heavy: 'up', ignite: 'fire', impact: 'knock', incendiary: 'fire', inferno: 'fire', iron: 'shield', kindling: 'fire', lacerate: 'blade',
-  lingering: 'clock', long: 'clock', longArc: 'range', longSpin: 'multi', magnum: 'up', mark: 'eye', mending: 'heal', mobile: 'boot',
-  momentum: 'cycle', paralyze: 'shock', parry: 'shield', piercing: 'pierce', pin: 'shock', pointBlank: 'knock', push: 'knock',
-  quake: 'stagger', quick: 'speed', rally: 'heal', recoil: 'knock', regen: 'clock', rend: 'armor', retaliate: 'up', riposte: 'blade',
-  roar: 'range', room: 'knock', scorched: 'ground', searing: 'up', shards: 'multi', shatter: 'burst', shock: 'shock', shocking: 'shock',
-  shockwave: 'knock', split: 'multi', spread: 'multi', static: 'ground', sticky: 'ground', storm: 'multi', stun: 'shock',
-  suppress: 'down', sweeping: 'wide', swift: 'speed', swing: 'blade', thirst: 'heal', thorns: 'blade', toss: 'range', twin: 'twin',
-  unbreakable: 'shield', vanish: 'eye', venom: 'poison', vortex: 'pull', ward: 'shield', weakSpot: 'star', weakening: 'down',
-  whirl: 'wide', wide: 'wide', wrath: 'up',
+  anti: 'heal', arcing: 'chain', big: 'grow', blast: 'burst', cataclysm: 'burst', conductor: 'chain', deep: 'armor',
+  desperate: 'tp', double: 'twin', draining: 'heal', efficient: 'tp', eye: 'focus', field: 'ground',
+  firewall: 'ground', five: 'multi', focused: 'focus', freezing: 'ice', frostbite: 'down', glacial: 'grow',
+  greater: 'heal', ignite: 'fire', impact: 'knock', inferno: 'fire', long: 'clock', longArc: 'range',
+  paralyze: 'shock', push: 'knock', quick: 'speed', regen: 'clock', scorched: 'ground', searing: 'up',
+  shards: 'multi', shatter: 'burst', split: 'multi', static: 'ground', storm: 'multi', swift: 'speed', twin: 'twin',
+  ward: 'shield', wide: 'wide',
   // Same id, another meaning on this Art.
-  'rabarta:deep': 'ice', 'resta:swift': 'boot', 'shadowStep:flurry': 'multi', 'ricochet:chain': 'multi', 'ricochet:arc': 'shock', hunter: 'eye', 'mark:bounty': 'tp', 'freezeRound:deep': 'clock', 'freezeRound:burst': 'ice', 'freezeRound:shatter': 'burst', 'scatterBlast:spread': 'wide', 'scatterBlast:buckshot': 'up',
-  'guardStance:quick': 'hourglass', 'shadowStep:quick': 'hourglass', 'flashShot:quick': 'hourglass', 'freezeTrap:quick': 'hourglass',
-  'bladeDance:long': 'multi', 'crescent:long': 'range', 'gizonde:long': 'range', 'gibarta:long': 'range',
+  'rabarta:deep': 'ice', 'resta:swift': 'boot', 'gizonde:long': 'range', 'gibarta:long': 'range',
 };
 
 export function modGlyph(art: ArtId, mod: string): SkillGlyph {

@@ -16,7 +16,7 @@ describe('boss registry', () => {
   });
 
   it('counts kills per difficulty', () => {
-    const ch = Character.create('T', 'force');
+    const ch = Character.create('T');
     expect(ch.addBossKill('warden', false)).toBe(1);
     expect(ch.addBossKill('warden', true)).toBe(1);
     expect(ch.addBossKill('warden', true)).toBe(2);

@@ -5,10 +5,10 @@ import {
 import { craftPlan } from '../game/crafting';
 import { damageBreakdown, type Foe } from '../game/dps';
 import { isGear } from '../game/itemTypes';
-import { STAT_KEYS, STAT_LABEL, statValue, type MagStat, type StatKey } from '../game/data/stats';
-import { ART_IDS, artClasses, ARTS, isTechArt, type ArtId } from '../game/data/arts';
+import { GROWTH, STAT_KEYS, STAT_LABEL, statValue, type MagStat, type StatKey } from '../game/data/stats';
+import { ART_IDS, ARTS, type ArtId } from '../game/data/arts';
 import { AFFIX_CAPS, affixText, ITEM_AFFIXES, UNIT_KINDS } from '../game/data/itemAffixes';
-import { getDef, INVENTORY_SIZE, kindFamily, weaponKinds } from '../game/data/items';
+import { getDef, INVENTORY_SIZE } from '../game/data/items';
 import { UNIQUES } from '../game/data/uniques';
 import { restaHeal } from '../game/data/techniques';
 import { buyPrice, type ShopKind } from '../game/loot';
@@ -17,7 +17,7 @@ import { MAG_BONUS, MAG_EVOLVE_AT, MAG_STAT_LABEL, MAG_STATS, magForm, magLevel,
 import { needText, PASSIVES, weaponFits, type PassiveId } from '../game/passives';
 import { LANE_COLS, modNodeId, modRowRank, rankOf, rankUpBlock, skillReachable, SKILL_TREES, skillName, skillNode, skillNodes, treeCols, treeLines, treeOf, treeSpent, type SkillLine, type SkillNode } from '../game/skills';
 import { sfx, type SfxId } from '../audio';
-import { artIcon, itemGlyph, techIcon } from './icons';
+import { itemGlyph, techIcon } from './icons';
 import { modIcon, passiveIcon } from './skillIcons';
 import { itemCardHtml } from './itemCard';
 
@@ -33,7 +33,7 @@ export interface GameApi {
   magSpend(stat: MagStat, n?: number): string | null;
   /** Put ranks into a skill (step > 0) or take them out (< 0); out of a fight. */
   skillRank(id: string, step: number): string | null;
-  /** Put an Art on a bar slot for the weapon in hand (null empties it); out of a fight. */
+  /** Put an Art on a bar slot (null empties it); out of a fight. */
   artSlot(slot: number, id: ArtId | null): string | null;
   /** The photon blast the Mag fires. */
   photonBlastPick(id: PhotonBlastId): string | null;
@@ -234,7 +234,7 @@ type InvTab = 'equip' | 'items' | 'arts' | 'skills' | 'mag' | 'status' | 'damage
 const TAB_LABEL: Record<InvTab, string> = { equip: 'Equipment', items: 'Items', arts: 'Arts', skills: 'Skills', mag: 'Mag', status: 'Status', damage: 'Damage' };
 /** The Art bar's keys. */
 const ART_KEYS = ['RMB', 'Q', 'E', 'R'];
-const ROLE_LABEL: Record<string, string> = { area: 'Area', single: 'Single target', control: 'Control', defence: 'Defence', mobility: 'Mobility', support: 'Support' };
+const ROLE_LABEL: Record<string, string> = { area: 'Area', single: 'Single target', support: 'Support' };
 const SLOT_LABEL: Record<GearSlot, string> = { weapon: 'Weapon', frame: 'Frame', barrier: 'Barrier', injector: 'Injector' };
 
 
@@ -285,7 +285,7 @@ const SK_SPINE = 20;
 const SK_GUTTER = 30;
 const SK_PAD = 10;
 /** An Art's glyph (techniques have their own). */
-const artIco = (id: ArtId) => (isTechArt(id) ? techIcon(id) : artIcon(id));
+const artIco = (id: ArtId) => techIcon(id);
 
 export class InventoryMenu implements Menu {
   cls = 'wide';
@@ -340,7 +340,7 @@ export class InventoryMenu implements Menu {
     else if (this.tab === 'status') body = this.renderStatus();
     else if (this.tab === 'arts') body = this.renderArts();
     else body = this.renderDamage();
-    return `<div class="win-title">${esc(this.ch.data.name)} · Lv.${this.ch.level} ${this.ch.title}</div>
+    return `<div class="win-title">${esc(this.ch.data.name)} · Lv.${this.ch.level}</div>
       <div class="menu-head"><div class="tabs">${tabs}</div><span class="head-gap"></span><button class="btn small ghost" data-act="quit">Save &amp; quit</button><button class="btn small" data-act="close">Close <kbd>I</kbd></button></div>
       ${body}`;
   }
@@ -387,8 +387,7 @@ export class InventoryMenu implements Menu {
         <div class="detail-sell dim">Sells for ${sellPrice(sel)} M</div><div class="choices inline">${btns.join('')}</div>`;
     }
     const s = ch.stats();
-    const [lo, hi] = ch.weaponDamage();
-    const totals = `<div class="gear-totals"><span>Weapon damage <b>${lo}-${hi}</b></span><span>Tech damage <b>${s.mst}</b></span><span>Crit chance <b>${statValue('lck', s.lck)}</b></span><span>Strike <b>${statValue('strike', ch.damageTaken('strike'))}</b></span><span>Area <b>${statValue('area', ch.damageTaken('area'))}</b></span></div>`;
+    const totals = `<div class="gear-totals"><span>Tech damage <b>${s.mst}</b></span><span>Crit chance <b>${statValue('lck', s.lck)}</b></span><span>Strike <b>${statValue('strike', ch.damageTaken('strike'))}</b></span><span>Area <b>${statValue('area', ch.damageTaken('area'))}</b></span></div>`;
     return `<div class="split"><div class="equip-col"><div class="gear-slots">${cards}</div>
         <div class="list">${rows}</div>${totals}</div><div class="detail">${detail}</div></div>${this.foot()}`;
   }
@@ -534,8 +533,6 @@ export class InventoryMenu implements Menu {
     const part = (k: StatKey, v: number) => (k === 'lck' ? `+${+(v / 10).toFixed(1)}%` : k === 'strike' || k === 'area' ? `−${v}%` : `+${v}`);
     const rows = STAT_KEYS.map((k) => {
       let val = statValue(k, tot[k]);
-      // Weapon damage with the weapon's own range and Weapon damage % in: what a hit deals before its swing's multiplier.
-      if (k === 'atp') val = ch.weaponDamage().join('-');
       if (k === 'strike' || k === 'area') val = statValue(k, ch.damageTaken(k)) + (tot[k] >= cap ? ' (cap)' : '');
       const magB = own[k] - base[k];
       const gearB = tot[k] - own[k];
@@ -554,11 +551,11 @@ export class InventoryMenu implements Menu {
       .join('');
     const st = ch.data.stats;
     return `<div class="split"><div class="detail">
-        <div class="detail-title">${esc(ch.data.name)} — ${ch.title} Lv.${ch.level}</div>
+        <div class="detail-title">${esc(ch.data.name)} — Lv.${ch.level}</div>
         <div class="dim">${ch.maxed ? 'Level cap reached: the chase is gear now.' : `EXP ${ch.data.xp} / ${ch.xpToNext()} to next level`}</div>
         <span class="ms-bar xp-bar"><i style="width:${ch.maxed ? 100 : Math.min(100, (100 * ch.data.xp) / Math.max(1, ch.xpToNext()))}%"></i></span>
         <table class="stats">${rows}</table>${this.otherStatsHtml()}</div>
-      <div class="detail">${this.classHtml()}<div class="detail-title">Equipment</div><table class="stats">${eq}</table>
+      <div class="detail">${this.growthHtml()}<div class="detail-title">Equipment</div><table class="stats">${eq}</table>
         ${w ? itemCardHtml(ch, w, this.api.damageFoe()) : ''}
         <div class="detail-title" style="margin-top:12px">Record</div>
         <div class="dim">Kills ${st.kills} · Deaths ${st.deaths} · Dragons slain ${st.bossKills.dragon ?? 0}</div></div></div>${this.foot()}`;
@@ -571,9 +568,6 @@ export class InventoryMenu implements Menu {
   private otherStatsHtml(): string {
     const ch = this.ch;
     const a = (id: Parameters<Character['gearAffix']>[0]) => ch.gearAffix(id);
-    // Weapon-family rows (stagger, perfect shots, Foie %...) show for that family, or when something adds to them.
-    const family = ch.prefersMagic ? 'caster' : kindFamily(ch.weaponKind());
-    const melee = family === 'melee';
     type Row = { label: string; value: string; zero: boolean; tip?: string; show?: boolean };
     const pct = (v: number) => `${v > 0 ? '+' : ''}${Math.round(v)}%`;
     const row = (label: string, v: number, text: string, tip?: string, show = true): Row => ({ label, value: text, zero: !v, tip, show });
@@ -600,22 +594,17 @@ export class InventoryMenu implements Menu {
       row('HP regen', a('regen'), `${a('regen')} / s`, 'Mending: HP back every second, in fights too.'),
     ];
     const offence: Row[] = [
-      row('Weapon damage', ch.weaponDamagePct(), pct(ch.weaponDamagePct()), 'Weapon damage % affixes (Reckless counts).'),
       row('Tech damage', a('techPct') + a('brittle'), pct(a('techPct') + a('brittle')), 'Tech damage % affixes (Brittle counts).'),
-      row('Fire damage', a('firePct'), pct(a('firePct')), undefined, family === 'caster' || !!a('firePct')),
-      row('Lightning damage', a('lightningPct'), pct(a('lightningPct')), undefined, family === 'caster' || !!a('lightningPct')),
-      row('Ice damage', a('icePct'), pct(a('icePct')), undefined, family === 'caster' || !!a('icePct')),
-      row('Technique TP cost', a('tpCost'), a('tpCost') ? `−${a('tpCost')}%` : '0%', undefined, family === 'caster' || !!a('tpCost')),
-      row('TP regen', a('tpRegen'), `${a('tpRegen')} / s`, 'Spring: TP back every second, in fights too.', family === 'caster' || !!a('tpRegen')),
-      row('Stagger', a('staggerPct'), pct(a('staggerPct')), undefined, melee || !!a('staggerPct')),
-      row('Finisher damage', a('finisherPct'), pct(a('finisherPct')), undefined, melee || !!a('finisherPct')),
-      row('Perfect shots', a('perfectPct'), pct(a('perfectPct')), undefined, family === 'ranged' || !!a('perfectPct')),
-      row('Falloff starts', a('falloff'), `+${a('falloff')} m`, undefined, family === 'ranged' || !!a('falloff')),
+      row('Fire damage', a('firePct'), pct(a('firePct'))),
+      row('Lightning damage', a('lightningPct'), pct(a('lightningPct'))),
+      row('Ice damage', a('icePct'), pct(a('icePct'))),
+      row('Technique TP cost', a('tpCost'), a('tpCost') ? `−${a('tpCost')}%` : '0%'),
+      row('TP regen', a('tpRegen'), `${a('tpRegen')} / s`, 'Spring: TP back every second, in fights too.'),
     ];
     const sustain: Row[] = [
       row('Injector potency', a('injPotency'), pct(a('injPotency')), 'Each dose restores this much more.'),
       row('Injector charge', a('injCharge'), pct(a('injCharge')), 'Doses charge this much faster from damage you deal.'),
-      row('TP refill', a('tpRefill'), pct(a('tpRefill')), 'Basic hits refill this much more TP (Flow).'),
+      row('TP refill', a('tpRefill'), pct(a('tpRefill')), 'Photon bolts refill this much more TP (Flow).'),
     ];
     const group = (title: string, rows: Row[]) =>
       `<div class="ss-group"><div class="ss-head">${title}</div>${rows
@@ -694,13 +683,13 @@ export class InventoryMenu implements Menu {
 
     const kind = ch.weaponKind();
     const kind2 = sim ? sim.weaponKind() : kind;
-    const weapon = row(`Basic chain <span class="dim">(${kind.family === 'caster' ? 'photon bolts' : 'three steps'})</span>`, b.basic, b2?.basic);
+    const weapon = row(`Basic chain <span class="dim">(photon bolts)</span>`, b.basic, b2?.basic);
     const casts = b.arts
       .map((x) => {
         const x2 = b2?.arts.find((y) => y.id === x.id);
         const what = x.perUse > 0 ? `${n(x.perUse)} a use` : 'no damage';
         const rate = (y: typeof x) => ({ dps: y.sustained, secs: y.secs });
-        return row(`${esc(ARTS[x.id].name)} <span class="dim">· ${what} · ${x.tp} TP${x.cooldown ? ` · ${x.cooldown} s` : ''}</span>`, rate(x), x2 && rate(x2));
+        return row(`${esc(ARTS[x.id].name)} <span class="dim">· ${what} · ${x.tp} TP</span>`, rate(x), x2 && rate(x2));
       })
       .join('') || `<tr><td colspan="3" class="dim">No Arts on your bar (Menu → Arts).</td></tr>`;
     // Units: a chip per learned unit (its affix), lit when switched on; the frame's slots cap how many.
@@ -724,12 +713,12 @@ export class InventoryMenu implements Menu {
     const crit = b2 && b2.critChance.toFixed(1) !== b.critChance.toFixed(1) ? `${b.critChance.toFixed(1)}% → ${b2.critChance.toFixed(1)}%` : `${b.critChance.toFixed(1)}%`;
     const haste = b2 && b2.haste !== b.haste ? `${b.haste}% → ${b2.haste}%` : `${b.haste}%`;
     return `<div class="dmg-tab">
-      <div class="dmg-head"><span>Against a typical <b>${esc(foe.label)}</b> enemy · armour ${foe.armor}% · tech resist ${foe.techResist}%</span></div>
+      <div class="dmg-head"><span>Against a typical <b>${esc(foe.label)}</b> enemy · tech resist ${foe.techResist}%</span></div>
       <div class="detail dmg-body"><div class="dmg-col">
         <table class="dps dmg-table${b2 ? ' cmp' : ''}">${head(weaponTitle, 'Chain')}${weapon}</table>
         <table class="dps dmg-table${b2 ? ' cmp' : ''}">${head('Arts on your bar', 'Per use')}${casts}</table>
         <div class="dim dmg-note">Damage per second on one target, chained as fast as the chain allows, crits averaged in (crit chance ${crit}, Haste ${haste}).
-          An Art's rate is using it whenever its TP and cooldown allow, the basic chain between uses winning the TP back; area Arts hit everything in their area.${b2 ? ' Picks are only compared here until you equip or use them.' : ''}</div></div>
+          An Art's rate is casting it whenever its TP allows, the photon bolts between casts winning the TP back; area Arts hit everything in their area.${b2 ? ' Picks are only compared here until you equip or use them.' : ''}</div></div>
         <div class="dmg-picks"><div class="dmg-picks-head">Compare gear and units</div>${pickers}${unitRow}
           <div class="dmg-picks-foot"><button class="btn small ghost${this.dmgUnits ? '' : ' disabled'}" data-act="dmgUnitsUse" title="Switch these units on in your Mag">Use these units</button>
             <button class="btn small ghost${b2 ? '' : ' disabled'}" data-act="dmgReset">Reset</button></div></div>
@@ -747,26 +736,24 @@ export class InventoryMenu implements Menu {
   private hasteRows(): string {
     const ch = this.ch;
     const haste = ch.haste();
-    const swing = Math.round((1 - ch.swingTimeMult()) * 100);
+    const bolt = Math.round((1 - ch.hasteMult()) * 100);
     const castCut = Math.round((1 - ch.castTimeMult()) * 100);
-    const parts = [swing ? `swings ${swing}% quicker` : '', haste || castCut ? `techniques ${castCut}% quicker` : ''].filter(Boolean);
+    const parts = [bolt ? `photon bolts ${bolt}% quicker` : '', haste || castCut ? `techniques ${castCut}% quicker` : ''].filter(Boolean);
     const note = parts.length ? parts.join(', ').replace(/^./, (c) => c.toUpperCase()) : '';
     return `<tr class="stat-row"><td>Haste</td><td>${haste}%</td><td class="dim">${haste ? `(+${haste}% gear)` : ''}</td></tr>${
       note ? `<tr class="stat-note"><td colspan="3">${esc(note)}</td></tr>` : ''}`;
   }
 
-  /** The class: what it fights with and how it grows. */
-  private classHtml(): string {
-    const cls = this.ch.cls;
-    const growth = gainsText(STAT_KEYS.map((k) => [k, cls.growth[k]]));
-    return `<div class="detail-title">${cls.name}</div><div class="dim attr-note">${esc(cls.desc)}<br>Per level: ${growth}.</div>`;
+  /** What every level adds. */
+  private growthHtml(): string {
+    return `<div class="detail-title">Growth</div><div class="dim attr-note">Per level: ${gainsText(STAT_KEYS.map((k) => [k, GROWTH[k]]))}.</div>`;
   }
 
-  /** Mag: four stats, a point a level into one of them (permanent), and what the Mag lets you wear. */
+  /** Mag: two tracks, a point a level into one of them (permanent), and its units. */
   private renderMag(): string {
     const ch = this.ch;
     const m = ch.mag;
-    const form = magForm(m, ch.magStat);
+    const form = magForm(m);
     const free = ch.magPoints;
     const foe = this.api.damageFoe();
     const rows = MAG_STATS.map((st) => {
@@ -807,24 +794,23 @@ export class InventoryMenu implements Menu {
   }
 
   /**
-   * Skills (2026-10-15, Diablo 2 style): the class's trees, one at a time. Each is a grid of square icons: Arts with
+   * Skills (2026-10-15, Diablo 2 style): the trees, one at a time. Each is a grid of square icons: Arts with
    * their modifiers forking below them (a lane down the left), passives in two columns on the right, joined by
    * right-angled lines to what they hang from. Names show on hover and in the details pane.
    */
   private renderSkills(): string {
     const ch = this.ch;
-    const cls = ch.data.cls;
     const s = ch.data.skills;
-    const sel = (this.skillSel && skillNode(cls, this.skillSel)) || null;
-    const trees = SKILL_TREES[cls];
+    const sel = (this.skillSel && skillNode(this.skillSel)) || null;
+    const trees = SKILL_TREES;
     const tree = trees.find((t) => t.id === (sel?.tree ?? this.skillTree)) ?? trees[0];
     const tabs = trees
       .map((t) => {
-        const spent = treeSpent(cls, s, t.id);
+        const spent = treeSpent(s, t.id);
         return `<button class="btn small${t === tree ? '' : ' ghost'}" data-act="skillTree" data-arg="${t.id}">${esc(t.name)}${spent ? ` <span class="sk-spent">${spent}</span>` : ''}</button>`;
       })
       .join('');
-    const nodes = skillNodes(cls).filter((n) => n.tree === tree.id);
+    const nodes = skillNodes().filter((n) => n.tree === tree.id);
     const lanes = tree.lanes.length;
     const laneW = SK_SPINE + LANE_COLS * SK_PX;
     const colX = (c: number) => (c < lanes * LANE_COLS ? SK_PAD + Math.floor(c / LANE_COLS) * laneW + SK_SPINE + (c % LANE_COLS) * SK_PX : SK_PAD + lanes * laneW + SK_GUTTER + (c - lanes * LANE_COLS) * SK_PX);
@@ -833,7 +819,7 @@ export class InventoryMenu implements Menu {
       const y = SK_PAD + n.row * SK_PY + (SK_PY - SK_N) / 2;
       return { x, y, r: x + SK_N, b: y + SK_N, cx: x + SK_N / 2, cy: y + SK_N / 2 };
     };
-    const width = SK_PAD * 2 + lanes * laneW + SK_GUTTER + (treeCols(cls, tree.id) - lanes * LANE_COLS) * SK_PX;
+    const width = SK_PAD * 2 + lanes * laneW + SK_GUTTER + (treeCols(tree.id) - lanes * LANE_COLS) * SK_PX;
     const height = SK_PAD * 2 + (Math.max(...nodes.map((n) => n.row)) + 1) * SK_PY;
     const gap = (SK_PY - SK_N) / 2;
     // Each Art and its modifier fork sit on a faint panel of their own.
@@ -848,9 +834,9 @@ export class InventoryMenu implements Menu {
     // A second-row modifier's line comes from the first-row pick, once there is one (the fork followed).
     const taken0 = (art: string) => nodes.find((n) => n.art === art && n.modRow === 0 && rankOf(s, n.id) > 0);
     const route = (l: SkillLine): number[][] => {
-      const t = box(skillNode(cls, l.to)!);
-      const toNode = skillNode(cls, l.to)!;
-      const fromNode = (l.kind === 'fork2' && taken0(toNode.art!)) || skillNode(cls, l.from)!;
+      const t = box(skillNode(l.to)!);
+      const toNode = skillNode(l.to)!;
+      const fromNode = (l.kind === 'fork2' && taken0(toNode.art!)) || skillNode(l.from)!;
       const f = box(fromNode);
       switch (l.kind) {
         case 'spine': {
@@ -867,7 +853,7 @@ export class InventoryMenu implements Menu {
         }
       }
     };
-    const paths = treeLines(cls, tree.id).map((l) => ({ on: rankOf(s, l.to) > 0, d: `M${route(l).map((p) => p.join(' ')).join(' L')}` }));
+    const paths = treeLines(tree.id).map((l) => ({ on: rankOf(s, l.to) > 0, d: `M${route(l).map((p) => p.join(' ')).join(' L')}` }));
     // Unlit lines first, so lit ones run on top.
     const lines = [...paths.filter((p) => !p.on), ...paths.filter((p) => p.on)].map((p) => `<path class="${p.on ? 'on' : ''}" d="${p.d}"/>`).join('');
     const body = nodes.map((n) => this.skillNodeHtml(n, n === sel, box(n))).join('');
@@ -892,11 +878,11 @@ export class InventoryMenu implements Menu {
     const ch = this.ch;
     const s = ch.data.skills;
     const r = rankOf(s, n.id);
-    const block = rankUpBlock(ch.data.cls, ch.level, s, n);
+    const block = rankUpBlock(ch.level, s, n);
     // Three looks: learned (frame and fill in its colour), in reach (its colour as the frame only: points could get it
     // at this level, whatever else it waits on first), and out of reach for now (faded far back: a level stands in the
     // way, here or up the nodes it hangs from).
-    const reach = !r && skillReachable(ch.data.cls, ch.level, n);
+    const reach = !r && skillReachable(ch.level, n);
     const lock = !r && !reach;
     const role = n.kind === 'passive' ? PASSIVES[n.id as PassiveId].role : n.kind;
     const idle = n.kind === 'passive' && r > 0 && !ch.hasPassive(n.id as PassiveId);
@@ -917,14 +903,13 @@ export class InventoryMenu implements Menu {
    */
   private skillDetail(n: SkillNode): string {
     const ch = this.ch;
-    const cls = ch.data.cls;
     const s = ch.data.skills;
     const r = rankOf(s, n.id);
-    const up = rankUpBlock(cls, ch.level, s, n);
-    const tree = SKILL_TREES[cls].find((t) => t.id === n.tree)!.name;
+    const up = rankUpBlock(ch.level, s, n);
+    const tree = SKILL_TREES.find((t) => t.id === n.tree)!.name;
     const chips = (items: string[]) => (items.length ? `<div class="sk-tech">${items.map((x) => `<span>${esc(x)}</span>`).join('')}</div>` : '');
     const reqs = (items: string[]) => `<div class="sk-req">${items.filter(Boolean).join(' · ')}</div>${up && r < n.max ? `<div class="sk-why">${esc(up)}</div>` : ''}`;
-    const pre = n.pre ? `needs ${esc(skillName(skillNode(cls, n.pre)!))}` : '';
+    const pre = n.pre ? `needs ${esc(skillName(skillNode(n.pre)!))}` : '';
     const rank = `Rank <b>${r}</b> / ${n.max}`;
     const rankBtns = `<div class="sk-btns"><button class="btn small" data-act="skillUp" data-arg="${n.id}">+1 rank</button><button class="btn small ghost" data-act="skillMax" data-arg="${n.id}">Max</button><button class="btn small ghost" data-act="skillDown" data-arg="${n.id}">−1 rank</button></div>`;
     if (n.kind === 'mod') {
@@ -940,9 +925,9 @@ export class InventoryMenu implements Menu {
     if (n.kind === 'passive') {
       const d = PASSIVES[n.id as PassiveId];
       const k = (x: number) => x / n.max;
-      const fits = weaponFits(d.needs, ch.weaponKind(), !!ch.weaponInstance());
+      const fits = weaponFits(n.id as PassiveId, !!ch.weaponInstance());
       const scale = r && r < n.max ? [`Next rank: ${d.desc(k(r + 1))}`] : !r && n.max > 1 ? [`At rank ${n.max}: ${d.desc(1)}`] : [];
-      const need = d.needs ? `<span class="${fits ? '' : 'sk-off'}">${esc(needText(d.needs))}${fits ? '' : ' (inactive now)'}</span>` : '';
+      const need = d.needsWeapon ? `<span class="${fits ? '' : 'sk-off'}">${esc(needText(n.id as PassiveId))}${fits ? '' : ' (inactive now)'}</span>` : '';
       return `${this.skillCard(n, d.name, `Passive · ${tree}`)}<div class="sk-desc">${esc(d.desc(k(Math.max(1, r))))}</div>
         ${scale.length ? `<div class="sk-tech-line">${esc(scale[0])}</div>` : ''}
         ${reqs([rank, `Lv ${n.level}`, pre, need])}${rankBtns}`;
@@ -952,15 +937,10 @@ export class InventoryMenu implements Menu {
     const pow = (x: number) => Math.round(skillCfg.artBasePower * (1 + skillCfg.artPowerPerRank * (x - 1)) * 100);
     const tp = (x: number) => Math.round(skillCfg.artTpPerRank * (x - 1) * 100);
     const t = ch.artTiming(id);
-    const cd = ch.artCooldown(id);
-    const ticks = ch.artTicks(id);
     const tech = [
       ROLE_LABEL[a.role],
       `${ch.artCost(id)} TP`,
-      cd ? `${cd} s cooldown` : '',
       `${(t.windup + t.active + t.recovery).toFixed(2)} s`,
-      ticks > 1 ? `${ticks} hits` : '',
-      a.seals ? 'ends the chain' : 'chains',
       `power ${pow(Math.max(1, r))}%`,
       tp(Math.max(1, r)) ? `TP −${tp(Math.max(1, r))}%` : '',
     ].filter(Boolean);
@@ -1007,47 +987,35 @@ export class InventoryMenu implements Menu {
   }
 
   /**
-   * Arts: the bar for the weapon in hand (RMB, Q, E, R), every Art that can go on it (and the ones still to come),
-   * and the picked Art's details and modifiers. Click a slot, then an Art, to put it there; changes wait for the
-   * end of a fight.
+   * Arts: the bar (RMB, Q, E, R), every Art that can go on it (and the ones still to come), and the picked Art's
+   * details and modifiers. Click a slot, then an Art, to put it there; changes wait for the end of a fight.
    */
   private renderArts(): string {
     const ch = this.ch;
-    const key = ch.barKey;
     const bar = ch.artBar();
-    const holding = key === 'none' ? 'bare hands' : `a ${weaponKinds[key].label.toLowerCase()}`;
     const slots = bar
       .map((id, i) => {
         const on = this.artSlotSel === i;
-        const usable = id ? ch.artUsable(id) : false;
-        const name = id ? `<span class="art-ico">${artIco(id)}</span>${esc(ARTS[id].name)}${usable ? '' : ' <span class="tl-need off">(not with this weapon)</span>'}` : '<span class="dim">— empty —</span>';
+        const name = id ? `<span class="art-ico">${artIco(id)}</span>${esc(ARTS[id].name)}` : '<span class="dim">— empty —</span>';
         const clear = id ? ` <button class="btn small ghost" data-act="artClear" data-arg="${i}">✕</button>` : '';
         return `<div class="pal-slot art-bar-slot${on ? ' sel' : ''}" data-act="artSlot" data-arg="${i}"><div class="slot-key">${ART_KEYS[i]}</div>${name}${clear}</div>`;
       })
       .join('');
-    // What can go on this bar: the weapon's own Arts and the class's, then techniques; the ones still to come greyed.
-    const cls = ch.data.cls;
-    const fitsKey = (id: ArtId) => {
-      const f = ARTS[id].from;
-      if ('tech' in f) return true;
-      if (key === 'none') return false;
-      return 'kind' in f ? f.kind === key : weaponKinds[key].family === f.family;
-    };
-    const known = ch.artsFor(key);
-    const later = ART_IDS.filter((id) => artClasses(id).includes(cls) && fitsKey(id) && !known.includes(id)).sort((a, b) => ARTS[a].level - ARTS[b].level);
+    // What can go on the bar; the ones still to come greyed.
+    const known = ch.artsFor();
+    const later = ART_IDS.filter((id) => !known.includes(id)).sort((a, b) => ARTS[a].level - ARTS[b].level);
     const sel = this.artSel ?? (this.artSlotSel !== null ? bar[this.artSlotSel] : null) ?? bar.find((x) => x) ?? known[0] ?? null;
     const line = (id: ArtId, locked: boolean) => {
       const a = ARTS[id];
-      const cd = ch.artCooldown(id);
-      const tags = locked ? (ch.level >= a.level ? 'learn in Skills' : `Lv ${a.level}`) : `${ch.artCost(id)} TP${cd ? ` · ${cd} s` : ''}`;
+      const tags = locked ? (ch.level >= a.level ? 'learn in Skills' : `Lv ${a.level}`) : `${ch.artCost(id)} TP`;
       const on = bar.includes(id);
       return `<div class="row${sel === id ? ' sel' : ''}${locked ? ' dim' : ''}" data-act="artPick" data-arg="${id}"><span class="art-ico">${artIco(id)}</span><span class="row-name">${esc(a.name)}${on ? ' <span class="dim">· on the bar</span>' : ''}</span><span class="price">${tags}</span></div>`;
     };
     const list = `${known.map((id) => line(id, false)).join('')}${later.length ? `<div class="list-group">Not learned yet</div>${later.map((id) => line(id, true)).join('')}` : ''}`;
-    return `<div class="detail"><div class="tl-intro dim">LMB is your basic chain: it refills TP. The Arts on RMB, Q, E and R spend it; an Art pressed in the chain's window becomes its next step and gets the perfect streak.
-        You're holding ${holding}: each weapon kind keeps its own bar. Click a slot, then an Art, to put it there. Changes wait for the end of a fight.</div>
+    return `<div class="detail"><div class="tl-intro dim">LMB is your basic chain of photon bolts: it refills TP. The Arts on RMB, Q, E and R spend it; an Art pressed in the chain's window becomes its next step and gets the perfect streak.
+        Click a slot, then an Art, to put it there. Changes wait for the end of a fight.</div>
       <div class="pal-row">${slots}</div></div>
-      <div class="split"><div class="list">${list || '<div class="dim empty-note">No Arts for this weapon.</div>'}</div><div class="detail">${sel ? this.artDetail(sel) : ''}</div></div>${this.foot()}`;
+      <div class="split"><div class="list">${list || '<div class="dim empty-note">No Arts yet.</div>'}</div><div class="detail">${sel ? this.artDetail(sel) : ''}</div></div>${this.foot()}`;
   }
 
   /** One Art: what it does, its numbers now, its rank and its two modifier rows (both set in Skills). */
@@ -1056,16 +1024,11 @@ export class InventoryMenu implements Menu {
     const a = ARTS[id];
     const r = ch.artRank(id);
     const t = ch.artTiming(id);
-    const cd = ch.artCooldown(id);
-    const ticks = ch.artTicks(id);
     const facts = [
       ROLE_LABEL[a.role],
       r ? `rank ${r}` : ch.level >= a.level ? 'not learned' : `opens at Lv ${a.level}`,
       r ? `${ch.artCost(id)} TP` : '',
-      cd ? `${cd} s cooldown` : '',
       `${(t.windup + t.active + t.recovery).toFixed(2)} s`,
-      ticks ? `${ticks} hits` : '',
-      a.seals ? 'ends the chain' : 'chains',
     ].filter(Boolean);
     const rows = ([0, 1] as const)
       .map((row) => {
@@ -1191,7 +1154,7 @@ export class InventoryMenu implements Menu {
       case 'skillGo':
         this.tab = 'skills';
         this.skillSel = arg;
-        this.skillTree = treeOf(this.ch.data.cls, arg)?.id ?? null;
+        this.skillTree = treeOf(arg)?.id ?? null;
         break;
       case 'skillUp':
         this.fail(this.api.skillRank(arg, 1));

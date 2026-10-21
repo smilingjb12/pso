@@ -39,15 +39,15 @@ const params = {
   speed: 4.6,
   slowMotion: 1,
   view: 'side',
-  weapon: 'saber' as WeaponKind | 'none',
+  weapon: 'wand' as WeaponKind | 'none',
   playing: true,
   scrub: 0,
 };
 const CHARACTERS: Record<string, keyof typeof STYLES | 'player'> = {
   Player: 'player',
-  'RAmarl (Ranger)': 'ranger',
-  'HUmar (Hunter)': 'hunter',
-  'FOmarl (Force)': 'force',
+  'Crowd: RAmarl': 'ramarl',
+  'Crowd: HUmar': 'humar',
+  'Crowd: FOmarl': 'fomarl',
 };
 const GRIPS = WEAPON_GRIP;
 

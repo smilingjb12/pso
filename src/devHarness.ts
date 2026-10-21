@@ -1,6 +1,6 @@
 // Dev-only helpers for driving the game from the console or automated tests
 // without pointer lock or requestAnimationFrame (e.g. in a hidden tab).
-//   __h.start(slot, cls?, difficulty?)  load or create a character (class: hunter / ranger / force) and enter the city ('nightmare' if open)
+//   __h.start(slot, difficulty?)  load or create a character and enter the city ('nightmare' if open)
 //   __h.run(sec)     step the simulation with fixed 60 Hz frames
 //   __h.bot(sec)     fight nearby enemies with a naive chain bot: basic, basic, the first ready damaging Art
 //                    (opts.seq: per step 'b' basic, 'a' that Art, 0-3 a bar slot; opts.late: chain this many s into the window)
@@ -97,9 +97,8 @@ export function installHarness(game: any): void {
       }
       if (tg) {
         const d = Math.hypot(tg.pos.x - p.pos.x, tg.pos.z - p.pos.z) - tg.radius;
-        const kind = game.char.weaponKind();
-        const reach = kind.ranged || kind.family === 'caster' ? 10 : 1.6;
-        if (d > reach && c.phase !== 'swing') {
+        // Photon bolts reach 13 m: close to 10.
+        if (d > 10 && c.phase !== 'swing') {
           game.rig.yaw = yawTo(p.pos.x, p.pos.z, tg.pos.x, tg.pos.z);
           if (!walking) key('KeyW');
           walking = true;
@@ -116,7 +115,7 @@ export function installHarness(game: any): void {
     return t / 60;
   };
 
-  const start = (slot = 0, cls = 'hunter', difficulty = 'normal') => {
+  const start = (slot = 0, difficulty = 'normal') => {
     takeOver();
     const title = game.menus.menu;
     title.onAction('sel', String(slot));
@@ -127,8 +126,6 @@ export function installHarness(game: any): void {
     } else {
       title.onAction('new', '');
       title.editor.name = 'Bot';
-      title.onAction('goStep', '0');
-      title.onAction('cls', cls);
       title.onAction('finish', '');
     }
     run(0.2);

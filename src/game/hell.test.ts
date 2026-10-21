@@ -3,6 +3,7 @@ import { Character } from './character';
 import { Combo, hastened } from './combo';
 import { combo as comboCfg, enemies, hard, hasteCfg, hell } from './config';
 import { expeditions, type ExpeditionId } from './data/areas';
+import { ARTS } from './data/arts';
 import { getDef } from './data/items';
 import { cutMult } from './formulas';
 import { hardArch, hardBoss } from './hard';
@@ -41,7 +42,7 @@ describe('Hell scaling', () => {
 
 describe('Hell unlocks and loot', () => {
   it('opens Hell once Dark Falz falls on Nightmare, and counts Hell kills apart', () => {
-    const ch = Character.create('T', 'hunter');
+    const ch = Character.create('T');
     expect(openDifficulties(ch.data)).toEqual(['normal']);
     ch.addBossKill('falz', 'normal');
     expect(nightmareOpen(ch.data)).toBe(true);
@@ -63,7 +64,7 @@ describe('Hell unlocks and loot', () => {
 
   it('drops the expedition top tier from Hell bosses', () => {
     const rng = mulberry32(5);
-    const tiers = rollBossDrops('falz', 'hell', rng, 'melee').flatMap((d) => (d.kind === 'item' ? [getDef(d.item.id)] : []));
+    const tiers = rollBossDrops('falz', 'hell', rng).flatMap((d) => (d.kind === 'item' ? [getDef(d.item.id)] : []));
     expect(tiers.some((d) => (d.type === 'weapon' || d.type === 'armor') && d.tier === 15)).toBe(true);
   });
 
@@ -79,14 +80,14 @@ describe('Haste', () => {
   it('rolls only on tier 8+ gear (Nightmare), up to the tier cap, Frail included', () => {
     const rng = mulberry32(3);
     for (let i = 0; i < 200; i++) {
-      const normal = rollWeapon(7, rng, undefined, 'rare');
+      const normal = rollWeapon(7, rng, 'rare');
       expect(haste(normal)).toBeUndefined();
       expect((normal.affixes ?? []).some((r) => r.id === 'frail')).toBe(false);
-      expect(haste(rollWeapon(8, rng, undefined, 'rare')) ?? 0).toBeLessThanOrEqual(hasteCfg.capByTier[8]);
-      const w = rollWeapon(15, rng, undefined, 'rare');
+      expect(haste(rollWeapon(8, rng, 'rare')) ?? 0).toBeLessThanOrEqual(hasteCfg.capByTier[8]);
+      const w = rollWeapon(15, rng, 'rare');
       expect(haste(w) ?? 1).toBeGreaterThanOrEqual(1);
       expect(haste(w) ?? 0).toBeLessThanOrEqual(hasteCfg.capByTier[15]);
-      expect(haste(rollArmor(11, rng, undefined, 'rare')) ?? 0).toBeLessThanOrEqual(hasteCfg.capByTier[11]);
+      expect(haste(rollArmor(11, rng, 'rare')) ?? 0).toBeLessThanOrEqual(hasteCfg.capByTier[11]);
     }
     const seen = new Set<number>();
     for (let i = 0; i < 400; i++) seen.add(rollAffixValue(ITEM_AFFIXES.haste, 13, rng).v);
@@ -94,7 +95,7 @@ describe('Haste', () => {
   });
 
   it('adds up across weapon, frame and barrier and shortens wind-ups and recoveries (not the chain grace)', () => {
-    const ch = Character.create('T', 'hunter');
+    const ch = Character.create('T');
     const w = ch.data.inventory.find((i) => i.uid === ch.data.equipped.weapon)!;
     w.affixes = [{ id: 'haste', v: 10 }];
     const f = ch.data.inventory.find((i) => i.uid === ch.data.equipped.frame)!;
@@ -106,6 +107,10 @@ describe('Haste', () => {
     expect(fast.windup).toBeCloseTo(base.windup * 0.8);
     expect(fast.recovery).toBeCloseTo(base.recovery * 0.8);
     expect(fast.grace).toBe(base.grace);
+    expect(ch.basicTiming()).toEqual(fast);
+    // Casts too: a technique's wind-up and recovery.
+    expect(ch.artTiming('foie').windup).toBeCloseTo(ARTS.foie.windup * 0.8);
+    expect(ch.artTiming('foie').recovery).toBeCloseTo(ARTS.foie.recovery * 0.8);
     const slow = new Combo(comboCfg, () => base).computeTimes(0, 'basic');
     const quick = new Combo(comboCfg, () => fast).computeTimes(0, 'basic');
     expect(quick.duration).toBeLessThan(slow.duration);

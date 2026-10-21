@@ -1,4 +1,3 @@
-import { ARTS, type ArtId } from '../game/data/arts';
 import type { CraftId, ItemDef, WeaponKind } from '../game/data/items';
 import type { ItemDefOf, ItemType } from '../game/itemTypes';
 
@@ -8,12 +7,6 @@ import type { ItemDefOf, ItemType } from '../game/itemTypes';
 const svg = (body: string) => `<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
 
 const WEAPON: Record<WeaponKind | 'none', (c: string) => string> = {
-  saber: (c) => `<rect x="21" y="4" width="6" height="28" rx="3" fill="${c}"/><rect x="15" y="31" width="18" height="4" fill="#9aa"/><rect x="21" y="35" width="6" height="9" fill="#556"/>`,
-  sword: (c) => `<path d="M24 2 L32 10 L30 32 L18 32 L16 10 Z" fill="${c}"/><rect x="12" y="31" width="24" height="5" fill="#9aa"/><rect x="21" y="36" width="6" height="9" fill="#556"/>`,
-  dagger: (c) => `<path d="M24 10 L28 16 L27 32 L21 32 L20 16 Z" fill="${c}"/><rect x="16" y="31" width="16" height="4" fill="#9aa"/><rect x="21" y="35" width="6" height="8" fill="#556"/>`,
-  handgun: (c) => `<rect x="8" y="14" width="30" height="10" rx="2" fill="#aab"/><rect x="36" y="16" width="6" height="5" fill="#667"/><path d="M12 24 L20 24 L17 38 L9 38 Z" fill="#667"/><rect x="10" y="15" width="24" height="3" fill="${c}"/>`,
-  rifle: (c) => `<rect x="4" y="18" width="40" height="7" rx="2" fill="#aab"/><rect x="2" y="20" width="8" height="12" fill="#667"/><rect x="18" y="12" width="12" height="5" rx="2" fill="#667"/><path d="M20 25 L26 25 L24 34 L18 34 Z" fill="#667"/><rect x="10" y="19" width="26" height="2" fill="${c}"/>`,
-  shot: (c) => `<rect x="4" y="16" width="30" height="12" rx="2" fill="#aab"/><path d="M33 14 L44 10 L44 34 L33 30 Z" fill="#667"/><path d="M8 28 L16 28 L13 40 L5 40 Z" fill="#667"/><rect x="7" y="17" width="24" height="3" fill="${c}"/>`,
   rod: (c) => `<circle cx="24" cy="11" r="8" fill="none" stroke="#dde" stroke-width="3"/><polygon points="24,6 28,11 24,16 20,11" fill="${c}"/><rect x="22" y="19" width="4" height="27" rx="2" fill="#dde"/>`,
   wand: (c) => `<polygon points="24,2 27,9 35,10 29,15 31,23 24,19 17,23 19,15 13,10 21,9" fill="${c}"/><rect x="22" y="20" width="4" height="24" rx="2" fill="#f4f4f4"/>`,
   none: (c) => `<circle cx="24" cy="24" r="11" fill="${c}"/><rect x="15" y="17" width="18" height="5" rx="2" fill="#000" opacity=".25"/>`,
@@ -30,25 +23,6 @@ const FORM_MARK = {
 export function weaponIcon(kind: string, type?: 'light' | 'heavy'): string {
   const draw = WEAPON[kind as WeaponKind] ?? WEAPON.none;
   return svg(draw(TYPE_COLOR[type ?? 'light']) + (type ? FORM_MARK[type] : ''));
-}
-
-/** Corner marks for what an Art does (2026-10-14, the Arts redesign). */
-const ROLE_MARK: Record<string, string> = {
-  area: FORM_MARK.light,
-  single: FORM_MARK.heavy,
-  control: '<circle cx="10" cy="38" r="6" fill="none" stroke="#9fe0ff" stroke-width="3"/><circle cx="10" cy="38" r="1.8" fill="#9fe0ff"/>',
-  defence: '<path d="M10 30 L17 33 L16 41 L10 46 L4 41 L3 33 Z" fill="#c0c8ff" stroke="#203060" stroke-width="1"/>',
-  mobility: '<path d="M3 40 L15 40 M10 34 L16 40 L10 46" stroke="#ffd080" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
-  support: '',
-};
-
-/** A weapon Art's glyph: its weapon kind (the class's for class-wide Arts), in the Art's colour, with its role mark. */
-export function artIcon(id: ArtId): string {
-  const a = ARTS[id];
-  const from = a.from;
-  const kind: WeaponKind | 'none' = 'kind' in from ? from.kind : 'family' in from ? (from.family === 'melee' ? 'saber' : from.family === 'ranged' ? 'handgun' : 'wand') : 'none';
-  const color = `#${a.color.toString(16).padStart(6, '0')}`;
-  return svg(WEAPON[kind](color) + (ROLE_MARK[a.role] ?? ''));
 }
 
 /** A technique's glyph: its element's, marked for the Gi- (around you) and Ra- (an area) shapes. */

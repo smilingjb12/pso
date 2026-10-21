@@ -5,13 +5,13 @@
   const { xpToNext } = await import('/src/game/data/stats.ts');
   const { grantArts } = await import('/src/game/skills.ts');
   const g = window.__h.game;
-  // Classes: hunter / ranger / force. passives (optional): passive ids granted at full rank, and every Art open at the level at rank 4 (no points, no prerequisites); Mag points stay unspent.
-  window.mkChar = (cls, lvl, weapon, frame, barrier, passives = []) => {
-    const ch = Character.create('Tester', cls);
+  // passives (optional): passive ids granted at full rank, and every Art open at the level at rank 4 (no points, no prerequisites); Mag points stay unspent.
+  window.mkChar = (lvl, weapon, frame, barrier, passives = []) => {
+    const ch = Character.create('Tester');
     let xp = 0;
     for (let l = 1; l < lvl; l++) xp += xpToNext(l);
     ch.addXp(xp);
-    grantArts(cls, lvl, ch.data.skills, 4);
+    grantArts(lvl, ch.data.skills, 4);
     passives.forEach((id) => id && (ch.data.skills.ranks[id] = 5));
     for (const [slot, id] of [['weapon', weapon], ['frame', frame], ['barrier', barrier]]) {
       if (!id) continue;
@@ -70,7 +70,8 @@
       const start = performance.now();
       for (let i = 0; i < 300 && (g.world.roomActive || i < 2); i++) {
         approach();
-        t += window.__h.bot(1, { keepGoing: true, late: window.botLate ?? 0 });
+        // Spells first, bolts when out of TP (window.botSeq overrides, e.g. ['b', 'b', 'a']).
+        t += window.__h.bot(1, { keepGoing: true, late: window.botLate ?? 0, seq: window.botSeq ?? ['a', 'a', 'a'] });
         if (performance.now() - start > 25000) break;
       }
       out.push(`${id} ${t.toFixed(0)}s dmg${Math.round(1e6 - g.player.hp)} k${g.char.data.stats.kills - kills0}${g.world.roomActive ? ' STUCK' : ''}`);
@@ -96,40 +97,37 @@
   window.noRender = () => (g.renderer.render = () => {});
   window.yesRender = () => (g.renderer.render = window.realRender);
 
-  // Class balance: fresh throwaway character, bot clears the rooms, sums fight time and damage taken.
+  // Balance: fresh throwaway character, bot clears the rooms, sums fight time and damage taken. Rod and wand per band
+  // (the classes went on 2026-10-21; the old h* / r* keys were the Hunter and Ranger).
   window.SETUPS = {
-    hF1: ['hunter', 3, 'saber_1', 'frame_1', 'barrier_1', 'forest1', ['r1', 'r2', 'r3', 'r5']],
-    rF1: ['ranger', 3, 'handgun_1', 'frame_1', 'barrier_1', 'forest1', ['r1', 'r2', 'r3', 'r5']],
-    hF: ['hunter', 7, 'saber_2', 'frame_guard_2', 'barrier_guard_2', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7']],
-    rF: ['ranger', 7, 'handgun_2', 'frame_combat_2', 'barrier_combat_2', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7']],
-    hC: ['hunter', 15, 'saber_3', 'frame_guard_3', 'barrier_guard_3', 'cave1', ['c1', 'c2', 'c3', 'c4', 'c5']],
-    rC: ['ranger', 15, 'handgun_3', 'frame_combat_3', 'barrier_combat_3', 'cave1', ['c1', 'c2', 'c3', 'c4', 'c5']],
+    rodF1: [3, 'rod_1', 'frame_1', 'barrier_1', 'forest1', ['r1', 'r2', 'r3', 'r5']],
+    wandF1: [3, 'wand_1', 'frame_1', 'barrier_1', 'forest1', ['r1', 'r2', 'r3', 'r5']],
+    rodF: [7, 'rod_2', 'frame_psy_2', 'barrier_psy_2', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7']],
+    wandF: [7, 'wand_2', 'frame_psy_2', 'barrier_psy_2', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7']],
+    rodC: [15, 'rod_3', 'frame_psy_3', 'barrier_psy_3', 'cave1', ['c1', 'c2', 'c3', 'c4', 'c5']],
+    wandC: [15, 'wand_3', 'frame_psy_3', 'barrier_psy_3', 'cave1', ['c1', 'c2', 'c3', 'c4', 'c5']],
     // Mines (unlocked by De Rol Le): Lv 24 tier 5 for Mine 1, Lv 28 for Mine 2.
-    hM: ['hunter', 24, 'saber_5', 'frame_guard_5', 'barrier_guard_5', 'mine1', ['m1', 'm2', 'm3', 'm4', 'm5']],
-    rM: ['ranger', 24, 'handgun_5', 'frame_combat_5', 'barrier_combat_5', 'mine1', ['m1', 'm2', 'm3', 'm4', 'm5']],
-    hM2: ['hunter', 28, 'saber_5', 'frame_guard_5', 'barrier_guard_5', 'mine2', ['n1', 'n2', 'n3', 'n4', 'n5']],
-    rM2: ['ranger', 28, 'handgun_5', 'frame_combat_5', 'barrier_combat_5', 'mine2', ['n1', 'n2', 'n3', 'n4', 'n5']],
+    rodM: [24, 'rod_5', 'frame_psy_5', 'barrier_psy_5', 'mine1', ['m1', 'm2', 'm3', 'm4', 'm5']],
+    rodM2: [28, 'rod_5', 'frame_psy_5', 'barrier_psy_5', 'mine2', ['n1', 'n2', 'n3', 'n4', 'n5']],
     // Ruins (unlocked by the Warden): Lv 34 tier 6 for Ruin 1, Lv 38 tier 6-7 for Ruin 2.
-    hR: ['hunter', 34, 'saber_6', 'frame_guard_6', 'barrier_guard_6', 'ruin1', ['r1', 'r2', 'r3', 'r4', 'r5']],
-    rR: ['ranger', 34, 'handgun_6', 'frame_combat_6', 'barrier_combat_6', 'ruin1', ['r1', 'r2', 'r3', 'r4', 'r5']],
-    hR2: ['hunter', 38, 'saber_6', 'frame_guard_7', 'barrier_guard_6', 'ruin2', ['s1', 's2', 's3', 's4', 's5']],
-    rR2: ['ranger', 38, 'handgun_6', 'frame_combat_7', 'barrier_combat_6', 'ruin2', ['s1', 's2', 's3', 's4', 's5']],
-    // Hard (last arg true), bands moved up with the Ruins: Forest at Lv 44 with tier 7 (the Normal Ruins' gear).
-    hHF: ['hunter', 44, 'saber_7', 'frame_guard_7', 'barrier_guard_7', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], true],
-    rHF: ['ranger', 44, 'handgun_7', 'frame_combat_7', 'barrier_combat_7', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], true],
-    hHC: ['hunter', 54, 'saber_8', 'frame_guard_8', 'barrier_guard_8', 'cave1', ['c1', 'c2', 'c3', 'c4', 'c5'], true],
-    hHM: ['hunter', 66, 'saber_9', 'frame_guard_9', 'barrier_guard_9', 'mine2', ['n1', 'n2', 'n3', 'n4', 'n5'], true],
-    hHR: ['hunter', 76, 'saber_10', 'frame_guard_10', 'barrier_guard_10', 'ruin2', ['s1', 's2', 's3', 's4', 's5'], true],
+    rodR: [34, 'rod_6', 'frame_psy_6', 'barrier_psy_6', 'ruin1', ['r1', 'r2', 'r3', 'r4', 'r5']],
+    rodR2: [38, 'rod_6', 'frame_psy_7', 'barrier_psy_6', 'ruin2', ['s1', 's2', 's3', 's4', 's5']],
+    // Nightmare (last arg true): Forest at Lv 44 with tier 7 (the Normal Ruins' gear).
+    rodHF: [44, 'rod_7', 'frame_psy_7', 'barrier_psy_7', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], true],
+    wandHF: [44, 'wand_7', 'frame_psy_7', 'barrier_psy_7', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], true],
+    rodHC: [54, 'rod_8', 'frame_psy_8', 'barrier_psy_8', 'cave1', ['c1', 'c2', 'c3', 'c4', 'c5'], true],
+    rodHM: [66, 'rod_9', 'frame_psy_9', 'barrier_psy_9', 'mine2', ['n1', 'n2', 'n3', 'n4', 'n5'], true],
+    rodHR: [76, 'rod_10', 'frame_psy_10', 'barrier_psy_10', 'ruin2', ['s1', 's2', 's3', 's4', 's5'], true],
     // Hell (last arg 'hell'): each band entered with the gear of the band before (no Haste: shop-clean items).
-    hXF: ['hunter', 84, 'saber_11', 'frame_guard_11', 'barrier_guard_11', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], 'hell'],
-    rXF: ['ranger', 84, 'handgun_11', 'frame_combat_11', 'barrier_combat_11', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], 'hell'],
-    hXC: ['hunter', 89, 'saber_12', 'frame_guard_12', 'barrier_guard_12', 'cave1', ['c1', 'c2', 'c3', 'c4', 'c5'], 'hell'],
-    hXM: ['hunter', 93, 'saber_13', 'frame_guard_13', 'barrier_guard_13', 'mine2', ['n1', 'n2', 'n3', 'n4', 'n5'], 'hell'],
-    hXR: ['hunter', 98, 'saber_14', 'frame_guard_14', 'barrier_guard_14', 'ruin2', ['s1', 's2', 's3', 's4', 's5'], 'hell'],
+    rodXF: [84, 'rod_11', 'frame_psy_11', 'barrier_psy_11', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], 'hell'],
+    wandXF: [84, 'wand_11', 'frame_psy_11', 'barrier_psy_11', 'forest1', ['r1', 'r2', 'r3', 'r5', 'r6', 'r7'], 'hell'],
+    rodXC: [89, 'rod_12', 'frame_psy_12', 'barrier_psy_12', 'cave1', ['c1', 'c2', 'c3', 'c4', 'c5'], 'hell'],
+    rodXM: [93, 'rod_13', 'frame_psy_13', 'barrier_psy_13', 'mine2', ['n1', 'n2', 'n3', 'n4', 'n5'], 'hell'],
+    rodXR: [98, 'rod_14', 'frame_psy_14', 'barrier_psy_14', 'ruin2', ['s1', 's2', 's3', 's4', 's5'], 'hell'],
   };
-  window.simClass = (cls, lvl, w, f, b, area, rooms, hard = false, passives = []) => {
+  window.simRun = (lvl, w, f, b, area, rooms, hard = false, passives = []) => {
     // hard: true = Nightmare, 'hell' = Hell.
-    g.startCharacter(-1, mkChar(cls, lvl, w, f, b, passives), hard === 'hell' ? 'hell' : hard ? 'nightmare' : 'normal');
+    g.startCharacter(-1, mkChar(lvl, w, f, b, passives), hard === 'hell' ? 'hell' : hard ? 'nightmare' : 'normal');
     window.__h.run(0.1);
     g.newExpedition(area === 'forest1' ? 'forest' : area.startsWith('mine') ? 'mines' : area.startsWith('ruin') ? 'ruins' : 'caves');
     g.enterArea(area, 'start');
@@ -152,7 +150,7 @@
     for (const k of keys) {
       const sum = { time: 0, dmg: 0, bars: 0, stuck: 0, corrupted: 0 };
       for (let i = 0; i < n; i++) {
-        const r = simClass(...SETUPS[k]);
+        const r = simRun(...SETUPS[k]);
         for (const f in sum) sum[f] += r[f];
       }
       out[k] = { time: Math.round(sum.time / n), dmg: Math.round(sum.dmg / n), bars: +(sum.bars / n).toFixed(2), stuck: sum.stuck, corrupted: +(sum.corrupted / n).toFixed(1) };

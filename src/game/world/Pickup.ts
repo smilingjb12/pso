@@ -157,7 +157,7 @@ export class Pickup {
   }
 
   /**
-   * Junk (the class can't use it, or nothing beats what is equipped) fades to a dull grey gem with no
+   * Junk (nothing beats what is equipped, even fully crafted) fades to a dull grey gem with no
    * pulse; an upgrade gets a green ▲ above it. Rares never fade.
    */
   setVerdict(v: DropVerdict): void {

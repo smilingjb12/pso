@@ -1,8 +1,7 @@
 import { BOSS_IDS, BOSSES } from '../game/data/bosses';
 import type { CharacterData } from '../game/character';
 import type { Difficulty } from '../game/difficulty';
-import { itemDefs, type WeaponKind } from '../game/data/items';
-import { CLASSES, type ClassId } from '../game/data/stats';
+import { itemDefs, RETIRED_KINDS, type WeaponKind } from '../game/data/items';
 import { magForm, magPointsFree, readMag } from '../game/mag';
 import { DEFAULT_APPEARANCE, playerLook, type Look } from '../game/models/heroine';
 import { getStage, kitWeapon, LookEditor } from './lookEditor';
@@ -39,7 +38,7 @@ export function openDifficulties(c: CharacterData): Difficulty[] {
 export interface TitleApi {
   slots(): (CharacterData | null)[];
   load(slot: number, difficulty: Difficulty): void;
-  create(slot: number, name: string, cls: ClassId, appearance: Look): void;
+  create(slot: number, name: string, appearance: Look): void;
   remove(slot: number): void;
 }
 
@@ -84,7 +83,7 @@ export class TitleMenu implements Menu {
         const num = String(i + 1).padStart(2, '0');
         if (!s) return `<div class="slot-row empty${on}" data-act="sel" data-arg="${i}"><span class="slot-num">${num}</span><span class="slot-name dim">— Empty —</span></div>`;
         return `<div class="slot-row${on}" data-act="sel" data-arg="${i}"><span class="slot-num">${num}</span>
-          <span class="slot-name">${esc(s.name)}</span><span class="slot-cls">${CLASSES[s.cls]?.name ?? ''}</span><span class="slot-lv">Lv ${s.level}</span></div>`;
+          <span class="slot-name">${esc(s.name)}</span><span class="slot-lv">Lv ${s.level}</span></div>`;
       })
       .join('');
     const cur = slots[this.sel];
@@ -101,7 +100,6 @@ export class TitleMenu implements Menu {
     }
     const plate = cur
       ? `<div class="win nameplate"><div class="np-name">${esc(cur.name)}</div>
-          <div class="np-sub">${CLASSES[cur.cls]?.name ?? ''}</div>
           <div class="np-grid"><span>Level</span><b>${cur.level}</b><span>Meseta</span><b>${cur.meseta.toLocaleString()}</b>
           <span>Play time</span><b>${formatTime(cur.stats.playSeconds)}</b><span>Dragons</span><b>${cur.stats.bossKills.dragon ?? 0}</b></div></div>`
       : `<div class="win nameplate empty"><div class="np-name dim">No data</div><div class="np-sub">Create a character in this slot.</div></div>`;
@@ -121,14 +119,14 @@ export class TitleMenu implements Menu {
     const ed = this.editor;
     if (ed) {
       stage.leftInset = 0.44;
-      stage.setLook(ed.stageLook(), kitWeapon(ed.cls));
+      stage.setLook(ed.stageLook(), kitWeapon());
       stage.spin = ed.spin;
       stage.setView(ed.stageView());
     } else {
       const cur = this.api.slots()[this.sel];
       stage.leftInset = 0.36;
       const curMag = cur ? readMag(cur.mag) : null;
-      const mag = cur && curMag ? magForm(curMag, CLASSES[cur.cls]?.magStat ?? 'pow') : null;
+      const mag = cur && curMag ? magForm(curMag) : null;
       const glow = !!cur && !!curMag && magPointsFree(curMag, cur.level) > 0;
       stage.setLook(cur ? playerLook(cur) : null, cur ? heldWeapon(cur) : null, mag && { stage: mag.stage, color: mag.color, theme: mag.theme, glow });
       stage.spin = false;
@@ -233,7 +231,7 @@ export class TitleMenu implements Menu {
         this.confirmDelete = false;
         break;
       case 'new':
-        this.editor = new LookEditor(['cls', 'body', 'hair', 'face', 'colors', 'name'], { look: DEFAULT_APPEARANCE }, 'Start');
+        this.editor = new LookEditor(['body', 'hair', 'face', 'colors', 'name'], { look: DEFAULT_APPEARANCE }, 'Start');
         break;
     }
   }
@@ -242,15 +240,16 @@ export class TitleMenu implements Menu {
     const ed = this.editor;
     if (!ed || !r) return;
     if (r === 'cancel') this.editor = null;
-    else this.api.create(this.sel, ed.name.trim(), ed.cls, ed.result());
+    else this.api.create(this.sel, ed.name.trim(), ed.result());
   }
 }
 
-/** The kind of weapon a saved character has in hand (the class's starter if none is equipped). */
+/** The kind of weapon a saved character has in hand (an old save's blade or gun shows as what it becomes on load). */
 function heldWeapon(c: CharacterData): WeaponKind {
   const id = c.inventory.find((i) => i.uid === c.equipped.weapon)?.id;
   const def = id ? itemDefs[id] : undefined;
-  return def?.type === 'weapon' ? def.kind : kitWeapon(c.cls);
+  const old = id && /^([a-z]+)_\d+$/.exec(id)?.[1];
+  return def?.type === 'weapon' ? def.kind : (old && RETIRED_KINDS[old]) || kitWeapon();
 }
 
 export function logo(small = false): string {

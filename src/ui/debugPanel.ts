@@ -31,14 +31,12 @@ import {
   machinery,
   nodes,
   warden,
-  weaponWeights,
   darkFalz,
   pylonCfg,
   ruinsCfg,
 } from '../game/config';
 import { areas, expeditions, type AreaId, type ExpeditionId } from '../game/data/areas';
 import { weaponKinds } from '../game/data/items';
-import type { TestClass } from '../game/testCharacters';
 import { riftCfg } from '../game/rifts';
 
 export interface DebugActions {
@@ -56,8 +54,8 @@ export interface DebugActions {
   unlock(exp: ExpeditionId): void;
   unlockHard(): void;
   unlockHell(): void;
-  /** Save a premade Lv 64 character (Hell open) into the first empty slot. */
-  testCharacter(cls: TestClass): void;
+  /** Save a premade Lv 76 character (Hell open) into the first empty slot. */
+  testCharacter(): void;
   /** Falz Rifts: put shards in the stash, open more tiers, or go straight into a rift (Hell rules, any session). */
   riftShards(n: number): void;
   riftMoreTiers(n: number): void;
@@ -112,8 +110,7 @@ export function createDebugPanel(actions: DebugActions): GUI {
     kill: () => actions.killAll(),
     hard: () => actions.unlockHard(),
     hell: () => actions.unlockHell(),
-    ranger: () => actions.testCharacter('ranger'),
-    hunter: () => actions.testCharacter('hunter'),
+    test: () => actions.testCharacter(),
   };
   g.add(act, 'heal').name('heal HP/TP');
   g.add(act, 'xp100').name('+100 EXP');
@@ -127,8 +124,7 @@ export function createDebugPanel(actions: DebugActions): GUI {
   g.add(act, 'kill').name('kill all enemies');
   g.add(act, 'hard').name('unlock Nightmare');
   g.add(act, 'hell').name('unlock Hell');
-  g.add(act, 'ranger').name('new Lv 64 Ranger (empty slot)');
-  g.add(act, 'hunter').name('new Lv 64 Hunter (empty slot)');
+  g.add(act, 'test').name('new Lv 76 test character (empty slot)');
   g.add({ city: () => actions.goto('city') }, 'city').name('warp: Pioneer 2');
   for (const exp of Object.values(expeditions)) {
     if (exp.needs) g.add({ unlock: () => actions.unlock(exp.id) }, 'unlock').name(`unlock ${exp.name}`);
@@ -177,7 +173,6 @@ export function createDebugPanel(actions: DebugActions): GUI {
   cst.close();
 
   const at = gui.addFolder('Basic attack');
-  at.add(basicAttack, 'damageMult', 0.1, 4, 0.01).name('damage x (per enemy)');
   at.add(basicAttack, 'tpRefill', 0, 0.3, 0.005).name('TP refill (share of base TP)');
   at.add(basicAttack, 'finisherTp', 1, 4, 0.1).name('finisher TP x');
   at.add(basicAttack, 'perfectTp', 1, 4, 0.1).name('perfect TP x');
@@ -189,9 +184,8 @@ export function createDebugPanel(actions: DebugActions): GUI {
   at.close();
 
   const st = gui.addFolder('Stagger');
-  st.add(stagger, 'light', 0, 3, 0.05).name('light (per enemy)');
-  st.add(stagger, 'heavy', 0, 5, 0.1).name('heavy');
-  st.add(stagger, 'rangedMult', 0, 2, 0.05).name('guns x');
+  st.add(stagger, 'light', 0, 3, 0.05).name('bolt / technique (per enemy)');
+  st.add(stagger, 'heavy', 0, 5, 0.1).name('photon blast');
   st.add(stagger, 'counterMult', 1, 4, 0.1).name('counter x (hit in windup)');
   st.add(stagger, 'decayDelay', 0, 5, 0.1).name('drain delay (s)');
   st.add(stagger, 'decayPerSec', 0, 5, 0.1).name('drain per s');
@@ -199,10 +193,7 @@ export function createDebugPanel(actions: DebugActions): GUI {
 
   const fm = gui.addFolder('Formulas');
   fm.add(formulas, 'critDamage', 1, 4, 0.05).name('crit damage x');
-  fm.add(formulas, 'meleeDamageMult', 0.5, 3, 0.01).name('melee damage x');
-  fm.add(formulas, 'rangedDamageMult', 0.5, 3, 0.01).name('ranged damage x');
   fm.add(formulas, 'enemyDamageScale', 0.05, 2, 0.01);
-  fm.add(formulas, 'edgeAtpPct', 0, 0.2, 0.005).name('Edge weapon damage share / grind level (built in)');
   fm.add(formulas, 'edgeMstPct', 0, 0.5, 0.01).name('Edge tech damage share / grind level (built in)');
   fm.add(formulas, 'refineArmorPct', 0, 0.2, 0.005).name('Armour bonus share / grind level (built in)');
   fm.add(formulas, 'tpRegen', 0, 10, 0.1).name('TP regen /s');
@@ -211,7 +202,7 @@ export function createDebugPanel(actions: DebugActions): GUI {
   const ts = gui.addFolder('Techniques (tech damage scaling)');
   ts.add(techScaling, 'mstRef', 20, 400, 1).name('reference tech damage');
   ts.add(techScaling, 'damageMult', 0.1, 3, 0.01).name('attack tech damage x');
-  ts.add(techScaling, 'debandShare', 0, 1, 0.01).name('Deband share off damage taken');
+  ts.add(techScaling, 'debandShare', 0, 1, 0.01).name('Farlla share off damage taken');
   ts.add(techScaling, 'tpFloor', 0, 1, 0.01).name('TP cost floor');
   ts.add(techScaling, 'buffDuration', 5, 300, 5).name('buff duration (s)');
   ts.add(techScaling, 'burnShare', 0, 1.5, 0.05).name('burn: share of hit');
@@ -248,30 +239,14 @@ export function createDebugPanel(actions: DebugActions): GUI {
   const w = gui.addFolder('Weapon kinds');
   for (const wk of Object.values(weaponKinds)) {
     const f = w.addFolder(wk.label);
-    f.add(wk, 'range', 0.5, 40, 0.1);
-    if (!wk.ranged) f.add(wk, 'arcDeg', 10, 360, 1);
-    if (wk.spreadDeg) f.add(wk, 'spreadDeg', 0, 120, 1);
-    f.add(wk, 'maxTargets', 1, 10, 1);
-    f.add(wk, 'damageScale', 0.1, 3, 0.05);
     f.add(wk.timing, 'windup', 0.02, 1, 0.01);
     f.add(wk.timing, 'active', 0.02, 0.5, 0.01);
     f.add(wk.timing, 'recovery', 0.05, 1.5, 0.01);
-    if (wk.ranged) f.add(wk, 'projSpeed', 5, 100, 1);
     f.add(wk, 'techBoost', 0.5, 2, 0.01);
-    if (wk.tpRefill !== undefined) f.add(wk, 'tpRefill', 0, 3, 0.1).name('TP refill x');
-    if (wk.boltPower !== undefined) f.add(wk, 'boltPower', 0, 3, 0.05).name('bolt power');
+    f.add(wk, 'tpRefill', 0, 3, 0.1).name('TP refill x');
+    f.add(wk, 'boltPower', 0, 3, 0.05).name('bolt power');
     f.close();
   }
-  const ww = w.addFolder('Weight classes');
-  for (const [name, wc] of Object.entries(weaponWeights)) {
-    const f = ww.addFolder(name);
-    f.add(wc, 'staggerMult', 0.5, 4, 0.1).name('stagger x');
-    f.add(wc, 'lunge', 0, 1.5, 0.05).name('lunge light (m)');
-    f.add(wc, 'lungeHeavy', 0, 1.5, 0.05).name('lunge heavy (m)');
-    f.add(wc, 'poise').name('Poise');
-    f.close();
-  }
-  ww.close();
   w.close();
 
   const p = gui.addFolder('Player feel');
@@ -308,11 +283,7 @@ export function createDebugPanel(actions: DebugActions): GUI {
   cam.add(camera, 'sensitivity', 0.0005, 0.01, 0.0001);
   cam.add(lockOn, 'aimDeg', 2, 45, 1).name('target cone (deg)');
   cam.add(lockOn, 'holdDeg', 2, 60, 1).name('target hold cone (deg)');
-  cam.add(lockOn, 'meleeRange', 2, 20, 0.5).name('melee target range');
-  cam.add(lockOn, 'softAimDeg', 0, 180, 1).name('melee soft aim angle');
-  cam.add(lockOn, 'softAimRange', 0, 10, 0.1).name('melee soft aim range');
-  cam.add(lockOn, 'rangedSoftAimDeg', 0, 90, 1).name('gun soft aim angle');
-  cam.add(lockOn, 'rangedSoftAimRange', 0, 40, 0.5).name('gun soft aim range');  cam.close();
+  cam.close();
 
   const e = gui.addFolder('Enemies');
   e.add(ai, 'maxThreat', 1, 6, 1).name('threat budget (live attacks)');

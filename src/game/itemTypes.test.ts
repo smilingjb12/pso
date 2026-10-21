@@ -3,9 +3,9 @@ import { Character, compareEquip, describeItem, itemHeadline, makeItem } from '.
 import { getDef, itemDefs, MAX_STACK, PHOTON_STACK } from './data/items';
 import { isGear, isStackable, itemRequirement, itemSlot, ITEM_TYPES, stackCap } from './itemTypes';
 
-/** A fresh Vanguard wearing `ids` (added to the inventory and equipped, requirements ignored). */
+/** A fresh character wearing `ids` (added to the inventory and equipped, requirements ignored). */
 function wearing(...ids: string[]): Character {
-  const ch = Character.create('t', 'hunter');
+  const ch = Character.create('t');
   for (const id of ids) {
     const inst = makeItem(id);
     ch.data.inventory.push(inst);
@@ -20,9 +20,10 @@ describe('item type table', () => {
   });
 
   it('puts gear in slots and stacks only bag items', () => {
-    expect(itemSlot(getDef('saber_1'))).toBe('weapon');
+    expect(itemSlot(getDef('rod_1'))).toBe('weapon');
+    expect(itemSlot(getDef('wand_1'))).toBe('weapon');
     expect(itemSlot(getDef('frame_psy_2'))).toBe('frame');
-    expect(itemSlot(getDef('barrier_combat_2'))).toBe('barrier');
+    expect(itemSlot(getDef('barrier_psy_2'))).toBe('barrier');
     expect(itemSlot(getDef('mate_3'))).toBe('injector');
     expect(itemSlot(getDef('photon_drop'))).toBeNull();
     expect(itemDefs.telepipe).toBeUndefined();
@@ -36,7 +37,7 @@ describe('item type table', () => {
     expect(itemRequirement(getDef('rod_4'))).toEqual({ level: 12 });
     expect(itemRequirement(getDef('unique_reactorRod_4'))).toEqual({ level: 12 });
     expect(itemRequirement(getDef('unique_redRing_12'))).toBeNull();
-    expect(itemRequirement(getDef('barrier_combat_2'))).toEqual({ level: 3 });
+    expect(itemRequirement(getDef('barrier_psy_2'))).toEqual({ level: 3 });
     expect(itemRequirement(getDef('mate_3'))).toEqual({ level: 7 });
     expect(itemRequirement(getDef('frame_1'))).toBeNull();
     expect(itemRequirement(getDef('photon_drop'))).toBeNull();
@@ -47,27 +48,26 @@ describe('item type table', () => {
 describe('gear stat bonuses', () => {
   it('adds armour and weapon bonuses to the stat totals', () => {
     const base = wearing().stats();
-    const ch = wearing('frame_psy_2', 'barrier_combat_2', 'rod_4');
+    const ch = wearing('frame_psy_2', 'barrier_psy_2', 'rod_4');
     const s = ch.stats();
     const rodMst = wearing('rod_4').stats().mst - base.mst;
     // Everything counts as fully ground (2026-10-11): armour bonuses x1.25 at tier 1-2. frame_1 (damage taken −4%) is
-    // swapped for Psy Armor (−4%, tech damage 15, TP 13); the Combat Shield adds −4%, weapon damage 4, crit 0.4%; the
-    // rod its tech damage (with its Edge).
-    expect(rodMst).toBeGreaterThan(27);
-    expect(s.strike - base.strike).toBe(4 - 4 + 4);
-    expect(s.area - base.area).toBe(4 - 4 + 4);
-    expect(s.mst - base.mst).toBe(15 + rodMst);
-    expect(s.tp - base.tp).toBe(13);
-    expect(s.atp - base.atp).toBe(4);
-    expect(s.lck - base.lck).toBe(4);
+    // swapped for Psy Armor (−4%, tech damage 15, TP 13); the Psy Shield adds −3%, tech damage 10, TP 8; the rod its
+    // tech damage with its Edge (27 + 24) in place of the start Wand's (6 + 5).
+    expect(rodMst).toBe(27 + 24 - (6 + 5));
+    expect(s.strike - base.strike).toBe(4 - 4 + 3);
+    expect(s.area - base.area).toBe(4 - 4 + 3);
+    expect(s.mst - base.mst).toBe(15 + 10 + rodMst);
+    expect(s.tp - base.tp).toBe(13 + 8);
+    expect(s.lck).toBe(base.lck);
     expect(s.hp).toBe(base.hp);
   });
 
   it('keeps the item text', () => {
     expect(describeItem(makeItem('frame_psy_2'))).toEqual([
-      'Normal Psy Frame · iLvl 5', 'Damage taken −4%  Tech damage +15  TP +13', 'Unit slots: none', 'A light weave: tech damage and TP, more damage taken.', 'Req: Lv 3',
+      'Normal Psy Frame · iLvl 5', 'Damage taken −4%  Tech damage +15  TP +13', 'Unit slots: none', 'A light weave: tech damage and TP.', 'Req: Lv 3',
     ]);
-    expect(describeItem(makeItem('barrier_combat_2'))[1]).toBe('Damage taken −4%  Weapon damage +4  Crit chance +0.4%');
+    expect(describeItem(makeItem('barrier_psy_2'))[1]).toBe('Damage taken −3%  Tech damage +10  TP +8');
     const rod = makeItem('unique_reactorRod_4');
     const lines = describeItem(rod);
     expect(lines[0]).toBe('Unique Rod · iLvl 17');
@@ -87,12 +87,11 @@ describe('gear stat bonuses', () => {
     expect(rows('frame_psy_2')[0]).toMatchObject({ label: 'Damage/s', key: true });
     expect(rows('frame_psy_2')[1]).toMatchObject({ label: 'Rating', tie: true });
     expect(plain('frame_psy_2')).toEqual([['Strike damage taken', 0], ['Area damage taken', 0], ['Tech damage', 15], ['TP', 13]]);
-    expect(plain('barrier_combat_2')).toEqual([['Strike damage taken', 4], ['Area damage taken', 4], ['Weapon damage', 4], ['Crit chance', 4]]);
+    expect(plain('barrier_psy_2')).toEqual([['Strike damage taken', 3], ['Area damage taken', 3], ['Tech damage', 10], ['TP', 8]]);
     expect(rows('rod_4')[0]).toMatchObject({ label: 'Damage/s', key: true });
-    const rod = plain('rod_4');
-    expect(rod.map(([label]) => label)).toEqual(['Weapon damage', 'Tech damage']);
-    for (const [, delta] of rod) expect(delta).toBeGreaterThan(0);
+    expect(plain('rod_4')).toEqual([['Tech damage', 27 + 24 - (6 + 5)]]);
     // A better weapon wins on damage per second.
-    expect(rows('saber_3')[0].delta).toBeGreaterThan(0);
+    expect(rows('rod_4')[0].delta).toBeGreaterThan(0);
+    expect(rows('wand_3')[0].delta).toBeGreaterThan(0);
   });
 });

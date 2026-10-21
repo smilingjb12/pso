@@ -1,4 +1,4 @@
-import { statDelta, type StatKey, type WeaponFamily } from './stats';
+import { statDelta, type StatKey } from './stats';
 
 // Item affixes (Diablo 2 / Path of Exile style): numbers only. Behaviour changes live in talents; an affix
 // adds a stat, a percentage or a resistance. Each affix has six strength tiers; the item level (from the
@@ -6,21 +6,18 @@ import { statDelta, type StatKey, type WeaponFamily } from './stats';
 // (up to 3 of each). Prefixes are offence plus flat HP and TP, so survivability competes with damage for the
 // same slots; suffixes are defence, utility and resistances. Downside affixes pair a big gain with a
 // penalty: the glass-cannon dial. Units carry exactly one affix and are learned (one per affix) into the Mag.
-// Every text says what it does in the stat's own words (2026-10-14): "Weapon damage +20%", "Crit chance +2.4%",
-// "Strike damage taken −5%".
+// Every text says what it does in the stat's own words (2026-10-14): "Tech damage +20%", "Crit chance +2.4%",
+// "Strike damage taken −5%". The weapon damage, melee and gun affixes went with the classes on 2026-10-21.
 
 export type ItemAffixId =
-  // weapons, every family
-  | 'atpPct' | 'atpFlat' | 'lck' | 'critDmg' | 'haste' | 'tpRefill'
-  // melee / ranged / caster weapons
-  | 'staggerPct' | 'finisherPct'
-  | 'falloff' | 'perfectPct'
+  // weapons
+  | 'lck' | 'critDmg' | 'haste' | 'tpRefill'
   | 'techPct' | 'mstFlat' | 'firePct' | 'lightningPct' | 'icePct' | 'tpCost' | 'tpRegen'
   // frames, barriers and units
   | 'hp' | 'tp' | 'strike' | 'regen' | 'injPotency' | 'injCharge' | 'walk' | 'dashRecharge'
   | 'resPoison' | 'resPara' | 'resBurn' | 'resCorrupt' | 'areaDr' | 'stability'
   // downsides (rares and units)
-  | 'overcharged' | 'brittle' | 'reckless' | 'frail';
+  | 'overcharged' | 'brittle' | 'frail';
 
 export type AffixSlot = 'weapon' | 'frame' | 'barrier' | 'unit';
 
@@ -38,15 +35,13 @@ export interface ItemAffixDef {
   id: ItemAffixId;
   kind: 'prefix' | 'suffix';
   slots: AffixSlot[];
-  /** Weapon affixes only roll on this family's weapons. */
-  family?: WeaponFamily;
   /** [lo, hi] for tiers 1-6 (tier n needs item level AFFIX_TIER_ILVL[n - 1]); tiers 7-8 extend them (`affixRange`). */
   tiers: [number, number][];
   /** Downside affixes: the penalty's [lo, hi] per tier, and the stat it comes off ('dr': both damage-taken stats). */
   penalty?: { stat: StatKey | 'dr'; tiers: [number, number][] };
-  /** "Weapon damage +12%". */
+  /** "Tech damage +12%". */
   text: (v: number) => string;
-  /** The word a magic item takes from it ("Heavy Saber", "Saber of Luck"). */
+  /** The word a magic item takes from it ("Mystic Rod", "Rod of Luck"). */
   word: string;
   /** A unit carrying it: "Heart Unit". */
   unit?: string;
@@ -119,35 +114,25 @@ const flat = (label: string) => (v: number) => `${label} +${v}`;
 
 export const ITEM_AFFIXES: Record<ItemAffixId, ItemAffixDef> = {
   // ---------------------------------------------------------------- weapons
-  // Weapon damage % multiplies the whole weapon hit since 2026-10-14 (it was the weapon's own ATP only), so it rolls
-  // the Technique damage % numbers.
-  atpPct: { id: 'atpPct', kind: 'prefix', slots: W, word: 'Cruel', text: pct('Weapon damage'), tiers: [[3, 6], [6, 10], [10, 14], [14, 18], [18, 23], [23, 28]] },
-  atpFlat: { id: 'atpFlat', kind: 'prefix', slots: [...W, 'frame', 'unit'], word: 'Heavy', unit: 'Power', stat: 'atp', text: flat('Weapon damage'), tiers: [[2, 5], [5, 10], [10, 18], [18, 30], [30, 45], [45, 65]] },
   // Crit chance rolls in tenths of a percent (the `lck` stat's unit): 24 is +2.4%.
   lck: { id: 'lck', kind: 'suffix', slots: [...W, ...ARMOR], word: 'of Luck', unit: 'Luck', stat: 'lck', text: (v) => `Crit chance +${(v / 10).toFixed(1)}%`, tiers: [[3, 6], [6, 10], [10, 16], [16, 24], [24, 32], [32, 40]] },
   // Crits deal ×2 plus this (2026-10-14): the crit build's other half, so crit chance has something to multiply.
   critDmg: { id: 'critDmg', kind: 'prefix', slots: [...W, 'unit'], word: 'Savage', unit: 'Fang', text: pct('Crit damage'), tiers: [[6, 10], [10, 16], [16, 24], [24, 32], [32, 42], [42, 55]] },
   // Haste rolls 1% up to the item tier's cap (hasteCfg), from tier 8 (Nightmare).
-  haste: { id: 'haste', kind: 'suffix', slots: ['weapon', 'frame', 'barrier'], word: 'of Haste', minTier: 8, text: (v) => `Haste +${v}% (faster swings and casts)`, tiers: [[1, 1], [1, 1], [1, 1], [1, 1], [1, 1], [1, 1]] },
+  haste: { id: 'haste', kind: 'suffix', slots: ['weapon', 'frame', 'barrier'], word: 'of Haste', minTier: 8, text: (v) => `Haste +${v}% (faster bolts and casts)`, tiers: [[1, 1], [1, 1], [1, 1], [1, 1], [1, 1], [1, 1]] },
   // TP refill and Injector charge (also on frames) took the race % suffixes' place on 2026-10-17, when enemy races
-  // went (the user's call): without them melee and ranged rares had only three suffixes to roll.
-  tpRefill: { id: 'tpRefill', kind: 'suffix', slots: W, word: 'of Flow', text: (v) => `Basic hits refill ${v}% more TP`, tiers: [[3, 5], [5, 8], [8, 11], [11, 14], [14, 17], [17, 20]] },
+  // went (the user's call).
+  tpRefill: { id: 'tpRefill', kind: 'suffix', slots: W, word: 'of Flow', text: (v) => `Photon bolts refill ${v}% more TP`, tiers: [[3, 5], [5, 8], [8, 11], [11, 14], [14, 17], [17, 20]] },
 
-  staggerPct: { id: 'staggerPct', kind: 'suffix', slots: W, family: 'melee', word: 'of Impact', text: (v) => `Stagger +${v}%`, tiers: [[5, 8], [8, 12], [12, 16], [16, 20], [20, 25], [25, 30]] },
-  finisherPct: { id: 'finisherPct', kind: 'prefix', slots: W, family: 'melee', word: 'Brutal', text: (v) => `Finisher damage +${v}%`, tiers: [[4, 6], [6, 9], [9, 12], [12, 15], [15, 18], [18, 22]] },
-
-  falloff: { id: 'falloff', kind: 'suffix', slots: W, family: 'ranged', word: 'of Reach', text: (v) => `Damage falloff starts ${v} m later`, tiers: [[1, 1], [1, 2], [2, 3], [2, 4], [3, 5], [4, 6]] },
-  perfectPct: { id: 'perfectPct', kind: 'prefix', slots: W, family: 'ranged', word: 'Rhythmic', text: (v) => `Perfectly chained shots +${v}%`, tiers: [[3, 5], [5, 8], [8, 11], [11, 14], [14, 17], [17, 20]] },
-
-  techPct: { id: 'techPct', kind: 'prefix', slots: W, family: 'caster', word: 'Arcane', text: pct('Tech damage'), tiers: [[3, 6], [6, 10], [10, 14], [14, 18], [18, 23], [23, 28]] },
-  mstFlat: { id: 'mstFlat', kind: 'prefix', slots: [...W, 'frame', 'unit'], family: 'caster', word: 'Mystic', unit: 'Mind', stat: 'mst', text: flat('Tech damage'), tiers: [[3, 6], [6, 12], [12, 20], [20, 32], [32, 48], [48, 68]] },
-  firePct: { id: 'firePct', kind: 'prefix', slots: W, family: 'caster', word: 'Blazing', text: pct('Fire damage (Foie, Gifoie, Rafoie)'), tiers: [[5, 9], [9, 14], [14, 19], [19, 25], [25, 32], [32, 40]] },
-  lightningPct: { id: 'lightningPct', kind: 'prefix', slots: W, family: 'caster', word: 'Thundering', text: pct('Lightning damage (Zonde, Gizonde, Razonde)'), tiers: [[5, 9], [9, 14], [14, 19], [19, 25], [25, 32], [32, 40]] },
-  icePct: { id: 'icePct', kind: 'prefix', slots: W, family: 'caster', word: 'Frozen', text: pct('Ice damage (Barta, Gibarta, Rabarta)'), tiers: [[5, 9], [9, 14], [14, 19], [19, 25], [25, 32], [32, 40]] },
-  tpCost: { id: 'tpCost', kind: 'suffix', slots: W, family: 'caster', word: 'of Thrift', text: (v) => `Technique TP cost −${v}%`, tiers: [[2, 4], [4, 6], [6, 8], [8, 10], [10, 12], [12, 15]] },
+  techPct: { id: 'techPct', kind: 'prefix', slots: W, word: 'Arcane', text: pct('Tech damage'), tiers: [[3, 6], [6, 10], [10, 14], [14, 18], [18, 23], [23, 28]] },
+  mstFlat: { id: 'mstFlat', kind: 'prefix', slots: [...W, 'frame', 'unit'], word: 'Mystic', unit: 'Mind', stat: 'mst', text: flat('Tech damage'), tiers: [[3, 6], [6, 12], [12, 20], [20, 32], [32, 48], [48, 68]] },
+  firePct: { id: 'firePct', kind: 'prefix', slots: W, word: 'Blazing', text: pct('Fire damage (Foie, Gifoie, Rafoie)'), tiers: [[5, 9], [9, 14], [14, 19], [19, 25], [25, 32], [32, 40]] },
+  lightningPct: { id: 'lightningPct', kind: 'prefix', slots: W, word: 'Thundering', text: pct('Lightning damage (Zonde, Gizonde, Razonde)'), tiers: [[5, 9], [9, 14], [14, 19], [19, 25], [25, 32], [32, 40]] },
+  icePct: { id: 'icePct', kind: 'prefix', slots: W, word: 'Frozen', text: pct('Ice damage (Barta, Gibarta, Rabarta)'), tiers: [[5, 9], [9, 14], [14, 19], [19, 25], [25, 32], [32, 40]] },
+  tpCost: { id: 'tpCost', kind: 'suffix', slots: W, word: 'of Thrift', text: (v) => `Technique TP cost −${v}%`, tiers: [[2, 4], [4, 6], [6, 8], [8, 10], [10, 12], [12, 15]] },
   // Cast speed (casts only, caster weapons) was folded into Haste on 2026-10-11 (the user's call: one speed stat).
   // A trickle, not a TP source: something to cast with once the injector runs dry deep in a fight (2026-10-10).
-  tpRegen: { id: 'tpRegen', kind: 'suffix', slots: W, family: 'caster', word: 'of the Spring', text: (v) => `+${v} TP a second, in fights too`, tiers: [[1, 1], [1, 1], [1, 1], [1, 2], [1, 2], [2, 2]] },
+  tpRegen: { id: 'tpRegen', kind: 'suffix', slots: W, word: 'of the Spring', text: (v) => `+${v} TP a second, in fights too`, tiers: [[1, 1], [1, 1], [1, 1], [1, 2], [1, 2], [2, 2]] },
 
   // ------------------------------------------------------- frames, barriers, units
   hp: { id: 'hp', kind: 'prefix', slots: ARMOR, word: 'Sturdy', unit: 'Heart', stat: 'hp', text: flat('HP'), tiers: [[5, 12], [12, 25], [25, 45], [45, 75], [75, 110], [110, 160]] },
@@ -174,13 +159,8 @@ export const ITEM_AFFIXES: Record<ItemAffixId, ItemAffixDef> = {
     penalty: { stat: 'hp', tiers: [[8, 14], [14, 24], [24, 36], [36, 52], [52, 70], [70, 95]] },
   },
   brittle: {
-    id: 'brittle', kind: 'prefix', slots: [...FRAME, 'weapon'], family: 'caster', word: 'Brittle', unit: 'Glass', rareOnly: true,
+    id: 'brittle', kind: 'prefix', slots: [...FRAME, 'weapon'], word: 'Brittle', unit: 'Glass', rareOnly: true,
     text: pct('Tech damage'), tiers: [[5, 8], [8, 12], [12, 16], [16, 20], [20, 25], [25, 30]],
-    penalty: { stat: 'dr', tiers: [[1, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 7]] },
-  },
-  reckless: {
-    id: 'reckless', kind: 'prefix', slots: [...FRAME, 'weapon'], word: 'Reckless', unit: 'Fury', rareOnly: true,
-    text: pct('Weapon damage'), tiers: [[5, 8], [8, 12], [12, 16], [16, 20], [20, 25], [25, 30]],
     penalty: { stat: 'dr', tiers: [[1, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 7]] },
   },
   frail: {
@@ -208,20 +188,20 @@ export function affixText(r: AffixRoll): string {
   return `${main} · ${penaltyText(def.penalty.stat, r.p)}`;
 }
 
-/** Can this affix roll on an item in `slot` of weapon family `family` (rarity checked by the caller)? */
-export function affixFits(def: ItemAffixDef, slot: AffixSlot, family: WeaponFamily | null, tier: number): boolean {
+/** Can this affix roll on an item in `slot` of `tier` (rarity checked by the caller)? */
+export function affixFits(def: ItemAffixDef, slot: AffixSlot, tier: number): boolean {
   if (!def.slots.includes(slot)) return false;
   if (def.minTier && tier < def.minTier) return false;
-  if (slot === 'weapon' && def.family && def.family !== family) return false;
   return true;
 }
 
+/** Affixes that went on 2026-10-21 with the classes (weapon damage, melee and gun ones): saved rolls of them are dropped. */
+export const RETIRED_AFFIXES = ['atpPct', 'atpFlat', 'reckless', 'staggerPct', 'finisherPct', 'falloff', 'perfectPct'];
+
 // Rare names: two words, the second by what the item is.
 export const RARE_FIRST = ['Doom', 'Storm', 'Grim', 'Bright', 'Void', 'Star', 'Blood', 'Rune', 'Ghost', 'Iron', 'Dawn', 'Night', 'Ember', 'Frost', 'Thunder', 'Echo', 'Spirit', 'Wraith', 'Sun', 'Moon', 'Photon', 'Nova', 'Ruin', 'Hollow'];
-export const RARE_SECOND: Record<'melee' | 'ranged' | 'caster' | 'frame' | 'barrier', string[]> = {
-  melee: ['Edge', 'Fang', 'Bite', 'Song', 'Cleaver', 'Thirst', 'Reaver', 'Shard'],
-  ranged: ['Shot', 'Bolt', 'Spitter', 'Call', 'Gaze', 'Volley', 'Sting', 'Flare'],
-  caster: ['Mind', 'Spire', 'Whisper', 'Weave', 'Chant', 'Star', 'Sigil', 'Rod'],
+export const RARE_SECOND: Record<'weapon' | 'frame' | 'barrier', string[]> = {
+  weapon: ['Mind', 'Spire', 'Whisper', 'Weave', 'Chant', 'Star', 'Sigil', 'Rod', 'Bolt', 'Call', 'Gaze', 'Flare'],
   frame: ['Shell', 'Coat', 'Mantle', 'Hide', 'Ward', 'Carapace', 'Skin', 'Vest'],
   barrier: ['Aegis', 'Guard', 'Halo', 'Wall', 'Bulwark', 'Shield', 'Veil', 'Bastion'],
 };

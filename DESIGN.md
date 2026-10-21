@@ -26,20 +26,17 @@ Living spec agreed during the kickoff interview. Gameplay first, graphics later.
 - **The camera picks the target** (2026-10-16, the user's ask; Tab lock-on until then, F before 2026-10-14): the
   enemy nearest the middle of the view (within 16° of it, seen from the camera; the current one holds on out to 24°
   and wins near-ties, so neighbours don't flicker), ahead of her, on screen, never through walls, and **within reach
-  of her bar**: the farthest the basic chain or a slotted Art reaches (a Force with Foie 18 m, else the 13 m bolt;
-  a gun its range; melee at least 8 m). The target frame and reticle show exactly while that holds, so walking up
+  of her bar**: the farthest the photon bolt (13 m) or a slotted Art reaches (Foie 18 m). The target frame and reticle show exactly while that holds, so walking up
   to an enemy you look at brings its frame up the moment it is in range, and backing off drops it. There is no
   lingering frame after a hit any more. The camera never turns by itself. Attacks auto-face the target.
-  - **Casters aim with the camera only**: bolts and techniques go to the target, or with none along the camera
+  - **Bolts and techniques aim with the camera only**: they go to the target, or with none along the camera
     (toward a target too far for that attack: a bolt falls short). Zonde and Barta need a target ("No target"), and
     one past their reach while Foie's longer one shows it says "Out of range" (nothing spent; the slot's icon goes
     red). Rafoie and Razonde land on the target, else on the enemy nearest the camera's line, else 8 m out (or as far
     as they reach toward a target past them).
-  - **Melee and guns** use the target when an attack reaches it, else soft-aim ahead as before (60° / 4 m melee,
-    30° / 18 m guns).
 - **C** snaps the camera behind the player.
 - **Attacks** (2026-10-14, see "Arts"): **LMB** is the basic chain; **RMB, Q, E and R** are the four Art slots
-  (Menu → Arts). The HUD's hex cluster shows them with their TP cost and a cooldown sweep. The photon blast fires
+  (Menu → Arts). The HUD's hex cluster shows them with their TP cost. The photon blast fires
   by itself once the Mag has taught one and its gauge is full (key 2 until 2026-10-11). Until 2026-10-14 this was
   the action palette: two rows swapped with Shift, LMB heavy / RMB light weapon or magic, the mouse wheel cycling
   Foie / Zonde / Barta, Q / E quick slots.
@@ -53,8 +50,9 @@ Living spec agreed during the kickoff interview. Gameplay first, graphics later.
 ## Combat — PSO-faithful
 - **3-step chain.** Each step is the basic attack or an Art (see "Arts"), and chaining needs **rhythm timing**
   (mashing breaks the chain).
-- **The basic attack** (2026-10-14; the old light hit): ×0.7 damage to every enemy in the weapon kind's shape (up
-  to its target cap), 0.6 stagger each, and every step that lands refills TP. Casters fire a photon bolt instead.
+- **The basic attack** (2026-10-14; the old light hit): a homing photon bolt (tech damage × the kind's bolt power),
+  0.6 stagger (the finisher double), and every step that lands refills TP. Until 2026-10-21 melee and guns hit every
+  enemy in their kind's shape for ×0.7 instead.
   Until 2026-10-14 each step was Light or Heavy: heavy was ×1.3 damage to the aimed enemy, a slower swing, 1.5
   stagger, double knockback and the weapon special's roll; the Arts took its place.
 - A **visual timing cue** (subtle flash/ring) marks the chain window.
@@ -62,24 +60,17 @@ Living spec agreed during the kickoff interview. Gameplay first, graphics later.
   glints and the window-open tick sounds; pressing then is a perfect chain (chime, gold HUD pip). Perfect chains
   in a row build a streak that scales damage ×1.0 / ×1.15 / ×1.4. A later press in the window still chains but
   resets the streak to ×1.0.
-- **Rhythm per weapon kind**: quick kinds (dagger, wand, handgun) have a tight perfect window and short grace, slow
-  kinds (sword, rod, rifle, shot) wide ones; the saber uses the defaults.
+- **Rhythm per weapon kind**: the quick Wand has a tight perfect window and short grace, the slow Rod wide ones.
 - **Nothing misses** (2026-10-09, the user's call): what connects lands, both ways. ATA and EVP are gone (see
   "Stats: no ATA, no EVP"). In an action game the aiming, positioning and dash already decide hits; the dice roll
   on top only punished twice (heavy had been a flat 15% whiff at its 85% cap, light hit 100% past the Caves, and
   enemies landed 96-100% of hits everywhere but the Forest). Heavy went from x1.5 at 85% to **x1.3**, always.
-  - Guns hit for less (not less often) past their effective range: 2.5% of the damage per metre past 10 m (rifles
-    18 m), down to half (`rangedFalloff`). Reach affixes push it out; Deadeye halves it.
-- **Melee pays for its risk.** Melee weapon damage ×1.52, ranged ×1.58 (2026-10-09; ×1.65 / ×1.5 before misses and
-  Precision went, ×1.1 / ×0.85 before that, when a Ranger did ~60% of a Hunter's damage and a Force ~1.5x on
-  Normal). On-tier gear, Mag all in the class stat: a saber Hunter roughly matches a Force on Normal and leads on
-  Nightmare and Hell; a handgun Ranger does about 0.85-0.9x the saber Hunter; daggers are ~27% above sabers
-  single-target. After the 2026-10-09 rework every class's estimated kill time stayed within 4% of before at Lv 7 /
-  15 / 28 / 38 (Normal), 66 (Nightmare) and 98 (Hell).
+  - (Until 2026-10-21 guns lost damage past their range and melee hit ×1.52, ranged ×1.58: see "One character: no
+    classes".)
 - **Stagger meter** instead of a flinch roll: each hit adds points and the enemy flinches when they reach its
-  poise (Booma 1, Gobooma 2, Gigobooma 3, Pan Arms 5, elites +1). Light adds 0.6 per enemy, heavy 1.5; gun hits
-  count 0.75 ×. Finishers count double and a melee heavy finisher always staggers. Hits landing during a
-  wind-up count double, and the meter drains after 1.2 s without hits.
+  poise (Booma 1, Gobooma 2, Gigobooma 3, Pan Arms 5, elites +1). A bolt or technique adds 0.6 per enemy (the
+  single-target techniques 2-2.5×, Conductor doubles it), a photon blast 1.5. The bolt finisher counts double. Hits
+  landing during a wind-up count double, and the meter drains after 1.2 s without hits.
 - Attacks commit you, and positioning is the defence. The **dash** is the way out, at a price.
 
 ### Crowd control on enemies (2026-10-16)
@@ -223,9 +214,9 @@ combos feel like traps. The combos stay slow; the dash gives a way out that cost
   back off and A / D circle it at the same distance, so it doubles as a strafe while she keeps facing it.
 - Each dash **sheds one Burn stack** and counts as moving.
 - A photon streak on the floor marks the path; `player.dash` sound (3 variants in the sound lab).
-- Tuning panel: **Dash** folder. Talents change it: **Fleet** (+1 charge), **Slipstream** (dash out of a telegraph
-  and the next attack or cast lands perfect), the class flavours **Lunge** (Hunter), **Backstep Shot** (Ranger) and
-  **Blink** (Force), and Light Feet / Rush (faster recharge).
+- Tuning panel: **Dash** folder. Passives change it: **Fleet** (+1 charge), **Slipstream** (dash out of a telegraph
+  and the next attack or cast lands perfect), **Blink** (an almost instant dash through enemies), and Light Feet /
+  Rush (faster recharge). (Lunge and Backstep Shot, the Hunter's and Ranger's, went on 2026-10-21.)
 
 ### Dash checks (bosses)
 Added 2026-10-07 so the bosses ask for the dash at set moments, not all the time. A **dash check** is an area
@@ -249,64 +240,11 @@ Phase 1 of De Rol Le and the Warden stays walkable (wider lane, longer windups) 
 learned first. Pairs (De Rol Le's double slam, the Warden's double hand slam) fit the 2 charges; spending
 them carelessly just before one is the risk. Bot balance runs can't show any of this (the bot never moves out
 of anything).
-- **Weapon kinds differ by their basic attack's shape** (the light attack's until 2026-10-14), plus speed, reach,
-  rhythm and their own Arts (see "Arts"). Every enemy caught is hit once. Saber 110° arc, 3; Sword 160° sweep, 4;
-  Dagger 90°, 2, two hits; Handgun 3-shot fan, 2; Rifle piercing beam, 4; Shot 5-pellet fan, 5. Rods and wands fire
-  a photon bolt instead (2026-10-14).
-- **Eight kinds** (2026-10-14, the user's call after a review; there were twelve): Hunter **Dagger / Saber /
-  Sword**, Ranger **Handgun / Rifle / Shot**, Force **Wand / Rod**. Each wins one thing:
-
-  | Kind | Wins | Single target | Pack of 4 |
-  |---|---|---|---|
-  | Dagger | single target (light) | 6,507 | 8,392 |
-  | Saber | in between, the quickest to commit (medium) | 5,441 | 10,709 |
-  | Sword | packs (heavy: Poise, double stagger) | 5,087 | 13,679 |
-  | Handgun | single target, fast | 6,626 | 8,640 |
-  | Rifle | a line of enemies, longest range | 4,285 | 11,639 |
-  | Shot | a close pack (5 targets) | 3,689 | 9,848 |
-  | Rod | technique damage (Zonde 5,697 a second) | 2,700 | 7,234 |
-  | Wand | TP: 6 a hit, fast swings (Zonde 4,735) | 2,604 | 3,407 |
-
-  (Analytic, `damageBreakdown`: Lv 100, the class's Mag stat, a plain tier 15 weapon, the tier 1 rift enemy, no
-  talents; pack = all-light damage × the targets it reaches of four.) With their Weight talents: Saber + Balance
-  6,529 single, Sword + Crush 5,316.
-  - **Cut:** the **Partisan** (a second heavy weapon; its edge was reach), the **Mechgun** (lost to the Handgun on
-    both counts: 5,162 / 6,568), the **Slicer** (lost to the Rifle: 3,676 / 7,380) and the **Cane** (lost to the Rod on
-    technique damage and swings, to the Wand on TP). With them went the partisan's line stab and spear thrust, the
-    slicer's spinning disc and the mechgun's heavy burst.
-  - **Retuned:** Saber damage ×1.04 (was 1) and Sword ×0.95 (was 1.05), so the Saber beats the Sword on one target
-    (before: Sword 5,623 / Saber 5,232 on one target as well as on packs); Rifle pierces 4 (was 3), so it beats the
-    Handgun on a lined-up pack by a clear margin (was 8,729 vs 8,640). The Saber Hunter (the class balance
-    reference) is 4% up.
-  - **Why fewer:** drops lean 80% to the class's kinds, so the chance a weapon drop is the one kind you want went
-    from 22% to 29% for a Hunter, 18% to 29% for a Ranger and 28% to 43% for a Force.
-  - **Forces start with a Wand** (was a Cane): its TP on hit helps early, when TP is short.
-  - **Old saves:** a Partisan becomes a Sword, a Mechgun a Handgun, a Slicer a Rifle and a Cane a Rod, same tier and
-    affixes (each keeps its family, so every affix still fits; `RETIRED_KINDS`, in the `Character` constructor).
-    Crush is Sword-only now.
-- **Melee weight classes** (agreed 2026-10-07, `config/` `weaponWeights`, `weaponKinds[].weight`). The user found
-  the Sword unusable next to the Saber: it swung twice as slow for ~1.3x the damage per hit, missed more, staggered
-  exactly like a Saber and lost its wind-up to every enemy hit (bot: Forest 220 s / 2.3 bars vs the Saber's 153 s /
-  1.2). Speed was pure cost, so the slow kinds now get a payoff:
-  - **Light** (Dagger, Wand): fastest swings, tight rhythm, low per-hit damage. Dagger ~1.25x a Saber on one target
-    (trimmed from ~1.5x: damage scale 0.7 -> 0.6 per hit), weak on packs.
-  - **Medium** (Saber; the Cane until 2026-10-14): the baseline.
-  - **Heavy** (Sword, Rod; the Partisan until 2026-10-14): ~1.05 s swings (~1.4x a Saber; the Sword was 1.45 s) that hit harder per blow,
-    **double stagger** (a light hit flinches any poise-1 enemy outright), step further (0.45 m light / 0.65 m heavy)
-    and carry **Poise**: from the start of the swing until its strike ends, an enemy hit still does full damage (and
-    gives the normal post-hit invulnerability) but doesn't flinch, knock back or cancel the swing. The recovery is
-    still punishable. Not i-frames: nothing is avoided. The user picked Poise + stagger over stagger only.
-  - Sword: wind-up 0.48 -> 0.32 s, recovery 0.85 -> 0.62, damage x1.05, ATA 15 -> 25 (rare swords +10 ATA to keep
-    their edge). Partisan 0.30 / 0.10 / 0.64, damage x1.1 (reach 4.2 m outranges every enemy strike). Rod 0.30 /
-    0.12 / 0.62, damage x1.1.
-  - **Rod = the pure caster's weapon**: technique boost x1.2 (the Wand's old value) and the most MST; the **Wand**
-    drops to x1.1 and keeps the fast swing-for-TP role (6 TP per hit); the Cane stays the hybrid (x1.05). Swapping
-    the boosts keeps the best-case Force damage where it was. The tooltip now shows the boost.
-  - The heavy attack's x1.55 wind-up and the rooted chain grace were left alone (the user declined both changes).
-  - Bot check (Hunter, Light-Light-Heavy, never dodges): Forest Lv 7 tier 2, Saber 153 s / 1.2 bars, Sword 220 s /
-    2.3 -> 153 s / 1.2, Partisan 191 s / 1.8 -> 158 s / 1.2, Dagger 141 s / 0.7. Cave 1 Lv 15 tier 3: Saber 189 s /
-    3.0, Sword 264 s / 5.6 -> ~174 s / 2.5, Partisan 225 s / 3.9 -> 187 s / 3.5, Dagger 165 s / 1.7. The bot
-    walks into reach with a Partisan, so its reach advantage doesn't show here.
+- **Weapon kinds**: two since 2026-10-21, the **Rod** (the pure caster's weapon: technique boost ×1.2, a heavy, slow
+  bolt at 0.9× tech damage, TP refill ×1.5) and the **Wand** (×1.1, quick bolts at 0.55×, TP refill ×2.2). They fire
+  photon bolts (2026-10-14) and differ in speed, rhythm and the boost. Twelve kinds until 2026-10-14 and eight until
+  2026-10-21; the melee weight classes (light / medium / heavy, Poise, 2026-10-07) went with the blades. See "One
+  character: no classes".
 - **Techniques: no disks, MST only** (agreed 2026-10-07, replacing technique disks and tech levels). Every class
   knows all six techniques from Lv 1; **MST** (base + Mag + gear) is the only thing that scales them, so a Hunter
   or Ranger who doesn't build MST has weak spells and a Force grows into hers as she levels. Why: disks were a chore,
@@ -345,6 +283,73 @@ of anything).
   step, with the same perfect window, streak damage and too-early break. Resta and the buffs chain too (they only
   cast from idle until 2026-10-14).
 
+## One character: no classes (2026-10-21)
+Agreed and built 2026-10-21. The user: making fights fun and hard for melee, guns and techniques at once was too
+hard to balance, so the game keeps the Force and drops the class idea altogether. Every character is the same caster,
+and nothing in the game names a class. Their picks from a question round:
+- **Rod and Wand only.** The six melee and gun kinds went (Saber, Sword, Dagger, Handgun, Rifle, Shot), and with them
+  every system only they used: swings, two-handed holds and the swing trail (`/swinglab.html` too), gun shots and
+  damage falloff, weight classes, Poise and lunges, the melee / ranged damage multipliers, weapon specials (they only
+  rolled on weapon hits), and the 24 Hunter and Ranger Arts with their modifiers. Bare hands fire a weak bolt
+  (`BARE_KIND`: bolt power 0.4, no technique boost).
+- **Weapon damage is gone** (`atp`): bolts and techniques use Tech damage only. Rods and wands carry Tech damage as
+  their base (the same numbers as before, raised by the built-in Edge grind). The Weapon damage stat, its affixes
+  (Cruel, Heavy, Reckless) and the Power unit went. **Farlla now gives Tech damage +35%**: it gave weapon damage,
+  which did nothing for a caster. Mylla & Youlla deals 5× a hit of your main technique.
+- **The Mag has two tracks**, MIND (Tech + TP) and DEF (Defense + HP). POW and DEX went with their forms, and their
+  points come back to spend: a one-time exception to Mag points being permanent. The first form is always Vritra.
+- **One armour line, Psy** (plus the plain starters and the Photon Barrier). Guard and Combat went. She always wears
+  the robe (Halo), and the frame's tier still picks the evolution stage. Vanguard and Ember stay in `/armorlab.html`
+  as a reference.
+- **Stats and growth** are the Force's (`BASE_STATS`, `GROWTH`): HP 70 + 7.5 a level, TP 80 + 6, Tech damage 60 + 4,
+  Crit chance 4.5% + 0.1%, damage taken −0.1% a level. A new character starts with a Wand and a Fluid injector and
+  knows Foie.
+- **Skills**: the Fire, Lightning and Ice trees. Five general passives from the Hunter and Ranger trees joined them
+  (the user's pick): **Bloodlust** (Fire), **Light Feet** (Lightning), **Last Stand**, **Bulwark** and **Field Medic**
+  (Ice). Adrenaline (weapon hits only) and every melee and gun passive went.
+- **One Art bar** (it was one per weapon kind; techniques don't care what you hold). No Art has a cooldown.
+- **Loot**: every weapon drop is a rod or wand and every armour drop Psy (drops leaned 80% to the class before);
+  injectors lean Fluid (35% Mate). The main-pool uniques no longer favour a class.
+- **Uniques**: the six made for Hunters and Rangers became rods and wands, keeping their names and bosses (the
+  user's pick). Two unique units changed as well: the Limiter (its shorter cooldowns did nothing for a caster) and
+  Dragon Rush (its hit is a photon bolt now).
+
+  | Unique | Now | Effect | Cost |
+  |---|---|---|---|
+  | Dark Flow | Wand | As before: kills heal 5% max HP and remove a Corruption stack | Mate injectors don't work |
+  | Frozen Shooter | Rod | Ice techniques freeze; any technique on a frozen enemy shatters it for ×2.5 (then 3 s before it can freeze again) | 50% less damage (bolts too) to anything not frozen; bosses never freeze |
+  | Flame Visit | Rod | Burning deaths leave fire pools (as before); Rafoie's burning ground lasts twice as long | You Burn in your own fire |
+  | Dragon Fang | Wand | Rampage as before; at 10 stacks techniques cost no TP | A hit for 15% of max HP or more ends Rampage |
+  | Ophelie Seize | Wand | Every photon bolt adds a venom stack, no cap; a poisoned enemy's stacks jump on its death | Photon bolts can't crit |
+  | S-Beat's Blade | Wand | A technique as a perfect chain's 3rd step (bolt, bolt, technique) costs no TP | Techniques not cast as the 3rd step cost double TP |
+  | Limiter (unit) | Unit | Techniques cast 30% faster | Techniques cost 20% more TP |
+
+  Dragon Fang's free techniques and the Limiter's cast speed were my recommended pitches, used as the defaults.
+- **Kept as it was**: Delsaber's guard (single-target techniques that stagger harder than a bolt break it: Foie,
+  Zonde, Barta, Rafoie; bolts and area techniques are blocked from the front), the dash and the dash checks, the
+  Pioneer 2 crowd's HUmar / RAmarl / FOmarl looks (NPCs, not something the player picks), the unique armour's damage
+  cut (between the old Guard and Combat lines), and every Force number: no retune, so the tuning made with the Force
+  still holds.
+- **Old saves** (save version 6; version 5 saves load and convert in `convertRetiredItems`, `readAffixData` and the
+  `Character` constructor): blades and the Cane become a Rod, guns a Wand, Guard and Combat armour Psy, each of the
+  same tier. Affixes that went are dropped and `upgradeCrafting` tops the item back up to its counts. Specials and
+  the class go. A Hunter or Ranger starts the trees over: she knows Foie, like a new character, and every other
+  point comes back (her Art bars go too). A Force keeps her ranks, and her old Art bars (one per weapon kind) become
+  the bar of the weapon in hand. POW and DEX points come back.
+- **Menus**: character creation lost its class step (body, hair, face gear, colours, name). Class names went from
+  the slot list, the nameplate, the menu title and the status screen (which shows the growth per level instead),
+  and so did the Weapon damage rows and the melee and gun rows of Other stats. The Damage tab and item cards show
+  your main technique and the photon bolts.
+- **Dev tools**: `__h.start(slot, difficulty)`; the debug panel makes one Lv 76 test character (rod and wand rares,
+  Psy armour). `.claude/simsetup.js`: `mkChar(lvl, weapon, frame, barrier, passives)`, `simRun(...)` (was
+  `simClass`), and SETUPS per band with a rod (`rodF1` ... `rodXR`), some with a wand too (`wandF1`, `wandF`,
+  `wandC`, `wandHF`, `wandXF`). The sim bot casts first (`seq ['a', 'a', 'a']`; `window.botSeq` overrides it).
+- **Not done**: no balance pass. The balance references in this file from before 2026-10-21 were measured with
+  Hunters and Rangers (the h* / r* setups) and need re-baselining with the rod and wand setups. Enemy **armour %**
+  now affects nothing (only weapon hits read it) but is still in the enemy data and the Nightmare, Hell and rift
+  scaling. The melee and gun sounds (`swing.blade`, `shot.*`) and the humanoid gun grips stay in their catalogues,
+  unused by the player.
+
 ## Arts (2026-10-14)
 Agreed and built 2026-10-14, replacing light / heavy attacks, the spell forms, the action palette and talents. The
 user, bored at rift tier 16, asked for separate abilities you keybind and use in different situations, "like Path of
@@ -364,23 +369,13 @@ picked **on the Mag tab**. Data in `data/arts.ts`, behaviour in `combat/arts.ts`
   basic, basic, Art is the rhythm. Channels (Cyclone, Rapid Volley, Blade Dance), guards and movement Arts **seal**
   the chain (it ends after them). Some have cooldowns (Leap 6 s, Guard Stance 10 s, War Cry 15 s). Weapon specials
   (Heat, Ice...) roll on the basic finisher and on single-target Arts' strong hits.
-- **Four slots** (RMB, Q, E, R), **one bar per weapon kind**: swap to a sword and the sword's bar comes up. An
-  untouched bar fills itself in learning order, so a slot never moves as Arts are learned; an Art learned in Skills
-  goes into the first empty slot of a bar you changed. Menu → Arts: click a slot, then an Art. Changes wait for the end of a fight; in the city only support Arts work.
-- **Where they come from**: three per weapon kind (Lv 1, 12, 28) and three per family (Lv 5, 20, 36). Forces get the
-  nine attack techniques instead. Everyone gets Resta (Lv 1). Shifta and Deband (Lv 10, the buffs) were removed on
-  2026-10-15 at the user's call ("remove Shifta and other utility spells"; Resta stays); Farlla keeps their effect.
-
-  | Kind | Lv 1 | Lv 12 | Lv 28 |
-  |---|---|---|---|
-  | Saber | Rising Edge: lunge and uppercut (single) | Crescent: a flying crescent through five (area) | Guard Stance: guard 1 s, then counter (defence) |
-  | Sword | Cyclone: four sweeps while walking (area) | Ground Breaker: an 8 m shockwave line (area) | Sunder: −8% armour, stacks 3 (single) |
-  | Dagger | Venom Edge: four stabs, venom stacks (single) | Shadow Step: to its back, next hit crits (mobility) | Blade Dance: six strikes, +50% on staggered (single) |
-  | Handgun | Rapid Volley: eight shots (single) | Flash Shot: a 2 s stun (control) | Ricochet: bounces to three more (area) |
-  | Rifle | Charged Shot: a 26 m beam (area) | Mark: +20% taken for 8 s (control) | Freeze Round: chill, then freeze (control) |
-  | Shot | Scatter Blast: nine pellets in a cone (area) | Napalm Shell: blast and burning ground (area) | Slug: one heavy round (single) |
-  | Melee (Lv 5 / 20 / 36) | Leap: jump in, slam (mobility) | War Cry: −25% enemy damage, stagger (control) | Iron Will: 5 s of Poise, −20% damage (defence) |
-  | Ranged (Lv 5 / 20 / 36) | Freeze Trap (control) | Backflip Shot: flip back, fire (mobility) | Grenade: blast, 1 s stun (area) |
+- **Four slots** (RMB, Q, E, R), **one bar** (one per weapon kind until 2026-10-21). An untouched bar fills itself in
+  learning order, so a slot never moves as Arts are learned; an Art learned in Skills goes into the first empty slot
+  once you have changed the bar. Menu → Arts: click a slot, then an Art. Changes wait for the end of a fight; in the city only support Arts work.
+- **Where they come from**: the nine attack techniques and Resta (Lv 1). Until 2026-10-21 Hunters and Rangers had
+  weapon Arts instead (three per weapon kind and three per family: Cyclone, Rising Edge, Rapid Volley, Charged
+  Shot, Leap, Grenade and the rest); they went with the classes. Shifta and Deband (Lv 10, the buffs) were removed
+  on 2026-10-15 at the user's call ("remove Shifta and other utility spells"; Resta stays); Farlla keeps their effect.
 
 - **Techniques** (Forces): Lv 1 **Foie** (homing fireball, burns), **Zonde** (jumps to two more, may stun), **Barta**
   (ice spike, chills); Lv 12 **Gibarta** (an ice wave ahead), 15 **Gifoie** (a fire ring around you), 20 **Gizonde**
@@ -448,8 +443,9 @@ picked **on the Mag tab**. Data in `data/arts.ts`, behaviour in `combat/arts.ts`
 - **Debug panel**: Basic attack folder (`basicAttack`); the weapon kinds' `tpRefill` / `boltPower`.
 - Not done: Art and modifier numbers are a first pass; the bot can't judge control, defence or movement Arts.
 
-## Classes, the Mag and passives
-Agreed and built 2026-10-08, replacing the classless build (attribute points + the 112-square Mag grid) from the
+## Classes (until 2026-10-21), the Mag and passives
+The classes went on 2026-10-21 (see "One character: no classes"); the Mag and passive notes below still hold, with
+two Mag tracks and the Force's passives. Agreed and built 2026-10-08, replacing the classless build (attribute points + the 112-square Mag grid) from the
 day before. The user found the grid useless: keystones needed attribute points as well as squares, so squares spent
 on an arm whose attribute you hadn't invested in led nowhere, and two systems both asked "what are you?". Their
 calls: **three classes**, no Guardian (defence is something every class has); **Mists of Pandaria style talent
@@ -559,7 +555,7 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
   "give random unit", "+10M EXP".
 
 ## Loot & Progression — PSO-style
-- XP curve + level-ups: stats come from the class's growth (see "Classes, the Mag and passives").
+- XP curve + level-ups: stats come from the character's growth (`GROWTH`, see "One character: no classes").
 - **Affix loot** (Diablo 2 / Path of Exile style, built 2026-10-08, `data/itemAffixes.ts`, rolled in `loot.ts`): the
   user's ask, so loot doesn't feel bad with classes. Rarity:
 
@@ -592,8 +588,9 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
     HP / TP / DFP, LCK, HP regen (in fights too since 2026-10-09: 1-5 HP/s, was 1-10 between fights only), injector potency and charge, run speed, dash recharge, poison /
     paralysis / Burn / Corruption resistance; barriers also area / boss / hazard damage and knockback ("Stability").
     (The unique-only hazard and pylon affixes went with the old uniques, 2026-10-12.)
-  - **Downside affixes** (rares and units): Overcharged (+TP, −HP), Brittle (+technique damage, −DFP), Reckless
-    (+weapon ATP %, −DFP), Frail (+Haste, −HP): the glass-cannon dial.
+  - **Downside affixes** (rares and units): Overcharged (+TP, −HP), Brittle (+technique damage, −DFP), Frail
+    (+Haste, −HP): the glass-cannon dial. (Reckless, +weapon damage %, went on 2026-10-21 with the melee and gun
+    affixes and the weapon specials.)
   - **Caps**: run speed +20% from gear and passives together; each status resistance 75% (no immunities: the user
     dropped them).
   - **Units** (PSO's): one affix each, `unit_1`-`unit_15` by tier, dropped (about 1 in 25 drops, one per boss, two
@@ -659,8 +656,8 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
   pillar while they're worth learning (a new kind or a better roll; otherwise junk-grey, no pillar).
   **Junk** (worse than what is worn, by the verdict above; uniques never) fades grey; an equippable upgrade gets a
   green ▲. The pickup note reads "Damage/s +12% · LCK +3" or "Needs ATP 90 (you have 76) · Damage/s +30%".
-- **Drops lean 80% to the class** (`LOOT_LEAN`): weapons of its family, armour of its line (Hunter Guard, Ranger
-  Combat, Force Psy), Fluid injectors for Forces. Fewer gear drops than before (Diablo 3's Loot 2.0 rather than
+- **Every weapon drop is a rod or wand and every armour drop Psy** since 2026-10-21 (drops leaned 80% to the class
+  before, `LOOT_LEAN`); injectors lean Fluid (35% Mate). Fewer gear drops than before (Diablo 3's Loot 2.0 rather than
   Diablo 2's volume): weapons 13, armour 9, units 4 out of 100 drop rolls.
 - **Sell all junk** (shop, Sell tab): sells every bag item the verdict calls junk (uniques stay; units in the bag are
   always junk, since a learnable one is learned on pickup). **Salvage junk** next to it breaks the junk magic and
@@ -702,8 +699,8 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
 Agreed 2026-10-07, replacing stacks of mates and fluids. Stocking up on consumables made content trivial, while a
 player deep in an expedition without them had no way back up; and the consumables crowded the 30-slot bag.
 - **One equipment slot** (key 1, also assignable to Q / E) takes a **Mate** (HP) or a **Fluid** (TP) injector.
-  Hunters and Rangers start with a Mate, Forces with a Fluid (Resta turns TP into HP); the mods are
-  the real choice.
+  Everyone starts with a Fluid (Resta turns TP into HP; Hunters and Rangers started with a Mate until 2026-10-21);
+  the mods are the real choice.
   (2026-10-07: it was two slots with generous recharge, and a player who didn't outlevel the content still never
   emptied the second one: a single Mate gave ~19 doses a floor against the 2-5 a dodging player needs.)
 - Every injector holds **3 doses**; tiers differ in how much a dose restores: Mate 35 / 35 / 36 / 39 / 42 / 47% of
@@ -818,9 +815,9 @@ player deep in an expedition without them had no way back up; and the consumable
   No accessory. The chosen look is saved as `appearance`; the Character Lab keeps every option for design work.
   The **Stylist** in Pioneer 2 (west wall) reopens these steps any time, for free.
 - **Armour looks** (2026-10-07, their call): the outfit, glow and back tech are no longer choices; the
-  **equipped frame** decides them (`armorLook`, `playerLook`), like a Mag evolving. The frame's line picks the
-  outfit: Guard (melee) = Ranger jacket, Combat (ranged) = Coat & knit, Psy (caster) = Force robe; a Standard
-  frame (or none) gives the class's outfit (Hunter jacket, Ranger coat, Force robe). Its tier picks an **evolution stage** (`TIER_STAGE`): T1 = 0,
+  **equipped frame** decides them (`armorLook`, `playerLook`), like a Mag evolving. Since 2026-10-21 (one armour line)
+  she always wears the robe (Halo); until then the frame's line picked the outfit (Guard = jacket, Combat = coat &
+  knit, Psy = robe). Its tier picks an **evolution stage** (`TIER_STAGE`): T1 = 0,
   T2 = 1, T3-4 = 2, T5-7 = 3, T8-11 (Nightmare) = 4, T12-15 (Hell) = 5, so Normal tops out at stage 3 (the Ruins' T7 included). Each stage keeps the parts
   before it (`EVOLUTIONS`, whose descriptions are the reference): glow trim from stage 2, circuit lines from 3, a slow pulse at 4.
   - **Vanguard** (Guard): spiked pauldrons + bracers → warplate with a core, hip plates, plated coat tails →
@@ -840,8 +837,9 @@ player deep in an expedition without them had no way back up; and the consumable
     climbing from the feet every couple of seconds, and **motes of light** spiralling up around her. The shared
     Hell motif is the **eclipse**: a dark disc with a lit rim and a breathing corona.
   Barriers don't change the look. Creation and the Stylist show an armour preview row (stages 0-5) on the
-  Colours step so the glow colour can be judged. Previews: **`/armorlab.html`** (all lines, or one line from
-  the front and from behind; optional Mag to check clutter), sheets in `armor-previews/`.
+  Colours step so the glow colour can be judged. Previews: **`/armorlab.html`** (all three outfits, the robe the
+  game's and Vanguard and Ember for reference, or one from the front and from behind; optional Mag to check
+  clutter), sheets in `armor-previews/`.
 - **Character Lab:** `/charlab.html` compares those variations side by side (idle, run, turntable).
   Flat shading, saturated colours, a few hundred to ~1.3k triangles per character.
 - Animation is procedural: each rig eases toward poses, and attack poses are driven by combo time so
@@ -883,17 +881,17 @@ Agreed 2026-10-05: everything **synthesized in code with the Web Audio API**, wi
 
 ## Implementation map (first playable)
 - `src/game/combo.ts`: 3-step chain state machine, basic steps and Arts (unit-tested).
-- `src/game/data/`: stats and the three classes (`stats.ts`), item affixes (`itemAffixes.ts`), items (weapon kinds × tiers, rares, armor, injectors, consumables,
+- `src/game/data/`: stats and the character's base and growth (`stats.ts`), item affixes (`itemAffixes.ts`), items (weapon kinds × tiers, rares, armor, injectors, consumables,
   grinders), techniques (MST scaling), area layouts.
 - `src/game/character.ts`: persistent character, inventory, equipment rules, grinding, technique cost / damage, XP.
 - `src/game/mag.ts`: Mag tracks, points, evolution forms and the photon blasts; `models/mag.ts` is its model.
 - `src/game/injectors.ts`: injector stats, mods, charge and doses (unit-tested in `injectors.test.ts`).
 - `src/game/loot.ts`: drop tables, rarity and affix rolls, units, injector rolls, shop stock.
 - `src/game/passives.ts`: passive definitions, their weapon requirements and descriptions (numbers in `config/` `passiveCfg`).
-- `src/game/skills.ts`: the Skills trees per class (layout, prerequisites, ranks, modifier forks, points, save repair and migration; numbers in `skillCfg`).
-- `src/game/data/arts.ts`: every Art (weapon Arts, class Arts and the techniques as Arts) with its modifiers;
-  `src/game/combat/arts.ts` (`ArtRunner`) carries them out, `combat/Combat.ts` runs the basic chain, Art costs,
-  cooldowns, debuffs (Mark, Sunder, venom, chill) and ground zones.
+- `src/game/skills.ts`: the Skills trees (layout, prerequisites, ranks, modifier forks, points, save repair and migration; numbers in `skillCfg`).
+- `src/game/data/arts.ts`: every Art (the techniques) with its modifiers; `src/game/combat/arts.ts` (`ArtRunner`)
+  carries them out, `combat/Combat.ts` runs the basic chain (photon bolts), Art costs, debuffs (Static's mark,
+  venom, chill) and ground zones.
 - `src/game/world/`: level builder (rooms + corridors + laser gates; forest, lair, cave and river dressing),
   room waves (pinned spawns, ambushes, overlap), Pan Arms pairs, hazards, cosmetic effects, pickups, boxes,
   projectiles, telegraphs, interactables.
@@ -902,21 +900,22 @@ Agreed 2026-10-05: everything **synthesized in code with the Web Audio API**, wi
   (`Dragon.ts`), De Rol Le (`DeRolLe.ts`), the Warden (`Warden.ts`) and Dark Falz (`DarkFalz.ts`).
 - `src/game/world/Pylon.ts`: the Ruins' light pylons.
 - `src/game/world/Machinery.ts`: crushers, laser fences and conveyors (Mines).
-- `src/game/combat/Combat.ts`: hit resolution for melee, guns and techniques, statuses, incoming damage.
+- `src/game/combat/Combat.ts`: hit resolution for photon bolts and techniques, statuses, incoming damage.
 - `src/game/Game.ts`: loop, areas and the expedition run state, menus, death, saving.
 - `src/game/models/`: procedural rigs and models (humanoid, booma, dragon, cave enemies, De Rol Le, Mines machines
   and the Warden in `mines.ts`, weapons, props).
 - `src/viewer.ts` + `viewer.html`: standalone model viewer; `runlab` and `charlab` pages compare run cycles and character looks; `maglab` compares Mag designs (`src/game/models/magDesigns.ts`); `armorlab` shows the armour evolutions.
 - `src/ui/`: HUD, menus (inventory, shop, dialogs), lil-gui tuning panel. `title.ts`: title screen (save
-  slots, the selected character on a teleporter pad rendered by `MenuStage.ts`) and the 6-step creation
-  wizard (class, body, hair, face gear, colours, name). `src/menus.css`: PSO Dreamcast-style windows used by every
+  slots, the selected character on a teleporter pad rendered by `MenuStage.ts`) and the 5-step creation
+  wizard (body, hair, face gear, colours, name). `src/menus.css`: PSO Dreamcast-style windows used by every
   menu, the pause window, prompts and toasts.
 - `src/audio/`: engine (context, buses, reverb), `synth.ts` primitives, `sfx.ts` catalogue, `picks.ts` /
   `levels.ts` (chosen variants and loudness trims), `music/` (instruments, theory helpers, tracks, sequencer).
   `src/game/audioCues.ts` turns field-enemy and lava-vent state changes into sounds; bosses, combat, the game
   and the menus call `sfx()` directly. `soundlab.html` + `src/soundlab.ts`: the Sound Lab.
 - `src/devHarness.ts`: dev-only `window.__h` for scripted playtests (fixed-step `run`, combat `bot`).
-  `.claude/simsetup.js` adds balance-sim helpers (`mkChar`, `simRooms`, damage-by-source) for the browser console.
+  `.claude/simsetup.js` adds balance-sim helpers (`mkChar`, `simRooms`, `simRun`, `batch`, damage-by-source) for the
+  browser console.
 
 ## Expedition 2 — Caves → De Rol Le
 Agreed in the second design interview (2026-10-05) and built the same day. Numbers below are the tuned values
@@ -1903,8 +1902,9 @@ place, uniques each with **one effect nothing else has and a real cost**, meant 
 `data/uniques.ts` (definitions), `riftCircles.ts` (circles and drops), `combat/riftUniques.ts` (the rift uniques'
 effects), `uniqueCfg` in config/progression.ts (numbers), `Character.hasUnique` and its callers (Combat, Game, dps).
 - **Bosses only.** Nothing else drops them (enemies, elites, champions and boxes never do).
-  - **Main game** (Normal, Nightmare and Hell bosses): one weapon per class. A boss kill rolls 2% / 4% / 6% (Normal /
-    Nightmare / Hell, `drops.uniqueBoss`); the class's own weapon counts double (`uniqueClassWeight`).
+  - **Main game** (Normal, Nightmare and Hell bosses): three weapons (one per class until 2026-10-21). A boss kill
+    rolls 2% / 4% / 6% (Normal / Nightmare / Hell, `drops.uniqueBoss`), each of the three as likely (the class's own
+    counted double before).
   - **Rift Circles**: each rift boss drops **only its own**, a gear piece and a unit per circle (tiers 1-3, 4-6,
     7-10), the earlier circles' too when fought deeper (this circle's two count double). The **first kill of each
     boss in each circle always drops one** of that circle's two (one you don't have yet, if any:
@@ -1924,36 +1924,36 @@ effects), `uniqueCfg` in config/progression.ts (numbers), `Character.hasUnique` 
 
   | Unique | Slot | Effect | Cost |
   |---|---|---|---|
-  | Dark Flow | Sword (Hunter) | Kills heal 5% max HP and remove a Corruption stack | Mate injectors don't work |
-  | Frozen Shooter | Rifle (Ranger) | Heavy shots freeze; a shot on a frozen enemy shatters it for ×2.5 (thawed, then 3 s before it can freeze again) | 50% less damage to anything not frozen; bosses never freeze |
-  | Reactor Rod | Rod (Force) | Each attack cast within 1.5 s of the last adds 30%, up to ×2 (×1, 1.3, 1.6, 1.9, 2) | Techniques cost 3× TP |
+  | Dark Flow | Wand (a Sword until 2026-10-21) | Kills heal 5% max HP and remove a Corruption stack | Mate injectors don't work |
+  | Frozen Shooter | Rod (a Rifle until 2026-10-21) | Ice techniques freeze; a technique on a frozen enemy shatters it for ×2.5 (thawed, then 3 s before it can freeze again) | 50% less damage (bolts too) to anything not frozen; bosses never freeze |
+  | Reactor Rod | Rod | Each attack cast within 1.5 s of the last adds 30%, up to ×2 (×1, 1.3, 1.6, 1.9, 2) | Techniques cost 3× TP |
 
-- The rift bosses' (circle I: tiers 1-3, II: 4-6, III: 7-10). Each boss has a theme; every class gets two rift
-  weapons; the armour is anyone's:
+- The rift bosses' (circle I: tiers 1-3, II: 4-6, III: 7-10). Each boss has a theme. The weapons that were the
+  Hunter's and Ranger's became rods and wands on 2026-10-21 (see "One character: no classes"):
 
   | Boss | Circle | Unique | Slot | Effect | Cost |
   |---|---|---|---|---|---|
   | Dragon | I | Red Ring | Barrier | Crit damage +100% | Corruption resistance −50% |
   | Dragon | I | Ember Core | Unit | Your Burns stack, up to 3 on an enemy | Burn on you deals 50% more |
-  | Dragon | II | Flame Visit | Shot (Ranger) | Enemies that die Burning leave a 3 m fire pool for 3 s (pools chain); Napalm Shell burns twice as long | You Burn in your own fire too |
-  | Dragon | II | Dragon Rush | Unit | Dashing through enemies hits each for a weapon hit (power 1) and staggers it | Dashes recharge 40% slower |
-  | Dragon | III | Dragon Fang | Dagger (Hunter) | Kills build Rampage: +5% damage and +3% Haste a stack, up to 10, gone 3 s after the last kill; at 10, Leap and Shadow Step have no cooldown | A hit for 15% of max HP or more ends Rampage |
+  | Dragon | II | Flame Visit | Rod | Enemies that die Burning leave a 3 m fire pool for 3 s (pools chain); Rafoie's burning ground lasts twice as long | You Burn in your own fire too |
+  | Dragon | II | Dragon Rush | Unit | Dashing through enemies hits each for a photon bolt and staggers it | Dashes recharge 40% slower |
+  | Dragon | III | Dragon Fang | Wand | Kills build Rampage: +5% damage and +3% Haste a stack, up to 10, gone 3 s after the last kill; at 10, techniques cost no TP | A hit for 15% of max HP or more ends Rampage |
   | Dragon | III | Proof of Sword-Saint | Unit | First hit on an enemy at full HP deals ×3 | 25% less damage to enemies below half HP |
   | De Rol Le | I | Plague Mantle | Frame | Enemies that die poisoned burst, poisoning everything within 4 m with what they carried | Poison on you lasts twice as long |
   | De Rol Le | I | Venom Sac | Unit | Your crits poison: 20% of the crit a second for 4 s, stacking (up to 10) | Crit damage −20% |
   | De Rol Le | II | Rol Carapace | Frame | No single hit takes more than 35% of max HP (failed boss mechanics aside) | Injector doses restore 50% less |
   | De Rol Le | II | Tide Shell | Unit | After 8 s without being hit, a shell soaks one hit (up to 40% of max HP) | Run speed −10% |
-  | De Rol Le | III | Ophelie Seize | Handgun (Ranger) | Every handgun hit adds a venom stack (15% of the hit a second, 6 s), no cap; a poisoned enemy's stacks jump to the nearest enemy when it dies | Handgun hits can't crit |
+  | De Rol Le | III | Ophelie Seize | Wand | Every photon bolt adds a venom stack (15% of the hit a second, 6 s), no cap; a poisoned enemy's stacks jump to the nearest enemy when it dies | Photon bolts can't crit |
   | De Rol Le | III | HP/Drain | Unit | 3% of the damage you deal heals you | Injectors don't charge from your damage (they still refill after a fight) |
   | Warden | I | Overclock Core | Frame | Haste from gear counts double | Max HP −50% |
-  | Warden | I | Limiter | Unit | Art cooldowns 30% shorter | Arts cost 20% more TP |
-  | Warden | II | S-Beat's Blade | Saber (Hunter) | An Art as a perfect chain's third step costs no TP and takes 2 s off the other Arts' cooldowns | Arts outside a perfect chain cost double TP |
-  | Warden | II | V801 | Unit | Photon blast charges twice as fast; firing it refills your dashes | Basic hits refill 20% less TP |
-  | Warden | III | Prophets of Motav | Rod (Force) | Two different elements in a row complete a combo: the second hits ×2 and costs no TP, then it starts over (the user's call: two, not three) | The same element twice in a row hits 50% less |
-  | Warden | III | Yasakani Magatama | Unit | Every 12 s the next damaging Art plays again 0.4 s later, free (a channel's every effect too) | Max TP −25% |
+  | Warden | I | Limiter | Unit | Techniques cast 30% faster (Art cooldowns 30% shorter until 2026-10-21) | Techniques cost 20% more TP |
+  | Warden | II | S-Beat's Blade | Wand | A technique as a perfect chain's third step costs no TP | Techniques outside a perfect chain cost double TP |
+  | Warden | II | V801 | Unit | Photon blast charges twice as fast; firing it refills your dashes | Photon bolts refill 20% less TP |
+  | Warden | III | Prophets of Motav | Rod | Two different elements in a row complete a combo: the second hits ×2 and costs no TP, then it starts over (the user's call: two, not three) | The same element twice in a row hits 50% less |
+  | Warden | III | Yasakani Magatama | Unit | Every 12 s the next attack technique casts again 0.4 s later, free | Max TP −25% |
   | Dark Falz | I | Falz Halo | Barrier | Each Corruption stack adds 10% damage | Corruption doesn't wear off and pylon light doesn't shed it (a cleared room or Pioneer 2 still does) |
   | Dark Falz | I | Devil/Battle | Unit | +3% damage for every 10% of HP missing (up to +27%) | HP regen from gear does nothing |
-  | Dark Falz | II | Dark Bridge | Wand (Force) | With too little TP, techniques cast from HP (2 HP per TP short) and hit 25% harder | Max TP −40% |
+  | Dark Falz | II | Dark Bridge | Wand | With too little TP, techniques cast from HP (2 HP per TP short) and hit 25% harder | Max TP −40% |
   | Dark Falz | II | Soul Eater | Unit | A kill Dooms the nearest enemy within 8 m: 1.5 s later it takes 30% of the dead one's max HP (it chains) | You gain Corruption twice as fast |
   | Dark Falz | III | DF Shield | Barrier | A killing blow Dooms you instead: 4 s unkillable at 1 HP; kill 3 enemies (or deal 3% of a boss's HP) to rise at 40% HP, or die. Once a room (a boss: every quarter of its HP) | All healing −30% (Mate doses, Resta, regen, HP/Drain, Dark Flow) |
   | Dark Falz | III | Heart of Falz | Unit | Your other unique units' numbers are 50% stronger | So are their costs |
@@ -1961,8 +1961,8 @@ effects), `uniqueCfg` in config/progression.ts (numbers), `Character.hasUnique` 
   The answers to one-shots are Rol Carapace (a cap), Tide Shell (a soak) and DF Shield (a second chance); the chain
   killers for Swarming rooms Flame Visit, Plague Mantle, Ophelie Seize and Soul Eater. Few costs are max HP, since Rol
   Carapace's cap would make them nearly free. Rules settled while building (my calls, open to change): Rol Carapace
-  doesn't cap a failed boss mechanic (they must stay a must); Yasakani's echo skips movement, defence and support
-  Arts; S-Beat's Blade counts the third step perfect as the chain does; Dragon Rush hits once per enemy per dash.
+  doesn't cap a failed boss mechanic (they must stay a must); Yasakani's echo skips Resta; S-Beat's Blade counts
+  the third step perfect as the chain does; Dragon Rush hits once per enemy per dash.
   Rule notes from 2026-10-12: the Reactor Rod's "chain" is any attack cast within 1.5 s of the last; the Falz Halo's
   cost also stops pylon light; the Frozen Shooter's shatter thaws and makes the enemy immune for 3 s.
 - **Estimates** (Damage tab, ▲ verdicts) count Red Ring crits, the Reactor Rod's ramp and the Frozen Shooter's
@@ -1970,7 +1970,7 @@ effects), `uniqueCfg` in config/progression.ts (numbers), `Character.hasUnique` 
   (green) and cost (red) under "Unique", for unique units too, and "You'd lose" names an equipped unique's.
 - Old notes: the Seal of Light / Falz Halo pylon and Corruption affixes, the Warden Core's hazard affix and the
   bosses' signature drops all went with the old set. Venom (a special) is on no item now: poison comes from Venom
-  Edge, Venom Sac and Ophelie Seize.
+  Sac, Plague Mantle and Ophelie Seize (and Venom Edge, a dagger Art, until 2026-10-21).
 
 ## Crafting: Photons
 First built 2026-10-11 (a Path of Exile-like system replacing grinding's race picks, with five photons and a

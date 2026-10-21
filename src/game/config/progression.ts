@@ -5,7 +5,7 @@ export const drops = {
   boxDropRate: 0.6,
   /**
    * Falz Rifts (2026-10-11, the user's pick after rift tier 7 gear still lost to Hell Ruins gear): rift drops are
-   * Rift-forged, their base stats (weapon damage and stat bonuses, armour damage taken and bonuses) raised this much per
+   * Rift-forged, their base stats (stat bonuses, armour damage taken) raised this much per
    * item level above 100 (two a rift tier): +6% at tier 1, +60% at tier 10, the top (2026-10-17, the user's call: gear
    * keeps adding a little up to the deepest tier, then stops).
    */
@@ -28,8 +28,6 @@ export const drops = {
    */
   riftUnique: 0.12,
   riftUniqueDry: 0.04,
-  /** In the main pool the class's own weapon counts this many times (the others once). */
-  uniqueClassWeight: 2,
 };
 
 /**
@@ -43,7 +41,7 @@ export const craftCfg = {
 
 /**
  * Haste (see DESIGN.md "Hell"): an affix on weapons, frames and barriers from tier 8 (Nightmare) up, the Frail
- * downside affix too; what is worn adds up. Swing wind-ups and recoveries and technique casts take 1 / (1 + Haste%)
+ * downside affix too; what is worn adds up. Photon bolts and technique casts take 1 / (1 + Haste%)
  * as long. Normal gear never has it.
  */
 export const hasteCfg = {
@@ -53,7 +51,7 @@ export const hasteCfg = {
   chance: 0.75,
 };
 
-/** The Mag (see mag.ts): points per level into POW / DEX / MIND / DEF, permanent once spent. */
+/** The Mag (see mag.ts): points per level into MIND / DEF, permanent once spent. */
 export const magCfg = {
   /** Mag points per character level (Lv 1 already has one). */
   pointsPerLevel: 1,
@@ -66,14 +64,14 @@ export const magCfg = {
   /** Halved 2026-10-11 (the user's call: it came round too often; was 0.08 / 1.2). */
   pbChargePerEnemy: 0.04,
   pbBossCharge: 0.6,
-  /** Mylla & Youlla: damage to every enemy within pbMyllaRange m, as this many of your basic finishers (or bolts / techniques). */
+  /** Mylla & Youlla: damage to every enemy within pbMyllaRange m, as this many of your photon bolts. */
   pbMyllaMult: 5,
   pbMyllaRange: 10,
   /** Leilla: damage taken multiplier for pbLeillaTime s, and a heal (share of max HP). */
   pbLeillaMult: 0.5,
   pbLeillaTime: 4,
   pbLeillaHeal: 0.3,
-  /** Farlla: weapon damage +this % (and debandShare of it off damage taken). */
+  /** Farlla: tech damage +this % (and debandShare of it off damage taken). */
   pbFarllaPct: 35,
 };
 
@@ -100,7 +98,7 @@ export const skillCfg = {
  * "Perfect finisher" = the 3rd step of a chain started perfectly twice in a row (the ×1.4 one).
  */
 export const passiveCfg = {
-  // --- shared
+  // --- general
   /** Tempo: seconds added to the perfect window (weapon combos and cast chains). */
   tempoBonus: 0.03,
   /** Fleet: extra dash charges. */
@@ -123,68 +121,21 @@ export const passiveCfg = {
   rushTime: 4,
   rushRunMult: 1.15,
   rushDashMult: 1.5,
-  /**
-   * Fervor (Hunter) / Rapid Fire (Ranger): weapon wind-up and recovery multiplier, Swift Cast's for weapons
-   * (2026-10-12, replacing Berserk / Overdrive's ×1.6 perfect finisher: a sword at 29% Haste still swung slower than
-   * a Force cast with Swift Cast).
-   */
-  swingSpeedMult: 0.8,
-  // --- Hunter
-  followThroughMult: 1.15,
-  /** Parry / Calm Mind: a perfect hit or cast gives this damage-taken multiplier for parryTime s. */
+  /** Calm Mind: a perfect cast gives this damage-taken multiplier for parryTime s. */
   parryMult: 0.85,
   parryTime: 2,
-  cleaveTargets: 1,
-  cleaveArcDeg: 20,
-  /** Sweep Guard: each enemy a light swing hits takes this much off damage taken, up to sweepGuardMax, for sweepGuardTime s. */
-  sweepGuardStep: 0.02,
-  sweepGuardMax: 0.1,
-  sweepGuardTime: 3,
-  /** Shockwave: knockback multiplier of a light finisher. */
-  shockwaveKnock: 3,
-  retaliateMult: 1.25,
-  retaliateTime: 2,
-  steadfastKnockback: 0.5,
-  crushDfpIgnore: 0.3,
-  /** Balance (Saber): heavy hits deal this much more and add this many stagger points. */
-  balanceMult: 1.2,
-  balanceStagger: 1,
-  secondWindHeal: 0.03,
-  /** Focus (Hunter, Ranger): basic steps refill this much more TP. */
-  focusTpMult: 1.5,
-  executionerMult: 1.4,
-  breakerMult: 1.25,
-  /** Daunt / Suppress: what weakened enemies deal, and for how long. */
-  dauntMult: 0.8,
-  dauntTime: 4,
-  shatterRange: 3,
-  shatterShare: 0.5,
-  // --- Ranger
-  hotStreakMult: 1.12,
-  breathingRoomRange: 4,
-  breathingRoomKnock: 8,
+  /** Light Feet: run speed and dash recharge multipliers. */
   lightFeetRunMult: 1.1,
   lightFeetDashMult: 1.25,
-  suppressMult: 0.85,
-  suppressTime: 3,
-  adrenalineBelow: 0.5,
-  adrenalineMult: 1.15,
-  /** Deadeye: gun Arts deal this much more (and shots lose half as much at range). */
-  deadeyeMult: 1.12,
-  pointBlankRange: 4,
-  pointBlankKnock: 12,
-  pointBlankCooldown: 6,
-  pinStun: 1.5,
-  arcShare: 0.5,
-  arcStun: 0.8,
+  /** Longshot: techniques deal this much more past longshotRange m. */
   longshotMult: 1.12,
   longshotRange: 8,
-  pinningFireMult: 1.5,
-  roundsMult: 1.5,
-  // --- Force
+  // --- techniques
   resonanceMult: 1.12,
   /** Blink: the dash covers its distance in this many seconds (through bodies). */
   blinkDuration: 0.06,
+  /** Overcast: below this share of HP, techniques deal overcastMult. */
+  overcastBelow: 0.5,
   overcastMult: 1.15,
   /** Barrier: Resta overheal becomes a shield up to this fraction of max HP, fading to nothing over barrierFade s. */
   barrierCap: 0.2,
@@ -249,7 +200,7 @@ export const injectorCfg = {
 export const uniqueCfg = {
   /** Dark Flow: share of max HP a kill heals (and it removes a Corruption stack). */
   darkFlowHeal: 0.05,
-  /** Frozen Shooter: a shot on a frozen enemy deals this (and thaws it); anything else this. Heavy shots freeze. */
+  /** Frozen Shooter: a technique on a frozen enemy deals this (and thaws it); anything else this. Ice techniques freeze. */
   frozenShatterMult: 2.5,
   frozenOtherMult: 0.5,
   frozenFreezeTime: 2.5,
@@ -276,12 +227,12 @@ export const uniqueCfg = {
   /** Ember Core: Burn stacks your hits can build on an enemy beyond the first; Burn on you deals this much more. */
   emberExtraStacks: 2,
   emberSelfBurn: 0.5,
-  /** Flame Visit: the fire pool a burning death leaves (radius m, seconds, share of the dead one's Burn a second); Napalm Shell's fire lasts this much longer. */
+  /** Flame Visit: the fire pool a burning death leaves (radius m, seconds, share of the dead one's Burn a second); Rafoie's burning ground lasts this much longer. */
   flamePoolRadius: 3,
   flamePoolTime: 3,
   flamePoolShare: 1,
-  flameNapalmMult: 2,
-  /** Dragon Rush: power of the hit on each enemy dashed through (a basic hit is 0.7), and how much slower dashes recharge. */
+  flameRafoieMult: 2,
+  /** Dragon Rush: power of the hit on each enemy dashed through (1 = a photon bolt), and how much slower dashes recharge. */
   rushPower: 1,
   rushRange: 1.2,
   rushDashCost: 0.4,
@@ -309,25 +260,24 @@ export const uniqueCfg = {
   tideDelay: 8,
   tideSoak: 0.4,
   tideRun: 0.1,
-  /** Ophelie Seize: a handgun hit's venom (share of the hit a second) and seconds; how far stacks jump on a death. */
+  /** Ophelie Seize: a photon bolt's venom (share of the hit a second) and seconds; how far stacks jump on a death. */
   ophelieShare: 0.15,
   ophelieTime: 6,
   ophelieJump: 8,
   /** HP/Drain: share of the damage you deal that heals you. */
   drainShare: 0.03,
-  /** Limiter: Art cooldowns cut; extra Art TP. */
-  limiterCd: 0.3,
+  /** Limiter: cast time cut; extra technique TP. */
+  limiterCast: 0.3,
   limiterTp: 0.2,
-  /** S-Beat's Blade: seconds a perfect third-step Art takes off the other Arts' cooldowns; TP multiplier off a perfect chain. */
-  sBeatCd: 2,
+  /** S-Beat's Blade: TP multiplier on techniques cast off a perfect chain. */
   sBeatTp: 2,
-  /** V801: photon blast charge it adds (+1 = twice as fast); how much less basic hits refill. */
+  /** V801: photon blast charge it adds (+1 = twice as fast); how much less photon bolts refill. */
   v801Charge: 1,
   v801Refill: 0.2,
   /** Prophets of Motav: the combo's damage, and a repeated element's. */
   motavMult: 2,
   motavSame: 0.5,
-  /** Yasakani Magatama: seconds between echoes, the echo's delay and power (1 = the Art's own); max TP it costs. */
+  /** Yasakani Magatama: seconds between echoes, the echo's delay and power (1 = the technique's own); max TP it costs. */
   yasakaniEvery: 12,
   yasakaniDelay: 0.4,
   yasakaniShare: 1,

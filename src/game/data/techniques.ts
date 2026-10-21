@@ -135,7 +135,7 @@ function mstRatio(mst: number): number {
 
 /**
  * Base TP cost at this tech damage. More tech damage costs more per cast, but damage grows faster than cost (the
- * cost has a floor), so a Force gets more damage per TP than a dabbler.
+ * cost has a floor), so more tech damage still gets more damage per TP.
  */
 export function techTpCost(id: TechId, mst: number): number {
   const f = techScaling.tpFloor;

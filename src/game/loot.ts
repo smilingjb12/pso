@@ -2,22 +2,16 @@ import { makeItem, newUid, type ItemInstance } from './character';
 import { drops, hasteCfg, type EnemyArchetype } from './config';
 import { expeditionOfBoss } from './data/areas';
 import { BOSS_IDS, BOSSES, type BossId, type ShopUnlock } from './data/bosses';
-import {
-  INJECTOR_MODS, itemDefs, kindFamily, weaponKinds, type ArmorLine, type InjectorMod, type ItemDef, type Rarity, type SpecialId,
-} from './data/items';
+import { INJECTOR_MODS, itemDefs, type InjectorMod, type ItemDef, type Rarity } from './data/items';
 import {
   AFFIX_IDS, affixFits, ITEM_AFFIXES, maxAffixTier, RARE_FIRST, RARE_SECOND, tierIlvl, tierRange, type AffixRoll, type AffixSlot, type ItemAffixDef, type ItemAffixId,
 } from './data/itemAffixes';
-import type { WeaponFamily } from './data/stats';
-import { isUniqueUnit, UNIQUE_IDS, UNIQUES, uniqueDropId, type UniqueId, type UniquePool } from './data/uniques';
+import { isUniqueUnit, UNIQUE_IDS, UNIQUES, uniqueDropId, type UniquePool } from './data/uniques';
 import type { RiftShard } from './rifts';
 import { hardScale } from './hard';
 import { asDifficulty, type Difficulty } from './difficulty';
 
 export type Rng = () => number;
-
-/** What drops and shops lean toward: the class's weapon family (and its armour line). */
-export type LootBias = WeaponFamily;
 
 /** What drops: an item, Meseta, or a Rift Shard (charge orbs went on 2026-10-11, the user's call). */
 export type Drop = { kind: 'item'; item: ItemInstance } | { kind: 'meseta'; amount: number } | { kind: 'shard'; shard: RiftShard };
@@ -33,13 +27,6 @@ function weighted<T>(entries: [T, number][], rng: Rng): T {
   }
   return entries[entries.length - 1][0];
 }
-
-/** Share of drops that lean to the class's family / armour line. */
-export const LOOT_LEAN = 0.8;
-const BIAS_LINE: Record<WeaponFamily, ArmorLine> = { melee: 'guard', ranged: 'combat', caster: 'psy' };
-
-/** Specials a weapon can roll as a prefix (Venom: none since the old uniques went, 2026-10-12). */
-export const SPECIAL_POOL: SpecialId[] = ['heat', 'ice', 'shock', 'draw', 'dim'];
 
 // ------------------------------------------------------------------ rarity
 
@@ -83,13 +70,12 @@ export function rollAffixValue(def: ItemAffixDef, tier: number, rng: Rng, ilvl =
   return roll;
 }
 
-/** Draw weights: a normal affix 1, a weapon special 1.2, a downside 0.5. */
+/** Draw weights: a normal affix 1, a downside 0.5. */
 const affixWeight = (a: ItemAffixDef) => (a.penalty ? 0.5 : 1);
-const SPECIAL_WEIGHT = 1.2;
 
 /**
  * Roll `inst`'s affixes for its rarity (2026-10-13, the user's redesign): a magic item one prefix and one suffix; a
- * rare `rareCount` active (up to 3 of each; a weapon's rolled special counts as a prefix) and `dormantCount` dormant
+ * rare `rareCount` active (up to 3 of each) and `dormantCount` dormant
  * ones of any kind, which a Photon Crystal swaps with an active one of the same kind. No affix twice. A Hell or rift rare holds at least one downside, active or dormant, and an active
  * downside always has a dormant prefix to be swapped for.
  *
@@ -99,16 +85,14 @@ const SPECIAL_WEIGHT = 1.2;
 export function rollAffixes(inst: ItemInstance, def: ItemDef, rarity: Rarity, rng: Rng): void {
   if (rarity === 'normal' || rarity === 'unique') return;
   const slot: AffixSlot = def.type === 'weapon' ? 'weapon' : def.type === 'armor' ? def.slot : 'unit';
-  const family = def.type === 'weapon' ? kindFamily(weaponKinds[def.kind]) : null;
   const tier = 'tier' in def ? def.tier : 1;
   const ilvl = inst.ilvl ?? tierIlvl(tier);
-  const pool = AFFIX_IDS.map((id) => ITEM_AFFIXES[id]).filter((a) => (rarity === 'rare' || !a.rareOnly) && affixFits(a, slot, family, tier));
+  const pool = AFFIX_IDS.map((id) => ITEM_AFFIXES[id]).filter((a) => (rarity === 'rare' || !a.rareOnly) && affixFits(a, slot, tier));
   const active = [...(inst.affixes ?? [])];
   const dormant = rarity === 'rare' ? [...(inst.dormant ?? [])] : [];
   const fresh = new Set<AffixRoll>();
   const kindOf = (r: AffixRoll) => ITEM_AFFIXES[r.id].kind;
   const taken = (id: ItemAffixId) => active.some((r) => r.id === id) || dormant.some((r) => r.id === id);
-  const canSpecial = slot === 'weapon' && !(def.type === 'weapon' && def.special);
   const roll = (a: ItemAffixDef) => {
     const r = rollAffixValue(a, tier, rng, ilvl);
     fresh.add(r);
@@ -117,20 +101,15 @@ export function rollAffixes(inst: ItemInstance, def: ItemDef, rarity: Rarity, rn
 
   // Active: the split first (a rare's 5 goes either way), never below what the item already has.
   const n = rarity === 'magic' ? 2 : rareCount(ilvl);
-  const has = (kind: 'prefix' | 'suffix') => active.filter((r) => kindOf(r) === kind).length + (kind === 'prefix' && inst.special ? 1 : 0);
+  const has = (kind: 'prefix' | 'suffix') => active.filter((r) => kindOf(r) === kind).length;
   const want = rarity === 'magic' ? 1 : n === 6 ? 3 : n === 4 ? 2 : rng() < 0.5 ? 3 : 2;
   const pre = Math.max(has('prefix'), Math.min(want, n - has('suffix')));
   const target = { prefix: pre, suffix: n - pre };
   for (const kind of ['prefix', 'suffix'] as const) {
     while (has(kind) < target[kind]) {
-      const entries: [ItemAffixDef | 'special', number][] = pool
-        .filter((a) => a.kind === kind && !taken(a.id))
-        .map((a) => [a, affixWeight(a)]);
-      if (kind === 'prefix' && canSpecial && !inst.special) entries.push(['special', SPECIAL_WEIGHT]);
+      const entries = pool.filter((a) => a.kind === kind && !taken(a.id)).map((a): [ItemAffixDef, number] => [a, affixWeight(a)]);
       if (!entries.length) break;
-      const got = weighted(entries, rng);
-      if (got === 'special') inst.special = pick(SPECIAL_POOL, rng);
-      else active.push(roll(got));
+      active.push(roll(weighted(entries, rng)));
     }
   }
 
@@ -166,7 +145,7 @@ export function rollAffixes(inst: ItemInstance, def: ItemDef, rarity: Rarity, rn
 
 /** A rare's two-word name, by what it is. */
 export function rareName(def: ItemDef, rng: Rng): string {
-  const group = def.type === 'weapon' ? kindFamily(weaponKinds[def.kind]) : def.type === 'armor' ? def.slot : 'frame';
+  const group = def.type === 'weapon' ? 'weapon' : def.type === 'armor' ? def.slot : 'frame';
   return `${pick(RARE_FIRST, rng)} ${pick(RARE_SECOND[group], rng)}`;
 }
 
@@ -186,27 +165,22 @@ export function decorate(inst: ItemInstance, rarity: Exclude<Rarity, 'unique'>, 
 
 // ------------------------------------------------------------------ items
 
-/** A weapon of a given tier (80% from the bias family) with a rolled rarity. Pre-ground now and then. */
-export function rollWeapon(tier: number, rng: Rng, bias?: LootBias, rarity: Exclude<Rarity, 'unique'> = rollRarity(rng), ilvl?: number): ItemInstance {
-  let candidates = Object.values(itemDefs).filter((d) => d.type === 'weapon' && !d.rare && d.tier === tier);
-  if (bias && rng() < LOOT_LEAN) {
-    const biased = candidates.filter((d) => d.type === 'weapon' && kindFamily(weaponKinds[d.kind]) === bias);
-    if (biased.length) candidates = biased;
-  }
+/** A weapon (a rod or wand) of a given tier with a rolled rarity. */
+export function rollWeapon(tier: number, rng: Rng, rarity: Exclude<Rarity, 'unique'> = rollRarity(rng), ilvl?: number): ItemInstance {
+  const candidates = Object.values(itemDefs).filter((d) => d.type === 'weapon' && !d.rare && d.tier === tier);
   return decorate(makeItem(pick(candidates, rng).id, ilvl ? { ilvl } : {}), rarity, rng);
 }
 
-/** A frame or barrier of `tier`; 80% of the time from the bias family's line (Guard, Combat, Psy). */
-export function rollArmor(tier: number, rng: Rng, bias?: LootBias, rarity: Exclude<Rarity, 'unique'> = rollRarity(rng), ilvl?: number): ItemInstance {
+/** A Psy frame or barrier of `tier`. */
+export function rollArmor(tier: number, rng: Rng, rarity: Exclude<Rarity, 'unique'> = rollRarity(rng), ilvl?: number): ItemInstance {
   const slot = rng() < 0.5 ? 'frame' : 'barrier';
-  const line = bias && rng() < LOOT_LEAN ? BIAS_LINE[bias] : pick(ARMOR_LINES, rng);
-  return decorate(makeItem(`${slot}_${line}_${tier}`, ilvl ? { ilvl } : {}), rarity, rng);
+  return decorate(makeItem(`${slot}_psy_${tier}`, ilvl ? { ilvl } : {}), rarity, rng);
 }
 
 /** A unit of `tier`: one affix from the frame / barrier pool; now and then a downside one. */
 export function rollUnit(tier: number, rng: Rng, ilvl?: number): ItemInstance {
   const inst = makeItem(`unit_${Math.max(1, Math.min(15, tier))}`, ilvl ? { ilvl } : {});
-  const pool = AFFIX_IDS.map((id) => ITEM_AFFIXES[id]).filter((a) => affixFits(a, 'unit', null, tier));
+  const pool = AFFIX_IDS.map((id) => ITEM_AFFIXES[id]).filter((a) => affixFits(a, 'unit', tier));
   const def = weighted(pool.map((a): [ItemAffixDef, number] => [a, a.penalty ? 0.4 : 1]), rng);
   inst.affixes = [rollAffixValue(def, tier, rng, inst.ilvl)];
   inst.rarity = def.penalty ? 'rare' : 'magic';
@@ -215,21 +189,9 @@ export function rollUnit(tier: number, rng: Rng, ilvl?: number): ItemInstance {
 
 // ------------------------------------------------------------------ uniques
 
-/** The weapon family a unique is made for (null: armour, anyone's). */
-function uniqueFamily(id: UniqueId): WeaponFamily | null {
-  const b = UNIQUES[id].base;
-  return b.type === 'weapon' ? kindFamily(weaponKinds[b.kind]) : null;
-}
-
-/**
- * A unique from `pool` at gear tier `tier` (its base stats; `ilvl`: a rift drop's item level, so it comes
- * Rift-forged). In the main pool the class's own weapon (the bias family) counts `drops.uniqueClassWeight` times.
- */
-export function rollUnique(pool: UniquePool, tier: number, rng: Rng, bias?: LootBias, ilvl?: number): ItemInstance {
-  const entries = UNIQUE_IDS.filter((id) => UNIQUES[id].pool === pool).map(
-    (id): [UniqueId, number] => [id, bias && uniqueFamily(id) === bias ? drops.uniqueClassWeight : 1],
-  );
-  const id = weighted(entries, rng);
+/** A unique from `pool` at gear tier `tier` (its base stats; `ilvl`: a rift drop's item level, so it comes Rift-forged). */
+export function rollUnique(pool: UniquePool, tier: number, rng: Rng, ilvl?: number): ItemInstance {
+  const id = pick(UNIQUE_IDS.filter((id) => UNIQUES[id].pool === pool), rng);
   const inst = makeItem(uniqueDropId(id, tier));
   if (ilvl && !isUniqueUnit(id)) inst.ilvl = ilvl;
   return inst;
@@ -249,15 +211,15 @@ function rollTier(maxTier: number, rng: Rng): number {
   return r < 0.5 ? maxTier - 2 : r < 0.85 ? maxTier - 1 : maxTier;
 }
 
-const ARMOR_LINES = ['guard', 'combat', 'psy'] as const;
-
 const INJECTOR_MOD_POOL = Object.keys(INJECTOR_MODS) as InjectorMod[];
 
-/** An injector of `tier`: casters lean Fluid, the others Mate; about half roll a mod. */
-export function rollInjector(tier: number, rng: Rng, bias?: LootBias, modChance = 0.5, maxTier = 5): ItemInstance {
-  const mateOdds = bias === 'caster' ? 0.35 : bias ? 0.65 : 0.5;
+/** Share of injector drops that are Mate (HP); the rest are Fluid (TP), what casting runs on. */
+const MATE_ODDS = 0.35;
+
+/** An injector of `tier` (leaning Fluid); about half roll a mod. */
+export function rollInjector(tier: number, rng: Rng, modChance = 0.5, maxTier = 5): ItemInstance {
   // Normal drops stop at tier 5; tier 6 only comes from Hard bosses and champions (maxTier 6).
-  const inst = makeItem(`${rng() < mateOdds ? 'mate' : 'fluid'}_${Math.min(maxTier, tier)}`);
+  const inst = makeItem(`${rng() < MATE_ODDS ? 'mate' : 'fluid'}_${Math.min(maxTier, tier)}`);
   if (rng() < modChance) inst.mod = pick(INJECTOR_MOD_POOL, rng);
   return inst;
 }
@@ -283,7 +245,7 @@ export function rollPhoton(tier: number, rng: Rng, ilvl?: number): ItemInstance 
  * come from here: bosses drop them (rollBossDrops, rollRiftEndDrops).
  */
 export function rollDrop(
-  tier: number, rng: Rng, bias?: LootBias, mesetaRange: [number, number] = [10, 30], rareMult = 1,
+  tier: number, rng: Rng, mesetaRange: [number, number] = [10, 30], rareMult = 1,
   /** Falz Rifts: the item level gear rolls at (100 + the rift tier). */
   ilvl?: number,
 ): Drop {
@@ -307,11 +269,11 @@ export function rollDrop(
       return { kind: 'meseta', amount: Math.round(lo + rng() * (hi - lo)) };
     }
     case 'injector':
-      return { kind: 'item', item: rollInjector(t, rng, bias) };
+      return { kind: 'item', item: rollInjector(t, rng) };
     case 'weapon':
-      return { kind: 'item', item: rollWeapon(t, rng, bias, rollRarity(rng, rareMult), ilvl) };
+      return { kind: 'item', item: rollWeapon(t, rng, rollRarity(rng, rareMult), ilvl) };
     case 'armor':
-      return { kind: 'item', item: rollArmor(t, rng, bias, rollRarity(rng, rareMult), ilvl) };
+      return { kind: 'item', item: rollArmor(t, rng, rollRarity(rng, rareMult), ilvl) };
     case 'unit':
       return { kind: 'item', item: rollUnit(t, rng, ilvl) };
     case 'photon':
@@ -323,86 +285,86 @@ export function rollDrop(
  * An enemy's drops. `dropRate` is the expected count: up to 1 it is the chance of a drop, past it (a rift's item
  * quantity) the rest is the chance of another.
  */
-export function rollEnemyDrops(arch: EnemyArchetype, rng: Rng, bias?: LootBias): Drop[] {
+export function rollEnemyDrops(arch: EnemyArchetype, rng: Rng): Drop[] {
   const out: Drop[] = [];
   for (let odds = arch.dropRate * drops.rateMult; odds > 0; odds--) {
-    if (rng() < odds) out.push(rollDrop(arch.dropTier, rng, bias, arch.meseta, arch.lootRare, arch.ilvl));
+    if (rng() < odds) out.push(rollDrop(arch.dropTier, rng, arch.meseta, arch.lootRare, arch.ilvl));
   }
   return out;
 }
 
-export function rollEnemyDrop(arch: EnemyArchetype, rng: Rng, bias?: LootBias): Drop | null {
-  return rollEnemyDrops(arch, rng, bias)[0] ?? null;
+export function rollEnemyDrop(arch: EnemyArchetype, rng: Rng): Drop | null {
+  return rollEnemyDrops(arch, rng)[0] ?? null;
 }
 
 /**
  * Elites roll an extra drop that always lands, one tier richer, with rares 2.5× as likely (tier 6 stays in the
  * Mines, and Hard enemies already drop up to their expedition's top tier).
  */
-export function rollEliteBonus(arch: EnemyArchetype, rng: Rng, bias?: LootBias): Drop {
+export function rollEliteBonus(arch: EnemyArchetype, rng: Rng): Drop {
   const [lo, hi] = arch.meseta;
   const cap = arch.dropTier >= 6 ? arch.dropTier : 5;
-  return rollDrop(Math.min(cap, arch.dropTier + 1), rng, bias, [lo * 2, hi * 2], 2.5 * (arch.lootRare ?? 1), arch.ilvl);
+  return rollDrop(Math.min(cap, arch.dropTier + 1), rng, [lo * 2, hi * 2], 2.5 * (arch.lootRare ?? 1), arch.ilvl);
 }
 
 /** Hard champions: two bonus drops, and a chance at a tier 6 injector. */
-export function rollChampionBonus(arch: EnemyArchetype, rng: Rng, bias?: LootBias): Drop[] {
-  const out = [rollEliteBonus(arch, rng, bias), rollEliteBonus(arch, rng, bias)];
-  if (rng() < 0.25) out.push({ kind: 'item', item: rollInjector(6, rng, bias, 1, 6) });
+export function rollChampionBonus(arch: EnemyArchetype, rng: Rng): Drop[] {
+  const out = [rollEliteBonus(arch, rng), rollEliteBonus(arch, rng)];
+  if (rng() < 0.25) out.push({ kind: 'item', item: rollInjector(6, rng, 1, 6) });
   return out;
 }
 
-export function rollBoxDrop(rng: Rng, bias?: LootBias): Drop | null {
+export function rollBoxDrop(rng: Rng): Drop | null {
   if (rng() >= drops.boxDropRate * drops.rateMult) return null;
-  return rollDrop(1, rng, bias, [10, 40]);
+  return rollDrop(1, rng, [10, 40]);
 }
 
 /** A boss's gear: at least magic, often rare. */
 const bossRarity = (rng: Rng) => rollRarity(rng, 3, 'magic');
 
-export function rollDragonDrops(rng: Rng, bias?: LootBias): Drop[] {
+export function rollDragonDrops(rng: Rng): Drop[] {
   const out: Drop[] = [{ kind: 'meseta', amount: 1100 + Math.round(rng() * 400) }];
-  out.push({ kind: 'item', item: rollWeapon(2 + (rng() < 0.4 ? 1 : 0), rng, bias, bossRarity(rng)) });
-  out.push({ kind: 'item', item: rollArmor(2, rng, bias, bossRarity(rng)) });
+  out.push({ kind: 'item', item: rollWeapon(2 + (rng() < 0.4 ? 1 : 0), rng, bossRarity(rng)) });
+  out.push({ kind: 'item', item: rollArmor(2, rng, bossRarity(rng)) });
   out.push({ kind: 'item', item: rollUnit(2, rng) });
   out.push({ kind: 'item', item: rollPhoton(2, rng) }, { kind: 'item', item: rollPhoton(2, rng) });
   return out;
 }
 
-export function rollDeRolLeDrops(rng: Rng, bias?: LootBias): Drop[] {
+export function rollDeRolLeDrops(rng: Rng): Drop[] {
   const out: Drop[] = [{ kind: 'meseta', amount: 2800 + Math.round(rng() * 1200) }];
-  out.push({ kind: 'item', item: rollWeapon(4 + (rng() < 0.45 ? 1 : 0), rng, bias, bossRarity(rng)) });
-  out.push({ kind: 'item', item: rollArmor(4 + (rng() < 0.3 ? 1 : 0), rng, bias, bossRarity(rng)) });
+  out.push({ kind: 'item', item: rollWeapon(4 + (rng() < 0.45 ? 1 : 0), rng, bossRarity(rng)) });
+  out.push({ kind: 'item', item: rollArmor(4 + (rng() < 0.3 ? 1 : 0), rng, bossRarity(rng)) });
   out.push({ kind: 'item', item: rollUnit(5, rng) });
-  out.push({ kind: 'item', item: rollInjector(4 + (rng() < 0.3 ? 1 : 0), rng, bias, 1) });
+  out.push({ kind: 'item', item: rollInjector(4 + (rng() < 0.3 ? 1 : 0), rng, 1) });
   out.push({ kind: 'item', item: rollPhoton(5, rng) }, { kind: 'item', item: rollPhoton(5, rng) });
   return out;
 }
 
 /** The Warden: tier 5-6 gear, a unit and a modded injector. */
-export function rollWardenDrops(rng: Rng, bias?: LootBias): Drop[] {
+export function rollWardenDrops(rng: Rng): Drop[] {
   const out: Drop[] = [{ kind: 'meseta', amount: 4000 + Math.round(rng() * 1500) }];
-  out.push({ kind: 'item', item: rollWeapon(rng() < 0.55 ? 6 : 5, rng, bias, bossRarity(rng)) });
-  out.push({ kind: 'item', item: rng() < 0.3 ? decorate(makeItem('barrier_6'), bossRarity(rng), rng) : rollArmor(rng() < 0.5 ? 6 : 5, rng, bias, bossRarity(rng)) });
+  out.push({ kind: 'item', item: rollWeapon(rng() < 0.55 ? 6 : 5, rng, bossRarity(rng)) });
+  out.push({ kind: 'item', item: rng() < 0.3 ? decorate(makeItem('barrier_6'), bossRarity(rng), rng) : rollArmor(rng() < 0.5 ? 6 : 5, rng, bossRarity(rng)) });
   out.push({ kind: 'item', item: rollUnit(6, rng) });
-  out.push({ kind: 'item', item: rollInjector(5, rng, bias, 1) });
+  out.push({ kind: 'item', item: rollInjector(5, rng, 1) });
   out.push({ kind: 'item', item: rollPhoton(6, rng) }, { kind: 'item', item: rollPhoton(6, rng) });
   return out;
 }
 
 /** Dark Falz: tier 6-7 gear, a unit and a modded injector. */
-export function rollFalzDrops(rng: Rng, bias?: LootBias): Drop[] {
+export function rollFalzDrops(rng: Rng): Drop[] {
   const out: Drop[] = [{ kind: 'meseta', amount: 5500 + Math.round(rng() * 2000) }];
-  out.push({ kind: 'item', item: rollWeapon(rng() < 0.55 ? 7 : 6, rng, bias, bossRarity(rng)) });
-  out.push({ kind: 'item', item: rollArmor(rng() < 0.5 ? 7 : 6, rng, bias, bossRarity(rng)) });
+  out.push({ kind: 'item', item: rollWeapon(rng() < 0.55 ? 7 : 6, rng, bossRarity(rng)) });
+  out.push({ kind: 'item', item: rollArmor(rng() < 0.5 ? 7 : 6, rng, bossRarity(rng)) });
   out.push({ kind: 'item', item: rollUnit(7, rng) });
-  out.push({ kind: 'item', item: rollInjector(5, rng, bias, 1) });
+  out.push({ kind: 'item', item: rollInjector(5, rng, 1) });
   out.push({ kind: 'item', item: rollPhoton(7, rng) }, { kind: 'item', item: rollPhoton(7, rng) });
   return out;
 }
 
 /** Each boss's Normal loot. */
-export const BOSS_DROPS: Record<BossId, (rng: Rng, bias?: LootBias) => Drop[]> = {
+export const BOSS_DROPS: Record<BossId, (rng: Rng) => Drop[]> = {
   dragon: rollDragonDrops,
   derolle: rollDeRolLeDrops,
   warden: rollWardenDrops,
@@ -413,15 +375,15 @@ export const BOSS_DROPS: Record<BossId, (rng: Rng, bias?: LootBias) => Drop[]> =
 const HARD_BOSS_MESETA: Record<BossId, number> = { dragon: 9000, derolle: 13000, warden: 17000, falz: 22000 };
 
 /** Hard bosses: their expedition's top tier (rare at least once), a unit and a modded tier 6 injector. */
-export function rollHardBossDrops(boss: BossId, rng: Rng, bias?: LootBias): Drop[] {
+export function rollHardBossDrops(boss: BossId, rng: Rng): Drop[] {
   const base = HARD_BOSS_MESETA[boss];
   const { dropTier: top } = hardScale(expeditionOfBoss(boss));
   // The +1000 replaced the Trimate and Trifluid they used to drop.
   const out: Drop[] = [{ kind: 'meseta', amount: base + 1000 + Math.round(rng() * base * 0.5) }];
-  out.push({ kind: 'item', item: rollWeapon(rng() < 0.55 ? top : top - 1, rng, bias, 'rare') });
-  out.push({ kind: 'item', item: rollArmor(rng() < 0.5 ? top : top - 1, rng, bias, bossRarity(rng)) });
+  out.push({ kind: 'item', item: rollWeapon(rng() < 0.55 ? top : top - 1, rng, 'rare') });
+  out.push({ kind: 'item', item: rollArmor(rng() < 0.5 ? top : top - 1, rng, bossRarity(rng)) });
   out.push({ kind: 'item', item: rollUnit(top, rng) });
-  out.push({ kind: 'item', item: rollInjector(6, rng, bias, 1, 6) });
+  out.push({ kind: 'item', item: rollInjector(6, rng, 1, 6) });
   out.push({ kind: 'item', item: rollPhoton(top, rng) }, { kind: 'item', item: rollPhoton(top, rng) });
   out.push({ kind: 'item', item: rollPhoton(top, rng) });
   return out;
@@ -431,16 +393,16 @@ export function rollHardBossDrops(boss: BossId, rng: Rng, bias?: LootBias): Drop
 const HELL_BOSS_MESETA: Record<BossId, number> = { dragon: 30000, derolle: 40000, warden: 52000, falz: 66000 };
 
 /** Hell bosses: their expedition's top tiers, all rare (up to 6 affixes), two units and a modded tier 6 injector. */
-export function rollHellBossDrops(boss: BossId, rng: Rng, bias?: LootBias): Drop[] {
+export function rollHellBossDrops(boss: BossId, rng: Rng): Drop[] {
   const base = HELL_BOSS_MESETA[boss];
   const { dropTier: top } = hardScale(expeditionOfBoss(boss), true);
   const out: Drop[] = [{ kind: 'meseta', amount: base + Math.round(rng() * base * 0.5) }];
-  out.push({ kind: 'item', item: rollWeapon(top, rng, bias, 'rare') });
-  out.push({ kind: 'item', item: rollWeapon(rng() < 0.5 ? top : top - 1, rng, bias, 'rare') });
-  out.push({ kind: 'item', item: rollArmor(top, rng, bias, 'rare') });
-  out.push({ kind: 'item', item: rollArmor(rng() < 0.5 ? top : top - 1, rng, bias, 'rare') });
+  out.push({ kind: 'item', item: rollWeapon(top, rng, 'rare') });
+  out.push({ kind: 'item', item: rollWeapon(rng() < 0.5 ? top : top - 1, rng, 'rare') });
+  out.push({ kind: 'item', item: rollArmor(top, rng, 'rare') });
+  out.push({ kind: 'item', item: rollArmor(rng() < 0.5 ? top : top - 1, rng, 'rare') });
   out.push({ kind: 'item', item: rollUnit(top, rng) }, { kind: 'item', item: rollUnit(top, rng) });
-  out.push({ kind: 'item', item: rollInjector(6, rng, bias, 1, 6) });
+  out.push({ kind: 'item', item: rollInjector(6, rng, 1, 6) });
   out.push({ kind: 'item', item: rollPhoton(top, rng) }, { kind: 'item', item: rollPhoton(top, rng) }, { kind: 'item', item: rollPhoton(top, rng) });
   out.push({ kind: 'item', item: rollPhoton(top, rng) }, { kind: 'item', item: rollPhoton(top, rng) });
   return out;
@@ -452,19 +414,19 @@ export function rollHellBossDrops(boss: BossId, rng: Rng, bias?: LootBias): Drop
  * `qty`: the rift's item quantity (tier and shard, percent), extra rare gear on top of the fixed pieces (+50% on a
  * Guardian's three: one or two more). The boss's own unique rolls apart (riftCircles.ts).
  */
-export function rollRiftEndDrops(boss: boolean, tier: number, ilvl: number, rng: Rng, bias?: LootBias, qty = 0): Drop[] {
+export function rollRiftEndDrops(boss: boolean, tier: number, ilvl: number, rng: Rng, qty = 0): Drop[] {
   const base = (boss ? 70000 : 40000) * (1 + 0.1 * tier);
   const out: Drop[] = [{ kind: 'meseta', amount: Math.round(base + rng() * base * 0.5) }];
   const top = 15;
   const t = () => (rng() < 0.5 ? top : top - 1);
-  out.push({ kind: 'item', item: rollWeapon(top, rng, bias, 'rare', ilvl) });
-  out.push({ kind: 'item', item: rollArmor(t(), rng, bias, 'rare', ilvl) });
+  out.push({ kind: 'item', item: rollWeapon(top, rng, 'rare', ilvl) });
+  out.push({ kind: 'item', item: rollArmor(t(), rng, 'rare', ilvl) });
   out.push({ kind: 'item', item: rollUnit(top, rng, ilvl) });
   if (boss) {
-    out.push({ kind: 'item', item: rollWeapon(t(), rng, bias, 'rare', ilvl) });
-    out.push({ kind: 'item', item: rollArmor(top, rng, bias, 'rare', ilvl) });
+    out.push({ kind: 'item', item: rollWeapon(t(), rng, 'rare', ilvl) });
+    out.push({ kind: 'item', item: rollArmor(top, rng, 'rare', ilvl) });
     out.push({ kind: 'item', item: rollUnit(top, rng, ilvl) });
-    out.push({ kind: 'item', item: rollInjector(6, rng, bias, 1, 6) });
+    out.push({ kind: 'item', item: rollInjector(6, rng, 1, 6) });
     out.push({ kind: 'item', item: rollPhoton(top, rng, ilvl) });
     out.push({ kind: 'item', item: rollPhoton(top, rng, ilvl) });
   }
@@ -475,16 +437,16 @@ export function rollRiftEndDrops(boss: boolean, tier: number, ilvl: number, rng:
   for (let odds = ((boss ? 6 : 3) * qty) / 100; odds > 0; odds--) {
     if (rng() >= odds) continue;
     const r = rng();
-    out.push({ kind: 'item', item: r < 0.4 ? rollWeapon(t(), rng, bias, 'rare', ilvl) : r < 0.8 ? rollArmor(t(), rng, bias, 'rare', ilvl) : rollUnit(top, rng, ilvl) });
+    out.push({ kind: 'item', item: r < 0.4 ? rollWeapon(t(), rng, 'rare', ilvl) : r < 0.8 ? rollArmor(t(), rng, 'rare', ilvl) : rollUnit(top, rng, ilvl) });
   }
   return out;
 }
 
 /** A main-game boss's loot on difficulty `d`, and now and then (drops.uniqueBoss) a unique from the main pool. */
-export function rollBossDrops(boss: BossId, d: Difficulty | boolean, rng: Rng, bias?: LootBias): Drop[] {
+export function rollBossDrops(boss: BossId, d: Difficulty | boolean, rng: Rng): Drop[] {
   const diff = asDifficulty(d);
-  const out = diff === 'hell' ? rollHellBossDrops(boss, rng, bias) : diff === 'nightmare' ? rollHardBossDrops(boss, rng, bias) : BOSS_DROPS[boss](rng, bias);
-  if (rng() < drops.uniqueBoss[diff] * drops.rareMult) out.push({ kind: 'item', item: rollUnique('main', bossUniqueTier(boss, diff), rng, bias) });
+  const out = diff === 'hell' ? rollHellBossDrops(boss, rng) : diff === 'nightmare' ? rollHardBossDrops(boss, rng) : BOSS_DROPS[boss](rng);
+  if (rng() < drops.uniqueBoss[diff] * drops.rareMult) out.push({ kind: 'item', item: rollUnique('main', bossUniqueTier(boss, diff), rng) });
   return out;
 }
 
@@ -515,30 +477,25 @@ export function shopTier(level: number, u: ShopUnlocks = {}): number {
 /** Shops sell white and blue gear only: rares and uniques drop. */
 const shopRarity = (rng: Rng) => (rng() < 0.35 ? 'magic' : 'normal');
 
-export function shopStock(kind: ShopKind, level: number, bias: LootBias, rng: Rng, unlocks: ShopUnlocks = {}): ItemInstance[] {
+export function shopStock(kind: ShopKind, level: number, rng: Rng, unlocks: ShopUnlocks = {}): ItemInstance[] {
   const maxTier = shopTier(level, unlocks);
   const out: ItemInstance[] = [];
   if (kind === 'weapon') {
-    // Guarantee a few weapons of the class's family, then random fill.
-    for (let i = 0; i < 9; i++) {
-      const tier = Math.max(1, maxTier - (rng() < 0.5 ? 1 : 0));
-      const w = rollWeapon(tier, rng, i < 5 ? bias : undefined, shopRarity(rng));
-      out.push(w);
-    }
+    for (let i = 0; i < 9; i++) out.push(rollWeapon(Math.max(1, maxTier - (rng() < 0.5 ? 1 : 0)), rng, shopRarity(rng)));
   } else if (kind === 'armor') {
-    // Standard starters, then every line at the two best tiers on sale (some of them magic).
+    // Standard starters, then the Psy line at the two best tiers on sale (some of them magic).
     out.push(makeItem('frame_1'), makeItem('barrier_1'));
     if (maxTier >= 6) out.push(makeItem('barrier_6'));
     for (let t = Math.max(1, maxTier - 1); t <= maxTier; t++) {
       for (const slot of ['frame', 'barrier'] as const) {
-        for (const line of ARMOR_LINES) out.push(decorate(makeItem(`${slot}_${line}_${t}`), shopRarity(rng), rng));
+        out.push(decorate(makeItem(`${slot}_psy_${t}`), shopRarity(rng), rng));
       }
     }
   } else {
     // Clean injectors: tier 1 and the two best tiers on sale, plus a couple with a mod.
     const injTop = Math.min(5, maxTier);
     for (const t of new Set([1, Math.max(1, injTop - 1), injTop])) out.push(makeItem(`mate_${t}`), makeItem(`fluid_${t}`));
-    for (let i = 0; i < 2; i++) out.push(rollInjector(Math.max(1, injTop - 1), rng, bias, 1));
+    for (let i = 0; i < 2; i++) out.push(rollInjector(Math.max(1, injTop - 1), rng, 1));
   }
   return out;
 }

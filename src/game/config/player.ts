@@ -42,7 +42,7 @@ export const dash = {
 };
 
 /**
- * Technique scaling. Every class knows every technique; tech damage (the `mst` stat) is the only thing that makes them
+ * Technique scaling. Tech damage (the `mst` stat) is the only thing that makes them
  * stronger (and dearer). Each tech's `power` and `tp` in techniques.ts are its values at tech damage = mstRef.
  */
 export const techScaling = {
@@ -54,7 +54,7 @@ export const techScaling = {
   tpFloor: 0.4,
   /** Farlla (photon blast): this share of its defence buff's % comes off Strike and Area damage taken (35% = −14%). */
   debandShare: 0.4,
-  /** Seconds Farlla's attack and defence buffs last. */
+  /** Seconds Farlla's tech damage and defence buffs last. */
   buffDuration: 60,
   /**
    * Foie always burns: this share of the hit's damage, spread over burnTime s. Burns don't stack: a new one
@@ -93,14 +93,6 @@ export const lockOn = {
   /** The current target holds on out to this angle, and wins near-ties by `holdBonusDeg`, so close enemies don't flicker. */
   holdDeg: 24,
   holdBonusDeg: 4,
-  /** Melee reaches at least this far for targeting (enemies you are about to close on show their frame). */
-  meleeRange: 8,
-  /** Melee and guns soft-aim when the camera's target is out of an attack's reach: max angle off-facing to snap to a target. */
-  softAimDeg: 60,
-  softAimRange: 4,
-  /** Ranged weapons soft-aim further, in a narrower cone. */
-  rangedSoftAimDeg: 30,
-  rangedSoftAimRange: 18,
   /** Rafoie and Razonde land on the nearest enemy within this many degrees of the camera's line (else out along it). */
   areaAimDeg: 20,
   /** How far out along the camera's line they land with no enemy on it. */

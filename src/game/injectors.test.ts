@@ -2,18 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { Character, makeItem } from './character';
 import { injectorCfg, passiveCfg } from './config';
 import { getDef, itemDefs } from './data/items';
+import { START_INJECTOR } from './data/stats';
 import { addCharge, chargeOf, doseAmount, fillInjector, injectorStats, spendDose } from './injectors';
-import { rollDeRolLeDrops, rollDragonDrops, rollDrop, rollHardBossDrops, rollWardenDrops, shopStock } from './loot';
+import { rollDeRolLeDrops, rollDragonDrops, rollDrop, rollHardBossDrops, rollInjector, rollWardenDrops, shopStock } from './loot';
 import { mulberry32 } from './world/Level';
 
 describe('Injectors', () => {
-  it("every kit starts with its own kind of injector equipped (Mate for fighters, Fluid for the Mystic), and no mates or fluids", () => {
-    for (const kit of ['hunter', 'ranger', 'force'] as const) {
-      const ch = Character.create('T', kit);
-      expect(ch.injector()?.id).toBe(kit === 'force' ? 'fluid_1' : 'mate_1');
-      expect(ch.data.inventory.filter((i) => getDef(i.id).type === 'injector')).toHaveLength(1);
-      expect(ch.data.inventory.some((i) => getDef(i.id).type === 'consumable')).toBe(false);
-    }
+  it('a new character starts with a Fluid injector equipped (casting runs on TP), and no mates or fluids', () => {
+    const ch = Character.create('T');
+    expect(START_INJECTOR).toBe('fluid_1');
+    expect(ch.injector()?.id).toBe(START_INJECTOR);
+    expect(ch.data.inventory.filter((i) => getDef(i.id).type === 'injector')).toHaveLength(1);
+    expect(ch.data.inventory.some((i) => getDef(i.id).type === 'consumable')).toBe(false);
   });
 
   it('spends whole doses and refills from fractional charge', () => {
@@ -62,9 +62,11 @@ describe('Injectors', () => {
   });
 
   it('Bulwark and Field Medic boost Mate doses, Efficiency Fluid doses, and potency affixes both', () => {
-    const ch = Character.create('T', 'ranger');
+    const ch = Character.create('T');
     ch.data.level = 46;
-    const mate = ch.injector()!;
+    const mate = makeItem('mate_1');
+    ch.addItem(mate);
+    expect(ch.equip(mate.uid).ok).toBe(true);
     const before = injectorStats(mate, ch).potency;
     ch.data.skills.ranks.bulwark = 5;
     expect(injectorStats(mate, ch).potency).toBeCloseTo(before * (1 + passiveCfg.injectorBoost));
@@ -74,10 +76,12 @@ describe('Injectors', () => {
     const frame = ch.equippedItem('frame')!;
     frame.affixes = [{ id: 'injPotency', v: 10 }];
     expect(injectorStats(makeItem('fluid_1'), ch).potency).toBeCloseTo(0.385);
+    ch.data.skills.ranks.efficiency = 5;
+    expect(injectorStats(makeItem('fluid_1'), ch).potency).toBeCloseTo(0.35 * (1 + passiveCfg.injectorBoost + 0.1));
   });
 
   it('gates high tiers by level, the same for Mate and Fluid', () => {
-    const ch = Character.create('T', 'force');
+    const ch = Character.create('T');
     // Tiers 1-2 are for everyone.
     expect(ch.canEquip(makeItem('mate_2')).ok).toBe(true);
     expect(ch.canEquip(makeItem('fluid_3')).ok).toBe(false);
@@ -87,13 +91,22 @@ describe('Injectors', () => {
   });
 
   it('has one slot: equipping another injector (either kind) replaces the one worn', () => {
-    const ch = Character.create('T', 'hunter');
+    const ch = Character.create('T');
     const first = ch.injector()!;
-    const fluid = makeItem('fluid_1');
-    ch.addItem(fluid);
-    expect(ch.equip(fluid.uid).ok).toBe(true);
-    expect(ch.injector()?.uid).toBe(fluid.uid);
+    const mate = makeItem('mate_1');
+    ch.addItem(mate);
+    expect(ch.equip(mate.uid).ok).toBe(true);
+    expect(ch.injector()?.uid).toBe(mate.uid);
     expect(ch.isEquipped(first.uid)).toBe(false);
+  });
+
+  it('drops lean Fluid: about a third of injectors are Mate', () => {
+    const rng = mulberry32(5);
+    let mates = 0;
+    const n = 4000;
+    for (let i = 0; i < n; i++) if (rollInjector(3, rng).id.startsWith('mate_')) mates++;
+    expect(mates / n).toBeGreaterThan(0.3);
+    expect(mates / n).toBeLessThan(0.4);
   });
 
   it('drops and shops never hand out removed consumables', () => {
@@ -102,11 +115,11 @@ describe('Injectors', () => {
     for (const id of removed) expect(itemDefs[id]).toBeUndefined();
     let injectors = 0;
     for (let i = 0; i < 3000; i++) {
-      const d = rollDrop(3, rng, 'caster');
+      const d = rollDrop(3, rng);
       if (d.kind === 'item' && getDef(d.item.id).type === 'injector') injectors++;
     }
     expect(injectors).toBeGreaterThan(50);
-    const stock = shopStock('item', 15, 'caster', rng).map((i) => i.id);
+    const stock = shopStock('item', 15, rng).map((i) => i.id);
     expect(stock).not.toContain('telepipe');
     expect(stock).toContain('mate_1');
     expect(stock).toContain('fluid_3');

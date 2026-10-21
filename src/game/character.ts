@@ -6,54 +6,50 @@ import {
   addBonus,
   BONUS_ORDER,
   bonusText,
-  CLASSES,
   MAX_LEVEL,
+  START_INJECTOR,
+  START_WEAPON,
   STAT_LABEL,
   statDelta,
   statsAtLevel,
   statValue,
   xpToNext,
-  type ClassDef,
-  type ClassId,
   type StatBonus,
   type StatKey,
   type Stats,
-  type WeaponFamily,
 } from './data/stats';
 import {
   itemDefs,
   armorLines,
+  BARE_KIND,
   getDef,
   grindCap,
   INJECTOR_MODS,
   INVENTORY_SIZE,
-  kindFamily,
   RARITY_LABEL,
   RETIRED_KINDS,
-  specials,
+  RETIRED_LINES,
   weaponKinds,
   type ArmorItemDef,
   type InjectorMod,
   type ItemDef,
   type Rarity,
-  type SpecialId,
   type WeaponItemDef,
-  type WeaponKind,
   type WeaponKindDef,
 } from './data/items';
 import type { RiftSave } from './rifts';
-import { AFFIX_CAPS, AFFIX_TIERS, affixText, ITEM_AFFIXES, RIFT_TOP_ILVL, tierIlvl, tierRange, type AffixRoll, type ItemAffixId } from './data/itemAffixes';
+import { AFFIX_CAPS, AFFIX_TIERS, affixText, ITEM_AFFIXES, RETIRED_AFFIXES, RIFT_TOP_ILVL, tierIlvl, tierRange, type AffixRoll, type ItemAffixId } from './data/itemAffixes';
 import { critChance } from './formulas';
 import { craftLoadouts, maxedRoll, rollCost } from './craftCeiling';
 import { ATTACK_TECHS, isAttackTech, techAttackPower, techniques, techTpCost, type TechId } from './data/techniques';
-import { ART_IDS, artClasses, ARTS, isTechArt, SUPPORT_ARTS, type ArtId } from './data/arts';
+import { ART_IDS, ARTS, SUPPORT_ARTS, type ArtId } from './data/arts';
 import { hastened } from './combo';
 import { estimateDamage, type Foe } from './dps';
 import { UNIQUES, type UniqueId } from './data/uniques';
 import { chargeOf, describeInjector, injectorDef, injectorStats } from './injectors';
 import { GEAR_SLOTS, isGear, isStackable, itemRequirement, itemSlot, stackCap, type GearSlot, type ItemDefOf, type ItemType } from './itemTypes';
 import { magBonuses, magPointsFree, magSpend, newMag, PHOTON_BLASTS, readMag, type MagData, type MagStat, type PhotonBlastId } from './mag';
-import { passiveRanks, PASSIVES, rankAmt, rankMult, weaponFits, type PassiveId } from './passives';
+import { passiveRanks, rankAmt, rankMult, weaponFits, type PassiveId } from './passives';
 import { emptySkills, migrateSkills, modNodeId, pointsSpent, rankDown, rankOf, rankUp, rankUpBlock, readSkills, skillNodes, skillPoints, starterArt, type SkillPicks } from './skills';
 
 // Persistent character state plus derived-stat helpers. No rendering here.
@@ -68,8 +64,8 @@ export interface ItemInstance {
    */
   grind?: number;
   bane?: Record<string, number>;
-  /** A rolled weapon special (counts as a prefix; a unique's fixed one is on its def). */
-  special?: SpecialId;
+  /** Old saves only: a rolled weapon special (specials went on 2026-10-21; dropped on load). */
+  special?: string;
   /** Normal when missing; a def marked `rare` is always unique. */
   rarity?: Rarity;
   /** Rolled affixes (a unique's fixed ones are on its def). */
@@ -96,14 +92,19 @@ export interface ItemInstance {
   offers?: unknown;
 }
 
-/** Save format. Saves from before classes came back (versions 1-4) are deleted, not migrated. */
-export const SAVE_VERSION = 5;
+/**
+ * Save format. Saves from before classes came back (versions 1-4) are deleted, not migrated. Version 5 had classes
+ * (Hunter, Ranger, Force): those load and are converted (2026-10-21; the constructor says how).
+ */
+export const SAVE_VERSION = 6;
+/** Save versions that still load (and are brought up to SAVE_VERSION). */
+export const LOADABLE_VERSIONS = [5, 6];
 
 export interface CharacterData {
   version: typeof SAVE_VERSION;
   name: string;
-  /** Fixed at creation. */
-  cls: ClassId;
+  /** Old saves only: the class (Hunter, Ranger, Force) until the classes went on 2026-10-21. */
+  cls?: string;
   /** Appearance chosen at creation. */
   appearance?: Look;
   level: number;
@@ -111,7 +112,7 @@ export interface CharacterData {
   meseta: number;
   inventory: ItemInstance[];
   equipped: Partial<Record<GearSlot, string>>;
-  /** Arts (2026-10-14): what sits on RMB, Q, E and R for each weapon kind in hand. */
+  /** Arts (2026-10-14): what sits on RMB, Q, E and R. */
   arts: ArtLoadout;
   /** The Skills trees (2026-10-15): ranks in Arts and passives, and the Arts' modifier picks (skills.ts). */
   skills: SkillPicks;
@@ -161,30 +162,35 @@ export interface CharacterData {
 /** Art slots on the bar: RMB, Q, E, R. */
 export const ART_SLOTS = 4;
 
-/** An Art bar is kept per weapon kind in hand ('none': bare hands). */
-export type ArtBarKey = WeaponKind | 'none';
-
+/**
+ * The Art bar: one since 2026-10-21 (it was one per weapon kind in hand, when weapons had Arts of their own). Unset
+ * until the player changes it.
+ */
 export interface ArtLoadout {
-  bars: Partial<Record<ArtBarKey, (ArtId | null)[]>>;
+  bar?: (ArtId | null)[];
+  /** Old saves only: a bar per weapon kind ('none': bare hands). */
+  bars?: Record<string, unknown>;
 }
 
-/** Saved Art bars with anything that no longer exists dropped. */
-function readArts(raw: unknown, cls: ClassId): ArtLoadout {
-  const out: ArtLoadout = { bars: {} };
-  if (!raw || typeof raw !== 'object') return out;
-  const r = raw as Partial<ArtLoadout>;
-  for (const [key, bar] of Object.entries(r.bars ?? {})) {
-    if (key !== 'none' && !weaponKinds[key as WeaponKind]) continue;
-    if (!Array.isArray(bar)) continue;
-    const seen = new Set<string>();
-    out.bars[key as ArtBarKey] = Array.from({ length: ART_SLOTS }, (_, i) => {
+/**
+ * The saved Art bar with anything that no longer exists dropped. An old save's bars (one per weapon kind) become the
+ * bar of the weapon in hand (`held`), or the first one kept.
+ */
+function readArts(raw: unknown, held: string | undefined): ArtLoadout {
+  if (!raw || typeof raw !== 'object') return {};
+  const r = raw as ArtLoadout;
+  const old = r.bars ?? {};
+  const bar = r.bar ?? (held && old[held]) ?? old.rod ?? old.wand ?? old.none;
+  if (!Array.isArray(bar)) return {};
+  const seen = new Set<string>();
+  return {
+    bar: Array.from({ length: ART_SLOTS }, (_, i) => {
       const id = bar[i];
-      if (typeof id !== 'string' || seen.has(id) || !ARTS[id as ArtId] || !artClasses(id as ArtId).includes(cls)) return null;
+      if (typeof id !== 'string' || seen.has(id) || !Object.hasOwn(ARTS, id)) return null;
       seen.add(id);
       return id as ArtId;
-    });
-  }
-  return out;
+    }),
+  };
 }
 
 let uidCounter = 0;
@@ -214,8 +220,8 @@ export function forgeMult(inst: Pick<ItemInstance, 'ilvl'>): number {
 }
 
 /**
- * An item's definition with its base stats as this copy has them: a Rift-forged drop's weapon damage and stat
- * bonuses, or armour damage taken and bonuses, raised by `forgeMult`; a frame or barrier's bonuses raised by its
+ * An item's definition with its base stats as this copy has them: a Rift-forged drop's stat bonuses, or armour damage
+ * taken and bonuses, raised by `forgeMult`; a frame or barrier's bonuses raised by its
  * (built-in) grind levels too (a weapon's grind is Edge, added by grindBonus). Everything that reads base stats goes
  * through this.
  */
@@ -226,7 +232,7 @@ export function statDef(inst: ItemInstance): ItemDef {
   if (k === 1) return def;
   const bonus = def.type === 'weapon' || def.type === 'armor' ? def.bonus : undefined;
   const scaled = bonus ? (Object.fromEntries(Object.entries(bonus).map(([s, v]) => [s, Math.round((v as number) * k)])) as StatBonus) : undefined;
-  if (def.type === 'weapon') return { ...def, atpMin: Math.round(def.atpMin * k), atpMax: Math.round(def.atpMax * k), ...(scaled ? { bonus: scaled } : {}) };
+  if (def.type === 'weapon') return { ...def, ...(scaled ? { bonus: scaled } : {}) };
   // The damage-taken cut grows with Rift-forging only (the table value is already the fully ground one).
   if (def.type === 'armor') return { ...def, dr: Math.round(def.dr * forgeMult(inst)), ...(scaled ? { bonus: scaled } : {}) };
   return def;
@@ -257,6 +263,8 @@ function readAffixes(rolls: AffixRoll[], tier = 1, legacy = false): AffixRoll[] 
   const renamed: Record<string, ItemAffixId> = { ata: 'lck', evp: 'strike', dfp: 'strike', staffTp: 'tpRegen', foiePct: 'firePct', zondePct: 'lightningPct', bartaPct: 'icePct' };
   const out: AffixRoll[] = [];
   for (const raw of rolls) {
+    // The weapon damage, melee and gun affixes went with the classes (2026-10-21): upgradeCrafting rolls replacements.
+    if (RETIRED_AFFIXES.includes(raw.id)) continue;
     const r = legacy ? toPercentUnits(raw) : raw;
     if ((r.id as string) === 'castSpeed') {
       const cap = hasteCfg.capByTier[tier];
@@ -278,30 +286,41 @@ function readAffixes(rolls: AffixRoll[], tier = 1, legacy = false): AffixRoll[] 
 }
 
 /**
- * One saved roll moved to the 2026-10-14 units: DFP (and EVP) became Strike damage taken (about 6 DFP a %), Bastion
- * and the downside penalties (DFP) shrank to the new scale, and Weapon damage % and Reckless (now on the whole hit)
- * come down to the top of their new tier.
+ * One saved roll moved to the 2026-10-14 units: DFP (and EVP) became Strike damage taken (about 6 DFP a %), and Bastion
+ * and the downside penalties (DFP) shrank to the new scale.
  */
 function toPercentUnits(r: AffixRoll): AffixRoll {
   const id = r.id as string;
-  const top = (t: number) => tierRange(ITEM_AFFIXES[r.id].tiers, t)[1];
   if (id === 'dfp' || id === 'evp') return { ...r, id: 'strike', v: Math.max(1, Math.round(r.v / 6)) };
   if (id === 'areaDr') return { ...r, v: Math.max(1, Math.round((r.v * 2) / 3)) };
-  if (id === 'brittle' || id === 'reckless') {
-    const out = { ...r, ...(r.p ? { p: Math.max(1, Math.round(r.p / 6)) } : {}) };
-    if (id === 'reckless') out.v = Math.min(r.v, top(r.t ?? AFFIX_TIERS));
-    return out;
-  }
-  if (id === 'atpPct') return { ...r, v: Math.min(r.v, top(r.t ?? AFFIX_TIERS)) };
+  if (id === 'brittle') return { ...r, ...(r.p ? { p: Math.max(1, Math.round(r.p / 6)) } : {}) };
   return r;
+}
+
+/**
+ * Items of kinds that went made current: four kinds on 2026-10-14, and with the classes on 2026-10-21 every blade
+ * and the Cane become a Rod, every gun a Wand, Guard and Combat armour Psy, each of the same tier (uniques keep their
+ * ids: their bases changed instead). Weapon specials are gone. Safe to run more than once.
+ */
+function convertRetiredItems(data: CharacterData): void {
+  for (const it of data.inventory) {
+    const m = /^([a-z]+)_(\d+)$/.exec(it.id);
+    const kind = m && Object.hasOwn(RETIRED_KINDS, m[1]) ? RETIRED_KINDS[m[1]] : null;
+    if (kind) it.id = `${kind}_${m![2]}`;
+    const a = /^(frame|barrier)_([a-z]+)_(\d+)$/.exec(it.id);
+    if (a && RETIRED_LINES.includes(a[2])) it.id = `${a[1]}_psy_${a[3]}`;
+    delete it.special;
+  }
 }
 
 /**
  * Every saved affix roll made current (readAffixes), and old units moved to the 2026-10-14 ones once (`affixUnits`).
  * Safe to run more than once. Save loading calls it before anything else reads the rolls (upgradeCrafting does: a
- * roll with a retired id would break it), and the Character constructor again.
+ * roll with a retired id would break it, and it tops converted items back up to their affix counts), and the
+ * Character constructor again. Items of retired kinds are converted first.
  */
 export function readAffixData(data: CharacterData): CharacterData {
+  convertRetiredItems(data);
   const legacy = (data.affixUnits ?? 1) < 2;
   // Units that still sit in frames (older saves; the constructor moves them to the Mag) included.
   for (const it of [...data.inventory, ...data.inventory.flatMap((x) => x.units ?? []), ...(data.units ?? [])]) {
@@ -311,8 +330,11 @@ export function readAffixData(data: CharacterData): CharacterData {
     if (it.affixes) it.affixes = readAffixes(it.affixes, tier, legacy);
     if (it.dormant) it.dormant = readAffixes(it.dormant, tier, legacy);
   }
-  // Units learned as DFP are Strike units now.
-  data.magUnits = data.magUnits?.map((k) => ((k as string) === 'dfp' ? 'strike' : k));
+  // Units learned as DFP are Strike units now; units of retired affixes (Power, Fury) are gone.
+  const emptyUnit = (u: ItemInstance) => itemDefs[u.id]?.type === 'unit' && !itemDefs[u.id].unique && !!u.affixes && !u.affixes.length;
+  if (data.units) data.units = data.units.filter((u) => !emptyUnit(u));
+  data.inventory = data.inventory.filter((u) => !emptyUnit(u));
+  data.magUnits = data.magUnits?.map((k) => ((k as string) === 'dfp' ? 'strike' : k)).filter((k) => !RETIRED_AFFIXES.includes(k));
   data.affixUnits = 2;
   return data;
 }
@@ -333,8 +355,8 @@ function unitName(inst: ItemInstance): string {
 }
 
 /**
- * The item's name. Magic items take a word from their prefix (a rolled special or a prefix affix) and their
- * suffix ("Heat Brand of Luck"), rares their rolled name ("Doom Edge +2"), uniques their own.
+ * The item's name. Magic items take a word from their prefix affix and their suffix ("Mystic Pole of Luck"), rares
+ * their rolled name ("Doom Spire"), uniques their own.
  */
 export function itemName(inst: ItemInstance): string {
   const def = getDef(inst.id);
@@ -344,9 +366,9 @@ export function itemName(inst: ItemInstance): string {
   const rarity = rarityOf(inst);
   if (rarity === 'rare' && inst.name) name = inst.name;
   else if (rarity === 'magic') {
-    const pre = inst.special && def.type === 'weapon' && !def.special ? specials[inst.special].name : inst.affixes?.find((a) => ITEM_AFFIXES[a.id].kind === 'prefix');
+    const pre = inst.affixes?.find((a) => ITEM_AFFIXES[a.id].kind === 'prefix');
     const suf = inst.affixes?.find((a) => ITEM_AFFIXES[a.id].kind === 'suffix');
-    if (pre) name = `${typeof pre === 'string' ? pre : ITEM_AFFIXES[pre.id].word} ${name}`;
+    if (pre) name = `${ITEM_AFFIXES[pre.id].word} ${name}`;
     if (suf) name += ` ${ITEM_AFFIXES[suf.id].word}`;
   }
   if (inst.qty !== undefined && inst.qty > 1) name += ` x${inst.qty}`;
@@ -369,11 +391,6 @@ export function grindLevels(inst: Pick<ItemInstance, 'id'>): number {
   return def.type === 'weapon' || def.type === 'armor' ? grindCap(def) : 0;
 }
 
-export function itemSpecial(inst: ItemInstance): SpecialId | undefined {
-  const def = getDef(inst.id);
-  return def.type === 'weapon' ? (inst.special ?? def.special) : undefined;
-}
-
 const RARITY_PRICE: Record<Rarity, number> = { normal: 1, magic: 1.6, rare: 2.8, unique: 1 };
 
 export function sellPrice(inst: ItemInstance): number {
@@ -383,22 +400,16 @@ export function sellPrice(inst: ItemInstance): number {
   return Math.max(1, Math.floor(p)) * (inst.qty ?? 1);
 }
 
-/**
- * What `edge` grind levels add to a weapon: a share of its own ATP, and of its MST (only weapons that
- * already give MST, so grinding a blade or a gun doesn't feed support techs).
- */
-export function grindBonus(def: WeaponItemDef, edge: number): { atp: number; mst: number } {
-  const mst = def.bonus?.mst;
-  return {
-    atp: Math.round(edge * formulas.edgeAtpPct * ((def.atpMin + def.atpMax) / 2)),
-    mst: mst ? Math.round(edge * formulas.edgeMstPct * mst) : 0,
-  };
+/** What `edge` grind levels add to a weapon: a share of its Tech damage. */
+export function grindBonus(def: WeaponItemDef, edge: number): number {
+  const mst = def.bonus.mst;
+  return mst ? Math.round(edge * formulas.edgeMstPct * mst) : 0;
 }
 
-/** A weapon's flat stat bonuses with `edge` grind levels counted (Edge raises an MST bonus). */
+/** A weapon's flat stat bonuses with `edge` grind levels counted (Edge raises its Tech damage). */
 export function weaponBonus(def: WeaponItemDef, edge: number): StatBonus {
   const out = { ...def.bonus };
-  const g = grindBonus(def, edge).mst;
+  const g = grindBonus(def, edge);
   if (g) out.mst = (out.mst ?? 0) + g;
   return out;
 }
@@ -416,21 +427,15 @@ export function affixStats(rolls: AffixRoll[]): StatBonus {
   return out;
 }
 
-/** The weapon used when nothing is equipped. */
+/** The weapon used when nothing is equipped (its kind: BARE_KIND, a weak bolt). */
 const BARE_HANDS: WeaponItemDef = {
-  id: '__bare', type: 'weapon', name: 'Bare hands', kind: 'saber', tier: 0,
-  atpMin: 5, atpMax: 10, req: 0, price: 0,
+  id: '__bare', type: 'weapon', name: 'Bare hands', kind: 'wand', tier: 0, req: 0, price: 0, bonus: {},
 };
 
 export class Character {
   constructor(public data: CharacterData) {
-    // The Partisan, Mechgun, Slicer and Cane went on 2026-10-14: those weapons become a Sword, Handgun, Rifle or Rod of
-    // the same tier, affixes and all (each keeps its family, so every affix still fits).
-    for (const it of data.inventory) {
-      const m = /^([a-z]+)_(\d+)$/.exec(it.id);
-      const kind = m && Object.hasOwn(RETIRED_KINDS, m[1]) ? RETIRED_KINDS[m[1]] : null;
-      if (kind) it.id = `${kind}_${m![2]}`;
-    }
+    // Blades, guns and Guard / Combat armour become rods, wands and Psy armour (2026-10-21, the classes went).
+    convertRetiredItems(data);
     // Items that no longer exist (the Telepipe went on 2026-10-11) leave the bag.
     data.inventory = data.inventory.filter((it) => itemDefs[it.id]);
     data.mag = readMag(data.mag);
@@ -442,17 +447,26 @@ export class Character {
     delete data.palette;
     delete data.selectedTech;
     delete data.talents;
-    data.arts = readArts(data.arts, data.cls);
+    // A Hunter's or Ranger's skills and Art bars were for trees that went with the classes (2026-10-21): they start
+    // over with Foie learned, like a new character, and every other point back to spend (a Force's stay).
+    const fromOldClass = data.cls === 'hunter' || data.cls === 'ranger';
+    if (fromOldClass) {
+      data.skills = emptySkills();
+      data.arts = {};
+    }
+    const held = data.inventory.find((it) => it.uid === data.equipped.weapon);
+    data.arts = readArts(data.arts, held && /^([a-z]+)_\d+$/.exec(held.id)?.[1]);
     // The Skills trees (2026-10-15, ranked): saves from before them learn the Arts on their bars and their old passives
     // a rank each (skills.ts migrateSkills); the rest is left to spend.
     const raw = data.skills as unknown;
-    if (raw && typeof raw === 'object' && 'ranks' in raw) data.skills = readSkills(raw, data.cls, data.level);
+    if (raw && typeof raw === 'object' && 'ranks' in raw) data.skills = readSkills(raw, data.level);
     else {
       const old = [...(Array.isArray(data.passives) ? data.passives : []), ...(raw && typeof raw === 'object' ? Object.keys(raw) : [])].filter((x): x is string => typeof x === 'string');
-      const bars = Object.values(data.arts.bars).flatMap((b) => b ?? []).filter((x): x is ArtId => !!x);
-      data.skills = migrateSkills(data.cls, data.level, bars, old);
+      data.skills = migrateSkills(data.level, (data.arts.bar ?? []).filter((x): x is ArtId => !!x), old);
     }
     delete data.passives;
+    delete data.cls;
+    data.version = SAVE_VERSION;
     data.stats.bossKills ??= {};
     data.units ??= [];
     // Units used to sit in frames: move them to the Mag (any beyond its slots go back to the bag).
@@ -480,6 +494,10 @@ export class Character {
       }
       for (const u of data.inventory.filter((it) => getDef(it.id).type === 'unit')) if (this.learnUnit(u) !== false) this.removeItem(u.uid, 1);
     }
+    if (fromOldClass) {
+      const first = starterArt((id) => this.artUsable(id, true));
+      if (first) this.rankUp(first);
+    }
   }
 
   /** Times this boss has been beaten on a difficulty (`true` = Nightmare, `false` = Normal). */
@@ -497,22 +515,20 @@ export class Character {
     return (kills[boss] = (kills[boss] ?? 0) + 1);
   }
 
-  static create(name: string, clsId: ClassId, appearance?: Look): Character {
-    const cls = CLASSES[clsId];
-    const weapon = makeItem(cls.startWeapon);
+  static create(name: string, appearance?: Look): Character {
+    const weapon = makeItem(START_WEAPON);
     const frame = makeItem('frame_1');
-    const injector = makeItem(cls.startInjector);
+    const injector = makeItem(START_INJECTOR);
     const data: CharacterData = {
       version: SAVE_VERSION,
       name,
-      cls: clsId,
       appearance: appearance && { ...appearance, colors: appearance.colors && Object.keys(appearance.colors).length ? { ...appearance.colors } : undefined },
       level: 1,
       xp: 0,
       meseta: 300,
-      inventory: [weapon, frame, injector, ...cls.startItems.map(([id, qty]) => makeItem(id, { qty }))],
+      inventory: [weapon, frame, injector],
       equipped: { weapon: weapon.uid, frame: frame.uid, injector: injector.uid },
-      arts: { bars: {} },
+      arts: {},
       skills: emptySkills(),
       mag: newMag(),
       units: [],
@@ -521,105 +537,65 @@ export class Character {
       affixUnits: 2,
     };
     const ch = new Character(data);
-    // A new character knows its start weapon's first Art (or its first technique): the Lv 1 point goes there.
-    const first = starterArt(clsId, (id) => ch.artUsable(id, ch.barKey, true));
+    // A new character knows Foie: the Lv 1 point goes there.
+    const first = starterArt((id) => ch.artUsable(id, true));
     if (first) ch.rankUp(first);
     return ch;
-  }
-
-  get cls(): ClassDef {
-    return CLASSES[this.data.cls] ?? CLASSES.hunter;
   }
 
   get level() {
     return this.data.level;
   }
 
-  /** "Hunter", "Ranger" or "Force". */
-  get title(): string {
-    return this.cls.name;
-  }
-
-  /** The class's own Mag stat: the Mag's first form and the outfit before a frame decides it. */
-  get magStat(): MagStat {
-    return this.cls.magStat;
-  }
-
-  /** Forces, and anyone holding a rod or wand: damage tables show the selected technique. */
-  get prefersMagic(): boolean {
-    return this.cls.family === 'caster' || this.weaponKind().family === 'caster';
-  }
-
-  /** What drops and shops lean toward: the class's weapon family (and the armour line that goes with it). */
-  lootBias(): WeaponFamily {
-    return this.cls.family;
-  }
-
   // ------------------------------------------------------------ Arts
 
-  /** The class's base TP at its level (gear and the Mag left out): weapon Art costs and basic refills scale with it. */
+  /** Base TP at this level (gear and the Mag left out): basic refills scale with it. */
   baseTp(): number {
-    return statsAtLevel(this.cls, this.data.level).tp;
+    return statsAtLevel(this.data.level).tp;
   }
 
-  /** The Art bar in use: the kind of the weapon in hand ('none' bare-handed). */
-  get barKey(): ArtBarKey {
-    return this.weaponInstance() ? this.weaponKind().kind : 'none';
-  }
-
-  /**
-   * Can this character slot this Art for the bar `key`: learned in the Skills trees (`unlearned`: or could be, by class
-   * and level), and the weapon kind or family it needs?
-   */
-  artUsable(id: ArtId, key: ArtBarKey = this.barKey, unlearned = false): boolean {
+  /** Can this Art go on the bar: learned in the Skills trees (`unlearned`: or could be, by level)? */
+  artUsable(id: ArtId, unlearned = false): boolean {
     const a = ARTS[id];
-    if (!a || !artClasses(id).includes(this.data.cls) || this.data.level < a.level) return false;
-    if (!unlearned && this.artRank(id) < 1) return false;
-    const from = a.from;
-    if ('tech' in from) return true;
-    if (key === 'none') return false;
-    return 'kind' in from ? from.kind === key : kindFamily(weaponKinds[key]) === from.family;
+    if (!a || this.data.level < a.level) return false;
+    return unlearned || this.artRank(id) >= 1;
   }
 
-  /** Every Art that can go on the bar `key` now, weapon Arts first, then techniques, each in unlock order. */
-  artsFor(key: ArtBarKey = this.barKey): ArtId[] {
-    const rank = (id: ArtId) => (isTechArt(id) ? (SUPPORT_ARTS.includes(id) ? 2000 : 1000) : 0) + ARTS[id].level;
-    return ART_IDS.filter((id) => this.artUsable(id, key)).sort((a, b) => rank(a) - rank(b));
+  /** Every Art that can go on the bar now: attack techniques, then Resta, each in unlock order. */
+  artsFor(): ArtId[] {
+    const rank = (id: ArtId) => (SUPPORT_ARTS.includes(id) ? 1000 : 0) + ARTS[id].level;
+    return ART_IDS.filter((id) => this.artUsable(id)).sort((a, b) => rank(a) - rank(b));
   }
 
-  /** The Art bar (RMB, Q, E, R) for `key`. Until the player changes it, it is the first Arts that fit (read only, so a
-   *  gear preview never writes a bar into the save). */
-  artBar(key: ArtBarKey = this.barKey): readonly (ArtId | null)[] {
-    return this.data.arts.bars[key] ?? this.defaultBar(key);
+  /** The Art bar (RMB, Q, E, R). Until the player changes it, it is the first Arts learned (read only, so a gear
+   *  preview never writes a bar into the save). */
+  artBar(): readonly (ArtId | null)[] {
+    return this.data.arts.bar ?? this.defaultBar();
   }
 
-  private defaultBar(key: ArtBarKey): (ArtId | null)[] {
-    const fits = this.autoArts(key);
+  /** What fills the bar by itself, in unlock order (attack techniques first on a tie), so a slot never moves as Arts unlock. */
+  private defaultBar(): (ArtId | null)[] {
+    const rank = (id: ArtId) => ARTS[id].level * 10 + (SUPPORT_ARTS.includes(id) ? 1 : 0);
+    const fits = ART_IDS.filter((id) => this.artUsable(id)).sort((a, b) => rank(a) - rank(b));
     return Array.from({ length: ART_SLOTS }, (_, i) => fits[i] ?? null);
   }
 
-  /** What fills a bar by itself, in unlock order (weapon Arts first on a tie), so a slot never moves as Arts unlock. */
-  private autoArts(key: ArtBarKey): ArtId[] {
-    const rank = (id: ArtId) => ARTS[id].level * 10 + (isTechArt(id) ? (SUPPORT_ARTS.includes(id) ? 2 : 1) : 0);
-    return ART_IDS.filter((id) => this.artUsable(id, key)).sort((a, b) => rank(a) - rank(b));
+  /** The bar as stored, made from the default the first time the player changes it. */
+  private ownBar(): (ArtId | null)[] {
+    return (this.data.arts.bar ??= this.defaultBar());
   }
 
-  /** The bar `key` as stored, made from the default the first time the player changes it. */
-  private ownBar(key: ArtBarKey): (ArtId | null)[] {
-    return (this.data.arts.bars[key] ??= this.defaultBar(key));
-  }
-
-  /** The Art in a bar slot, if it can be used with what is in hand. */
+  /** The Art in a bar slot, if it is learned. */
   artInSlot(slot: number): ArtId | null {
     const id = this.artBar()[slot] ?? null;
     return id && this.artUsable(id) ? id : null;
   }
 
   /** Slot an Art (null empties the slot). An Art already elsewhere on the bar swaps places. Returns why not, or null. */
-  setArtSlot(slot: number, id: ArtId | null, key: ArtBarKey = this.barKey): string | null {
+  setArtSlot(slot: number, id: ArtId | null): string | null {
     if (slot < 0 || slot >= ART_SLOTS) return 'No such slot';
-    if (id && !this.artUsable(id, key)) return `${ARTS[id]?.name ?? 'That Art'} can't be used with this weapon`;
-    const bar = this.ownBar(key);
+    if (id && !this.artUsable(id)) return `${ARTS[id]?.name ?? 'That Art'} isn't learned yet`;
+    const bar = this.ownBar();
     const at = id ? bar.indexOf(id) : -1;
     if (at >= 0) bar[at] = bar[slot];
     bar[slot] = id;
@@ -647,61 +623,33 @@ export class Character {
     return 1 - skillCfg.artTpPerRank * (Math.max(1, this.artRank(id)) - 1);
   }
 
-  /** TP for one use of an Art now (Combat adds Clarity, Overload and the like). */
+  /** TP for one cast of an Art now (Combat adds Clarity, Overload and the like). */
   artCost(id: ArtId): number {
-    // The Limiter: every Art costs more.
+    // The Limiter: every technique costs more.
     const limiter = this.hasUnique('limiter') ? 1 + this.uval(uniqueCfg.limiterTp) : 1;
-    if (isTechArt(id)) return Math.max(1, Math.round(this.techCost(id) * limiter));
-    const mult = (id === 'cyclone' && this.artMod(id, 'longSpin') ? 1.4 : 1) * this.artRankTp(id) * limiter;
-    return Math.max(1, Math.round(ARTS[id].tpPct * this.baseTp() * mult));
+    return Math.max(1, Math.round(this.techCost(id) * limiter));
   }
 
-  /** Seconds before an Art can be used again (some modifiers shorten it, and the Limiter). */
-  artCooldown(id: ArtId): number {
-    const quick: Partial<Record<ArtId, number>> = { guardStance: 6, shadowStep: 3.5, flashShot: 5, freezeTrap: 8 };
-    const cd = this.artMod(id, 'quick') && quick[id] !== undefined ? quick[id]! : ARTS[id].cooldown;
-    return this.hasUnique('limiter') ? cd * Math.max(0.1, 1 - this.uval(uniqueCfg.limiterCd)) : cd;
-  }
-
-  /** Effects a channel Art makes (modifiers add some). */
-  artTicks(id: ArtId): number {
-    const a = ARTS[id];
-    if (id === 'cyclone' && this.artMod(id, 'longSpin')) return a.ticks + 2;
-    if (id === 'venomEdge' && this.artMod(id, 'quick')) return 6;
-    if (id === 'bladeDance' && this.artMod(id, 'long')) return a.ticks + 3;
-    if (id === 'rapidVolley' && this.artMod(id, 'extended')) return a.ticks + 4;
-    return a.ticks;
-  }
-
-  /**
-   * An Art's timing now: wind-up and recovery sped up by Haste (weapon Arts: Fervor / Rapid Fire too; techniques:
-   * cast speed), the channel (its ticks at the Art's own pace), and the perfect window of the weapon or of casting.
-   */
+  /** An Art's timing now: wind-up and recovery sped up by Haste and cast speed, and the casting perfect window. */
   artTiming(id: ArtId): AttackTiming {
     const a = ARTS[id];
     let { windup, recovery } = a;
-    let channel = a.ticks ? (a.channel * this.artTicks(id)) / a.ticks : a.channel;
-    if (id === 'guardStance' && this.artMod(id, 'long')) channel = 1.6;
-    if (id === 'chargedShot' && this.artMod(id, 'quick')) windup = 0.55;
-    if ((id === 'freezeRound' || id === 'napalmShell') && this.artMod(id, 'quick')) windup *= 0.5;
-    const tech = isTechArt(id);
-    if (tech && this.artMod(id, 'quick')) {
+    if (this.artMod(id, 'quick')) {
       windup *= 0.7;
       recovery *= 0.7;
     }
-    const k = tech ? this.castTimeMult() : this.swingTimeMult();
-    const rhythm = tech ? { perfect: casting.perfect, grace: casting.grace } : { perfect: this.weaponKind().timing.perfect, grace: this.weaponKind().timing.grace };
-    return { windup: windup * k, active: channel, recovery: recovery * k, ...rhythm };
+    const k = this.castTimeMult();
+    return { windup: windup * k, active: 0, recovery: recovery * k, perfect: casting.perfect, grace: casting.grace };
   }
 
-  /** The basic step's timing: the weapon kind's swing (or bolt), sped up by Haste and Fervor / Rapid Fire. */
+  /** The basic step's timing: the weapon kind's bolt, sped up by Haste. */
   basicTiming(): AttackTiming {
-    return hastened(this.weaponKind().timing, this.swingTimeMult());
+    return hastened(this.weaponKind().timing, this.hasteMult());
   }
 
   /** The attack technique the estimates measure (the first one on the bar, or the first one learned). */
   mainTech(): TechId {
-    const bar = this.artBar().filter((id): id is TechId => !!id && isTechArt(id) && isAttackTech(id));
+    const bar = this.artBar().filter((id): id is TechId => !!id && isAttackTech(id));
     return bar[0] ?? ATTACK_TECHS.find((t) => this.artUsable(t)) ?? 'foie';
   }
 
@@ -719,25 +667,26 @@ export class Character {
   /** The Skills tab badge: points left while something can take one. */
   get skillPointsFree(): number {
     const left = this.skillPointsLeft;
-    return left > 0 && skillNodes(this.data.cls).some((n) => !rankUpBlock(this.data.cls, this.data.level, this.data.skills, n)) ? left : 0;
+    return left > 0 && skillNodes().some((n) => !rankUpBlock(this.data.level, this.data.skills, n)) ? left : 0;
   }
 
   /** Put a rank into a skill (an Art just learned goes into a free slot of a changed bar). Returns why not, or null. */
   rankUp(id: string): string | null {
-    const err = rankUp(this.data.cls, this.data.level, this.data.skills, id);
+    const err = rankUp(this.data.level, this.data.skills, id);
     if (!err && Object.hasOwn(ARTS, id) && this.artRank(id as ArtId) === 1) {
-      const bar = this.data.arts.bars[this.barKey];
+      const bar = this.data.arts.bar;
       const free = bar ? bar.indexOf(null) : -1;
       if (bar && free >= 0 && !bar.includes(id as ArtId) && this.artUsable(id as ArtId)) bar[free] = id as ArtId;
     }
     return err;
   }
 
-  /** Take a rank out of a skill (an Art taken back to 0 leaves every bar). Returns why not, or null. */
+  /** Take a rank out of a skill (an Art taken back to 0 leaves the bar). Returns why not, or null. */
   rankDown(id: string): string | null {
-    const err = rankDown(this.data.cls, this.data.skills, id);
+    const err = rankDown(this.data.skills, id);
     if (!err && Object.hasOwn(ARTS, id) && this.artRank(id as ArtId) === 0) {
-      for (const bar of Object.values(this.data.arts.bars)) bar?.forEach((x, i) => x === id && (bar[i] = null));
+      const bar = this.data.arts.bar;
+      bar?.forEach((x, i) => x === id && (bar[i] = null));
     }
     return err;
   }
@@ -751,13 +700,12 @@ export class Character {
     return this.passiveRank(id) > 0;
   }
 
-  /** Learned, and the weapon in hand lets it work (weapon passives need their family's weapon). */
+  /** Learned, and what is in hand lets it work (bolt passives need a rod or wand). */
   hasPassive(id: PassiveId): boolean {
-    if (!this.passiveTaken(id)) return false;
-    return weaponFits(PASSIVES[id].needs, this.weaponKind(), !!this.weaponInstance());
+    return this.passiveTaken(id) && weaponFits(id, !!this.weaponInstance());
   }
 
-  /** How much of a passive's full effect works now: its rank over its top rank (0 if not learned or not with this weapon). */
+  /** How much of a passive's full effect works now: its rank over its top rank (0 if not learned or bare-handed). */
   passiveK(id: PassiveId): number {
     return this.hasPassive(id) ? Math.min(1, this.passiveRank(id) / passiveRanks(id)) : 0;
   }
@@ -797,9 +745,9 @@ export class Character {
 
   // ------------------------------------------------------------- stats
 
-  /** Level-up stats: the class's start and growth. */
+  /** Level-up stats. */
   baseStats(): Stats {
-    return statsAtLevel(this.cls, this.data.level);
+    return statsAtLevel(this.data.level);
   }
 
   /** Base + Mag: the character's own stats, before gear. */
@@ -895,10 +843,7 @@ export class Character {
     return affixSum(this.wornAffixes(), id);
   }
 
-  /**
-   * Stats including Mag and equipment (not runtime buffs or caps). The weapon's own damage range is rolled per hit,
-   * not included (weaponDamage adds it); damage taken comes uncapped (damageTaken caps it).
-   */
+  /** Stats including Mag and equipment (not runtime buffs or caps); damage taken comes uncapped (damageTaken caps it). */
   stats(): Stats {
     const s = this.ownStats();
     const w = this.weaponDef();
@@ -964,7 +909,7 @@ export class Character {
       - (this.hasUnique('venomSac') ? this.uval(uniqueCfg.venomSacCrit) : 0);
   }
 
-  /** Strike or Area damage taken, in % less: gear, Mag and class (Farlla adds in combat), capped. */
+  /** Strike or Area damage taken, in % less: gear, Mag and level (Farlla adds in combat), capped. */
   damageTaken(kind: 'strike' | 'area', buff = 0): number {
     return Math.min(AFFIX_CAPS.damageTaken, this.stats()[kind] + buff);
   }
@@ -974,16 +919,11 @@ export class Character {
     return 1 / (1 + this.haste() / 100);
   }
 
-  /** Weapon wind-up and recovery multiplier from Haste and Fervor / Rapid Fire. */
-  swingTimeMult(): number {
-    const quick = this.pMult('fervor', passiveCfg.swingSpeedMult) * this.pMult('rapidFire', passiveCfg.swingSpeedMult);
-    return quick * this.hasteMult();
-  }
-
-  /** Technique wind-up and recovery multiplier from Haste and Swift Cast. */
+  /** Technique wind-up and recovery multiplier from Haste, Swift Cast and the Limiter. */
   castTimeMult(): number {
     const swift = this.pMult('swiftCast', passiveCfg.swiftCastMult);
-    return swift * this.hasteMult();
+    const limiter = this.hasUnique('limiter') ? Math.max(0.1, 1 - this.uval(uniqueCfg.limiterCast)) : 1;
+    return swift * limiter * this.hasteMult();
   }
 
   /** A status resistance from gear (%, capped; the Red Ring takes Corruption resistance away, down to the floor). */
@@ -1036,13 +976,10 @@ export class Character {
     return def.type === 'weapon' ? def : BARE_HANDS;
   }
 
+  /** The kind in hand (bare hands: a weak bolt). */
   weaponKind(): WeaponKindDef {
-    return weaponKinds[this.weaponDef().kind];
-  }
-
-  /** The weapon in hand's family (bare hands count as melee). */
-  weaponFamily(): WeaponFamily {
-    return kindFamily(this.weaponKind());
+    const def = this.weaponDef();
+    return def === BARE_HANDS ? BARE_KIND : weaponKinds[def.kind];
   }
 
   /** Grind (Edge) levels on the equipped weapon: its built-in full grind. */
@@ -1051,30 +988,6 @@ export class Character {
     return w ? grindLevels(w) : 0;
   }
 
-  weaponSpecial(): SpecialId | undefined {
-    const inst = this.weaponInstance();
-    return inst ? itemSpecial(inst) : undefined;
-  }
-
-  /** The weapon's own damage range, built-in grind included (it adds to the Weapon damage stat on each hit). */
-  weaponAtp(): [number, number] {
-    const w = this.weaponDef();
-    const g = grindBonus(w, this.weaponEdge()).atp;
-    return [w.atpMin + g, w.atpMax + g];
-  }
-
-  /** Weapon damage % from gear (Weapon damage and Reckless affixes): it multiplies the whole hit. */
-  weaponDamagePct(): number {
-    return this.gearAffix('atpPct') + this.gearAffix('reckless');
-  }
-
-  /** What a weapon hit deals before its swing's multiplier and the enemy's armour: the stat plus the weapon's roll, times Weapon damage %. */
-  weaponDamage(): [number, number] {
-    const base = this.stats().atp;
-    const [lo, hi] = this.weaponAtp();
-    const k = 1 + this.weaponDamagePct() / 100;
-    return [Math.round((base + lo) * k), Math.round((base + hi) * k)];
-  }
 
   // --------------------------------------------------------- inventory
 
@@ -1250,10 +1163,10 @@ export class Character {
     return techAttackPower(tech, this.stats().mst) * this.artRankPower(tech) * this.weaponKind().techBoost * (1 + this.techAffixPct(tech) / 100);
   }
 
-  /** A photon bolt's damage (a caster's basic step) before streak, crits and resistance: tech damage x the kind's bolt power. */
+  /** A photon bolt's damage (the basic step) before streak, crits and resistance: tech damage x the kind's bolt power. */
   boltDamage(): number {
     const kind = this.weaponKind();
-    return (kind.boltPower ?? 0) * this.stats().mst * kind.techBoost * (1 + (this.gearAffix('techPct') + this.gearAffix('brittle')) / 100);
+    return kind.boltPower * this.stats().mst * kind.techBoost * (1 + (this.gearAffix('techPct') + this.gearAffix('brittle')) / 100);
   }
 }
 
@@ -1303,7 +1216,7 @@ export function fitsSlot(inst: ItemInstance, slot: GearSlot): boolean {
 
 export interface CompareRow {
   label: string;
-  /** The stat compared (unset for the weapon damage range, damage, rating and Haste). */
+  /** The stat compared (unset for damage, rating and Haste). */
   stat?: StatKey;
   before: string;
   after: string;
@@ -1336,8 +1249,7 @@ export function simulateUnits(ch: Character, kinds: UnitKind[]): Character {
 
 /**
  * What one more Mag point in `stat` would add to the character's damage per second against `foe`, in percent
- * (the Mag screen shows it, so the tracks can be weighed now rather than discovered later). Null for the
- * defense track, which adds no damage.
+ * (the Mag screen shows it, so the tracks can be weighed). Null for the defense track, which adds no damage.
  */
 export function magPointValue(ch: Character, stat: MagStat, foe: Foe): number | null {
   if (stat === 'def') return null;
@@ -1347,33 +1259,30 @@ export function magPointValue(ch: Character, stat: MagStat, foe: Foe): number | 
   return before > 0 ? (damageRating(sim, foe) / before - 1) * 100 : 0;
 }
 
-/** A plain enemy of the character's level, for verdicts made without an expedition in mind (any level: armour ~12%). */
+/** A plain enemy of the character's level, for verdicts made without an expedition in mind. */
 export function levelFoe(_level: number): Foe {
-  return { armor: 12, techResist: 0, label: 'enemy' };
+  return { techResist: 0, label: 'enemy' };
 }
 
-/** Damage per second a character deals: its selected technique for casters, its weapon otherwise. */
+/** Damage per second a character deals: its main technique. */
 export function damageRating(ch: Character, foe: Foe): number {
-  const e = estimateDamage(ch, foe, ch.prefersMagic);
-  return e.spell ?? e.weapon;
+  return estimateDamage(ch, foe).spell;
 }
 
 /**
- * How much a frame or barrier helps, as one number: its stats and affixes, weighted for the class (a Force
- * values tech damage and TP, a fighter weapon damage). Only differences between two of these mean anything.
- * A point of damage taken is worth about what 1.5 DFP was (2026-10-14).
+ * How much a frame or barrier helps, as one number: its stats and affixes (tech damage and TP weigh most). Only
+ * differences between two of these mean anything. A point of damage taken is worth about what 1.5 DFP was (2026-10-14).
  */
 export function armorRating(ch: Character): number {
   const s = ch.stats();
-  const caster = ch.prefersMagic;
   const a = (id: ItemAffixId) => ch.gearAffix(id);
   const res = a('resPoison') + a('resPara') + a('resBurn') + a('resCorrupt');
   const cap = AFFIX_CAPS.damageTaken;
   return (
-    Math.min(cap, s.strike) * 1.6 + Math.min(cap, s.area) * 1.3 + s.hp * 0.12 + s.tp * (caster ? 0.12 : 0.03) + s.atp * (caster ? 0.05 : 0.6) +
-    s.mst * (caster ? 0.6 : 0.05) + s.lck * 0.12 + ch.haste() * 4 + res * 0.08 + a('stability') * 0.04 + a('injPotency') * 0.4 +
+    Math.min(cap, s.strike) * 1.6 + Math.min(cap, s.area) * 1.3 + s.hp * 0.12 + s.tp * 0.12 +
+    s.mst * 0.6 + s.lck * 0.12 + ch.haste() * 4 + res * 0.08 + a('stability') * 0.04 + a('injPotency') * 0.4 +
     a('injCharge') * 0.3 + Math.min(20, a('walk')) * 0.3 + a('dashRecharge') * 0.15 + a('regen') * 1.5 +
-    (caster ? (a('techPct') + a('brittle')) * 1.2 : (a('atpPct') + a('reckless') + a('critDmg') * 0.3) * 1.2)
+    (a('techPct') + a('brittle')) * 1.2
   );
 }
 
@@ -1391,11 +1300,8 @@ export function compareEquip(ch: Character, inst: ItemInstance, foe: Foe = level
   const num = (stat: StatKey) => rows.push({ label: STAT_LABEL[stat], stat, before: statValue(stat, b[stat]), after: statValue(stat, a[stat]), delta: a[stat] - b[stat] });
   // Damage first, armour too (2026-10-13, the user's call: a caster's frame is judged by its techniques).
   const [d0, d1] = [damageRating(ch, foe), damageRating(sim, foe)];
-  rows.push({ label: ch.prefersMagic ? 'Damage/s (tech)' : 'Damage/s', before: `${Math.round(d0)}`, after: `${Math.round(d1)}`, delta: d1 - d0, key: true });
-  if (slot === 'weapon') {
-    const [x, y] = [ch.weaponDamage(), sim.weaponDamage()];
-    rows.push({ label: 'Weapon damage', before: `${x[0]}-${x[1]}`, after: `${y[0]}-${y[1]}`, delta: (y[0] + y[1] - x[0] - x[1]) / 2 });
-  } else {
+  rows.push({ label: 'Damage/s', before: `${Math.round(d0)}`, after: `${Math.round(d1)}`, delta: d1 - d0, key: true });
+  if (slot !== 'weapon') {
     // Its overall rating (HP, damage taken, resistances, utility) decides between frames that deal the same.
     const [r0, r1] = [armorRating(ch), armorRating(sim)];
     rows.push({ label: 'Rating', before: `${Math.round(r0)}`, after: `${Math.round(r1)}`, delta: r1 - r0, tie: true });
@@ -1613,12 +1519,12 @@ function unitVerdict(ch: Character, inst: ItemInstance): DropVerdict {
   }
 }
 
-/** "Damage taken −8%  Weapon damage +2" */
+/** "Damage taken −8%  Tech damage +12  TP +10" */
 export function armorStatText(def: ArmorItemDef): string {
   return [`Damage taken −${def.dr}%`, ...bonusText(def.bonus)].join('  ');
 }
 
-/** "Rare Saber · iLvl 24", "Unique Barrier". */
+/** "Rare Rod · iLvl 24", "Unique Barrier". */
 export function rarityLine(inst: ItemInstance): string {
   const def = getDef(inst.id);
   const r = rarityOf(inst);
@@ -1639,7 +1545,7 @@ export function affixLines(inst: ItemInstance): string[] {
 
 /** Menu text for one item type. */
 interface ItemText<D extends ItemDef> {
-  /** Its numbers on one line (gear lists): "Weapon damage 40-55  Tech damage +8" with grind counted; '' if none. */
+  /** Its numbers on one line (gear lists): "Tech damage +12" with grind counted; '' if none. */
   headline(def: D, inst: ItemInstance, ch?: Character): string;
   /** Info lines; describeItem adds the requirement, the description and why it can't be worn after them. */
   describe(def: D, inst: ItemInstance, ch?: Character): string[];
@@ -1655,18 +1561,8 @@ function unitsLine(inst: ItemInstance): string {
 
 const ITEM_TEXT: { [T in ItemType]: ItemText<ItemDefOf<T>> } = {
   weapon: {
-    headline: (def, inst) => {
-      const edge = grindLevels(inst);
-      const g = grindBonus(def, edge);
-      return [`Weapon damage ${def.atpMin + g.atp}-${def.atpMax + g.atp}`, ...bonusText(weaponBonus(def, edge))].join('  ');
-    },
-    describe: (def, inst) => {
-      const lines = [rarityLine(inst), ITEM_TEXT.weapon.headline(def, inst)];
-      const sp = itemSpecial(inst);
-      if (sp) lines.push(`Special: ${specials[sp].name}`);
-      lines.push(...affixLines(inst));
-      return lines;
-    },
+    headline: (def, inst) => bonusText(weaponBonus(def, grindLevels(inst))).join('  '),
+    describe: (def, inst) => [rarityLine(inst), ITEM_TEXT.weapon.headline(def, inst), ...affixLines(inst)],
   },
   armor: {
     headline: (def) => armorStatText(def),
@@ -1703,7 +1599,7 @@ function itemText<D extends ItemDef>(def: D): ItemText<D> {
   return ITEM_TEXT[def.type] as unknown as ItemText<D>;
 }
 
-/** An item's numbers on one line: "Weapon damage 40-55" (grind counted), "Damage taken −8%  Weapon damage +2", "HP 30% · 3/3 doses"; '' if none. */
+/** An item's numbers on one line: "Tech damage +12" (grind counted), "Damage taken −8%  Tech damage +12", "HP 30% · 3/3 doses"; '' if none. */
 export function itemHeadline(inst: ItemInstance, ch?: Character): string {
   const def = statDef(inst);
   return itemText(def).headline(def, inst, ch);

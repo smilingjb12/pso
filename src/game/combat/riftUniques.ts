@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { sfx } from '../../audio';
 import { stagger, uniqueCfg as U } from '../config';
-import { ARTS, isTechArt, type ArtId } from '../data/arts';
+import { ARTS, type ArtId } from '../data/arts';
 import { isAttackTech, techniques } from '../data/techniques';
 import type { Enemy } from '../enemies/Enemy';
 import { burnRules } from '../enemies/Enemy';
@@ -124,7 +124,7 @@ export class UniqueFx {
         if (this.rushHit.has(t) || t.invulnerable) continue;
         if (Math.hypot(t.pos.x - p.pos.x, t.pos.z - p.pos.z) - t.radius - p.radius > U.rushRange * 0.5) continue;
         this.rushHit.add(t);
-        this.k.weaponHit(t, { power: c.uval(U.rushPower), label: 'Dragon Rush', streak: 0, finisher: false, art: null, strong: true, stagger: 2 });
+        this.k.boltHit(t, { mult: c.uval(U.rushPower), label: 'Dragon Rush', streak: 0, finisher: false, stagger: 2, refill: false });
       }
     }
   }
@@ -145,17 +145,17 @@ export class UniqueFx {
     return m;
   }
 
-  /** Can this hit crit? (Ophelie Seize's handgun hits can't.) */
-  canCrit(handgun: boolean): boolean {
-    return !(handgun && this.c.hasUnique('ophelieSeize'));
+  /** Can this hit crit? (Ophelie Seize's photon bolts can't.) */
+  canCrit(bolt: boolean): boolean {
+    return !(bolt && this.c.hasUnique('ophelieSeize'));
   }
 
-  /** A hit landed: Venom Sac's crit poison, Ophelie Seize's venom. */
-  afterHit(t: Hittable, dmg: number, crit: boolean, handgun: boolean): void {
+  /** A hit landed: Venom Sac's crit poison, Ophelie Seize's venom (photon bolts). */
+  afterHit(t: Hittable, dmg: number, crit: boolean, bolt: boolean): void {
     if (!t.alive || dmg <= 0) return;
     const c = this.c;
     if (crit && c.hasUnique('venomSac')) this.k.venom(t, dmg * c.uval(U.venomSacShare), U.venomSacTime, U.venomSacMax);
-    if (handgun && c.hasUnique('ophelieSeize')) this.k.venom(t, dmg * U.ophelieShare, U.ophelieTime, Infinity);
+    if (bolt && c.hasUnique('ophelieSeize')) this.k.venom(t, dmg * U.ophelieShare, U.ophelieTime, Infinity);
   }
 
   /** The player took `dealt` HP off a target: HP/Drain heals, a Doomed DF Shield counts boss damage. */
@@ -242,9 +242,9 @@ export class UniqueFx {
     this.k.applyPlayerStatus('burn', 1);
   }
 
-  /** Flame Visit: how much longer your Napalm Shell's fire lasts. */
-  napalmMult(): number {
-    return this.c.hasUnique('flameVisit') ? U.flameNapalmMult : 1;
+  /** Flame Visit: how much longer Rafoie's burning ground lasts. */
+  rafoieMult(): number {
+    return this.c.hasUnique('flameVisit') ? U.flameRafoieMult : 1;
   }
 
   // ------------------------------------------------------------ taking damage
@@ -315,29 +315,31 @@ export class UniqueFx {
 
   // ------------------------------------------------------------ Arts
 
-  /** TP multiplier on an Art about to start (S-Beat's Blade off a perfect chain, Motav's combo). */
+  /** TP multiplier on an Art about to start (S-Beat's Blade off a perfect chain, Motav's combo, a full Rampage). */
   costMult(id: ArtId, hitIndex: number): number {
     const c = this.c;
     let m = 1;
     // S-Beat's Blade: the third step may be the free perfect one; anything else costs double.
-    if (c.hasUnique('sBeatBlade') && !isTechArt(id) && hitIndex !== 2) m *= U.sBeatTp;
-    if (c.hasUnique('motav') && isTechArt(id) && isAttackTech(id)) {
+    if (c.hasUnique('sBeatBlade') && hitIndex !== 2) m *= U.sBeatTp;
+    if (c.hasUnique('motav') && isAttackTech(id)) {
       const el = techniques[id].element as Element | null;
       if (el && this.motavLast && el !== this.motavLast) m = 0;
     }
+    // Dragon Fang: a full Rampage makes techniques free.
+    if (this.rampage >= U.rampageMax) m = 0;
     return m;
   }
 
   /** Can this technique be paid with HP (Dark Bridge), and what would it take? */
   bloodCost(id: ArtId, tpShort: number): number | null {
-    if (tpShort <= 0 || !isTechArt(id) || !isAttackTech(id) || !this.c.hasUnique('darkBridge')) return null;
+    if (tpShort <= 0 || !isAttackTech(id) || !this.c.hasUnique('darkBridge')) return null;
     const hp = Math.ceil(tpShort * U.bridgeHpPerTp);
     return hp < this.p.hp ? hp : null;
   }
 
   /**
    * An Art started, its TP paid (`paid` of `cost`; the rest from HP for Dark Bridge). S-Beat's Blade's perfect third
-   * step refunds and cuts cooldowns; Motav moves its combo on; a Rampage at 10 clears Leap and Shadow Step.
+   * step refunds; Motav moves its combo on.
    */
   started(id: ArtId, hitIndex: number, perfect: boolean, cost: number, paid: number): void {
     const c = this.c;
@@ -351,17 +353,15 @@ export class UniqueFx {
         this.k.h.float(tmp.copy(p.pos).setY(2.2), `−${hp}`, 'hurt');
       }
     }
-    if (c.hasUnique('sBeatBlade') && !isTechArt(id) && hitIndex === 2) {
-      if (perfect) {
-        this.k.refundTp(paid, 'S-BEAT');
-        for (const [other, t] of p.cooldowns) if (other !== id) p.cooldowns.set(other, Math.max(0, t - U.sBeatCd));
-      } else {
+    if (c.hasUnique('sBeatBlade') && hitIndex === 2) {
+      if (perfect) this.k.refundTp(paid, 'S-BEAT');
+      else {
         // The third step without the perfect chain: double, if there's TP for it.
         const extra = Math.min(p.tp, paid * (U.sBeatTp - 1));
         p.tp -= extra;
       }
     }
-    if (c.hasUnique('motav') && isTechArt(id) && isAttackTech(id)) {
+    if (c.hasUnique('motav') && isAttackTech(id)) {
       const el = techniques[id].element as Element | null;
       if (el) {
         if (this.motavLast && el !== this.motavLast) {
@@ -374,7 +374,6 @@ export class UniqueFx {
         }
       }
     }
-    if (this.rampage >= U.rampageMax && (id === 'leap' || id === 'shadowStep')) p.cooldowns.delete(id);
   }
 
   /** The Art being fired takes the multiplier its start set (once). */
@@ -384,12 +383,11 @@ export class UniqueFx {
     return m;
   }
 
-  /** An Art fired (not an echo): Yasakani Magatama plays it again a moment later, free, every so often. */
+  /** An attack technique cast (not an echo): Yasakani Magatama casts it again a moment later, free, every so often. */
   fired(id: ArtId, ctx: ArtCtx, replay: (ctx: ArtCtx) => void): void {
     const c = this.c;
     if (ctx.echo || !c.hasUnique('yasakani') || this.yasakaniT < U.yasakaniEvery) return;
-    const role = ARTS[id].role;
-    if (role === 'mobility' || role === 'defence' || role === 'support') return;
+    if (ARTS[id].role === 'support') return;
     this.yasakaniT = 0;
     this.float('ECHO', 'proc');
     this.k.later(U.yasakaniDelay, () => replay({ ...ctx, mult: ctx.mult * c.uval(U.yasakaniShare), echo: true }));

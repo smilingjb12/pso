@@ -2,19 +2,19 @@ import * as THREE from 'three';
 import { sfx } from '../../audio';
 import { yawTo } from '../collision';
 import { formulas, passiveCfg as T, techScaling } from '../config';
-import { ARTS, type ArtId } from '../data/arts';
+import type { ArtId } from '../data/arts';
 import { restaHeal, techniques, type TechId } from '../data/techniques';
-import { cutMult, playerDamageRaw } from '../formulas';
+import { cutMult } from '../formulas';
 import type { TelegraphShape } from '../world/Telegraph';
 import type { Projectile } from '../world/Projectile';
 import { Burst, EMBERS, Fall, Field, fieldMark, FROST_GLITTER, GroundMark, IceSpikes, Puff, shapeArea, SNOW, StaticField, Trail } from '../world/spellFx';
-import type { Combat, TechHit, WeaponHit } from './Combat';
-import { chestOf, frozen, isBossPart, staggered } from './Combat';
+import type { Combat, TechHit } from './Combat';
+import { chestOf, frozen, isBossPart } from './Combat';
 import type { Hittable } from './types';
 
-// What every Art does (data/arts.ts has their numbers and words). Combat calls fire() when an Art's wind-up ends
-// and tick() for each of a channel's effects; everything here goes through Combat's helpers (weaponHit, techHit,
-// debuffs, zones, timers, projectiles, visuals). The numbers in modifiers match their descriptions.
+// What every Art (technique) does (data/arts.ts has their numbers and words). Combat calls fire() when an Art's
+// wind-up ends; everything here goes through Combat's helpers (techHit, debuffs, zones, timers, projectiles,
+// visuals). The numbers in modifiers match their descriptions. The weapon Arts went with the classes on 2026-10-21.
 
 export interface ArtCtx {
   id: ArtId;
@@ -46,12 +46,6 @@ export class ArtRunner {
 
   // ------------------------------------------------------------ helpers
 
-  /** A weapon hit from this Art. */
-  private wh(t: Hittable, power: number, x: ArtCtx, more: Partial<WeaponHit> = {}): { dmg: number; killed: boolean } {
-    if (!t.alive || t.invulnerable) return { dmg: 0, killed: false };
-    return this.k.weaponHit(t, { power, label: x.label, streak: x.streak, finisher: x.finisher, art: x.id, ...more, mult: (more.mult ?? 1) * x.mult });
-  }
-
   /** A technique hit from this Art. */
   private th(t: Hittable, x: ArtCtx, more: Partial<TechHit> = {}): { dmg: number; killed: boolean } {
     return this.k.techHit(t, { tech: x.id as TechId, streak: x.streak, finisher: x.finisher, label: x.label, ...more, mult: (more.mult ?? 1) * x.mult });
@@ -77,14 +71,6 @@ export class ArtRunner {
     return t && t.alive && !t.invulnerable ? this.yawAt(t) : this.k.artYaw;
   }
 
-  /** The target in melee reach (or the nearest enemy in front of her). */
-  private meleeTarget(extra = 0.6): Hittable | null {
-    const reach = this.c.weaponKind().range + extra;
-    const t = this.k.artTarget;
-    if (t && t.alive && !t.invulnerable && Math.hypot(t.pos.x - this.p.pos.x, t.pos.z - this.p.pos.z) - t.radius <= reach) return t;
-    return this.k.inArc(reach, 140, 1)[0] ?? null;
-  }
-
   /** Yaw from her to a target (or her facing). */
   private yawAt(t: Hittable | null): number {
     const p = this.p;
@@ -95,14 +81,6 @@ export class ArtRunner {
   private spot(t: Hittable | null, d: number, yaw = this.p.yaw): THREE.Vector3 {
     const p = this.p;
     return t ? t.pos.clone() : new THREE.Vector3(p.pos.x + Math.sin(yaw) * d, 0, p.pos.z + Math.cos(yaw) * d);
-  }
-
-  /** What a weapon hit of this power deals through `armor` %, before crits and multipliers (for damage over time). */
-  private weaponEstimate(armor: number, power: number): number {
-    const c = this.c;
-    const kind = c.weaponKind();
-    const [lo, hi] = c.weaponDamage();
-    return playerDamageRaw((lo + hi) / 2, armor, power) * kind.damageScale * (kind.ranged ? formulas.rangedDamageMult : formulas.meleeDamageMult);
   }
 
   /** What a technique hit deals before crits and multipliers (for burning ground). */
@@ -156,413 +134,11 @@ export class ArtRunner {
 
   // ------------------------------------------------------------ dispatch
 
-  /** An Art's wind-up ended: its effect (or the start of its channel). */
+  /** An Art's wind-up ended: its effect. */
   fire(id: ArtId, x: ArtCtx): void {
     const p = this.p;
     const c = this.c;
     switch (id) {
-      // ---------------------------------------------------------- Sword
-      case 'cyclone':
-        sfx('swing.blade', { pitch: 0.8 });
-        break;
-      case 'groundBreaker': {
-        sfx('swing.blade', { pitch: 0.7, vol: 1.3 });
-        const line = (mult: number) => {
-          const shape: TelegraphShape = { kind: 'line', x: p.pos.x, z: p.pos.z, yaw: p.yaw, length: 8, width: x.has('wide') ? 3.2 : 1.6 };
-          this.k.flashShape(shape, ARTS.groundBreaker.color, 0.35);
-          this.k.tracer(p.yaw, 8, ARTS.groundBreaker.color, 0.4, 0.25);
-          this.k.h.shake(0.35);
-          for (const t of this.k.targetsIn(shape)) {
-            this.wh(t, 2.4, x, { strong: mult === 1, stagger: x.has('quake') ? Infinity : 2, pierce: x.has('crush') ? 0.3 : 0, mult });
-            if (x.has('daunt')) this.k.weaken(t, 0.8, 5);
-          }
-          if (x.has('fissure') && mult === 1) this.ice(shape, 4, 0.6);
-        };
-        line(1);
-        if (x.has('aftershock') && !x.echo) this.k.later(0.6, () => line(0.6));
-        break;
-      }
-      case 'sunder': {
-        sfx('swing.blade', { pitch: 0.85, vol: 1.2 });
-        const hit = this.k.inArc(c.weaponKind().range + 0.4, 170, x.has('sweeping') ? 99 : 3);
-        for (const t of hit) {
-          this.wh(t, 1.8, x, { strong: true, mult: x.has('execute') && staggered(t) ? 1.5 : 1 });
-          if (t.alive) this.k.sunder(t, x.has('deep') ? 12 : 8, x.has('lingering') ? 15 : 8, 3, x.has('rend'));
-        }
-        if (x.has('momentum') && hit.length >= 3) this.k.refundTp(this.k.artCostPaid * 0.4, 'MOMENTUM');
-        break;
-      }
-
-      // ---------------------------------------------------------- Saber
-      case 'risingEdge': {
-        sfx('swing.blade', { pitch: 0.9, vol: 1.2 });
-        const t = this.meleeTarget(1.2);
-        if (!t) {
-          this.k.h.log(`${x.label}: <span class="l-dim">whiff</span>`);
-          break;
-        }
-        const exec = x.has('executioner') && (staggered(t) || frozen(t)) ? 1.4 : 1;
-        const r = this.wh(t, 3.2, x, { strong: true, stagger: x.has('balanced') ? 3 : 2, mult: (x.has('balanced') ? 1.2 : 1) * exec });
-        if (x.has('airSlash')) for (const o of this.k.nearestOthers(t.pos, [t], 4, 2)) this.wh(o, 1.6, x);
-        if (x.has('followUp') && !x.echo) this.k.later(0.25, () => t.alive && this.wh(t, 3.2 * 0.4, x));
-        if (x.has('parry')) p.guard(0.85, 2);
-        if (x.has('momentum') && r.killed) this.k.refundTp(this.k.artCostPaid * 0.5, 'MOMENTUM');
-        break;
-      }
-      case 'crescent': {
-        sfx('swing.blade', { pitch: 1.1 });
-        const focused = x.has('focused');
-        const range = x.has('long') ? 14 : 9;
-        const yaws = x.has('twin') ? [p.yaw - deg(12), p.yaw + deg(12)] : [p.yaw];
-        for (const yaw of yaws) {
-          const onHit = (t: Hittable, mult = 1) => {
-            this.wh(t, 1.6, x, { mult: mult * (focused ? 2 : 1) });
-            if (!t.alive) return;
-            if (x.has('shock')) this.k.stun(t, 1.5, 0.2);
-            if (x.has('frost')) this.k.chillTarget(t, techScaling.chillMult, techScaling.chillTime);
-          };
-          const hit = new Set<Hittable>();
-          this.k.shoot(yaw, {
-            speed: 18, range, radius: 0.9, size: 0.35, color: ARTS.crescent.color,
-            onHit: (t) => {
-              if (t.invulnerable || hit.has(t)) return false;
-              hit.add(t);
-              onHit(t);
-              return focused || hit.size >= 5;
-            },
-            onExpire: (end) => {
-              if (!x.has('boomerang') || x.echo) return;
-              // Back it comes, toward her, at half.
-              const back = new Set<Hittable>();
-              const from = end.clone().setY(1.25);
-              this.k.shoot(yawTo(end.x, end.z, p.pos.x, p.pos.z), {
-                from, speed: 18, range: Math.hypot(end.x - p.pos.x, end.z - p.pos.z), radius: 0.9, size: 0.3, color: ARTS.crescent.color,
-                onHit: (t) => {
-                  if (t.invulnerable || back.has(t)) return false;
-                  back.add(t);
-                  onHit(t, 0.5);
-                  return back.size >= 5;
-                },
-              });
-            },
-          });
-        }
-        break;
-      }
-      case 'guardStance': {
-        const dur = c.artTiming('guardStance').active;
-        p.guardStanceT = dur;
-        p.counterReady = true;
-        p.guard(x.has('iron') ? 0.2 : 0.4, dur);
-        this.k.ring(p.pos.x, p.pos.z, ARTS.guardStance.color, 1.4, 0.3);
-        sfx('tech.buff', { pitch: 1.3 });
-        break;
-      }
-
-      // ---------------------------------------------------------- Dagger
-      case 'venomEdge':
-      case 'bladeDance':
-        break;
-      case 'shadowStep': {
-        const t = this.target(x.has('quick') ? 10 : 10);
-        if (!t) {
-          this.k.h.log(`${x.label}: <span class="l-dim">no target</span>`);
-          break;
-        }
-        const dx = t.pos.x - p.pos.x;
-        const dz = t.pos.z - p.pos.z;
-        const len = Math.hypot(dx, dz) || 1;
-        if (len > 10 + t.radius) {
-          this.k.h.log(`${x.label}: <span class="l-dim">too far</span>`);
-          break;
-        }
-        this.k.pillar(p.pos.x, p.pos.z, 0x302040, 0.5, 0.4, 2.2);
-        p.pos.x = t.pos.x + (dx / len) * (t.radius + 0.9);
-        p.pos.z = t.pos.z + (dz / len) * (t.radius + 0.9);
-        p.yaw = yawTo(p.pos.x, p.pos.z, t.pos.x, t.pos.z);
-        this.k.pillar(p.pos.x, p.pos.z, 0x302040, 0.5, 0.4, 2.2);
-        sfx('player.dash', { pitch: 0.7 });
-        p.critNextT = 2;
-        this.k.ambush = x.has('ambush');
-        if (x.has('vanish')) p.guard(0.5, 1.5);
-        if (x.has('flurry')) p.extraStrikes = 2;
-        if (x.has('backstab')) {
-          const r = this.wh(t, 1.5, x, { strong: true });
-          if (x.has('venom') && t.alive) for (let i = 0; i < 2; i++) this.k.venom(t, r.dmg * 0.15, 6, 5);
-        } else if (x.has('venom')) {
-          const per = this.weaponEstimate(this.k.armorOf(t), 0.6) * 0.15;
-          for (let i = 0; i < 2; i++) this.k.venom(t, per, 6, 5);
-        }
-        break;
-      }
-
-      // ---------------------------------------------------------- Hunter (any melee)
-      case 'leap': {
-        const t = this.target(x.has('far') ? 12 : 8);
-        const maxD = x.has('far') ? 12 : 8;
-        let d = 5;
-        let yaw = p.yaw;
-        if (t) {
-          yaw = yawTo(p.pos.x, p.pos.z, t.pos.x, t.pos.z);
-          d = Math.max(0, Math.min(maxD, Math.hypot(t.pos.x - p.pos.x, t.pos.z - p.pos.z) - t.radius - 0.8));
-        }
-        p.yaw = yaw;
-        p.artMove = { fx: p.pos.x, fz: p.pos.z, tx: p.pos.x + Math.sin(yaw) * d, tz: p.pos.z + Math.cos(yaw) * d, t: 0, dur: c.artTiming('leap').active };
-        sfx('player.dash', { pitch: 0.8 });
-        break;
-      }
-      case 'warCry': {
-        const r = x.has('roar') ? 12 : 8;
-        this.k.ring(p.pos.x, p.pos.z, ARTS.warCry.color, r, 0.45);
-        this.k.h.shake(0.3);
-        sfx('tech.buff', { pitch: 0.6, vol: 1.3 });
-        for (const t of this.k.targetsIn({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius: r })) {
-          this.k.weaken(t, x.has('fearsome') ? 0.65 : 0.75, x.has('long') ? 10 : 6);
-          t.damage(0, p.pos.x, p.pos.z, 0, x.has('shatter') ? Infinity : 1.5);
-        }
-        if (x.has('rally')) {
-          const heal = Math.round(p.maxHp * 0.1);
-          p.hp = Math.min(p.maxHp, p.hp + heal);
-          this.k.h.float(tmp.copy(p.pos).setY(2.2), `+${heal}`, 'heal');
-        }
-        if (x.has('battle')) p.buffs.atp = { pct: Math.max(p.buffs.atp.pct, 15), t: Math.max(p.buffs.atp.t, 6) };
-        break;
-      }
-      case 'ironWill': {
-        const dur = x.has('enduring') ? 8 : 5;
-        p.ironWillT = dur;
-        if (x.has('mending')) p.addRegen('hp', p.maxHp * 0.02 * dur, dur);
-        this.k.ring(p.pos.x, p.pos.z, ARTS.ironWill.color, 2, 0.4);
-        sfx('tech.buff', { pitch: 0.8 });
-        this.k.h.float(tmp.copy(p.pos).setY(2.5), 'IRON WILL', 'heal');
-        break;
-      }
-
-      // ---------------------------------------------------------- Handgun
-      case 'rapidVolley':
-        break;
-      case 'flashShot': {
-        sfx('shot.handgun', { pitch: 1.3, vol: 1.2 });
-        const t0 = this.target(16);
-        const targets = x.has('burst')
-          ? this.k.targetsIn({ kind: 'cone', x: p.pos.x, z: p.pos.z, yaw: this.yawAt(t0), range: 16, arcDeg: 40 }).slice(0, 3)
-          : t0 ? [t0] : [];
-        const secs = x.has('blinding') ? 3 : x.has('charged') ? 1 : 2;
-        for (const t of targets) {
-          this.bolt(t, ARTS.flashShot.color, (h) => {
-            this.wh(h, 1.2, x, { strong: true, mult: x.has('charged') ? 2.5 : 1 });
-            if (!h.alive) return;
-            this.k.stun(h, secs);
-            if (x.has('exposed')) this.k.mark(h, 1.2, secs);
-          }, { speed: 40 });
-        }
-        if (x.has('room')) {
-          for (const e of this.k.targetsIn({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius: 4 })) this.k.shove(e, p.pos.x, p.pos.z, T.breathingRoomKnock);
-          this.k.flashShape({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius: 4 }, 0xffd080);
-        }
-        break;
-      }
-      case 'ricochet': {
-        sfx('shot.handgun', { pitch: 0.9, vol: 1.2 });
-        const first = this.target(16);
-        if (!first) break;
-        const bounces = x.has('chain') ? 5 : x.has('heavy') ? 2 : 3;
-        const mult = x.has('heavy') ? 1.4 : 1;
-        const hit: Hittable[] = [];
-        const fly = (from: THREE.Vector3 | undefined, t: Hittable, left: number) => {
-          this.bolt(t, ARTS.ricochet.color, (h) => {
-            hit.push(h);
-            this.wh(h, 1.4, x, { mult });
-            if (h.alive && (x.has('arc') || x.has('shock'))) this.k.stun(h, x.has('arc') ? 0.8 : 1.5, x.has('arc') ? 1 : 0.2);
-            const next = left > 0 ? this.k.nearestOthers(h.pos, hit, 1, 6)[0] : undefined;
-            if (next) fly(h.pos.clone().setY(1.25), next, left - 1);
-            else {
-              if (x.has('hunter') && h.alive) this.k.mark(h, 1.2, 8);
-              if (x.has('efficient') && hit.length >= 4) this.k.refundTp(this.k.artCostPaid * 0.3, 'EFFICIENT');
-            }
-          }, { from, speed: 36, range: 30 });
-        };
-        fly(undefined, first, bounces);
-        break;
-      }
-
-      // ---------------------------------------------------------- Rifle
-      case 'chargedShot': {
-        sfx('shot.rifle', { pitch: 0.7, vol: 1.5 });
-        const width = x.has('wide') ? 2.4 : 1.2;
-        const shape: TelegraphShape = { kind: 'line', x: p.pos.x, z: p.pos.z, yaw: p.yaw, length: 26, width };
-        this.k.tracer(p.yaw, 26, ARTS.chargedShot.color, width * 0.4, 0.3);
-        for (const t of this.k.targetsIn(shape)) {
-          this.wh(t, 3.5, x, { strong: true, stagger: x.has('impact') ? Infinity : 1.5, mult: x.has('deadeye') ? 1.2 : 1 });
-          if (!t.alive) continue;
-          if (x.has('cryo')) this.k.freeze(t, 1.5);
-          if (x.has('mark')) this.k.mark(t, 1.15, 6);
-        }
-        break;
-      }
-      case 'mark': {
-        sfx('shot.rifle', { pitch: 1.4 });
-        const t = this.target(26);
-        if (!t) break;
-        this.bolt(t, ARTS.mark.color, (h) => {
-          this.wh(h, 0.8, x);
-          if (!h.alive) return;
-          const marks = [h, ...(x.has('spread') ? this.k.nearestOthers(h.pos, [h], 2, 5) : [])];
-          const secs = x.has('long') ? 14 : 8;
-          for (const m of marks) {
-            this.k.mark(m, x.has('expose') ? 1.3 : 1.2, secs, x.has('bounty'));
-            if (x.has('pin')) this.k.chillTarget(m, 0.75, secs);
-            this.k.h.float(tmp.copy(m.pos).setY(m.aimHeight + 1.2), 'MARKED', 'proc');
-          }
-        }, { speed: 45, range: 30 });
-        break;
-      }
-      case 'freezeRound': {
-        sfx('shot.rifle', { pitch: 1.2 });
-        const t = this.target(26);
-        if (!t) break;
-        this.bolt(t, ARTS.freezeRound.color, (h) => {
-          const wasChilled = this.k.chilled(h);
-          this.wh(h, 1.6, x, { mult: x.has('shatter') && frozen(h) ? 2.5 : 1 });
-          if (!h.alive) return;
-          if (wasChilled && !isBossPart(h)) this.k.freeze(h, x.has('deep') ? 3 : 2);
-          else this.k.chillTarget(h, techScaling.chillMult, techScaling.chillTime, x.has('frostbite') ? 0.8 : 1);
-          if (x.has('burst')) for (const o of this.k.nearestOthers(h.pos, [h], 8, 3)) this.k.chillTarget(o, techScaling.chillMult, techScaling.chillTime, x.has('frostbite') ? 0.8 : 1);
-          if (x.has('glacier')) this.ice({ kind: 'circle', x: h.pos.x, z: h.pos.z, radius: 2.5 }, 4, techScaling.chillMult);
-        }, { speed: 45, range: 30 });
-        break;
-      }
-
-      // ---------------------------------------------------------- Shot
-      case 'scatterBlast': {
-        sfx('shot.shot', { pitch: 0.85, vol: 1.3 });
-        const pellets = x.has('spread') ? 13 : x.has('buckshot') ? 5 : 9;
-        const arc = x.has('spread') ? 80 : 60;
-        const shape: TelegraphShape = { kind: 'cone', x: p.pos.x, z: p.pos.z, yaw: p.yaw, range: 8, arcDeg: arc };
-        for (let i = 0; i < Math.min(pellets, 9); i++) this.k.tracer(p.yaw + deg((i / Math.max(1, Math.min(pellets, 9) - 1) - 0.5) * arc), 8, ARTS.scatterBlast.color, 0.08, 0.12);
-        for (const t of this.k.targetsIn(shape)) {
-          const near = Math.hypot(t.pos.x - p.pos.x, t.pos.z - p.pos.z) - t.radius < 4;
-          const per = x.has('buckshot') ? 1 : near ? 3 : 2;
-          this.wh(t, 0.8 * per, x, { kb: x.has('room') ? 3 : 1.5, mult: (x.has('buckshot') ? 1.8 : 1) * (x.has('pointBlank') && near ? 1.5 : 1) });
-          if (!t.alive) continue;
-          if (x.has('suppress')) this.k.weaken(t, 0.85, 3);
-          if (x.has('incendiary')) t.applyStatus('burn', (this.weaponEstimate(this.k.armorOf(t), 0.8 * per) * 0.4) / 3, 3);
-        }
-        break;
-      }
-      case 'napalmShell': {
-        sfx('shot.shot', { pitch: 0.6 });
-        const t = this.target(12);
-        const at = this.spot(t, 8);
-        const centers = x.has('cluster')
-          ? [0, 1, 2].map((i) => new THREE.Vector3(at.x + Math.sin((i / 3) * Math.PI * 2) * 2, 0, at.z + Math.cos((i / 3) * Math.PI * 2) * 2))
-          : [at];
-        const share = x.has('cluster') ? 0.6 : 1;
-        const radius = x.has('big') ? 4 : 3;
-        for (const ctr of centers) {
-          this.k.lob(ctr.x, ctr.z, 0.35, ARTS.napalmShell.color, 0.25);
-          this.k.later(0.35, () => {
-            const shape: TelegraphShape = { kind: 'circle', x: ctr.x, z: ctr.z, radius };
-            this.k.ring(ctr.x, ctr.z, ARTS.napalmShell.color, radius * 1.2, 0.35);
-            this.k.pillar(ctr.x, ctr.z, ARTS.napalmShell.color, 0.4, 0.5, 2.5);
-            sfx('tech.foie.hit', { x: ctr.x, z: ctr.z });
-            let est = 0;
-            for (const h of this.k.targetsIn(shape)) {
-              est = Math.max(est, this.weaponEstimate(this.k.armorOf(h), 1.5 * share));
-              this.wh(h, 1.5, x, { strong: true, mult: share });
-            }
-            if (x.echo) return;
-            const dps = (est || this.weaponEstimate(0, 1.5 * share)) * 0.3 * (x.has('kindling') ? 1.5 : 1);
-            this.burnGround(shape, (x.has('long') ? 7 : 4) * this.k.ufx.napalmMult(), dps, x.has('sticky') ? 0.7 : 0);
-          });
-        }
-        break;
-      }
-      case 'slug': {
-        sfx('shot.shot', { pitch: 0.7, vol: 1.4 });
-        const t = this.target(12);
-        this.bolt(t, ARTS.slug.color, (h) => {
-          const exec = x.has('executioner') && (staggered(h) || frozen(h)) ? 1.4 : 1;
-          this.wh(h, 4, x, { strong: true, stagger: x.has('breaker') ? 3 : 2, kb: 2, mult: (x.has('magnum') ? 1.3 : 1) * exec });
-          if (h.alive && x.has('concussive')) this.k.stun(h, 1);
-        }, { speed: 40, range: 14, size: 0.3, pierce: x.has('piercing') ? 3 : 1, homing: !x.has('piercing') });
-        if (x.has('recoil') && !x.echo) {
-          const back = p.yaw + Math.PI;
-          p.artMove = { fx: p.pos.x, fz: p.pos.z, tx: p.pos.x + Math.sin(back) * 2, tz: p.pos.z + Math.cos(back) * 2, t: 0, dur: 0.2 };
-        }
-        break;
-      }
-
-      // ---------------------------------------------------------- Ranger (any gun)
-      case 'freezeTrap': {
-        const t = this.target(12);
-        const at = x.has('toss') ? this.spot(t, 6) : p.pos.clone();
-        const side = p.yaw + Math.PI / 2;
-        const spots = x.has('twin') ? [-1.5, 1.5].map((o) => new THREE.Vector3(at.x + Math.sin(side) * o, 0, at.z + Math.cos(side) * o)) : [at];
-        const radius = x.has('wide') ? 4.5 : 3;
-        sfx('box.break', { pitch: 1.6, vol: 0.6 });
-        for (const s of spots) {
-          this.k.zone({ kind: 'circle', x: s.x, z: s.z, radius: 1.2 }, 15, 0, (inside) => {
-            if (!inside.length) return false;
-            const blast: TelegraphShape = { kind: 'circle', x: s.x, z: s.z, radius };
-            this.k.ring(s.x, s.z, ARTS.freezeTrap.color, radius, 0.4);
-            sfx('tech.barta', { x: s.x, z: s.z });
-            for (const h of this.k.targetsIn(blast)) {
-              if (x.has('damage')) this.wh(h, 2, x, { strong: true, streak: 0, finisher: false });
-              else this.k.freeze(h, 2.5);
-              if (h.alive && x.has('frostbite')) this.k.mark(h, 1.2, 2.5);
-            }
-            return true;
-          }, ARTS.freezeTrap.color);
-        }
-        break;
-      }
-      case 'backflipShot': {
-        const t = this.target(16);
-        const away = t ? yawTo(t.pos.x, t.pos.z, p.pos.x, p.pos.z) : p.yaw + Math.PI;
-        const d = x.has('far') ? 5 : 3;
-        if (x.has('concussive')) {
-          for (const e of this.k.targetsIn({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius: 3 })) this.k.shove(e, p.pos.x, p.pos.z, T.breathingRoomKnock);
-          this.k.flashShape({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius: 3 }, 0xffd080);
-        }
-        p.artMove = { fx: p.pos.x, fz: p.pos.z, tx: p.pos.x + Math.sin(away) * d, tz: p.pos.z + Math.cos(away) * d, t: 0, dur: c.artTiming('backflipShot').active };
-        sfx('player.dash', { pitch: 1.2 });
-        break;
-      }
-      case 'grenade': {
-        sfx('shot.shot', { pitch: 1.3, vol: 0.8 });
-        const t = this.target(12);
-        const radius = x.has('big') ? 5 : 3.5;
-        const blast = (ctr: THREE.Vector3, mult: number) => {
-          const shape: TelegraphShape = { kind: 'circle', x: ctr.x, z: ctr.z, radius };
-          this.k.ring(ctr.x, ctr.z, ARTS.grenade.color, radius * 1.2, 0.35);
-          this.k.pillar(ctr.x, ctr.z, 0xfff0c0, 0.5, 0.4, 2.5);
-          this.k.h.shake(0.25);
-          sfx('box.break', { x: ctr.x, z: ctr.z, pitch: 0.6, vol: 1.3 });
-          let est = 0;
-          for (const h of this.k.targetsIn(shape)) {
-            est = Math.max(est, this.weaponEstimate(this.k.armorOf(h), 2.2 * mult));
-            this.wh(h, 2.2, x, { strong: true, mult });
-            if (!h.alive) continue;
-            this.k.stun(h, x.has('flashbang') ? 2 : 1);
-            if (x.has('cryo')) this.k.chillTarget(h, techScaling.chillMult, techScaling.chillTime);
-          }
-          if (x.has('incendiary') && !x.echo) this.burnGround(shape, 4, est * 0.3);
-        };
-        if (x.has('sticky') && t) {
-          this.k.lob(t.pos.x, t.pos.z, 0.4, ARTS.grenade.color, 0.18);
-          this.k.later(1, () => blast(t.alive ? t.pos.clone() : t.pos.clone(), 1.6));
-          break;
-        }
-        const at = this.spot(t, 9);
-        const centers = x.has('cluster') ? [-2, 0, 2].map((o) => new THREE.Vector3(at.x + Math.sin(p.yaw + Math.PI / 2) * o, 0, at.z + Math.cos(p.yaw + Math.PI / 2) * o)) : [at];
-        for (const ctr of centers) {
-          this.k.lob(ctr.x, ctr.z, 0.5, ARTS.grenade.color, 0.18);
-          this.k.later(0.5, () => blast(ctr, x.has('cluster') ? 0.6 : 1));
-        }
-        break;
-      }
-
       // ---------------------------------------------------------- techniques
       case 'foie':
         this.foie(x);
@@ -597,112 +173,6 @@ export class ArtRunner {
     }
     // Ward: the single-target techniques shield you.
     if ((id === 'foie' || id === 'zonde' || id === 'barta') && !x.echo && c.hasPassive('ward')) p.addTimedShield(p.maxHp * c.pAmt('ward', T.wardShield), T.wardTime);
-  }
-
-  /** One of a channel Art's effects (tick `i` of its total), at the end of its share of the channel. */
-  tick(id: ArtId, i: number, x: ArtCtx): void {
-    const p = this.p;
-    const c = this.c;
-    const n = c.artTicks(id);
-    const last = i === n - 1;
-    switch (id) {
-      case 'cyclone': {
-        const reach = c.weaponKind().range + 0.6 + (x.has('wide') ? 1.5 : 0);
-        const hit = this.k.targetsIn({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius: reach });
-        this.k.ring(p.pos.x, p.pos.z, ARTS.cyclone.color, reach, 0.2);
-        sfx('swing.blade', { pitch: 0.9 + i * 0.05 });
-        for (const t of hit) {
-          const r = this.wh(t, 0.75, x, { kb: last && x.has('shockwave') ? 3 : 0.5 });
-          if (!t.alive) continue;
-          if (x.has('vortex')) this.k.pull(t, p.pos.x, p.pos.z, 10);
-          if (x.has('burning')) t.applyStatus('burn', (r.dmg * 0.4) / 3, 3);
-        }
-        if (hit.length && x.has('guarded')) p.addSweepGuard(hit.length * 0.02, 0.12, 3);
-        break;
-      }
-      case 'venomEdge': {
-        const t = this.meleeTarget();
-        sfx('swing.blade', { pitch: 1.3, vol: 0.7 });
-        if (!t) break;
-        const lacerate = x.has('lacerate') && this.k.venomStacks(t) > 0 ? 1.4 : 1;
-        const r = this.wh(t, 0.6, x, { mult: lacerate });
-        if (t.alive) this.k.venom(t, r.dmg * 0.15, 6, x.has('deadly') ? 8 : 5, { weak: x.has('weakening'), contagion: x.has('contagion') });
-        break;
-      }
-      case 'bladeDance': {
-        sfx('swing.blade', { pitch: 1.2 + (i % 2) * 0.1, vol: 0.8 });
-        const targets = x.has('whirl') ? this.k.targetsIn({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius: 2.5 }) : [this.meleeTarget()].filter((t): t is Hittable => !!t);
-        for (const t of targets) {
-          const exec = staggered(t) || frozen(t) ? (x.has('execute') ? 2 : 1.5) : 1;
-          this.wh(t, 0.65, x, { mult: exec, stagger: last && x.has('finale') ? Infinity : 1 });
-        }
-        if (targets.length && x.has('thirst')) {
-          const heal = Math.max(1, Math.round(p.maxHp * 0.005));
-          p.hp = Math.min(p.maxHp, p.hp + heal);
-        }
-        break;
-      }
-      case 'leap': {
-        // The landing.
-        const radius = x.has('crater') ? 3.5 : 2.5;
-        this.k.ring(p.pos.x, p.pos.z, ARTS.leap.color, radius * 1.2, 0.35);
-        this.k.h.shake(0.35);
-        sfx('swing.blade', { pitch: 0.6, vol: 1.3 });
-        for (const t of this.k.targetsIn({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius })) {
-          this.wh(t, 1.4, x, { strong: true, stagger: 2 });
-          if (t.alive && x.has('stun')) this.k.stun(t, 1);
-        }
-        if (x.has('swing')) this.k.meleeBasic(0, 0, 'Follow Through');
-        if (x.has('fleet')) p.dashCharges = Math.min(p.maxDashCharges, p.dashCharges + 1);
-        if (x.has('braced')) p.guard(0.7, 2);
-        break;
-      }
-      case 'rapidVolley': {
-        const t = this.target(16);
-        sfx('shot.handgun', { pitch: 1.1 });
-        this.bolt(t, ARTS.rapidVolley.color, (h) => {
-          this.wh(h, 0.55, x, { mult: x.has('focused') ? 1.25 : 1 });
-          if (!h.alive) return;
-          if (x.has('suppress')) this.k.weaken(h, 0.85, 3);
-          if (last && x.has('mark')) this.k.mark(h, 1.15, 6);
-        }, { speed: 40, pierce: x.has('ap') ? 2 : 1 });
-        break;
-      }
-      case 'backflipShot': {
-        // Landing: fire.
-        const t = this.target(16);
-        const shots = x.has('double') ? 2 : 1;
-        sfx('shot.handgun', { pitch: 0.95 });
-        for (let s = 0; s < shots; s++) {
-          this.k.later(s * 0.12, () => this.bolt(t, ARTS.backflipShot.color, (h) => {
-            const r = this.wh(h, 1.4, x, { strong: true });
-            if (x.has('arc') && s === 0) this.k.arcChain(h, r.dmg, 0.5, 0.8);
-          }, { speed: 40 }));
-        }
-        if (x.has('fleet')) p.dashCharges = Math.min(p.maxDashCharges, p.dashCharges + 1);
-        if (x.has('focus')) p.halfCostNext = true;
-        break;
-      }
-    }
-  }
-
-  /** Guard Stance's counter: the first hit while guarding sets off a slash at everything in reach. */
-  counter(): void {
-    const p = this.p;
-    const c = this.c;
-    p.counterReady = false;
-    const has = (m: string) => c.artMod('guardStance', m);
-    this.k.h.float(tmp.copy(p.pos).setY(2.6), 'COUNTER', 'proc');
-    sfx('swing.blade', { pitch: 0.8, vol: 1.4 });
-    this.k.flashShape({ kind: 'circle', x: p.pos.x, z: p.pos.z, radius: c.weaponKind().range + 0.8 }, ARTS.guardStance.color);
-    for (const t of this.k.inArc(c.weaponKind().range + 0.8, 360, 6)) {
-      this.k.weaponHit(t, { power: 2.5, label: 'Counter', streak: 0, finisher: false, art: 'guardStance', strong: true, mult: has('riposte') ? 1.5 : 1 });
-    }
-    if (has('retaliate')) {
-      p.bonusSwings = 3;
-      p.bonusSwingMult = 1.25;
-    }
-    if (has('focus')) this.k.refundTp(p.maxTp * 0.2, 'FOCUS');
   }
 
   // ------------------------------------------------------------ techniques
@@ -806,7 +276,7 @@ export class ArtRunner {
           this.th(h, x, { share, stagger: 2 });
           if (h.alive && x.has('impact')) this.k.stun(h, 1);
         }
-        if (!x.echo) this.burnGround(shape, x.has('scorched') ? 7 : 4, this.techEstimate('rafoie', 0.15));
+        if (!x.echo) this.burnGround(shape, (x.has('scorched') ? 7 : 4) * this.k.ufx.rafoieMult(), this.techEstimate('rafoie', 0.15));
       });
     }
   }

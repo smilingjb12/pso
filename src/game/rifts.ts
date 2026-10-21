@@ -36,7 +36,7 @@ export const riftCfg = {
    * hits (melee strikes, slams, charges and every boss attack) and chip damage (ranged shots and elite affix side
    * attacks). Damage-first (2026-10-17, the user's call: what gets dangerous is what enemies deal, until a heavy hit
    * almost one-shots at the top). HP first came down to ×1.08 / ×1.15 for quick rooms, but the same day near-top
-   * Force gear (66% Haste, Zonde 49k a cast) killed tier 10 enemies in one cast and bosses in ~22 s, before they could
+   * gear (66% Haste, Zonde 49k a cast) killed tier 10 enemies in one cast and bosses in ~22 s, before they could
    * swing: field HP went back to the old curve (×1.12 per old tier is ×1.25 per new one, ×7.5 at tier 10), bosses
    * ×1.30 (×10.6), then ×1.40 (×20.7, 8.7M at tier 10) when bosses still died too fast (the user, same day). Gear
    * grows about 5-8× from Hell entry to the top, and HP has to keep pace or the top tiers are a one-cast zone. No
@@ -48,8 +48,8 @@ export const riftCfg = {
   chipPerTier: 1.08,
   /**
    * What heavy hits and chip damage deal at tier 1 over the Hell numbers lifted to Lv 100. Rift gear had made enemy
-   * hits tiny (a Hunter took about 1% of max HP a hit, a Force 3%); at ×8 the average heavy hit is about 9% of a
-   * geared Hunter's HP at tier 1 and 45% at tier 10 (Ranger 12% / 60%, Force 26% / 135%).
+   * hits tiny (about 3% of max HP a hit); at ×8 the average heavy hit is about 26% of a geared character's HP at
+   * tier 1 and 135% at tier 10.
    */
   heavyBase: 8,
   chipBase: 4,
@@ -539,7 +539,7 @@ export function riftFoe(r: Pick<RiftInfo, 'tier' | 'mods'>): Foe {
   const ids = RIFT_BIOMES.flatMap((b) => RIFT_ROSTERS[b].map((x) => x.e));
   const archs = ids.map((id) => riftArch(id, r));
   const avg = (v: (a: EnemyArchetype) => number) => Math.round(archs.reduce((t, a) => t + v(a), 0) / archs.length);
-  return { armor: avg((a) => a.armor), techResist: avg((a) => a.techResist ?? 0), label: riftTitle(r as { tier: number }) };
+  return { techResist: avg((a) => a.techResist ?? 0), label: riftTitle(r as { tier: number }) };
 }
 
 /**

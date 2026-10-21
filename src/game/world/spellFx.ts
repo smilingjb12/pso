@@ -965,5 +965,5 @@ export function shapeArea(shape: TelegraphShape): number {
       return (THREE.MathUtils.degToRad(shape.arcDeg) / 2) * (shape.outer ** 2 - shape.inner ** 2);
   }
 }
-/** Photon motes: the Force's bolts and their sparks. */
+/** Photon motes: photon bolts and their sparks. */
 export const MOTES: SparkSpec = { color: 0xffffff, life: [0.15, 0.35], speed: [0.1, 0.5], spread: 'sphere', size: 0.12, drag: 2, brightness: 0.7 };

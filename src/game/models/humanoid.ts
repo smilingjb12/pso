@@ -33,7 +33,7 @@ export interface HumanoidStyle {
   emblem?: number;
   /** Choker / high collar colour. */
   collar?: number;
-  hat?: 'ranger' | 'force' | 'cap';
+  hat?: 'visor' | 'brim' | 'cap';
   hatColor?: number;
   hatTrim?: number;
   /** Long coat tails (RAmar) or long dress (FOmarl). */
@@ -43,7 +43,7 @@ export interface HumanoidStyle {
 export const STYLES = {
   // RAmarl: white leotard with crimson trim, tall shoulder plates, crimson
   // gauntlets, striped armour skirt, knee-high boots, red bob haircut.
-  ranger: {
+  ramarl: {
     build: 'female', skin: 0xf6dccb, hair: 0xc8343a, hairStyle: 'hunewearl', eyes: 0x8a1a22,
     suit: 0xf0f0f4, trim: 0x8c1a32, pants: 0x18181e, boots: 0x16161c, gloves: 0x8c1a32,
     bareLegs: true, bareArms: true, tallBoots: { sole: 0x56688c }, gauntlets: { band: 0xf0f0f4 },
@@ -51,17 +51,17 @@ export const STYLES = {
     emblem: 0x14141a, collar: 0x8c1a32,
   },
   // HUmar: navy long coat, white trim, wide cap with a gold band.
-  hunter: {
+  humar: {
     build: 'male', skin: 0xeec09a, hair: 0x2a2018, hairStyle: 'short', eyes: 0x2a3050,
     suit: 0x2c4fae, trim: 0xf0f0f0, pants: 0x1e2030, boots: 0x30303e, gloves: 0x23232e, collar: 0xf0f0f0,
-    hat: 'ranger', hatColor: 0x1e3478, hatTrim: 0xe8c040, tallBoots: { sole: 0x5a5a6a },
+    hat: 'visor', hatColor: 0x1e3478, hatTrim: 0xe8c040, tallBoots: { sole: 0x5a5a6a },
     skirt: { color: 0x22408e, length: 0.62, flare: 0.07 },
   },
-  // FOmarl: long blue dress, white top, huge wide-brimmed force hat, blonde hair.
-  force: {
+  // FOmarl: long blue dress, white top, huge wide-brimmed hat, blonde hair.
+  fomarl: {
     build: 'female', skin: 0xf6d2b4, hair: 0xf2d27a, hairStyle: 'long', eyes: 0x2a5ab0,
     suit: 0xf4f4fa, trim: 0x3a76d8, pants: 0xf4f4fa, boots: 0x2e5cc8, gloves: 0xf4f4fa, collar: 0x3a76d8,
-    hat: 'force', hatColor: 0x2e5cc8, hatTrim: 0xf4d060, gauntlets: { band: 0xf4d060 },
+    hat: 'brim', hatColor: 0x2e5cc8, hatTrim: 0xf4d060, gauntlets: { band: 0xf4d060 },
     skirt: { color: 0x2e5cc8, length: 0.82, flare: 0.16 },
   },
   shopkeeper: {
@@ -305,12 +305,12 @@ export class Humanoid {
   private buildHat(head: THREE.Object3D, y: number, s: HumanoidStyle): void {
     const hc = mat(s.hatColor ?? 0x333333);
     const ht = mat(s.hatTrim ?? 0xcccccc);
-    if (s.hat === 'ranger') {
+    if (s.hat === 'visor') {
       // Wide visor cap with a gold band.
       part(head, new THREE.CylinderGeometry(0.15, 0.145, 0.13, 7), hc, [0, y + 0.1, -0.01]);
       part(head, new THREE.CylinderGeometry(0.152, 0.152, 0.035, 7), ht, [0, y + 0.06, -0.01]);
       part(head, new THREE.CylinderGeometry(0.24, 0.24, 0.02, 8), hc, [0, y + 0.04, 0.05], [0, 0, 0], [1, 1, 1.1]);
-    } else if (s.hat === 'force') {
+    } else if (s.hat === 'brim') {
       // Huge brim + tall pointed crown that bends back.
       part(head, new THREE.CylinderGeometry(0.4, 0.4, 0.025, 10), hc, [0, y + 0.07, 0]);
       part(head, new THREE.CylinderGeometry(0.155, 0.155, 0.05, 8), ht, [0, y + 0.1, 0]);

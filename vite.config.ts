@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 
-// Pages: the game (index.html) plus dev labs (model viewer, run / character / sound / Mag / area / armour labs).
+// Pages: the game (index.html) plus dev labs (model viewer, run / character / sound / Mag / area / armour / map labs).
 export default defineConfig({
   build: {
     rollupOptions: {
@@ -14,7 +14,6 @@ export default defineConfig({
         maglab: resolve(__dirname, 'maglab.html'),
         arealab: resolve(__dirname, 'arealab.html'),
         armorlab: resolve(__dirname, 'armorlab.html'),
-        swinglab: resolve(__dirname, 'swinglab.html'),
         maplab: resolve(__dirname, 'maplab.html'),
       },
     },

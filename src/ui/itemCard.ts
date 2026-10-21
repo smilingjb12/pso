@@ -1,11 +1,11 @@
 import {
-  bestCrafted, compareEquip, craftRecipe, decidingRow, describeItem, rowPct, gearSlot, grindBonus, grindLevels, itemName, itemSpecial, ownAffixes, rarityLine, rarityOf,
+  bestCrafted, compareEquip, craftRecipe, decidingRow, describeItem, rowPct, gearSlot, grindBonus, grindLevels, itemName, ownAffixes, rarityLine, rarityOf,
   simulateEquip, statDef, unitSlots, type Character, type CompareRow, type ItemInstance,
 } from '../game/character';
 import { PHOTON_RARITY } from '../game/crafting';
 import { estimateDamage, type Foe } from '../game/dps';
 import { affixText, ITEM_AFFIXES, penaltyText, type AffixRoll, type ItemAffixId } from '../game/data/itemAffixes';
-import { getDef, specials, type ArmorItemDef } from '../game/data/items';
+import { getDef, type ArmorItemDef } from '../game/data/items';
 import { UNIQUES, type UniqueId } from '../game/data/uniques';
 import { STAT_LABEL, statValue, type StatKey } from '../game/data/stats';
 import { techniques } from '../game/data/techniques';
@@ -16,7 +16,7 @@ import { isGear, itemRequirement } from '../game/itemTypes';
 // carries its change against the equipped piece, and what only the equipped piece gives is listed as "You'd lose".
 // Layout: header (name, type line, requirement chip), the verdict line, stat tiles (flat affixes folded in, shown as
 // a blue +N), the remaining affixes (a dot per role: offence, defence, utility, downside), a rare's dormant ones
-// (greyed), chips (special, unit slots), a weapon's damage table, then a one-line flavour text.
+// (greyed), chips (unit slots), a weapon's damage table, then a one-line flavour text.
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const signed = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '±0');
@@ -62,19 +62,12 @@ function tilesOf(inst: ItemInstance): Tile[] {
     return { key, label: STAT_LABEL[key], text: statValue(key, base + add), value: base + add, fromAffix: add };
   };
   if (def.type === 'weapon') {
-    // The weapon's own range (flat Weapon damage affixes fold in); Weapon damage % stays a line: it multiplies the whole hit.
-    const g = grindBonus(def, grindLevels(inst));
-    const add = flat.atp ?? 0;
-    const lo = def.atpMin + g.atp + add;
-    const hi = def.atpMax + g.atp + add;
-    const out: Tile[] = [{ key: 'atp', label: STAT_LABEL.atp, text: `${lo}-${hi}`, value: (lo + hi) / 2, fromAffix: add }];
-    const mst = (def.bonus?.mst ?? 0) + g.mst;
-    if (mst || flat.mst) out.push(tile('mst', mst));
-    return out;
+    // Its Tech damage, built-in grind and flat Tech damage affixes in.
+    return [tile('mst', (def.bonus.mst ?? 0) + grindBonus(def, grindLevels(inst)))];
   }
   if (def.type === 'armor') {
     const out: Tile[] = [tile('strike', def.dr), tile('area', def.dr)];
-    for (const k of ['atp', 'mst', 'lck', 'tp', 'hp'] as StatKey[]) if (def.bonus?.[k]) out.push(tile(k, def.bonus[k]!));
+    for (const k of ['mst', 'lck', 'tp', 'hp'] as StatKey[]) if (def.bonus?.[k]) out.push(tile(k, def.bonus[k]!));
     return out;
   }
   return [];
@@ -127,32 +120,29 @@ function affixLineHtml(r: AffixRoll, delta: string, state: '' | 'lost' | 'dorman
 
 /** The weapon's damage per second (and % against the equipped weapon). */
 function damageHtml(ch: Character, inst: ItemInstance, foe: Foe, equipped: boolean): string {
-  const caster = ch.prefersMagic;
-  const now = estimateDamage(ch, foe, caster);
-  const est = equipped ? now : estimateDamage(simulateEquip(ch, inst, 'weapon'), foe, caster);
+  const now = estimateDamage(ch, foe);
+  const est = equipped ? now : estimateDamage(simulateEquip(ch, inst, 'weapon'), foe);
   const pct = (v: number, was: number) => {
     if (equipped) return '';
     const p = Math.round((v / Math.max(0.001, was) - 1) * 100);
     return p ? ` <i class="ic-d ${p > 0 ? 'up' : 'down'}">${signed(p)}%</i>` : '';
   };
-  const cells =
-    `${est.spell !== null && now.spell !== null ? `<td>${Math.round(est.spell)}${pct(est.spell, now.spell)}</td>` : ''}<td>${Math.round(est.weapon)}${pct(est.weapon, now.weapon)}</td>`;
-  const spellHead = est.spell !== null ? `<th title="Chained heavy casts of your selected technique (the mouse wheel changes it)">Heavy ${techniques[est.tech].name}</th>` : '';
-  const how = 'An estimate against one enemy: counts weapon damage, tech damage, crits, talents and swing / cast speed. Leaves out perfect chains, specials, buffs and TP.';
+  const cells = `<td>${Math.round(est.spell)}${pct(est.spell, now.spell)}</td><td>${Math.round(est.bolt)}${pct(est.bolt, now.bolt)}</td>`;
+  const how = 'An estimate against one enemy: counts tech damage, crits, passives and cast speed. Leaves out perfect chains, buffs and TP.';
   return `<div class="ic-sec" title="${esc(how)}">Damage / sec vs. a typical ${esc(foe.label)} enemy</div>
-    <table class="dps ic-dps"><tr><th></th>${spellHead}<th title="The best light / heavy mix of a 3-hit combo on one enemy">Weapon</th></tr><tr><td>Per second</td>${cells}</tr></table>`;
+    <table class="dps ic-dps"><tr><th></th><th title="Your main technique (the first on your bar) cast back to back">${techniques[est.tech].name}</th><th title="The basic chain: three photon bolts on one enemy">Photon bolts</th></tr><tr><td>Per second</td>${cells}</tr></table>`;
 }
 
 /**
  * "▲ +12%" in its colour and what it measures: the deciding row (damage / sec, or armour's overall rating when the
  * damage is the same), with armour's rating alongside when damage decides.
  */
-function verdictParts(ch: Character, rows: CompareRow[]): { badge: string; what: string } {
+function verdictParts(rows: CompareRow[]): { badge: string; what: string } {
   const d = decidingRow(rows);
   const p = d ? rowPct(d) : 0;
   const cls = p > 0 ? 'up' : p < 0 ? 'down' : 'same';
   const badge = `<b class="ic-d ${cls}">${p > 0 ? `▲ +${p}%` : p < 0 ? `▼ −${-p}%` : '= same'}</b>`;
-  const dmg = ch.prefersMagic ? 'damage / sec (technique)' : 'damage / sec';
+  const dmg = 'damage / sec';
   const tie = rows.find((r) => r.tie);
   const tp = tie ? rowPct(tie) : 0;
   const what = d?.tie ? `overall, same ${dmg}` : tie && tp ? `${dmg} · overall ${tp > 0 ? '+' : '−'}${Math.abs(tp)}%` : dmg;
@@ -163,7 +153,7 @@ function verdictParts(ch: Character, rows: CompareRow[]): { badge: string; what:
 function verdictHtml(ch: Character, inst: ItemInstance, foe: Foe): string {
   const c = compareEquip(ch, inst, foe);
   if (!c?.rows.some((r) => r.key)) return '';
-  const { badge, what } = verdictParts(ch, c.rows);
+  const { badge, what } = verdictParts(c.rows);
   const vs = c.current ? `vs. ${esc(itemName(c.current))}` : `vs. no ${c.slot}`;
   return `<div class="ic-verdict">${badge}<span>${what}, ${vs}</span></div>${craftedHtml(ch, inst, foe)}`;
 }
@@ -174,7 +164,7 @@ function craftedHtml(ch: Character, inst: ItemInstance, foe: Foe): string {
   if (!best) return '';
   const own = [...(inst.affixes ?? []), ...(inst.dormant ?? [])];
   const how = [...best.swaps.map((s) => `Crystal: ${s.out} → ${s.in}`), ...best.affixes.filter((r) => !own.includes(r)).map((r) => `Max: ${affixText(r)}`)];
-  const { badge, what } = verdictParts(ch, best.rows);
+  const { badge, what } = verdictParts(best.rows);
   return `<div class="ic-verdict" title="${esc(how.join('\n'))}">${badge}<span>${what}, fully crafted (${esc(craftRecipe(best))})</span></div>`;
 }
 
@@ -242,17 +232,13 @@ export function itemCardHtml(ch: Character, inst: ItemInstance, foe: Foe): strin
       // A flat stat the new item also has (as an affix) was compared on that line.
       return !(d.stat && !d.penalty && mineStats.has(d.stat));
     });
-    const sp = itemSpecial(other);
-    const lostSpecial = sp && sp !== itemSpecial(inst) ? `<div class="ic-aff lost"><i class="ic-dot good"></i><span class="ic-txt">Special: ${specials[sp].name}</span></div>` : '';
     const theirs = getDef(other.id).unique;
     const lostUnique = theirs && theirs !== unique ? uniqueHtml(theirs, true) : '';
-    if (lost.length || lostSpecial || lostUnique) html += `<div class="ic-sec">You'd lose</div>${lostUnique}${lostSpecial}${lost.map((r) => affixLineHtml(r, '', 'lost')).join('')}`;
+    if (lost.length || lostUnique) html += `<div class="ic-sec">You'd lose</div>${lostUnique}${lost.map((r) => affixLineHtml(r, '', 'lost')).join('')}`;
   }
 
-  // Chips: special, unit slots.
+  // Chips: unit slots.
   const chips: string[] = [];
-  const sp = itemSpecial(inst);
-  if (sp) chips.push(`<span class="ic-chip special">${specials[sp].name}</span>`);
   if (def.type === 'armor' && (def as ArmorItemDef).slot === 'frame') {
     const n = unitSlots(inst);
     const pips = Array.from({ length: Math.max(n, 1) }, (_, i) => `<i class="ic-pip${i < n ? ' on' : ''}"></i>`).join('');

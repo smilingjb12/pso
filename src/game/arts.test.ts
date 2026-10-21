@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { ART_SLOTS, Character, makeItem } from './character';
 import { basicAttack, magCfg } from './config';
-import { ART_IDS, artClasses, ARTS, isTechArt } from './data/arts';
+import { ART_IDS, ARTS, SUPPORT_ARTS } from './data/arts';
 import { grantArts } from './skills';
-import { weaponKinds, type WeaponKind } from './data/items';
-import { CLASS_IDS, statsAtLevel, CLASSES } from './data/stats';
-import { ATTACK_TECHS, techniques } from './data/techniques';
+import { BARE_KIND, weaponKinds, type WeaponKind } from './data/items';
+import { statsAtLevel } from './data/stats';
+import { ATTACK_TECHS, techniques, techTpCost, TECH_IDS } from './data/techniques';
 
-/** A character of `cls` at `level`, holding a weapon of `kind` (tier 1). */
-function holding(cls: 'hunter' | 'ranger' | 'force', level: number, kind?: WeaponKind): Character {
-  const ch = Character.create('T', cls);
+/** A character at `level` with every Art open there at rank 1, holding a weapon of `kind` (tier 1) if given. */
+function holding(level: number, kind?: WeaponKind): Character {
+  const ch = Character.create('T');
   ch.data.level = level;
-  grantArts(cls, level, ch.data.skills, 1);
+  grantArts(level, ch.data.skills, 1);
   if (kind) {
     const w = makeItem(`${kind}_1`);
     ch.data.inventory.push(w);
@@ -21,155 +21,153 @@ function holding(cls: 'hunter' | 'ranger' | 'force', level: number, kind?: Weapo
 }
 
 describe('Arts data (2026-10-14)', () => {
-  it('give each weapon kind three Arts and each class three more, with two rows of three modifiers', () => {
-    for (const kind of Object.keys(weaponKinds) as WeaponKind[]) {
-      if (weaponKinds[kind].family === 'caster') continue;
-      expect(ART_IDS.filter((id) => { const f = ARTS[id].from; return 'kind' in f && f.kind === kind; }), kind).toHaveLength(3);
-    }
-    for (const family of ['melee', 'ranged'] as const) {
-      expect(ART_IDS.filter((id) => { const f = ARTS[id].from; return 'family' in f && f.family === family; })).toHaveLength(3);
-    }
+  it('are the techniques, each with two rows of three modifiers', () => {
+    expect([...ART_IDS].sort()).toEqual([...TECH_IDS].sort());
     for (const id of ART_IDS) {
       const a = ARTS[id];
+      expect(a.level, id).toBe(techniques[id].level);
+      expect(a.windup, id).toBe(techniques[id].castTime);
       expect(a.mods, id).toHaveLength(2);
       for (const row of a.mods) {
         expect(row, id).toHaveLength(3);
         expect(new Set(row.map((m) => m.id)).size).toBe(3);
       }
-      if (a.ticks) expect(a.channel, id).toBeGreaterThan(0);
     }
   });
 
-  it('make every technique an Art: attack ones for Forces, Resta for anyone (no Shifta or Deband since 2026-10-15)', () => {
-    for (const t of Object.keys(techniques)) expect(isTechArt(t as never)).toBe(true);
-    for (const t of ATTACK_TECHS) expect(artClasses(t)).toEqual(['force']);
-    expect(artClasses('resta')).toEqual(['hunter', 'ranger', 'force']);
+  it('make the attack techniques attacks and Resta the one support Art (no Shifta or Deband since 2026-10-15)', () => {
+    for (const t of ATTACK_TECHS) expect(ARTS[t].role, t).not.toBe('support');
+    expect(SUPPORT_ARTS).toEqual(['resta']);
+    expect(ARTS.resta).toMatchObject({ role: 'support', pose: 'support' });
     expect(Object.keys(techniques)).not.toContain('shifta');
   });
 });
 
 describe('the Art bar', () => {
-  it('fills a new character\'s bar with what it can use at Lv 1', () => {
-    expect(holding('hunter', 1).artBar()).toEqual(['risingEdge', 'resta', null, null]);
-    expect(holding('ranger', 1).artBar()).toEqual(['rapidVolley', 'resta', null, null]);
-    expect(holding('force', 1).artBar()).toEqual(['foie', 'zonde', 'barta', 'resta']);
+  it("fills a new character's bar with what it knows: Foie, and every Lv 1 technique once learned", () => {
+    expect(Character.create('T').artBar()).toEqual(['foie', null, null, null]);
+    expect(holding(1).artBar()).toEqual(['foie', 'zonde', 'barta', 'resta']);
   });
 
   it('fills an untouched bar in unlock order, so a slot never moves as Arts are learned', () => {
-    const ch = holding('hunter', 1, 'saber');
-    const seen: (string | null)[][] = [];
-    for (const lv of [1, 5, 10, 12, 20, 28, 36]) {
+    const ch = Character.create('T');
+    const seen: (string | null)[][] = [[...ch.artBar()]];
+    for (const [lv, id] of [[2, 'barta'], [12, 'gibarta'], [15, 'gifoie'], [28, 'rabarta']] as const) {
       ch.data.level = lv;
-      grantArts('hunter', lv, ch.data.skills, 1);
+      expect(ch.rankUp(id)).toBeNull();
       seen.push([...ch.artBar()]);
     }
-    expect(seen[0]).toEqual(['risingEdge', 'resta', null, null]);
-    expect(seen[1]).toEqual(['risingEdge', 'resta', 'leap', null]);
-    expect(seen[2]).toEqual(seen[1]);
-    expect(seen.at(-1)).toEqual(['risingEdge', 'resta', 'leap', 'crescent']);
+    expect(seen[1]).toEqual(['foie', 'barta', null, null]);
+    expect(seen[3]).toEqual(['foie', 'barta', 'gibarta', 'gifoie']);
+    // A full bar takes nothing more by itself.
+    expect(seen.at(-1)).toEqual(seen[3]);
     for (let i = 1; i < seen.length; i++) seen[i - 1].forEach((id, s) => id && expect(seen[i][s]).toBe(id));
+    expect(ch.data.arts.bar).toBeUndefined(); // reading the bar never stores it
   });
 
-  it('keeps a bar per weapon kind, with that kind\'s own Arts', () => {
-    const ch = holding('hunter', 30, 'sword');
-    expect(ch.barKey).toBe('sword');
-    expect(ch.artBar()[0]).toBe('cyclone');
-    expect(ch.artsFor()).toEqual(expect.arrayContaining(['cyclone', 'groundBreaker', 'sunder', 'leap', 'warCry', 'resta']));
-    expect(ch.artsFor()).not.toContain('risingEdge');
-    expect(ch.artsFor('saber')).toContain('risingEdge');
-    expect(ch.artBar('saber')[0]).toBe('risingEdge');
-    expect(ch.data.arts.bars).toEqual({}); // reading a bar never stores it
+  it('keeps one bar whatever weapon is in hand', () => {
+    const ch = holding(30, 'rod');
+    expect(ch.setArtSlot(0, 'gizonde')).toBeNull();
+    const bar = [...ch.artBar()];
+    const wand = makeItem('wand_1');
+    ch.data.inventory.push(wand);
+    ch.data.equipped.weapon = wand.uid;
+    expect(ch.artBar()).toEqual(bar);
+    expect(ch.artsFor()).toEqual(['foie', 'zonde', 'barta', 'gibarta', 'gifoie', 'gizonde', 'rabarta', 'resta']);
   });
 
-  it('slots only usable Arts, swapping one already on the bar', () => {
-    const ch = holding('hunter', 30, 'sword');
-    expect(ch.setArtSlot(0, 'risingEdge')).not.toBeNull(); // a saber's
-    expect(ch.setArtSlot(0, 'ironWill')).not.toBeNull(); // learned at Lv 36
+  it('slots only learned Arts, swapping one already on the bar', () => {
+    const ch = holding(30, 'rod');
+    expect(ch.setArtSlot(0, 'rafoie')).not.toBeNull(); // opens at Lv 36
+    delete ch.data.skills.ranks.gizonde;
+    expect(ch.setArtSlot(0, 'gizonde')).toMatch(/isn't learned/);
     const bar = [...ch.artBar()];
     expect(ch.setArtSlot(3, bar[0])).toBeNull();
     expect(ch.artBar()[3]).toBe(bar[0]);
     expect(ch.artBar()[0]).toBe(bar[3]);
-    expect(ch.setArtSlot(ART_SLOTS, 'leap')).not.toBeNull();
-    expect(ch.data.arts.bars.sword).toEqual(ch.artBar());
+    expect(ch.setArtSlot(ART_SLOTS, 'foie')).not.toBeNull();
+    expect(ch.data.arts.bar).toEqual(ch.artBar());
   });
 
   it('a changed bar takes a newly learned Art into its first empty slot, and loses one taken back to rank 0', () => {
-    const ch = holding('hunter', 30, 'sword');
-    expect(ch.artBar()).toEqual(['cyclone', 'resta', 'leap', 'groundBreaker']);
+    const ch = holding(30, 'rod');
+    expect(ch.artBar()).toEqual(['foie', 'zonde', 'barta', 'resta']);
     ch.setArtSlot(3, null);
     ch.setArtSlot(1, null); // the player took these off
     ch.data.level = 36;
-    expect(ch.rankUp('ironWill')).toBeNull();
-    expect(ch.artBar()).toEqual(['cyclone', 'ironWill', 'leap', null]);
-    expect(ch.rankDown('ironWill')).toBeNull();
-    expect(ch.artBar()).toEqual(['cyclone', null, 'leap', null]);
+    expect(ch.rankUp('rafoie')).toBeNull();
+    expect(ch.artBar()).toEqual(['foie', 'rafoie', 'barta', null]);
+    expect(ch.rankDown('rafoie')).toBeNull();
+    expect(ch.artBar()).toEqual(['foie', null, 'barta', null]);
   });
 
-  it('bare hands can only slot support techniques', () => {
-    const ch = holding('hunter', 30);
-    ch.data.equipped.weapon = undefined;
-    expect(ch.barKey).toBe('none');
-    expect(ch.artsFor()).toEqual(['resta']);
+  it('bare hands still cast everything learned, with a weak bolt and no technique boost', () => {
+    const wand = holding(30, 'wand');
+    const bare = holding(30, 'wand');
+    bare.data.equipped.weapon = undefined;
+    expect(bare.weaponKind()).toBe(BARE_KIND);
+    expect(bare.artsFor()).toEqual(wand.artsFor());
+    expect(bare.techDamage('foie')).toBeLessThan(wand.techDamage('foie'));
+    expect(bare.boltDamage()).toBeGreaterThan(0);
+    expect(bare.boltDamage()).toBeLessThan(wand.boltDamage());
   });
 });
 
 describe('Art numbers', () => {
-  it('cost weapon Arts a share of the class\'s base TP at your level, techniques their own (rising with tech damage)', () => {
-    for (const cls of CLASS_IDS) {
-      const ch = holding(cls, 50);
-      const base = statsAtLevel(CLASSES[cls], 50).tp;
-      expect(ch.baseTp()).toBe(base);
-    }
-    const h = holding('hunter', 50, 'saber');
-    expect(h.artCost('risingEdge')).toBe(Math.round(ARTS.risingEdge.tpPct * h.baseTp()));
-    const f = holding('force', 50, 'rod');
-    expect(f.artCost('foie')).toBe(f.techCost('foie'));
-    const f2 = holding('force', 90, 'rod');
-    expect(f2.artCost('foie')).toBeGreaterThan(f.artCost('foie'));
+  it('cost techniques their own TP (rising with tech damage); base TP follows the level', () => {
+    const ch = holding(50, 'rod');
+    expect(ch.baseTp()).toBe(statsAtLevel(50).tp);
+    expect(ch.artCost('foie')).toBe(ch.techCost('foie'));
+    const higher = holding(90, 'rod');
+    expect(higher.artCost('foie')).toBeGreaterThan(ch.artCost('foie'));
   });
 
   it('modifiers (nodes forking below the Art) open at its ranks 5 and 10 and change numbers', () => {
-    const ch = holding('hunter', 40, 'sword');
-    expect(ch.rankUp('cyclone:longSpin')).toMatch(/rank 5/);
-    ch.data.skills.ranks.cyclone = 5;
-    expect(ch.rankUp('cyclone:longSpin')).toBeNull();
-    expect(ch.artMod('cyclone', 'longSpin')).toBe(true);
-    expect(ch.artTicks('cyclone')).toBe(ARTS.cyclone.ticks + 2);
-    expect(ch.artCost('cyclone')).toBe(Math.round(ARTS.cyclone.tpPct * ch.baseTp() * 1.4 * ch.artRankTp('cyclone')));
-    expect(ch.rankUp('cyclone:vortex')).toMatch(/One per row/);
-    expect(ch.rankUp('cyclone:shockwave')).toMatch(/rank 10/);
-    ch.data.skills.ranks.cyclone = 10;
-    expect(ch.rankUp('cyclone:shockwave')).toBeNull();
-    expect(ch.rankDown('cyclone')).toMatch(/Shockwave/); // it rests on rank 10
-    expect(ch.rankDown('cyclone:longSpin')).toMatch(/Shockwave/); // and on a first-row modifier
-    const g = holding('hunter', 40, 'saber');
-    g.data.skills.ranks.guardStance = 10;
-    expect(g.rankUp('guardStance:iron')).toBeNull();
-    expect(g.rankUp('guardStance:quick')).toBeNull();
-    expect(g.artCooldown('guardStance')).toBe(6);
+    const ch = holding(40, 'rod');
+    expect(ch.rankUp('rafoie:cataclysm')).toMatch(/rank 5/);
+    ch.data.skills.ranks.rafoie = 5;
+    expect(ch.rankUp('rafoie:cataclysm')).toBeNull();
+    expect(ch.artMod('rafoie', 'cataclysm')).toBe(true);
+    expect(ch.rankUp('rafoie:twin')).toMatch(/One per row/);
+    expect(ch.rankUp('rafoie:efficient')).toMatch(/rank 10/);
+    ch.data.skills.ranks.rafoie = 10;
+    expect(ch.rankUp('rafoie:efficient')).toBeNull();
+    expect(ch.artCost('rafoie')).toBe(Math.round(techTpCost('rafoie', ch.stats().mst) * 0.75 * ch.artRankTp('rafoie')));
+    expect(ch.rankDown('rafoie')).toMatch(/Efficient/); // it rests on rank 10
+    expect(ch.rankDown('rafoie:cataclysm')).toMatch(/Efficient/); // and on a first-row modifier
+    const g = holding(40, 'rod');
+    g.data.skills.ranks.gifoie = 10;
+    expect(g.rankUp('gifoie:inferno')).toBeNull();
+    const before = g.artTiming('gifoie');
+    expect(g.rankUp('gifoie:quick')).toBeNull();
+    expect(g.artTiming('gifoie').windup).toBeCloseTo(before.windup * 0.7);
+    expect(g.artTiming('gifoie').recovery).toBeCloseTo(before.recovery * 0.7);
   });
 
-  it('time weapon Arts by swing speed and techniques by cast speed', () => {
-    const f = holding('force', 80, 'rod');
-    const before = f.artTiming('foie').windup;
+  it('time techniques by cast speed (Swift Cast and Haste), and the bolt by Haste', () => {
+    const f = holding(80, 'rod');
+    const windup = f.artTiming('foie').windup;
+    const bolt = f.basicTiming().windup;
     f.data.skills.ranks.swiftCast = 5;
-    expect(f.artTiming('foie').windup).toBeLessThan(before);
-    const r = holding('ranger', 80, 'rifle');
-    const ws = r.artTiming('chargedShot').windup;
-    r.data.skills.ranks.rapidFire = 5;
-    expect(r.artTiming('chargedShot').windup).toBeLessThan(ws);
+    expect(f.artTiming('foie').windup).toBeLessThan(windup);
+    expect(f.basicTiming().windup).toBe(bolt);
+    const swift = f.artTiming('foie').windup;
+    f.weaponInstance()!.affixes = [{ id: 'haste', v: 10 }];
+    expect(f.artTiming('foie').windup).toBeCloseTo(swift / 1.1);
+    expect(f.basicTiming().windup).toBeCloseTo(bolt / 1.1);
   });
 
-  it('give casters a photon bolt basic step (the Wand refills more TP, the Rod hits harder)', () => {
-    expect(weaponKinds.wand.tpRefill!).toBeGreaterThan(weaponKinds.rod.tpRefill!);
-    expect(weaponKinds.rod.boltPower!).toBeGreaterThan(weaponKinds.wand.boltPower!);
-    const f = holding('force', 30, 'rod');
-    expect(f.boltDamage()).toBeGreaterThan(0);
+  it('make the basic step a photon bolt (the Wand refills more TP, the Rod hits harder)', () => {
+    expect(weaponKinds.wand.tpRefill).toBeGreaterThan(weaponKinds.rod.tpRefill);
+    expect(weaponKinds.rod.boltPower).toBeGreaterThan(weaponKinds.wand.boltPower);
+    const rod = holding(30, 'rod');
+    expect(rod.boltDamage()).toBeGreaterThan(0);
+    expect(rod.boltDamage()).toBeGreaterThan(holding(30, 'wand').boltDamage());
     expect(basicAttack.tpRefill).toBeGreaterThan(0);
   });
 
   it('teach the photon blast through the Mag from its level', () => {
-    const ch = holding('hunter', magCfg.pbLevel - 1);
+    const ch = holding(magCfg.pbLevel - 1);
     ch.data.photonBlast = 'mylla';
     expect(ch.photonBlast).toBeNull();
     ch.data.level = magCfg.pbLevel;

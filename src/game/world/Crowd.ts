@@ -65,13 +65,13 @@ function civilian(rng: () => number): HumanoidStyle {
   return style;
 }
 
-/** Another hunter: one of the PSO class looks in a section ID colour. */
+/** Another hunter (PSO's word for the adventurers on Pioneer 2): HUmar, RAmarl or FOmarl, in a section ID colour. */
 function hunter(rng: () => number): HumanoidStyle {
-  const base = [STYLES.hunter, STYLES.ranger, STYLES.force][Math.floor(rng() * 3)] as HumanoidStyle;
+  const base = [STYLES.humar, STYLES.ramarl, STYLES.fomarl][Math.floor(rng() * 3)] as HumanoidStyle;
   const c = SECTION[Math.floor(rng() * SECTION.length)];
   const s: HumanoidStyle = { ...base };
-  if (base === STYLES.ranger) Object.assign(s, { trim: c, gloves: c, collar: c, tassets: { ...base.tassets!, color: c }, plates: { ...base.plates!, trim: c } });
-  else if (base === STYLES.force) Object.assign(s, { trim: c, boots: c, collar: c, hatColor: c, skirt: { ...base.skirt!, color: c } });
+  if (base === STYLES.ramarl) Object.assign(s, { trim: c, gloves: c, collar: c, tassets: { ...base.tassets!, color: c }, plates: { ...base.plates!, trim: c } });
+  else if (base === STYLES.fomarl) Object.assign(s, { trim: c, boots: c, collar: c, hatColor: c, skirt: { ...base.skirt!, color: c } });
   else Object.assign(s, { suit: c, hatColor: new THREE.Color(c).multiplyScalar(0.7).getHex(), skirt: { ...base.skirt!, color: new THREE.Color(c).multiplyScalar(0.85).getHex() } });
   return s;
 }

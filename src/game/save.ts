@@ -1,4 +1,4 @@
-import { SAVE_VERSION, type CharacterData } from './character';
+import { LOADABLE_VERSIONS, type CharacterData } from './character';
 
 // localStorage-backed save slots. All access is guarded: storage can be
 // unavailable (private mode, blocked site data) and the game must still run.
@@ -20,7 +20,8 @@ function read(): SaveFile {
       const parsed = JSON.parse(raw) as SaveFile;
       if (Array.isArray(parsed.slots)) {
         while (parsed.slots.length < SLOT_COUNT) parsed.slots.push(null);
-        parsed.slots = parsed.slots.map((s) => (s && s.version === SAVE_VERSION ? s : null));
+        // Older versions are converted when they load (the classes went in version 6: see Character).
+        parsed.slots = parsed.slots.map((s) => (s && LOADABLE_VERSIONS.includes(s.version) ? s : null));
         return parsed;
       }
     }

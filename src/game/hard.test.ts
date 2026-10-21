@@ -27,13 +27,15 @@ describe('Hard scaling', () => {
     expect(hardArch(enemies.ControlNode, hard.mines).atp).toBe(0);
   });
 
-  it('drops Hard tiers from Hard enemies', () => {
+  it('drops Hard tiers from Hard enemies, every weapon a rod or wand and every armour piece Psy', () => {
     const rng = mulberry32(7);
     const tiers = new Set<number>();
     for (let i = 0; i < 400; i++) {
-      const d = rollEnemyDrop(hardArch(enemies.Gillchic, hard.mines), rng, 'melee');
+      const d = rollEnemyDrop(hardArch(enemies.Gillchic, hard.mines), rng);
       if (d?.kind !== 'item') continue;
       const def = getDef(d.item.id);
+      if (def.type === 'weapon') expect(Object.keys(weaponKinds)).toContain(def.kind);
+      if (def.type === 'armor') expect(def.line).toBe('psy');
       if ((def.type === 'weapon' || def.type === 'armor') && !def.rare) tiers.add(def.tier);
     }
     expect(Math.min(...tiers)).toBeGreaterThanOrEqual(8);
@@ -77,7 +79,7 @@ describe('Hard loot', () => {
         const a = getDef(`${kind}_${t - 1}`);
         const b = getDef(`${kind}_${t}`);
         if (a.type !== 'weapon' || b.type !== 'weapon') throw new Error('not a weapon');
-        expect(b.atpMax).toBeGreaterThan(a.atpMax);
+        expect(b.bonus.mst!).toBeGreaterThan(a.bonus.mst!);
         expect(b.req).toBeGreaterThan(a.req);
       }
     }
@@ -87,7 +89,7 @@ describe('Hard loot', () => {
     const rng = mulberry32(11);
     for (let i = 0; i < 50; i++) expect(getDef(rollInjector(9, rng).id)).toMatchObject({ tier: 5 });
     for (const boss of ['dragon', 'derolle', 'warden', 'falz'] as const) {
-      const drops = rollHardBossDrops(boss, rng, 'caster');
+      const drops = rollHardBossDrops(boss, rng);
       expect(drops.some((d) => d.kind === 'item' && d.item.id.endsWith('_6') && getDef(d.item.id).type === 'injector')).toBe(true);
     }
     expect(rollChampionBonus(hardArch(enemies.Booma, hard.forest), rng).length).toBeGreaterThanOrEqual(2);

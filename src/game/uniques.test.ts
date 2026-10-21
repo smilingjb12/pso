@@ -4,7 +4,7 @@ import { drops, formulas, uniqueCfg } from './config';
 import { craftable } from './crafting';
 import { estimateDamage, techDps, type Foe } from './dps';
 import { getDef, itemDefs, type ArmorItemDef, type WeaponItemDef } from './data/items';
-import { isUniqueUnit, UNIQUE_IDS, UNIQUES, uniqueItemId, uniqueUnitId } from './data/uniques';
+import { isUniqueUnit, UNIQUE_IDS, UNIQUES, uniqueItemId, uniqueUnitId, type UniqueId } from './data/uniques';
 import { injectorStats } from './injectors';
 import { itemSlot } from './itemTypes';
 import { bossUniqueTier, rollBossDrops, rollBoxDrop, rollEliteBonus, rollEnemyDrop, rollRiftEndDrops, rollUnique } from './loot';
@@ -13,9 +13,9 @@ import { bossUniques, circleOf, rollBossUnique } from './riftCircles';
 import { riftCfg, riftIlvl, riftSave } from './rifts';
 import { mulberry32 } from './world/Level';
 
-/** A Lv 100 character of `cls` wearing `ids` (requirements ignored). */
-function wearing(cls: 'hunter' | 'ranger' | 'force', ...ids: string[]): Character {
-  const ch = Character.create('t', cls);
+/** A Lv 100 character wearing `ids` (requirements ignored). */
+function wearing(...ids: string[]): Character {
+  const ch = Character.create('t');
   ch.data.level = 100;
   for (const id of ids) {
     const inst = makeItem(id);
@@ -25,12 +25,12 @@ function wearing(cls: 'hunter' | 'ranger' | 'force', ...ids: string[]): Characte
   return ch;
 }
 
-const foe: Foe = { armor: 12, techResist: 15, label: 'test' };
+const foe: Foe = { techResist: 15, label: 'test' };
 
 describe('unique definitions', () => {
-  it('are a weapon per class from main-game bosses, and a gear piece and a unit per rift boss and circle', () => {
+  it('are three weapons from main-game bosses, and a gear piece and a unit per rift boss and circle', () => {
     const main = UNIQUE_IDS.filter((id) => UNIQUES[id].pool === 'main');
-    expect(main.map((id) => UNIQUES[id].cls).sort()).toEqual(['force', 'hunter', 'ranger']);
+    expect(main.sort()).toEqual(['darkFlow', 'frozenShooter', 'reactorRod']);
     for (const id of main) expect(UNIQUES[id].base.type).toBe('weapon');
     const rift = UNIQUE_IDS.filter((u) => UNIQUES[u].pool === 'rift');
     expect(rift).toHaveLength(24);
@@ -41,10 +41,15 @@ describe('unique definitions', () => {
         expect(two.filter(isUniqueUnit), `${boss} ${c}`).toHaveLength(1);
       }
     }
-    // Every class gets two rift weapons (and the circles' armour is anyone's).
-    const weapons = rift.filter((id) => UNIQUES[id].base.type === 'weapon');
-    for (const cls of ['hunter', 'ranger', 'force'] as const) expect(weapons.filter((id) => UNIQUES[id].cls === cls)).toHaveLength(2);
+    expect(rift.filter((id) => UNIQUES[id].base.type === 'weapon')).toHaveLength(6);
     for (const id of UNIQUE_IDS) expect(UNIQUES[id].effect.length && UNIQUES[id].cost.length).toBeTruthy();
+  });
+
+  it('made the Hunter and Ranger weapons rods and wands (2026-10-21)', () => {
+    const kind = (id: UniqueId) => { const b = UNIQUES[id].base; return b.type === 'weapon' ? b.kind : null; };
+    const ported: UniqueId[] = ['darkFlow', 'frozenShooter', 'flameVisit', 'dragonFang', 'ophelieSeize', 'sBeatBlade'];
+    expect(ported.map(kind)).toEqual(['wand', 'rod', 'rod', 'wand', 'wand', 'wand']);
+    for (const id of UNIQUE_IDS) if (kind(id)) expect(['rod', 'wand'], id).toContain(kind(id));
   });
 
   it('give each unique unit one def that is learned like a unit', () => {
@@ -69,7 +74,7 @@ describe('unique definitions', () => {
         if (u.base.type === 'weapon') {
           const base = getDef(`${u.base.kind}_${tier}`) as WeaponItemDef;
           const w = def as WeaponItemDef;
-          expect([w.atpMin, w.atpMax, w.req]).toEqual([base.atpMin, base.atpMax, base.req]);
+          expect([w.kind, w.bonus, w.req]).toEqual([base.kind, base.bonus, base.req]);
         } else if (u.base.type === 'armor') {
           const a = def as ArmorItemDef;
           expect(a.slot).toBe(u.base.slot);
@@ -95,13 +100,13 @@ describe('unique drops', () => {
     }
   });
 
-  it('come from main-game bosses now and then, at the boss\'s tier, leaning to the class', () => {
+  it("come from main-game bosses now and then, at the boss's tier, each of the three alike", () => {
     const rng = mulberry32(9);
     let got = 0;
     const kinds: Record<string, number> = {};
     const n = 6000;
     for (let i = 0; i < n; i++) {
-      for (const d of rollBossDrops('falz', 'hell', rng, 'melee')) {
+      for (const d of rollBossDrops('falz', 'hell', rng)) {
         if (d.kind !== 'item' || !getDef(d.item.id).unique) continue;
         got++;
         const def = getDef(d.item.id);
@@ -112,8 +117,10 @@ describe('unique drops', () => {
     expect(got / n).toBeGreaterThan(drops.uniqueBoss.hell * 0.7);
     expect(got / n).toBeLessThan(drops.uniqueBoss.hell * 1.3);
     expect(Object.keys(kinds).sort()).toEqual(['darkFlow', 'frozenShooter', 'reactorRod']);
-    // Dark Flow (melee) counts double: about half.
-    expect(kinds.darkFlow / got).toBeGreaterThan(0.4);
+    for (const k of Object.values(kinds)) {
+      expect(k / got).toBeGreaterThan(0.2);
+      expect(k / got).toBeLessThan(0.47);
+    }
     expect(bossUniqueTier('dragon', 'normal')).toBe(3);
     expect(bossUniqueTier('falz', 'nightmare')).toBe(11);
     expect(bossUniqueTier('falz', 'hell')).toBe(15);
@@ -125,12 +132,12 @@ describe('unique drops', () => {
       for (const d of rollRiftEndDrops(true, 8, riftIlvl(8), rng)) if (d.kind === 'item') expect(getDef(d.item.id).unique).toBeUndefined();
     }
     expect(riftCfg.bossChance).toBe(1);
-    const halo = rollUnique('rift', 15, () => 0, undefined, riftIlvl(7));
+    const halo = rollUnique('rift', 15, () => 0, riftIlvl(7));
     expect((statDef(halo) as ArmorItemDef).dr).toBeGreaterThan((getDef(halo.id) as ArmorItemDef).dr);
   });
 
   it("drop from each rift boss: its circle's first kill always gives one you lack, then now and then", () => {
-    const ch = Character.create('t', 'hunter');
+    const ch = Character.create('t');
     const save = riftSave(ch.data);
     const rng = mulberry32(12);
     // The first Dragon kill in circle II: one of circle II's two, Rift-forged if it's gear.
@@ -155,7 +162,7 @@ describe('unique drops', () => {
     expect(got / n).toBeGreaterThan(drops.riftUnique);
     expect(got / n).toBeLessThan(drops.riftUnique * 2);
     // A new character's first circle III Warden kill prefers the one it doesn't have.
-    const ch2 = Character.create('u', 'force');
+    const ch2 = Character.create('u');
     const [gear] = bossUniques('warden', 3, 3).filter((x) => !isUniqueUnit(x));
     ch2.data.inventory.push(makeItem(uniqueItemId(gear, 15)));
     const pick = rollBossUnique('warden', 8, riftIlvl(8), riftSave(ch2.data), ch2.data, () => 0.99)!;
@@ -165,28 +172,28 @@ describe('unique drops', () => {
 
 describe('unique effects (character side)', () => {
   it('Red Ring: crit damage +100%, Corruption resistance −50% (floored)', () => {
-    const ch = wearing('hunter', uniqueItemId('redRing', 15));
-    expect(wearing('hunter').critDamage()).toBe(formulas.critDamage);
+    const ch = wearing(uniqueItemId('redRing', 15));
+    expect(wearing().critDamage()).toBe(formulas.critDamage);
     expect(ch.critDamage()).toBe(formulas.critDamage + uniqueCfg.redRingCrit);
     expect(ch.resist('resCorrupt')).toBe(-50);
     expect(ch.resist('resBurn')).toBe(0);
   });
 
   it('Overclock Core: gear Haste counts double, max HP halved', () => {
-    const plain = wearing('hunter', 'sword_15');
-    const core = wearing('hunter', 'sword_15', uniqueItemId('overclockCore', 15));
+    const plain = wearing('rod_15');
+    const core = wearing('rod_15', uniqueItemId('overclockCore', 15));
     for (const ch of [plain, core]) ch.equippedItem('weapon')!.affixes = [{ id: 'haste', v: 10 }];
     expect(plain.haste()).toBe(10);
     expect(core.haste()).toBe(20);
-    const noHp = wearing('hunter', uniqueItemId('overclockCore', 15));
-    const base = Character.create('t', 'hunter');
+    const noHp = wearing(uniqueItemId('overclockCore', 15));
+    const base = Character.create('t');
     base.data.level = 100;
     expect(noHp.maxHp).toBeLessThan(base.maxHp * 0.6);
   });
 
   it('Reactor Rod: techniques cost 3× TP, and estimates count the ramp', () => {
-    const rod = wearing('force', uniqueItemId('reactorRod', 15));
-    const plain = wearing('force', 'rod_15');
+    const rod = wearing(uniqueItemId('reactorRod', 15));
+    const plain = wearing('rod_15');
     // (A unique counts 2 more grind levels, so its MST, and the base cost with it, is a little higher.)
     const cost = rod.techCost('foie') / plain.techCost('foie');
     expect(cost).toBeGreaterThan(uniqueCfg.reactorTpMult * 0.95);
@@ -196,23 +203,32 @@ describe('unique effects (character side)', () => {
     expect(ramp).toBeLessThan(2.1);
   });
 
-  it('Frozen Shooter: a heavy-then-shatter rhythm, estimated against a regular enemy', () => {
-    const shooter = estimateDamage(wearing('ranger', uniqueItemId('frozenShooter', 15)), foe, false).weapon;
-    const rifle = estimateDamage(wearing('ranger', 'rifle_15'), foe, false).weapon;
-    // Worse than ×0.5 everywhere would be, better than shattering every shot.
-    expect(shooter).toBeGreaterThan(rifle * uniqueCfg.frozenOtherMult);
-    expect(shooter).toBeLessThan(rifle * uniqueCfg.frozenShatterMult);
+  it('Frozen Shooter: ice techniques freeze-then-shatter in the estimates; other techniques and bolts take the cut', () => {
+    const shooter = wearing(uniqueItemId('frozenShooter', 15));
+    const rod = wearing('rod_15');
+    for (const ch of [shooter, rod]) {
+      expect(ch.rankUp('barta')).toBeNull();
+      ch.setArtSlot(0, 'barta');
+    }
+    const [s, r] = [estimateDamage(shooter, foe), estimateDamage(rod, foe)];
+    expect(s.tech).toBe('barta');
+    // Barta cast back to back: freeze, shatter, freeze... the average of ×0.5 and ×2.5 (and the unique's 2 grind levels).
+    expect(s.spell / r.spell).toBeGreaterThan((uniqueCfg.frozenShatterMult + uniqueCfg.frozenOtherMult) / 2);
+    expect(s.spell / r.spell).toBeLessThan(uniqueCfg.frozenShatterMult);
+    expect(s.bolt / r.bolt).toBeGreaterThan(uniqueCfg.frozenOtherMult);
+    expect(s.bolt / r.bolt).toBeLessThan(uniqueCfg.frozenOtherMult * 1.1);
+    expect(techDps(shooter, foe, 'foie') / techDps(rod, foe, 'foie')).toBeLessThan(uniqueCfg.frozenOtherMult * 1.1);
   });
 
   it('only work while worn', () => {
-    const ch = wearing('hunter');
+    const ch = wearing();
     ch.data.inventory.push(makeItem(uniqueItemId('redRing', 15)));
     expect(ch.hasUnique('redRing')).toBe(false);
-    expect(wearing('hunter', uniqueItemId('darkFlow', 9)).hasUnique('darkFlow')).toBe(true);
+    expect(wearing(uniqueItemId('darkFlow', 9)).hasUnique('darkFlow')).toBe(true);
   });
 
   it('unique units: learned on pickup, active while the frame has a slot for them, never learned twice', () => {
-    const ch = wearing('hunter', 'frame_guard_15');
+    const ch = wearing('frame_psy_15');
     ch.equippedItem('frame')!.slots = 2;
     const limiter = makeItem(uniqueUnitId('limiter'));
     expect(ch.take(limiter)).toEqual({ to: 'learned', before: null });
@@ -220,17 +236,18 @@ describe('unique effects (character side)', () => {
     expect(ch.hasUnique('limiter')).toBe(false);
     expect(ch.insertUnit('limiter')).toBeNull();
     expect(ch.hasUnique('limiter')).toBe(true);
-    // Its numbers: cooldowns 30% shorter, Arts 20% more TP.
-    const plain = wearing('hunter', 'frame_guard_15');
-    expect(ch.artCooldown('leap')).toBeCloseTo(plain.artCooldown('leap') * (1 - uniqueCfg.limiterCd));
-    expect(ch.artCost('leap') / plain.artCost('leap')).toBeCloseTo(1 + uniqueCfg.limiterTp, 1);
+    // Its numbers: techniques cast 30% faster, cost 20% more TP.
+    const plain = wearing('frame_psy_15');
+    expect(ch.castTimeMult()).toBeCloseTo(plain.castTimeMult() * (1 - uniqueCfg.limiterCast));
+    expect(ch.artTiming('foie').windup).toBeCloseTo(plain.artTiming('foie').windup * (1 - uniqueCfg.limiterCast));
+    expect(ch.artCost('foie') / plain.artCost('foie')).toBeCloseTo(1 + uniqueCfg.limiterTp, 1);
     // A frame without slots switches it off.
     ch.equippedItem('frame')!.slots = 0;
     expect(ch.hasUnique('limiter')).toBe(false);
   });
 
   it('Heart of Falz: the other unique units hit 50% harder, costs too', () => {
-    const ch = wearing('hunter', 'frame_guard_15');
+    const ch = wearing('frame_psy_15');
     ch.equippedItem('frame')!.slots = 3;
     for (const id of ['venomSac', 'heartOfFalz'] as const) {
       ch.take(makeItem(uniqueUnitId(id)));
@@ -241,14 +258,14 @@ describe('unique effects (character side)', () => {
   });
 
   it('costs on the character: max TP (Yasakani, Dark Bridge), healing (DF Shield), injector doses (Rol Carapace)', () => {
-    const base = wearing('force', 'rod_15');
-    const bridge = wearing('force', uniqueItemId('darkBridge', 15));
+    const base = wearing('wand_15');
+    const bridge = wearing(uniqueItemId('darkBridge', 15));
     expect(bridge.maxTp).toBeLessThan(base.maxTp * (1 - uniqueCfg.bridgeTp) * 1.1);
-    const shield = wearing('hunter', uniqueItemId('dfShield', 15));
+    const shield = wearing(uniqueItemId('dfShield', 15));
     expect(shield.healMult()).toBeCloseTo(1 - uniqueCfg.dfHeal);
-    expect(wearing('hunter').healMult()).toBe(1);
+    expect(wearing().healMult()).toBe(1);
     const mate = makeItem('mate_6');
-    const carapace = wearing('hunter', uniqueItemId('rolCarapace', 15));
-    expect(injectorStats(mate, carapace).potency).toBeCloseTo(injectorStats(mate, wearing('hunter')).potency * (1 - uniqueCfg.carapaceInjector));
+    const carapace = wearing(uniqueItemId('rolCarapace', 15));
+    expect(injectorStats(mate, carapace).potency).toBeCloseTo(injectorStats(mate, wearing()).potency * (1 - uniqueCfg.carapaceInjector));
   });
 });

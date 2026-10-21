@@ -2,6 +2,7 @@ import { forgeMult, type Character } from '../game/character';
 import { BOSSES, type BossId } from '../game/data/bosses';
 import { AFFIX_TIER_ILVL, maxAffixTier } from '../game/data/itemAffixes';
 import { UNIQUES, type RiftCircle } from '../game/data/uniques';
+import { weaponKinds } from '../game/data/items';
 import { bossUniques, CIRCLE_TIERS, CIRCLES, circleName, circleOf, firstKillOwed, hasFound } from '../game/riftCircles';
 import {
   modText, pickedTier, RIFT_MODS, riftCfg, riftGrowth, riftIlvl, riftLoot, riftName, riftSave, riftTierBonus, riftThreat, riftTitle, shardBossText,
@@ -103,7 +104,7 @@ function modsHtml(s: RiftShard): string {
 function uniqueChip(ch: Character, id: keyof typeof UNIQUES): string {
   const u = UNIQUES[id];
   const found = hasFound(ch.data, id);
-  const kind = u.base.type === 'unit' ? 'Unit' : u.base.type === 'weapon' ? `${u.cls ? u.cls[0].toUpperCase() + u.cls.slice(1) : ''} ${u.base.kind}` : u.base.slot;
+  const kind = u.base.type === 'unit' ? 'Unit' : u.base.type === 'weapon' ? weaponKinds[u.base.kind].label : u.base.slot;
   return `<div class="rift-uq${found ? ' found' : ''}" title="${esc(`${u.effect}. Cost: ${u.cost}.`)}">
     <span class="rift-uq-name">${found ? '✓ ' : ''}${esc(u.name)}</span><span class="rift-uq-kind">${esc(kind)}</span></div>`;
 }

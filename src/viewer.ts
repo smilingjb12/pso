@@ -18,8 +18,6 @@ import { RiftGateModel } from './game/models/riftGate';
 import type { Pose, Rig } from './game/models/Rig';
 import { buildWeapon, WEAPON_GRIP } from './game/models/weapons';
 import { gaitPose, PLAYER_GAIT, scaleGait } from './game/models/gait';
-import { PLAYER_SWING, swingFrame, WeaponHold, type HoldRequest } from './game/models/swings';
-import { LEFT_HAND_AT, type HiltTarget } from './game/models/twoHand';
 import { deRolLe as drlCfg, player as playerCfg } from './game/config';
 import {
   BelraModel, belraPoses, BringerModel, bringerPoses, darvantModel, DelsaberModel, delsaberPoses, DimenianModel, dimenianPoses, SorcererModel, sorcererPoses,
@@ -96,9 +94,9 @@ type Entry =
 
 const CATALOGUE: Record<string, Entry> = {
   Player: { kind: 'human', style: 'player' },
-  'Old: HUmar': { kind: 'human', style: 'hunter' },
-  'Old: RAmarl': { kind: 'human', style: 'ranger' },
-  'Old: FOmarl': { kind: 'human', style: 'force' },
+  'Crowd: HUmar': { kind: 'human', style: 'humar' },
+  'Crowd: RAmarl': { kind: 'human', style: 'ramarl' },
+  'Crowd: FOmarl': { kind: 'human', style: 'fomarl' },
   'NPC: Armorer': { kind: 'human', style: 'armorer' },
   'NPC: Shopkeeper': { kind: 'human', style: 'shopkeeper' },
   'NPC: Clerk': { kind: 'human', style: 'clerk' },
@@ -192,7 +190,7 @@ function textSprite(text: string, color: number): THREE.Sprite {
   return sprite;
 }
 
-const HUMAN_ANIMS = ['idle', 'run', 'slash 1', 'slash 2', 'slash 3 (overhead)', 'shoot', 'cast 1', 'cast 2', 'cast 3 (finisher)', 'cast (support)', 'hurt', 'drink', 'wave'];
+const HUMAN_ANIMS = ['idle', 'run', 'cast 1', 'cast 2', 'cast 3 (finisher)', 'cast (support)', 'hurt', 'drink', 'wave'];
 const BOOMA_ANIMS = ['idle', 'walk', 'windup', 'strike', 'attack loop', 'hurt', 'crouch'];
 const DRAGON_ANIMS = ['idle', 'walk', 'roar', 'stomp windup', 'breath', 'charge', 'stunned (weak point)', 'dead'];
 const LILY_ANIMS = ['idle', 'aim', 'spit', 'burst windup', 'burst', 'attack loop', 'hurt', 'dead'];
@@ -226,7 +224,7 @@ const GRIPS = WEAPON_GRIP;
 const params = {
   model: 'Player',
   animation: 'idle',
-  weapon: 'saber' as WeaponKind | 'none',
+  weapon: 'wand' as WeaponKind | 'none',
   playing: true,
   speed: 1,
   scrub: 0,
@@ -480,28 +478,12 @@ function phase(period: number): number {
   return params.playing ? (time % period) / period : params.scrub;
 }
 
-const humanHold = new WeaponHold();
-const humanHilt: HiltTarget = { at: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, 1) };
-
-function humanPose(): { pose: Pose; rate: number; hold?: HoldRequest } {
+function humanPose(): { pose: Pose; rate: number } {
   const grip: Grip = params.weapon === 'none' ? 'none' : GRIPS[params.weapon];
-  const impact = 0.42;
   switch (params.animation) {
     case 'run':
       // Same cycle as the game, at the in-game speed.
       return { pose: gaitPose((time * playerCfg.moveSpeed) / scaleGait(PLAYER_GAIT, playerCfg.moveSpeed).cycleLength, PLAYER_GAIT, human!.legs, grip, playerCfg.moveSpeed), rate: Infinity };
-    case 'slash 1':
-    case 'slash 2':
-    case 'slash 3 (overhead)': {
-      // The in-game swings, both hands on the weapon (one-handed when nothing is held).
-      const i = params.animation === 'slash 1' ? 0 : params.animation === 'slash 2' ? 1 : 2;
-      const k = phase(i === 2 ? 1.2 : 1);
-      if (params.weapon === 'none') return { pose: humanPoses.slash(i, k, impact), rate: 30 };
-      const f = swingFrame(PLAYER_SWING, i, k, impact, humanHilt);
-      return { pose: f.pose, rate: 30, hold: { hilt: f.hilt } };
-    }
-    case 'shoot':
-      return { pose: humanPoses.shoot(phase(0.8), 0.25, grip), rate: 30 };
     case 'cast 1':
       return { pose: humanPoses.castChain(0, phase(1.4), 0.6), rate: 30 };
     case 'cast 2':
@@ -900,7 +882,6 @@ function tick(dt: number, snap = false): void {
   if (human) {
     const hp = humanPose();
     poseRig(human.rig, hp, dt, snap);
-    humanHold.update(human, snap ? 1 / 60 : dt, hp.hold ?? null, params.weapon === 'none' ? -0.085 : (LEFT_HAND_AT[params.weapon] ?? -0.085), snap);
     // Hair and cloth: the run plays in place, so pass the running speed along.
     human.update?.(snap ? 1 / 60 : dt, params.animation === 'run' ? new THREE.Vector3(0, 0, playerCfg.moveSpeed).applyQuaternion(human.rig.root.getWorldQuaternion(new THREE.Quaternion())) : undefined);
   }

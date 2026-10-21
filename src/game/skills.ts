@@ -1,11 +1,11 @@
 import { skillCfg as K } from './config';
 import { ARTS, type ArtId } from './data/arts';
-import type { ClassId } from './data/stats';
 import { passiveLevel, passiveRanks, PASSIVES, type PassiveId } from './passives';
 
 // Skills (2026-10-15, the second take the same day; the user: "something like Diablo 2 where you would have to put
-// points into Foie to unlock Gifoie"). Each class has four trees, shown one at a time, each a grid of Arts, their
-// modifiers and passives joined by prerequisites (Foie → Gifoie → Rafoie). One point a level.
+// points into Foie to unlock Gifoie"). Three trees (Fire, Lightning, Ice; one set for everyone since the classes went
+// on 2026-10-21), shown one at a time, each a grid of Arts, their modifiers and passives joined by prerequisites
+// (Foie → Gifoie → Rafoie). One point a level.
 // - An Art costs a point to learn (rank 1) and takes up to ten: each rank adds power and takes off some TP (skillCfg).
 // - Its six modifiers fork below it in the tree (the user's pick, the same day: "make these modifiers part of the tree"):
 //   two rows of three, one per row, a point each. Row 1 needs the Art at rank 5, row 2 at rank 10 and a row 1 pick.
@@ -60,60 +60,24 @@ const ART_ROWS = 3;
 
 const P = (id: PassiveId, pre?: ArtId | PassiveId): [PassiveId, (ArtId | PassiveId)?] => [id, pre];
 
-export const SKILL_TREES: Record<ClassId, SkillTreeDef[]> = {
-  hunter: [
-    {
-      id: 'sword', name: 'Sword', lanes: [['cyclone', 'groundBreaker', 'sunder']],
-      passives: [P('followThrough'), P('cleave', 'followThrough'), P('crush', 'sunder'), P('whirl', 'cleave'), P('breaker', 'crush'), P('shatter', 'whirl')],
-    },
-    {
-      id: 'saber', name: 'Saber', lanes: [['risingEdge', 'crescent', 'guardStance']],
-      passives: [P('parry'), P('sweepGuard', 'parry'), P('steadfast', 'sweepGuard'), P('retaliate', 'guardStance'), P('balance', 'steadfast'), P('secondWind', 'retaliate'), P('daunt', 'secondWind')],
-    },
-    {
-      id: 'dagger', name: 'Dagger', lanes: [['venomEdge', 'shadowStep', 'bladeDance']],
-      passives: [P('lunge'), P('flurry', 'bladeDance'), P('hunterFocus', 'lunge'), P('executioner', 'flurry'), P('ironFinish', 'hunterFocus'), P('fervor', 'executioner')],
-    },
-    {
-      id: 'combat', name: 'Combat', lanes: [['leap', 'warCry', 'ironWill'], ['resta']],
-      passives: [P('tempo'), P('fleet', 'tempo'), P('slipstream', 'tempo'), P('shockwave', 'fleet'), P('lastStand', 'slipstream'), P('bloodlust', 'shockwave'), P('rush', 'bloodlust'), P('composure', 'lastStand')],
-    },
-  ],
-  ranger: [
-    {
-      id: 'handgun', name: 'Handgun', lanes: [['rapidVolley', 'flashShot', 'ricochet']],
-      passives: [P('hotStreak'), P('spread', 'hotStreak'), P('rangerFocus', 'ricochet'), P('arc', 'spread'), P('rounds', 'rangerFocus'), P('rapidFire', 'arc')],
-    },
-    {
-      id: 'rifle', name: 'Rifle', lanes: [['chargedShot', 'mark', 'freezeRound']],
-      passives: [P('pierce'), P('deadeye', 'freezeRound'), P('longshot', 'pierce'), P('pin', 'deadeye'), P('piercingRound', 'longshot'), P('pinningFire', 'pin')],
-    },
-    {
-      id: 'shot', name: 'Shot', lanes: [['scatterBlast', 'napalmShell', 'slug']],
-      passives: [P('breathingRoom'), P('suppress', 'breathingRoom'), P('adrenaline', 'napalmShell'), P('bulwark', 'suppress'), P('pointBlank', 'slug')],
-    },
-    {
-      id: 'gunnery', name: 'Gunnery', lanes: [['freezeTrap', 'backflipShot', 'grenade'], ['resta']],
-      passives: [P('tempo'), P('backstepShot', 'tempo'), P('fleet', 'tempo'), P('lightFeet', 'fleet'), P('lastStand', 'lightFeet'), P('bloodlust', 'backstepShot'), P('fieldMedic', 'resta'), P('rush', 'bloodlust'), P('composure', 'lastStand')],
-    },
-  ],
-  force: [
-    // No Support tree (the user, 2026-10-15): Resta sits with Ice, and the support passives go where they fit (TP ones
-    // with Lightning and Fire, healing and shields with Ice).
-    {
-      id: 'fire', name: 'Fire', lanes: [['foie', 'gifoie', 'rafoie']],
-      passives: [P('resonance'), P('overcast', 'foie'), P('focusBolt', 'resonance'), P('kindle', 'overcast'), P('efficiency', 'focusBolt'), P('overload', 'kindle')],
-    },
-    {
-      id: 'lightning', name: 'Lightning', lanes: [['zonde', 'gizonde', 'razonde']],
-      passives: [P('tempo'), P('calmMind', 'zonde'), P('blink', 'tempo'), P('conductor', 'gizonde'), P('techLongshot', 'conductor'), P('siphonStaff', 'calmMind'), P('clarity', 'siphonStaff'), P('echo', 'techLongshot'), P('swiftCast', 'echo'), P('rush', 'blink')],
-    },
-    {
-      id: 'ice', name: 'Ice', lanes: [['barta', 'gibarta', 'rabarta'], ['resta']],
-      passives: [P('fleet'), P('slipstream', 'fleet'), P('barrier', 'resta'), P('purify', 'barrier'), P('ward', 'gibarta'), P('frostbite', 'ward'), P('aegis', 'frostbite'), P('composure', 'aegis')],
-    },
-  ],
-};
+// No Support tree (the user, 2026-10-15): Resta sits with Ice, and the support passives go where they fit (TP ones with
+// Lightning and Fire, healing and shields with Ice). The five general passives kept from the Hunter and Ranger trees
+// (2026-10-21) went the same way: Bloodlust with Fire, Light Feet with Lightning, Last Stand, Bulwark and Field Medic
+// with Ice.
+export const SKILL_TREES: SkillTreeDef[] = [
+  {
+    id: 'fire', name: 'Fire', lanes: [['foie', 'gifoie', 'rafoie']],
+    passives: [P('resonance'), P('overcast', 'foie'), P('focusBolt', 'resonance'), P('kindle', 'overcast'), P('efficiency', 'focusBolt'), P('bloodlust', 'resonance'), P('overload', 'kindle')],
+  },
+  {
+    id: 'lightning', name: 'Lightning', lanes: [['zonde', 'gizonde', 'razonde']],
+    passives: [P('tempo'), P('calmMind', 'zonde'), P('blink', 'tempo'), P('lightFeet', 'blink'), P('conductor', 'gizonde'), P('techLongshot', 'conductor'), P('siphonStaff', 'calmMind'), P('clarity', 'siphonStaff'), P('echo', 'techLongshot'), P('swiftCast', 'echo'), P('rush', 'lightFeet')],
+  },
+  {
+    id: 'ice', name: 'Ice', lanes: [['barta', 'gibarta', 'rabarta'], ['resta']],
+    passives: [P('fleet'), P('slipstream', 'fleet'), P('lastStand', 'slipstream'), P('barrier', 'resta'), P('purify', 'barrier'), P('fieldMedic', 'barrier'), P('ward', 'gibarta'), P('bulwark', 'ward'), P('frostbite', 'ward'), P('aegis', 'frostbite'), P('composure', 'aegis')],
+  },
+];
 
 const isArt = (id: string): id is ArtId => Object.hasOwn(ARTS, id);
 
@@ -121,8 +85,8 @@ const isArt = (id: string): id is ArtId => Object.hasOwn(ARTS, id);
 export const modNodeId = (art: ArtId, mod: string): string => `${art}:${mod}`;
 
 /** Grid columns a tree takes (its lanes, and as many passive columns as its lines need to stay clear). */
-export function treeCols(cls: ClassId, tree: string): number {
-  return Math.max(...skillNodes(cls).filter((n) => n.tree === tree).map((n) => n.col)) + 1;
+export function treeCols(tree: string): number {
+  return Math.max(...skillNodes().filter((n) => n.tree === tree).map((n) => n.col)) + 1;
 }
 
 function buildTree(t: SkillTreeDef): SkillNode[] {
@@ -183,27 +147,27 @@ function buildTree(t: SkillTreeDef): SkillNode[] {
   return out;
 }
 
-const NODES = {} as Record<ClassId, SkillNode[]>;
-const BY_ID = {} as Record<ClassId, Map<string, SkillNode>>;
+let NODES: SkillNode[] | null = null;
+let BY_ID = new Map<string, SkillNode>();
 
-/** Every node of a class's trees, tree by tree. */
-export function skillNodes(cls: ClassId): SkillNode[] {
-  if (!NODES[cls]) {
-    NODES[cls] = SKILL_TREES[cls].flatMap(buildTree);
-    BY_ID[cls] = new Map(NODES[cls].map((n) => [n.id, n]));
+/** Every node of the trees, tree by tree. */
+export function skillNodes(): SkillNode[] {
+  if (!NODES) {
+    NODES = SKILL_TREES.flatMap(buildTree);
+    BY_ID = new Map(NODES.map((n) => [n.id, n]));
   }
-  return NODES[cls];
+  return NODES;
 }
 
-export function skillNode(cls: ClassId, id: string): SkillNode | undefined {
-  skillNodes(cls);
-  return BY_ID[cls].get(id);
+export function skillNode(id: string): SkillNode | undefined {
+  skillNodes();
+  return BY_ID.get(id);
 }
 
 /** The tree a node sits in. */
-export function treeOf(cls: ClassId, id: string): SkillTreeDef | undefined {
-  const n = skillNode(cls, id);
-  return n && SKILL_TREES[cls].find((t) => t.id === n.tree);
+export function treeOf(id: string): SkillTreeDef | undefined {
+  const n = skillNode(id);
+  return n && SKILL_TREES.find((t) => t.id === n.tree);
 }
 
 /** How a line runs (the menu draws each at right angles). */
@@ -226,8 +190,8 @@ export interface SkillLine {
 }
 
 /** The lines a tree draws (each lit once `to` has a point). */
-export function treeLines(cls: ClassId, tree: string): SkillLine[] {
-  const nodes = skillNodes(cls).filter((n) => n.tree === tree);
+export function treeLines(tree: string): SkillLine[] {
+  const nodes = skillNodes().filter((n) => n.tree === tree);
   const lines: SkillLine[] = [];
   const mods = (art: string, row: 0 | 1) => nodes.filter((n) => n.art === art && n.modRow === row);
   for (const n of nodes) {
@@ -237,7 +201,7 @@ export function treeLines(cls: ClassId, tree: string): SkillLine[] {
     } else if (n.kind === 'mod' && n.modRow === 1) {
       lines.push({ from: mods(n.art!, 0)[1].id, to: n.id, kind: 'fork2' });
     } else if (n.kind === 'passive' && n.pre) {
-      lines.push({ from: n.pre, to: n.id, kind: skillNode(cls, n.pre)!.kind === 'art' ? 'branch' : 'chain' });
+      lines.push({ from: n.pre, to: n.id, kind: skillNode(n.pre)!.kind === 'art' ? 'branch' : 'chain' });
     }
   }
   return lines;
@@ -253,8 +217,8 @@ export function pointsSpent(picks: SkillPicks): number {
 }
 
 /** Points in one tree. */
-export function treeSpent(cls: ClassId, picks: SkillPicks, tree: string): number {
-  return skillNodes(cls).filter((n) => n.tree === tree).reduce((a, n) => a + (picks.ranks[n.id] ?? 0), 0);
+export function treeSpent(picks: SkillPicks, tree: string): number {
+  return skillNodes().filter((n) => n.tree === tree).reduce((a, n) => a + (picks.ranks[n.id] ?? 0), 0);
 }
 
 export const rankOf = (picks: SkillPicks, id: string): number => picks.ranks[id] ?? 0;
@@ -263,21 +227,21 @@ export const rankOf = (picks: SkillPicks, id: string): number => picks.ranks[id]
 export const modRowRank = (row: 0 | 1): number => K.modRanks[row];
 
 /** An Art's modifiers taken in a row. */
-function modsTaken(cls: ClassId, picks: SkillPicks, art: string, row: 0 | 1): SkillNode[] {
-  return skillNodes(cls).filter((n) => n.art === art && n.modRow === row && rankOf(picks, n.id) > 0);
+function modsTaken(picks: SkillPicks, art: string, row: 0 | 1): SkillNode[] {
+  return skillNodes().filter((n) => n.art === art && n.modRow === row && rankOf(picks, n.id) > 0);
 }
 
 /** Why another rank can't go into this node now, or null. */
-export function rankUpBlock(cls: ClassId, level: number, picks: SkillPicks, n: SkillNode): string | null {
+export function rankUpBlock(level: number, picks: SkillPicks, n: SkillNode): string | null {
   if (rankOf(picks, n.id) >= n.max) return n.kind === 'mod' ? 'Taken' : 'At its top rank';
   if (level < n.level) return `Opens at Lv ${n.level}`;
-  if (n.pre && rankOf(picks, n.pre) < 1) return `Needs a point in ${skillName(skillNode(cls, n.pre)!)}`;
+  if (n.pre && rankOf(picks, n.pre) < 1) return `Needs a point in ${skillName(skillNode(n.pre)!)}`;
   if (n.kind === 'mod') {
     const art = ARTS[n.art!].name;
     const row = n.modRow!;
     if (rankOf(picks, n.art!) < modRowRank(row)) return `Needs ${art} at rank ${modRowRank(row)}`;
-    if (row === 1 && !modsTaken(cls, picks, n.art!, 0).length) return `Needs one of ${art}'s first modifiers`;
-    const other = modsTaken(cls, picks, n.art!, row)[0];
+    if (row === 1 && !modsTaken(picks, n.art!, 0).length) return `Needs one of ${art}'s first modifiers`;
+    const other = modsTaken(picks, n.art!, row)[0];
     if (other) return `One per row: take ${skillName(other)} back first`;
   }
   if (pointsSpent(picks) >= skillPoints(level)) return 'No skill points left';
@@ -289,38 +253,38 @@ export function rankUpBlock(cls: ClassId, level: number, picks: SkillPicks, n: S
  * modifier's: its Art's)? Ranks, points and a taken sibling modifier don't count: those only take spending (or a
  * swap). The tree outlines these in their colour so what is in reach stands out from what still waits on a level.
  */
-export function skillReachable(cls: ClassId, level: number, n: SkillNode): boolean {
+export function skillReachable(level: number, n: SkillNode): boolean {
   if (level < n.level) return false;
   const up = n.kind === 'mod' ? n.art : n.pre;
-  return !up || skillReachable(cls, level, skillNode(cls, up)!);
+  return !up || skillReachable(level, skillNode(up)!);
 }
 
 /** Why a rank can't come out of this node, or null. */
-export function rankDownBlock(cls: ClassId, picks: SkillPicks, n: SkillNode): string | null {
+export function rankDownBlock(picks: SkillPicks, n: SkillNode): string | null {
   const r = rankOf(picks, n.id);
   if (r < 1) return 'No points in it';
   const resting: SkillNode[] = [];
-  if (r === 1) resting.push(...skillNodes(cls).filter((m) => m.pre === n.id && rankOf(picks, m.id) > 0));
-  if (n.kind === 'art') for (const row of [0, 1] as const) if (r - 1 < modRowRank(row)) resting.push(...modsTaken(cls, picks, n.id, row));
-  if (n.kind === 'mod' && n.modRow === 0) resting.push(...modsTaken(cls, picks, n.art!, 1));
+  if (r === 1) resting.push(...skillNodes().filter((m) => m.pre === n.id && rankOf(picks, m.id) > 0));
+  if (n.kind === 'art') for (const row of [0, 1] as const) if (r - 1 < modRowRank(row)) resting.push(...modsTaken(picks, n.id, row));
+  if (n.kind === 'mod' && n.modRow === 0) resting.push(...modsTaken(picks, n.art!, 1));
   return resting.length ? `Take ${resting.map((d) => skillName(d)).join(', ')} back first` : null;
 }
 
 /** Put a rank in. Returns why not, or null. */
-export function rankUp(cls: ClassId, level: number, picks: SkillPicks, id: string): string | null {
-  const n = skillNode(cls, id);
+export function rankUp(level: number, picks: SkillPicks, id: string): string | null {
+  const n = skillNode(id);
   if (!n) return 'No such skill';
-  const block = rankUpBlock(cls, level, picks, n);
+  const block = rankUpBlock(level, picks, n);
   if (block) return block;
   picks.ranks[id] = rankOf(picks, id) + 1;
   return null;
 }
 
 /** Take a rank out. Returns why not, or null. */
-export function rankDown(cls: ClassId, picks: SkillPicks, id: string): string | null {
-  const n = skillNode(cls, id);
+export function rankDown(picks: SkillPicks, id: string): string | null {
+  const n = skillNode(id);
   if (!n) return 'No such skill';
-  const block = rankDownBlock(cls, picks, n);
+  const block = rankDownBlock(picks, n);
   if (block) return block;
   const r = rankOf(picks, id) - 1;
   if (r) picks.ranks[id] = r;
@@ -332,7 +296,7 @@ export function rankDown(cls: ClassId, picks: SkillPicks, id: string): string | 
  * Stored picks with anything unknown, out of reach, over a top rank or over budget dropped. Modifier picks stored
  * apart (`mods`, the first take of the ranked trees) become modifier nodes.
  */
-export function readSkills(raw: unknown, cls: ClassId, level: number): SkillPicks {
+export function readSkills(raw: unknown, level: number): SkillPicks {
   const out = emptySkills();
   if (!raw || typeof raw !== 'object') return out;
   const r = raw as { ranks?: Record<string, unknown>; mods?: Record<string, unknown> };
@@ -343,11 +307,11 @@ export function readSkills(raw: unknown, cls: ClassId, level: number): SkillPick
   // Rebuild rank by rank in level order (Arts before their modifiers), so prerequisites and the budget hold.
   const order = { art: 0, passive: 1, mod: 2 } as const;
   const want = Object.entries(ranks)
-    .map(([id, v]) => [skillNode(cls, id), typeof v === 'number' ? Math.floor(v) : 0] as const)
+    .map(([id, v]) => [skillNode(id), typeof v === 'number' ? Math.floor(v) : 0] as const)
     .filter((e): e is readonly [SkillNode, number] => !!e[0] && e[1] > 0)
     .sort(([a], [b]) => a.level - b.level || order[a.kind] - order[b.kind] || (a.modRow ?? 0) - (b.modRow ?? 0));
   for (let pass = 0; pass < 6; pass++) {
-    for (const [n, v] of want) while (rankOf(out, n.id) < v && !rankUp(cls, level, out, n.id));
+    for (const [n, v] of want) while (rankOf(out, n.id) < v && !rankUp(level, out, n.id));
   }
   return out;
 }
@@ -357,27 +321,27 @@ export function readSkills(raw: unknown, cls: ClassId, level: number): SkillPick
  * 2026-10-15): the Arts on the bars learn a rank each (with what they hang from), then the old passives one rank each,
  * while points allow. The rest is left to spend.
  */
-export function migrateSkills(cls: ClassId, level: number, barArts: ArtId[], oldPassives: string[]): SkillPicks {
+export function migrateSkills(level: number, barArts: ArtId[], oldPassives: string[]): SkillPicks {
   const out = emptySkills();
   const learn = (id: string, depth = 0): void => {
-    const n = skillNode(cls, id);
+    const n = skillNode(id);
     if (!n || n.kind === 'mod' || depth > 8 || rankOf(out, id) > 0) return;
     if (n.pre) learn(n.pre, depth + 1);
-    rankUp(cls, level, out, id);
+    rankUp(level, out, id);
   };
   for (const id of [...barArts].sort((a, b) => ARTS[a].level - ARTS[b].level)) learn(id);
   for (const id of oldPassives) learn(id);
   return out;
 }
 
-/** Tests and sims: every Art the class has at this level, at `rank` (no points spent, no prerequisites checked). */
-export function grantArts(cls: ClassId, level: number, picks: SkillPicks, rank: number): void {
-  for (const n of skillNodes(cls)) if (n.kind === 'art' && n.level <= level) picks.ranks[n.id] = Math.max(rankOf(picks, n.id), Math.min(n.max, rank));
+/** Tests and sims: every Art open at this level, at `rank` (no points spent, no prerequisites checked). */
+export function grantArts(level: number, picks: SkillPicks, rank: number): void {
+  for (const n of skillNodes()) if (n.kind === 'art' && n.level <= level) picks.ranks[n.id] = Math.max(rankOf(picks, n.id), Math.min(n.max, rank));
 }
 
-/** The first Art a new character knows: the start weapon's (or the class's first technique), rank 1. */
-export function starterArt(cls: ClassId, usable: (id: ArtId) => boolean): ArtId | undefined {
-  return SKILL_TREES[cls].flatMap((t) => t.lanes.flat()).find((id) => ARTS[id].level <= 1 && usable(id));
+/** The first Art a new character knows (Foie), rank 1. */
+export function starterArt(usable: (id: ArtId) => boolean): ArtId | undefined {
+  return SKILL_TREES.flatMap((t) => t.lanes.flat()).find((id) => ARTS[id].level <= 1 && usable(id));
 }
 
 export function skillName(n: SkillNode): string {

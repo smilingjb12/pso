@@ -54,14 +54,14 @@ describe('affix tiers 7-8 (rift item levels)', () => {
 
   it('lets rift drops roll past the tier 6 top, and Hell drops never', () => {
     const rng = mulberry(3);
-    const top6 = tierRange(ITEM_AFFIXES.atpPct.tiers, 6)[1];
+    const top6 = tierRange(ITEM_AFFIXES.techPct.tiers, 6)[1];
     let over = 0;
     for (let i = 0; i < 600; i++) {
-      const hell = rollWeapon(15, rng, 'melee', 'rare');
-      for (const a of hell.affixes ?? []) if (a.id === 'atpPct') expect(a.v).toBeLessThanOrEqual(top6);
-      const r = rollWeapon(15, rng, 'melee', 'rare', riftIlvl(8));
+      const hell = rollWeapon(15, rng, 'rare');
+      for (const a of hell.affixes ?? []) if (a.id === 'techPct') expect(a.v).toBeLessThanOrEqual(top6);
+      const r = rollWeapon(15, rng, 'rare', riftIlvl(8));
       expect(r.ilvl).toBe(116);
-      for (const a of r.affixes ?? []) if (a.id === 'atpPct' && a.v > top6) over++;
+      for (const a of r.affixes ?? []) if (a.id === 'techPct' && a.v > top6) over++;
     }
     expect(over).toBeGreaterThan(0);
   });
@@ -69,8 +69,8 @@ describe('affix tiers 7-8 (rift item levels)', () => {
   it('gives every rift rare 6 affixes and 3 dormant', () => {
     const rng = mulberry(5);
     for (let i = 0; i < 200; i++) {
-      const it = rollArmor(15, rng, 'melee', 'rare', riftIlvl(1 + (i % 10)));
-      expect((it.affixes?.length ?? 0) + (it.special ? 1 : 0)).toBe(6);
+      const it = rollArmor(15, rng, 'rare', riftIlvl(1 + (i % 10)));
+      expect(it.affixes).toHaveLength(6);
       expect(it.dormant).toHaveLength(3);
     }
   });
@@ -86,7 +86,7 @@ describe('affix tiers 7-8 (rift item levels)', () => {
     const count = (qty: number) => {
       const rng = mulberry(3);
       let n = 0;
-      for (let i = 0; i < 300; i++) n += rollRiftEndDrops(false, 9, riftIlvl(9), rng, undefined, qty).length;
+      for (let i = 0; i < 300; i++) n += rollRiftEndDrops(false, 9, riftIlvl(9), rng, qty).length;
       return n / 300;
     };
     expect(count(100) - count(0)).toBeCloseTo(3, 0);
@@ -257,7 +257,7 @@ describe('Rift Shards', () => {
   });
 
   it('cleans shards from before the region change out of old saves', () => {
-    const ch = Character.create('T', 'hunter');
+    const ch = Character.create('T');
     ch.data.rift = {
       tier: 3, clears: 2, best: 2,
       shards: [
@@ -271,7 +271,7 @@ describe('Rift Shards', () => {
   });
 
   it('squishes an old save onto the ten tiers once', () => {
-    const ch = Character.create('T', 'hunter');
+    const ch = Character.create('T');
     ch.data.rift = { tier: 23, clears: 40, best: 22, shards: [{ uid: 's', tier: 13, mods: ['tough'] }, { uid: 't', tier: 1, mods: ['brutal'] }] };
     const save = riftSave(ch.data);
     expect(save.tier).toBe(riftCfg.maxTier);
@@ -281,7 +281,7 @@ describe('Rift Shards', () => {
     save.tier = 6;
     expect(riftSave(ch.data).tier).toBe(6);
     // A new character starts on the new ladder.
-    const fresh = Character.create('F', 'force');
+    const fresh = Character.create('F');
     expect(riftSave(fresh.data).ladder).toBe(2);
   });
 });
@@ -369,7 +369,6 @@ describe('Rift-forged drops and rarer finds', () => {
     const a = statDef(plain);
     const b = statDef(forged);
     if (a.type !== 'weapon' || b.type !== 'weapon') throw new Error('not a weapon');
-    expect(b.atpMax).toBe(Math.round(a.atpMax * 1.21));
     expect(b.bonus?.mst).toBe(Math.round((a.bonus?.mst ?? 0) * 1.21));
     expect(rarityLine(forged)).toContain('Rift-forged +21%');
     expect(rarityLine(plain)).not.toContain('Rift-forged');
@@ -379,7 +378,7 @@ describe('Rift-forged drops and rarer finds', () => {
   });
 
   it('counts the forge in the character stats', () => {
-    const ch = Character.create('T', 'force');
+    const ch = Character.create('T');
     ch.data.level = 100;
     const w = makeItem('rod_15', { ilvl: 110 });
     ch.data.inventory.push(w);

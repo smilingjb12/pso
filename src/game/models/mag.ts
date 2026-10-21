@@ -16,7 +16,7 @@ import { mat, part } from './Rig';
 export const MAG_DESIGN = 'kits';
 
 export interface MagLook {
-  /** Arm the look follows (the class's arm at stage 1, the lead arm after); without one, the classic look. */
+  /** Arm the look follows (MIND at stage 1, the lead arm after); without one, the classic look. */
   theme?: MagTheme;
   /** Key of MAG_DESIGNS (default MAG_DESIGN); anything else keeps the classic look. */
   design?: string;

@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { itemDefs, type ArmorItemDef, type ArmorLine } from '../data/items';
-import { CLASSES, type ClassId, type MagStat } from '../data/stats';
+import { itemDefs, type ArmorItemDef } from '../data/items';
+
 import { limbGeo, mat, part, Rig } from './Rig';
 import type { LegDims } from './gait';
 
-// The player character: one anime-styled heroine used for every class.
+// The player character: one anime-styled heroine.
 // Built procedurally from interchangeable parts so the Character Lab can
 // compare body proportions, hair, outfits, accessories and colour schemes.
 // Long hair and skirt/coat panels get simple secondary motion (springs) and
@@ -67,8 +67,8 @@ export const OUTFITS: Record<string, { name: string; desc: string }> = {
   O1: { name: 'Swallowtail coat', desc: 'Fitted long coat closed under a high collar, cut away at the front into split tails; slim trousers, gloves and tall boots.' },
   O2: { name: 'Blouse & pleated skirt', desc: 'Puff-sleeve blouse with a bow, flared pleated skirt, thigh-high stockings.' },
   O3: { name: 'HUnewearl armour', desc: 'PSO hunter: leotard, tall shoulder plates, gauntlets, armour skirt, tall boots.' },
-  O4: { name: 'Ranger jacket', desc: 'Bodysuit, cropped high-collar jacket, belt with pouches, coat tails, armoured boots.' },
-  O5: { name: 'Force robe', desc: 'High-collar dress with a long split skirt, detached bell sleeves and a gem.' },
+  O4: { name: 'Jacket', desc: 'Bodysuit, cropped high-collar jacket, belt with pouches, coat tails, armoured boots.' },
+  O5: { name: 'Robe', desc: 'High-collar dress with a long split skirt, detached bell sleeves and a gem.' },
 };
 
 export const ACCESSORIES: Record<string, { name: string; desc: string }> = {
@@ -173,10 +173,11 @@ export interface Look {
 
 // ------------------------------------------------------------ armour evolutions
 
-/** The outfit worn in a Standard frame (or none), by the character's leading attribute. */
-export const ATTRIBUTE_OUTFIT: Record<MagStat, string> = { pow: 'O4', def: 'O4', dex: 'O1', mind: 'O5' };
-/** The outfit each armour line dresses her in: the frame decides the clothes. */
-export const LINE_OUTFIT: Partial<Record<ArmorLine, string>> = { guard: 'O4', combat: 'O1', psy: 'O5' };
+/**
+ * The outfit she wears in the game: the robe (Halo), whatever the frame, since the Guard and Combat lines went
+ * with the classes (2026-10-21). The Vanguard (O4) and Ember (O1) evolutions stay for the labs.
+ */
+export const PLAYER_OUTFIT = 'O5';
 /** Evolution stage per frame tier (index = tier 1-15): Normal (up to the Ruins' T7) tops out at stage 3, Nightmare frames (T8-11) reach 4, Hell frames (T12+) 5. */
 export const TIER_STAGE = [0, 0, 1, 2, 2, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5];
 
@@ -190,7 +191,7 @@ export const EVOLUTIONS: Record<string, Evolution> = {
   O4: {
     name: 'Vanguard',
     stages: [
-      { name: 'Jacket', desc: 'The plain ranger jacket.' },
+      { name: 'Jacket', desc: 'The plain jacket.' },
       { name: 'Pauldrons', desc: 'Spiked pauldrons and forearm bracers.' },
       { name: 'Warplate', desc: 'Chest plate with a core, hip plates, plated coat tails; the spikes grow glowing tips and the bracers grow spikes; glow trim lights up.' },
       { name: 'Crown', desc: 'A crown of light blades floats above her head; knee and shin plates, heel jets; circuit lines.' },
@@ -212,7 +213,7 @@ export const EVOLUTIONS: Record<string, Evolution> = {
   O5: {
     name: 'Halo',
     stages: [
-      { name: 'Robe', desc: 'The plain Force robe.' },
+      { name: 'Robe', desc: 'The plain robe.' },
       { name: 'Halo', desc: 'A ring of light turns behind her head.' },
       { name: 'Armlets', desc: 'Floating rings circle her upper arms; glow trim lights up.' },
       { name: 'Orbit', desc: 'A ring of light with three crystals orbits her hips; the halo gains rune plates; circuit lines.' },
@@ -222,10 +223,9 @@ export const EVOLUTIONS: Record<string, Evolution> = {
   },
 };
 
-/** Outfit and evolution stage for a character of Mag stat `attr` (its class's) wearing `frame` (that stat's outfit at stage 0 without one). */
-export function armorLook(attr: MagStat, frame?: ArmorItemDef | null): { outfit: string; evo: number } {
-  if (!frame) return { outfit: ATTRIBUTE_OUTFIT[attr], evo: 0 };
-  return { outfit: LINE_OUTFIT[frame.line] ?? ATTRIBUTE_OUTFIT[attr], evo: TIER_STAGE[clamp(Math.round(frame.tier), 1, TIER_STAGE.length - 1)] };
+/** Outfit and evolution stage for a character wearing `frame` (stage 0 without one). */
+export function armorLook(frame?: ArmorItemDef | null): { outfit: string; evo: number } {
+  return { outfit: PLAYER_OUTFIT, evo: frame ? TIER_STAGE[clamp(Math.round(frame.tier), 1, TIER_STAGE.length - 1)] : 0 };
 }
 
 const COAT: Look = { body: 'P3', hair: 'H1', outfit: 'O1', accessory: 'A2', palette: 'C1', glow: 'G0', armor: 'R0', back: 'B0', face: 'F0' };
@@ -270,7 +270,6 @@ export function playerLook(data: {
   appearance?: Look;
   look?: string;
   colors?: LookColors;
-  cls?: ClassId;
   equipped?: { frame?: string };
   inventory?: { uid: string; id: string }[];
 }): Look {
@@ -278,8 +277,7 @@ export function playerLook(data: {
   const look = data.appearance ? { ...DEFAULT_APPEARANCE, ...data.appearance } : { ...legacy.look, colors: data.colors };
   const frameId = data.equipped?.frame && data.inventory?.find((it) => it.uid === data.equipped!.frame)?.id;
   const def = frameId ? itemDefs[frameId] : undefined;
-  const lead = CLASSES[data.cls ?? 'hunter']?.magStat ?? 'pow';
-  const gear = armorLook(lead, def?.type === 'armor' ? def : null);
+  const gear = armorLook(def?.type === 'armor' ? def : null);
   // The frame decides the outfit and its evolution; players don't get head accessories (Character Lab only).
   return { ...look, ...gear, accessory: 'A1', armor: 'R0', glow: 'G0', back: 'B0' };
 }
@@ -1574,7 +1572,7 @@ export class Heroine implements CharacterModel {
     }
   }
 
-  // ---------------------------------------------------------- Ember (Ranger) parts
+  // ---------------------------------------------------------- Ember parts
 
   /** Ember: the Combat line's evolution up to `stage`; dark plated feathers edged with light. */
   private buildEmber(stage: number): void {
@@ -2494,7 +2492,7 @@ export class Heroine implements CharacterModel {
       this.skirt({ y: 0.07 * s, rx: 0.15 * s, rz: 0.12 * s, len: 0.24 * s, count: 7, from: 0.95, to: Math.PI * 2 - 0.95, base: 0.4, mat: m.second, matB: m.second, t: 0.018 * s, trim: m.main, stripes: true });
       part(j.hips, shellGeo([[0.148 * s, 0.05 * s], [0.145 * s, 0.095 * s]], 0.8), m.second); // waistband
     } else if (key === 'O4') {
-      // Ranger: bodysuit, cropped jacket, belt with pouches, coat tails, armoured boots.
+      // O4: bodysuit, cropped jacket, belt with pouches, coat tails, armoured boots.
       this.torso(m.main, m.main, m.main);
       this.arms(m.second, m.second, m.dark);
       this.legsGeo(m.main, m.main);
@@ -2524,7 +2522,7 @@ export class Heroine implements CharacterModel {
       const plated = (this.look.evo ?? 0) >= 2;
       this.skirt({ y: 0.03 * s, rx: 0.165 * s, rz: 0.13 * s, len: 0.12 * s + thigh * 0.62, count: 5, from: Math.PI - 1.05, to: Math.PI + 1.05, base: 0.12, mat: jacket, matB: plated ? doubleSided(m.plate) : jacket, t: 0.012 * s, trim: m.accent, stripes: plated });
     } else {
-      // O5 Force: high-collar dress, long split skirt, detached bell sleeves.
+      // O5: high-collar dress, long split skirt, detached bell sleeves.
       this.torso(m.main, m.main, m.main);
       this.arms(m.skin, m.skin, m.skin, m.skin);
       this.legsGeo(m.legwear, m.legwear);
