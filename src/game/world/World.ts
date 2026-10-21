@@ -6,6 +6,7 @@ import {
   type EnemyArchetype, type EnemyId,
 } from '../config';
 import { AFFIXES, affixFits, HARD_AFFIXES, MINES_AFFIXES, rollAffixes } from '../data/affixes';
+import { isMainBoss } from '../data/bosses';
 import { riftArch, riftBossScale, riftCc, riftElite, riftForcedAffix, type RiftInfo } from '../rifts';
 import { rollCcResist, type CcResist } from '../ccResist';
 import { shieldBubble } from '../enemies/affixFx';
@@ -253,7 +254,7 @@ export class World {
 
     if (def.kind === 'boss' && !run.bossDefeated) {
       const id = def.boss ?? 'dragon';
-      this.boss = createBoss(id, this.level, run.rift ? riftBossScale(run.rift) : run.hard ? hardBoss(id, run.hell) : null);
+      this.boss = createBoss(id, this.level, run.rift ? riftBossScale(run.rift) : run.hard && isMainBoss(id) ? hardBoss(id, run.hell) : null);
       this.group.add(...this.boss.objects);
     }
     if (def.kind === 'boss' && run.bossDefeated) this.spawnReturnTeleporter();

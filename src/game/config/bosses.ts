@@ -474,3 +474,111 @@ export const darkFalz = {
   doomReach: 12,
   doomClear: 1.2,
 };
+
+/**
+ * Gal Gryphon (2026-10-21; DESIGN.md "Endgame: Falz Rifts" > "Gal Gryphon"): the Rift Map's Circle II pinnacle boss,
+ * a storm griffin on Storm Peak, a round summit ringed by six lightning rods. Rift-only (it guards no expedition), so
+ * `rift` stands in for the Hell scaling the four get there. Seconds are its own clock (a rift's fixed tempo runs it
+ * faster) unless they say real seconds. Picked by the user in a question round: Storm Peak, spent rods, two phases.
+ */
+export const galGryphon = {
+  /** Only the ratio to the rift's common boss HP is used (riftBossHp). */
+  hp: 10000,
+  atp: 120,
+  armor: 10,
+  techResist: 14,
+  xp: 0,
+  /** Injector doses its whole HP bar is worth (see injectorCfg). */
+  charge: 4,
+  /** What Hell's boss scaling is to the four: ATP added (235 in all, between the Dragon's and De Rol Le's), armour, technique resistance, flat damage, XP. */
+  rift: { hp: 1, atp: 115, armor: 0, techResist: 14, flat: 3.5, xp: 6000 },
+  radius: 2.4,
+  /** The summit you can walk on (m from its centre); it lands this far north of the centre at the start. */
+  arenaRadius: 16,
+  perch: 9,
+  walkSpeed: 2.6,
+  turnSpeed: 1.6,
+  /** It keeps about this far from you between attacks (m). */
+  keepAway: 7,
+  attackGap: 1.6,
+  enrageAt: 0.2,
+  enrageSpeed: 0.8,
+  /** Below this HP share: the eye of the storm (cyclones, the crossing swoop, 4-bolt storms with a gale). */
+  phase2At: 0.5,
+  /** Grounded (a full rod) it takes this much damage (×1.5: +50%). */
+  weakPointMult: 1.5,
+  // ---- attacks (all walkable but the plummet and the crossing swoop's second lane)
+  /** Talon Swoop: a lane from it through you to the far rim, `swoopWidth` m wide; it flies it at `swoopSpeed` m/s. */
+  swoopWindup: 1.3,
+  swoopWidth: 5,
+  swoopSpeed: 24,
+  swoopAtp: 1.2,
+  swoopKnockback: 12,
+  /** Gale Wing: a wing beat in a cone (60° / 9 m keeps it walkable from anywhere in it: the 100° / 11 m pitched wasn't), shoving you away. */
+  galeWindup: 1.3,
+  galeRange: 9,
+  galeArcDeg: 60,
+  galeAtp: 0.7,
+  galeKnockback: 16,
+  /** Thunder Orbs: `orbCount` circles, one on you and the rest `orbSpread` m round it, burst after the windup. */
+  orbWindup: 1.4,
+  orbCount: 3,
+  orbRadius: 3,
+  orbSpread: 4.5,
+  orbAtp: 1.0,
+  /** Plummet (dash check): it springs up for `plummetRise` s, then a `plummetRadius` m circle on you, warned `plummetWindup` s (the enrage never cuts it). */
+  plummetRise: 0.7,
+  plummetWindup: 1.5,
+  plummetRadius: 6,
+  plummetAtp: 1.3,
+  plummetKnockback: 12,
+  plummetRest: 1.4,
+  /** Phase 2, Cyclones: `cycloneCount` tornadoes rise at the rim and wander `cycloneLife` s; a touch tosses you (once per `cycloneHitGap` s each). */
+  cycloneCount: 2,
+  cycloneLife: 10,
+  cycloneRadius: 1.6,
+  cycloneSpeed: 2.4,
+  cycloneAtp: 0.6,
+  cycloneKnockback: 14,
+  cycloneHitGap: 1.5,
+  /** Phase 2, Crossing Swoop: the first lane as a swoop's; `crossDelay` s in, a second lane across it through you, warned `crossWindup` s (dash check). */
+  crossDelay: 0.6,
+  crossWindup: 1.0,
+  // ---- the storm (its signature)
+  /**
+   * The storm: due `stormFirst` s into the fight, then `stormEvery` s after the last was called, never sooner than
+   * `stormAfterUp` s after it is back on its feet. It rises into the clouds (can't be hit) and every rod's reach
+   * lights; the first bolt lands `stormLead` s after the call (never under `stormLeadFloor` real seconds), then one every
+   * `boltGap` s, each marked on you `boltWarn` s before (a `boltMark` m ring that follows you). In a usable rod's reach
+   * the bolt bends into the rod (+1); anywhere else it strikes you for `boltShare` of your max HP (a failed mechanic,
+   * past armour: three is about the usual 80%).
+   */
+  stormFirst: 10,
+  stormEvery: 22,
+  stormAfterUp: 9,
+  stormLead: 2.5,
+  stormLeadFloor: 2.3,
+  boltWarn: 1.0,
+  boltGap: 1.4,
+  bolts: 3,
+  bolts2: 4,
+  boltMark: 2,
+  boltShare: 0.27,
+  /** Phase 2 storms: a gale pushes you away from the middle (m/s) from the call to the last bolt. */
+  galePush: 2,
+  /**
+   * Rods: `rodCount` round the summit `rodRing` m out (30° off north first), each drawing bolts within `rodReach` m.
+   * `rodCharge` bolts fill one: it discharges into the Gryphon, which crashes `rodLand` m inside it, grounded for
+   * `groundedTime` s (about 7 real seconds at a rift's tempo). A rod that fired is scorched for the next storm; a
+   * part-filled one keeps its charge.
+   */
+  rodCount: 6,
+  rodRing: 11,
+  rodReach: 3.5,
+  rodR: 0.9,
+  rodCharge: 3,
+  rodLand: 5.5,
+  groundedTime: 8,
+  /** With no rod filled, it comes back down in the middle this long after the last bolt. */
+  stormLand: 1.2,
+};

@@ -1,12 +1,13 @@
 import type { CharacterData } from './character';
 import { CC_AFFIXES, type CcKind } from './ccResist';
 import {
-  crowdControl as ccCfg, darkFalz as darkFalzCfg, deRolLe as deRolLeCfg, dragon as dragonCfg, drops, enemies, formulas, hard as hardCfg, hell,
-  warden as wardenCfg, type EnemyArchetype, type EnemyId, type HardBossScale, type HardScale,
+  crowdControl as ccCfg, darkFalz as darkFalzCfg, deRolLe as deRolLeCfg, dragon as dragonCfg, drops, enemies, formulas, galGryphon as gryphonCfg,
+  hard as hardCfg, hell, warden as wardenCfg, type EnemyArchetype, type EnemyId, type HardBossScale, type HardScale,
 } from './config';
 import { cutMult } from './formulas';
 import { AFFIXES, type Affix } from './data/affixes';
 import { areas, expeditions, type AreaDef, type AreaId, type BossId } from './data/areas';
+import { isMainBoss, type PinnacleBossId, type RiftBossId } from './data/bosses';
 import { areaDef } from './data/looks';
 import type { Foe } from './dps';
 import { hardArch } from './hard';
@@ -59,7 +60,7 @@ export const riftCfg = {
    * bosses' damage and HP (the mechanics become a must, and harder to keep flawless), not speed. ×1.15 is the middle
    * of the old ladder (+2% a tier, ×1.0 at tier 1 to ×1.3 from tier 16; 2026-10-12 to 10-17).
    */
-  bossTempo: { dragon: 1.15, derolle: 1.15, warden: 1.15, falz: 1.15 } as Record<BossId, number>,
+  bossTempo: { dragon: 1.15, derolle: 1.15, warden: 1.15, falz: 1.15, gryphon: 1.15 } as Record<RiftBossId, number>,
   /**
    * Every rift boss has the same HP at a tier (2026-10-17, the user's call: De Rol Le felt tankier than Dark Falz):
    * `bossHp` at tier 1, grown per tier (`bossHpPerTier`) and by Tough. 420k is about the four's average before, when
@@ -68,7 +69,7 @@ export const riftCfg = {
    * the one that was, soaks nothing since the same day).
    */
   bossHp: 420000,
-  bossHpMult: { dragon: 1, derolle: 1, warden: 1, falz: 1 } as Record<BossId, number>,
+  bossHpMult: { dragon: 1, derolle: 1, warden: 1, falz: 1, gryphon: 1 } as Record<RiftBossId, number>,
   /**
    * Crowd-control resistance stops growing at this tier (the old tier 16). Armour and technique resistance no longer
    * grow with the tier at all (2026-10-17: they only made rooms slower).
@@ -144,8 +145,10 @@ export interface RiftInfo {
   region: RiftBiome;
   /** Which of the region's floors lends the look (the Caves and Mines have two each, the Ruins two). */
   look: AreaId;
-  /** Whose boss a boss node fights (its quarter's). */
+  /** Whose boss a boss node fights (its quarter's; a pinnacle's region only lends the music after the kill). */
   bossRegion: RiftBiome;
+  /** A pinnacle node's boss (its own arena; `bossRegion` then names no boss). */
+  pinnacle?: PinnacleBossId;
   tier: number;
   mods: RiftModId[];
   second?: RiftBiome;
@@ -173,7 +176,7 @@ export interface RiftSave {
   /** Rift Circles (riftCircles.ts): the boss + circle kills that already got their first-kill unique ("dragon2"). */
   firsts?: string[];
   /** Rift boss kills in a row without a unique, per boss (raises the next one's odds). */
-  dry?: Partial<Record<BossId, number>>;
+  dry?: Partial<Record<RiftBossId, number>>;
   /** The Rift Map (2026-10-21): which nodes are open or cleared, their rolls, and Resonance. */
   map?: RiftMapSave;
 }
@@ -275,12 +278,13 @@ const RIFT_LIFT: Record<RiftBiome, { atp: number; armor: number; techResist: num
   mines: { atp: -80, armor: -2, techResist: -4 },
   ruins: { atp: -52, armor: -1, techResist: -2 },
 };
-/** The same for each rift boss over its Hell numbers. */
-const RIFT_BOSS_LIFT: Record<BossId, { atp: number; armor: number; techResist: number }> = {
+/** The same for each rift boss over its Hell numbers (a pinnacle boss's `rift` block is already its rift numbers). */
+const RIFT_BOSS_LIFT: Record<RiftBossId, { atp: number; armor: number; techResist: number }> = {
   dragon: { atp: -92, armor: -1, techResist: -6 },
   derolle: { atp: -60, armor: -1, techResist: -4 },
   warden: { atp: -32, armor: -1, techResist: -2 },
   falz: { atp: 11, armor: 0, techResist: 0 },
+  gryphon: { atp: 0, armor: 0, techResist: 0 },
 };
 
 /** Each enemy's home expedition: rift enemies scale from their own region's Hell numbers. */
@@ -379,12 +383,23 @@ export function riftArch(type: EnemyId, r: Pick<RiftInfo, 'tier' | 'mods'>): Ene
 
 export const riftBossOf = (b: RiftBiome): BossId => BIOME_BOSS[b];
 
-/** Each boss's own (Normal) stats block: a rift boss's HP multiplier is worked out against its base HP. */
-const BOSS_STATS: Record<BossId, { hp: number }> = { dragon: dragonCfg, derolle: deRolLeCfg, warden: wardenCfg, falz: darkFalzCfg };
+/** The boss a boss node fights: a pinnacle's own, else its quarter's. */
+export const riftBossId = (r: Pick<RiftInfo, 'bossRegion' | 'pinnacle'>): RiftBossId => r.pinnacle ?? BIOME_BOSS[r.bossRegion];
 
-/** A rift boss's max HP: the same for all four at a tier (`riftCfg.bossHp`, De Rol Le's trimmed for its shell). */
-export function riftBossHp(r: Pick<RiftInfo, 'bossRegion' | 'tier' | 'mods'>): number {
-  const id = BIOME_BOSS[r.bossRegion];
+/** Each boss's own (Normal) stats block: a rift boss's HP multiplier is worked out against its base HP. */
+const BOSS_STATS: Record<RiftBossId, { hp: number }> = { dragon: dragonCfg, derolle: deRolLeCfg, warden: wardenCfg, falz: darkFalzCfg, gryphon: gryphonCfg };
+
+/** What the rift lifts a boss from: Hell's boss scaling for the four, a pinnacle boss's own `rift` block. */
+function riftBase(id: RiftBossId): HardBossScale {
+  return isMainBoss(id) ? hell.bosses[id] : { ...gryphonCfg.rift, hell: true };
+}
+
+/** The XP a rift boss's kill gives (its Hell XP; a pinnacle boss's own). */
+export const riftBossXp = (id: RiftBossId): number => riftBase(id).xp;
+
+/** A rift boss's max HP: the same for all at a tier (`riftCfg.bossHp`; `bossHpMult` can trim one). */
+export function riftBossHp(r: Pick<RiftInfo, 'bossRegion' | 'tier' | 'mods' | 'pinnacle'>): number {
+  const id = riftBossId(r);
   return riftCfg.bossHp * riftCfg.bossHpMult[id] * riftGrowth(r.tier).bossHp * (r.mods.includes('tough') ? 1.4 : 1);
 }
 
@@ -392,9 +407,9 @@ export function riftBossHp(r: Pick<RiftInfo, 'bossRegion' | 'tier' | 'mods'>): n
  * A rift boss: its Hell scaling (third phase included) lifted to Lv 100 and grown per tier, at its fixed rift tempo,
  * with the common rift boss HP (`riftBossHp`).
  */
-export function riftBossScale(r: Pick<RiftInfo, 'bossRegion' | 'tier' | 'mods'>): HardBossScale {
-  const id = BIOME_BOSS[r.bossRegion];
-  const b = hell.bosses[id];
+export function riftBossScale(r: Pick<RiftInfo, 'bossRegion' | 'tier' | 'mods' | 'pinnacle'>): HardBossScale {
+  const id = riftBossId(r);
+  const b = riftBase(id);
   const lift = RIFT_BOSS_LIFT[id];
   const g = riftGrowth(r.tier);
   const brutal = r.mods.includes('brutal') ? 1.12 : 1;
@@ -416,6 +431,8 @@ export function riftBossScale(r: Pick<RiftInfo, 'bossRegion' | 'tier' | 'mods'>)
 // ------------------------------------------------------------------ areas
 
 const BOSS_AREA: Record<RiftBiome, AreaId> = { forest: 'dragon', caves: 'derolle', mines: 'warden', ruins: 'falz' };
+/** Each pinnacle boss's arena. */
+const PINNACLE_AREA: Record<PinnacleBossId, AreaId> = { gryphon: 'stormPeak' };
 
 /**
  * Build the rift's floor: generated rooms in its region's own look (one of the region's floors, untinted), music and
@@ -435,9 +452,9 @@ export function buildRiftArea(r: RiftInfo): AreaDef {
   return { ...src, id: 'rift', name: riftName(r), elites: true, startYaw: undefined, rooms, links };
 }
 
-/** The rift's boss arena: the boss's own, as it looks on its expedition. After the kill, the rift floor's music. */
+/** The rift's boss arena: the boss's own, as it looks on its expedition (a pinnacle's own arena). After the kill, the rift floor's music. */
 export function buildRiftBossArea(r: RiftInfo): AreaDef {
-  const src = areaDef(BOSS_AREA[r.bossRegion]);
+  const src = areaDef(r.pinnacle ? PINNACLE_AREA[r.pinnacle] : BOSS_AREA[r.bossRegion]);
   return { ...src, id: 'riftBoss', name: `Rift Core · Tier ${r.tier} · ${src.name}`, audio: { ...src.audio, after: areas[r.look].audio.track ?? src.audio.after } };
 }
 

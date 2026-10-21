@@ -33,7 +33,7 @@ describe('unique definitions', () => {
     expect(main.map((id) => UNIQUES[id].cls).sort()).toEqual(['force', 'hunter', 'ranger']);
     for (const id of main) expect(UNIQUES[id].base.type).toBe('weapon');
     const rift = UNIQUE_IDS.filter((u) => UNIQUES[u].pool === 'rift');
-    expect(rift).toHaveLength(24);
+    expect(rift).toHaveLength(26);
     for (const boss of ['dragon', 'derolle', 'warden', 'falz'] as const) {
       for (const c of [1, 2, 3] as const) {
         const two = bossUniques(boss, c, c);
@@ -41,6 +41,12 @@ describe('unique definitions', () => {
         expect(two.filter(isUniqueUnit), `${boss} ${c}`).toHaveLength(1);
       }
     }
+    // Gal Gryphon (the Circle II pinnacle): one armour piece (anyone's, so it fits with or without classes) and a unit.
+    const gryphon = bossUniques('gryphon', 3);
+    expect(gryphon.sort()).toEqual(['groundingCoil', 'stormCrest']);
+    expect(gryphon.every((id) => UNIQUES[id].circle === 2 && !UNIQUES[id].cls)).toBe(true);
+    expect(UNIQUES.stormCrest.base).toEqual({ type: 'armor', slot: 'barrier' });
+    expect(isUniqueUnit('groundingCoil')).toBe(true);
     // Every class gets two rift weapons (and the circles' armour is anyone's).
     const weapons = rift.filter((id) => UNIQUES[id].base.type === 'weapon');
     for (const cls of ['hunter', 'ranger', 'force'] as const) expect(weapons.filter((id) => UNIQUES[id].cls === cls)).toHaveLength(2);

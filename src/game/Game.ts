@@ -32,7 +32,7 @@ import { fightLog, hex } from './fightLog';
 import { affixes as affixCfg, hard as hardCfg, hell as hellCfg, camera as camCfg, comboDamage, dash as dashCfg, debug, formulas, injectorCfg, lockOn, magCfg, passiveCfg, player as playerCfg, pylonCfg, uniqueCfg } from './config';
 import { AFFIXES } from './data/affixes';
 import { areas, DEFAULT_LIGHT, expeditionOf, expeditionOfBoss, expeditionOpenedBy, expeditions, isCounter, type AreaId, type ExpeditionId } from './data/areas';
-import { BOSS_IDS, BOSSES, type BossDef } from './data/bosses';
+import { BOSS_IDS, BOSSES, isMainBoss, type BossDef, type BossId } from './data/bosses';
 import { areaDef } from './data/looks';
 import { STAT_KEYS, statDelta, type ClassId, type MagStat } from './data/stats';
 import { ART_IDS, artClasses, ARTS, isTechArt, type ArtId } from './data/arts';
@@ -59,13 +59,13 @@ import { Interactable } from './world/Interactable';
 import type { Pickup } from './world/Pickup';
 import { newRiftRun, newRun, World, type RunState } from './world/World';
 import {
-  modText, RIFT_MODS, riftBonus, riftBossOf, riftFoe, riftIlvl, riftLoot, riftName, riftSave, riftsOpen, setRiftAreas, syncRiftDepth,
+  modText, RIFT_MODS, riftBonus, riftBossId, riftBossXp, riftFoe, riftIlvl, riftLoot, riftName, riftSave, riftsOpen, setRiftAreas, syncRiftDepth,
   type RiftInfo,
 } from './rifts';
 import { circleName, circleOf, rollBossUnique } from './riftCircles';
 import { RIFT_GEN } from './riftGen';
 import {
-  CACHE_NAME, clearNode, deepestNode, enterBlock, isRoomKind, MAP_NODES, mapCfg, mapDepth, nodeName, nodeRift, openWholeMap, payEntry, QUARTERS,
+  CACHE_NAME, clearNode, deepestNode, enterBlock, isRoomKind, MAP_NODES, mapCfg, mapDepth, nodeName, nodeRift, openWholeMap, payEntry, PINNACLE_BOSS, QUARTERS,
 } from './riftMap';
 import { RiftMapMenu } from '../ui/riftGate';
 
@@ -368,6 +368,12 @@ export class Game implements GameApi {
         const save = riftSave(this.char.data);
         for (const q of QUARTERS) save.map!.res[q.boss] = mapCfg.resonanceCap;
         this.hud.toast('Full Resonance for every boss.', 'good');
+      },
+      riftPinnacle: () => {
+        this.openRiftsForDebug();
+        const map = riftSave(this.char.data).map!;
+        map.nodes.P2NE ??= { s: 'open' };
+        this.openRift(nodeRift(map, 'P2NE'), 'riftBoss');
       },
       riftOpen: (boss) => {
         // The deepest node reached of that kind (a boss takes no Resonance here).
@@ -1655,7 +1661,7 @@ export class Game implements GameApi {
     sfx('jingle.victory');
     this.victoryT = 8;
     this.hud.banner(`${world.boss!.name.toUpperCase()} DEFEATED`, 'boss');
-    this.gainXp(hellCfg.bosses[def.id].xp);
+    this.gainXp(riftBossXp(def.id));
     const at = def.dropsAt === 'center' ? world.level.center() : t.pos;
     this.completeRift(at.x, at.z, def.dropRing, def.dropStretch ?? 1);
     world.spawnReturnTeleporter();
@@ -1688,7 +1694,7 @@ export class Game implements GameApi {
     const drops: Drop[] = rollRiftEndDrops(r.boss, r.tier, ilvl, this.rng, bias, riftLoot(r).qty);
     if (r.boss) {
       // Rift Circles: the boss's own unique (its first kill in a circle always drops one).
-      const u = rollBossUnique(riftBossOf(r.bossRegion), r.tier, ilvl, save, this.char.data, this.rng, riftLoot(r).rar);
+      const u = rollBossUnique(riftBossId(r), r.tier, ilvl, save, this.char.data, this.rng, riftLoot(r).rar);
       if (u) drops.push({ kind: 'item', item: u });
     } else if (r.cache) {
       // The node's cache: more of its kind (a Vault's twice over, a Gauntlet's grows with the kills).
@@ -1713,7 +1719,13 @@ export class Game implements GameApi {
     const deeper = circleOf(save.tier) > circleOf(depthBefore) ? ` Rift Circle ${circleName(circleOf(save.tier))} begins: its bosses drop new uniques.` : '';
     if (shown.length) this.hud.toast(`New on the Rift Map: ${shown.map(nodeName).join(', ')}.${deeper}`, 'rare');
     for (const id of landmarks) {
-      this.hud.toast(MAP_NODES[id].kind === 'heart' ? 'All four seals of the Heart are broken. What waits there is still to come.' : `${nodeName(id)} stands open between two quarters. Its boss is still to come.`, 'rare');
+      const n = MAP_NODES[id];
+      const text = n.kind === 'heart'
+        ? 'All four seals of the Heart are broken. What waits there is still to come.'
+        : PINNACLE_BOSS[id]
+          ? `Pinnacle ${circleName(n.circle)} stands open between two quarters: ${nodeName(id)} waits on Storm Peak. Its first kill is free.`
+          : `${nodeName(id)} stands open between two quarters. Its boss is still to come.`;
+      this.hud.toast(text, 'rare');
     }
   }
 
@@ -1793,13 +1805,14 @@ export class Game implements GameApi {
       if (boss.alive) return;
       this.darkFlowKill();
       const def = BOSSES[boss.id];
-      if (this.run.rift) {
+      const id = boss.id;
+      if (this.run.rift || !isMainBoss(id)) {
         this.riftBossKilled(def, t);
         return;
       }
       const diff = runDifficulty(this.run);
       this.char.data.stats.kills++;
-      const first = this.char.addBossKill(def.id, diff) === 1;
+      const first = this.char.addBossKill(id, diff) === 1;
       this.cleanse();
       this.run.bossDefeated = true;
       this.camTarget = null;
@@ -1809,11 +1822,11 @@ export class Game implements GameApi {
       this.hud.banner(`${boss.name.toUpperCase()} DEFEATED`, 'boss');
       this.autosave();
       this.hud.toast('Quest complete! A teleporter to Pioneer 2 has appeared.', 'good');
-      if (first) this.announceUnlocks(def, diff);
-      this.gainXp(diff === 'hell' ? hellCfg.bosses[def.id].xp : diff === 'nightmare' ? hardCfg.bosses[def.id].xp : def.xp());
+      if (first) this.announceUnlocks(def, id, diff);
+      this.gainXp(diff === 'hell' ? hellCfg.bosses[id].xp : diff === 'nightmare' ? hardCfg.bosses[id].xp : def.xp());
       // Loot lands on the deck / arena floor around the centre, or where it fell.
       const at = def.dropsAt === 'center' ? world.level.center() : t.pos;
-      const drops = rollBossDrops(def.id, diff, this.rng, this.char.lootBias());
+      const drops = rollBossDrops(id, diff, this.rng, this.char.lootBias());
       drops.forEach((d, i) => {
         const a = (i / drops.length) * Math.PI * 2;
         this.spawnDrop(d, at.x + Math.sin(a) * def.dropRing, at.z + Math.cos(a) * def.dropRing * (def.dropStretch ?? 1));
@@ -1823,10 +1836,10 @@ export class Game implements GameApi {
   }
 
   /** Toasts for what a boss's first kill opened: shop tiers, the next expedition, Nightmare or Hell. */
-  private announceUnlocks(def: BossDef, diff: Difficulty): void {
+  private announceUnlocks(def: BossDef, id: BossId, diff: Difficulty): void {
     const shop = (diff === 'hell' ? def.hellShop : diff === 'nightmare' ? def.hardShop : def.shop)[0];
     if (shop) this.hud.toast(`Pioneer 2 shops will now stock tier ${shop.tier} gear (from Lv ${shop.level}).`, 'rare');
-    const next = expeditionOpenedBy(def.id);
+    const next = expeditionOpenedBy(id);
     if (next) this.hud.toast(`A new ${diff === 'normal' ? '' : `${DIFFICULTY_NAME[diff]} `}expedition is open: the ${next.name}.`, 'rare');
     if (diff === 'normal' && def.opensNightmare && !this.char.data.stats.nightmareKept) {
       this.hud.toast('Nightmare is open: Save &amp; quit (menu, I) and pick it when you start again.', 'rare');

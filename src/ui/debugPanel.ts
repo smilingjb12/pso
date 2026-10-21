@@ -33,6 +33,7 @@ import {
   warden,
   weaponWeights,
   darkFalz,
+  galGryphon,
   pylonCfg,
   ruinsCfg,
 } from '../game/config';
@@ -64,6 +65,8 @@ export interface DebugActions {
   riftMapAll(): void;
   riftResonance(): void;
   riftOpen(boss: boolean): void;
+  /** Straight into Gal Gryphon's pinnacle (P2NE), open or not; its first kill stays owed. */
+  riftPinnacle(): void;
   /** Skip to the open node's end (its boss, or its Guardian room / Vault / Gauntlet); with none open, the deepest boss node. */
   riftBoss(): void;
   /** The fight log as a JSON file (what hit you, where you stood, the boss's telegraphs), and wiping it. */
@@ -143,6 +146,7 @@ export function createDebugPanel(actions: DebugActions): GUI {
   rf.add({ o: () => actions.riftOpen(false) }, 'o').name('enter the deepest room node');
   rf.add({ o: () => actions.riftOpen(true) }, 'o').name('enter the deepest boss node');
   rf.add({ b: () => actions.riftBoss() }, 'b').name('warp: node end / boss');
+  rf.add({ p: () => actions.riftPinnacle() }, 'p').name('enter Gal Gryphon (Pinnacle II)');
   rf.add(riftCfg, 'fieldHpPerTier', 1, 1.5, 0.005).name('field HP x per tier (next rift)');
   rf.add(riftCfg, 'bossHpPerTier', 1, 1.7, 0.005).name('boss HP x per tier (next fight)');
   rf.add(riftCfg, 'heavyPerTier', 1, 1.4, 0.005).name('heavy hits x per tier (next rift)');
@@ -150,9 +154,10 @@ export function createDebugPanel(actions: DebugActions): GUI {
   rf.add(riftCfg, 'heavyBase', 1, 20, 0.5).name('heavy hits x at tier 1 (next rift)');
   rf.add(riftCfg, 'chipBase', 1, 20, 0.5).name('chip damage x at tier 1 (next rift)');
   rf.add(riftCfg, 'capTier', 1, 10, 1).name('CC resist stops at tier');
-  for (const id of ['dragon', 'derolle', 'warden', 'falz'] as const) rf.add(riftCfg.bossTempo, id, 1, 1.5, 0.01).name(`${id} speed x (next fight)`);
+  for (const id of ['dragon', 'derolle', 'warden', 'falz', 'gryphon'] as const) rf.add(riftCfg.bossTempo, id, 1, 1.5, 0.01).name(`${id} speed x (next fight)`);
   rf.add(riftCfg, 'bossHp', 50000, 2000000, 10000).name('boss HP at tier 1 (next fight)');
-  for (const id of ['dragon', 'derolle', 'warden', 'falz'] as const) rf.add(riftCfg.bossHpMult, id, 0.5, 1.5, 0.01).name(`${id} HP x (next fight)`);
+  for (const id of ['dragon', 'derolle', 'warden', 'falz', 'gryphon'] as const) rf.add(riftCfg.bossHpMult, id, 0.5, 1.5, 0.01).name(`${id} HP x (next fight)`);
+  rf.add(mapCfg, 'pinnacleCost', 0, 6, 1).name('Resonance a pinnacle replay takes (each quarter)');
   rf.add(riftCfg, 'elite', 0, 1, 0.01).name('elite share');
   rf.add(mapCfg, 'resonanceCap', 2, 12, 1).name('Resonance cap');
   rf.add(mapCfg, 'resonanceCost', 0, 6, 1).name('Resonance a boss replay takes');
@@ -499,6 +504,26 @@ export function createDebugPanel(actions: DebugActions): GUI {
   fz.add(darkFalz, 'lanceWindup', 0.3, 4, 0.05).name('lance warning (s)');
   fz.add(darkFalz, 'lanceWidth', 1, 12, 0.1).name('lance width (m)');
   fz.close();
+
+  const gg = gui.addFolder('Gal Gryphon');
+  gg.add(galGryphon, 'phase2At', 0, 1, 0.05).name('eye of the storm at HP %');
+  gg.add(galGryphon, 'stormFirst', 0, 40, 1).name('first storm (s)');
+  gg.add(galGryphon, 'stormEvery', 8, 60, 1).name('storm every (s)');
+  gg.add(galGryphon, 'stormAfterUp', 0, 30, 1).name('storm after it is up (s)');
+  gg.add(galGryphon, 'stormLead', 1, 5, 0.1).name('first bolt after the call (s)');
+  gg.add(galGryphon, 'stormLeadFloor', 1, 5, 0.1).name('first bolt never under (real s)');
+  gg.add(galGryphon, 'boltGap', 0.6, 3, 0.05).name('bolt every (s)');
+  gg.add(galGryphon, 'boltWarn', 0.3, 2, 0.05).name('bolt marked (s)');
+  gg.add(galGryphon, 'boltShare', 0, 1, 0.01).name('bolt off the rods: share of max HP');
+  gg.add(galGryphon, 'groundedTime', 1, 15, 0.5).name('grounded (s)');
+  gg.add(galGryphon, 'weakPointMult', 1, 3, 0.05).name('grounded damage x');
+  gg.add(galGryphon, 'galePush', 0, 5, 0.1).name('phase 2 storm gale (m/s)');
+  gg.add(galGryphon, 'swoopWindup', 0.3, 3, 0.05).name('swoop warning (s)');
+  gg.add(galGryphon, 'galeWindup', 0.3, 3, 0.05).name('gale warning (s)');
+  gg.add(galGryphon, 'orbWindup', 0.3, 3, 0.05).name('orbs warning (s)');
+  gg.add(galGryphon, 'plummetWindup', 0.3, 3, 0.05).name('plummet warning (s)');
+  gg.add(galGryphon, 'crossWindup', 0.3, 3, 0.05).name('crossing lash warning (s)');
+  gg.close();
 
   const dr = gui.addFolder('Drops');
   dr.add(drops, 'rateMult', 0, 5, 0.1).name('drop rate x');

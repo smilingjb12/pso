@@ -1,5 +1,5 @@
 import type { AreaId } from './data/areas';
-import type { BossId } from './data/bosses';
+import type { BossId, PinnacleBossId, RiftBossId } from './data/bosses';
 import type { RiftCircle } from './data/uniques';
 import { firstKillOwed } from './riftCircles';
 import type { RiftBiome } from './riftTypes';
@@ -13,8 +13,9 @@ import { hashString, mulberry32 } from './world/Level';
 // sits at the centre. Clearing a node opens the nodes linked to it, and every node stays open to replay. Room nodes
 // (and their Vault and Gauntlet variants) roll modifiers and a cache, anew after every clear; each boss stands at the
 // inner edge of every circle in its quarter and replays on Resonance, which rooms cleared in its quarter fill.
-// Pinnacles (both neighbouring bosses of a circle) and the Heart (all four Circle III bosses) are landmarks for
-// bosses still to come. The shape is fixed (the same for everyone); what a node holds rolls from the character's seed.
+// Pinnacles (both neighbouring bosses of a circle) and the Heart (all four Circle III bosses) hold bosses of their own:
+// Gal Gryphon at P2NE since 2026-10-21 (PINNACLE_BOSS); the rest are landmarks for bosses still to come. The shape is
+// fixed (the same for everyone); what a node holds rolls from the character's seed.
 
 /** What a node is. Rooms, Vaults and Gauntlets are the room-like ones (they fill Resonance and roll a cache). */
 export type NodeKind = 'room' | 'vault' | 'gauntlet' | 'boss' | 'pinnacle' | 'heart';
@@ -31,6 +32,8 @@ export const mapCfg = {
   resonanceCap: 6,
   /** A boss fight past its circle's first kill takes this much of its quarter's Resonance. */
   resonanceCost: 2,
+  /** A pinnacle fight past its first kill takes this much from each of its two quarters (2026-10-21, the user's pick: 2 + 2). */
+  pinnacleCost: 2,
   /** A cache's extra pieces of its kind (Photons: Spheres, and a chance of a Crystal on top). */
   cache: 3,
   spheres: 2,
@@ -174,8 +177,24 @@ for (const e of MAP_EDGES) {
 const GATED = MAP_IDS.filter((id) => MAP_NODES[id].req);
 
 export const isRoomKind = (k: NodeKind): k is RoomKind => k === 'room' || k === 'vault' || k === 'gauntlet';
+
+/**
+ * The pinnacles that hold a boss (2026-10-21: Gal Gryphon on Storm Peak, between the Dragon's and De Rol Le's
+ * quarters; the user's pick for P2SW is Barba Ray, not built yet). The others stay landmarks.
+ */
+export const PINNACLE_BOSS: Partial<Record<string, PinnacleBossId>> = { P2NE: 'gryphon' };
+/** The region whose floor music plays after a pinnacle's kill (its first quarter's). */
+const pinnacleRegion = (n: MapNode): RiftBiome => QUARTERS[quarterOf(n.req ? bossOfNode(n.req[0]) : 'dragon')].region;
+const bossOfNode = (id: string): BossId => QUARTERS[MAP_NODES[id].q!].boss;
 /** The boss a boss node is (rooms: their quarter's). */
 export const nodeBoss = (n: MapNode): BossId | undefined => (n.q !== undefined ? QUARTERS[n.q].boss : undefined);
+/** Who a node's fight is against: a boss node's quarter boss, a pinnacle's own (undefined for rooms and empty landmarks). */
+export function nodeFighter(n: MapNode): RiftBossId | undefined {
+  if (n.kind === 'boss') return nodeBoss(n);
+  return n.kind === 'pinnacle' ? PINNACLE_BOSS[n.id] : undefined;
+}
+/** The quarter bosses whose Resonance a pinnacle's replay takes (both its neighbours). */
+export const pinnacleQuarters = (n: MapNode): BossId[] => (n.req ?? []).map(bossOfNode);
 export const nodeRegion = (n: MapNode): RiftBiome | undefined => (n.q !== undefined ? QUARTERS[n.q].region : undefined);
 
 // ------------------------------------------------------------------ save
@@ -306,6 +325,12 @@ export function nodeRoll(map: RiftMapSave, id: string): NodeRoll {
 /** The run a node opens: a room node's roll on its quarter's region, or the boss in its own arena (no modifiers). */
 export function nodeRift(map: RiftMapSave, id: string): RiftInfo {
   const n = MAP_NODES[id];
+  const pin = n.kind === 'pinnacle' ? PINNACLE_BOSS[id] : undefined;
+  if (pin) {
+    const region = pinnacleRegion(n);
+    const seed = hashString(`riftmap:${map.seed}:${id}:${map.nodes[id]?.n ?? 0}`);
+    return { region, look: regionFloors(region)[0], bossRegion: region, pinnacle: pin, tier: n.tier, mods: [], seed, boss: true, node: id, kind: 'boss', complete: false };
+  }
   const region = nodeRegion(n);
   if (!region || !(isRoomKind(n.kind) || n.kind === 'boss')) throw new Error(`nodeRift: ${id} can't be entered`);
   if (n.kind === 'boss') {
@@ -321,13 +346,21 @@ export function nodeRift(map: RiftMapSave, id: string): RiftInfo {
 
 // ------------------------------------------------------------------ entering and clearing
 
-/** Resonance a boss node takes now: none while its circle's first-kill unique is owed (or it was never killed). */
-export function nodeCost(save: RiftSave, id: string): number {
+/**
+ * Resonance a fight takes now, per quarter boss: a boss node's from its own quarter, a pinnacle's from both of its
+ * quarters. None while its circle's first-kill unique is owed (or it was never killed).
+ */
+export function nodeCosts(save: RiftSave, id: string): Partial<Record<BossId, number>> {
   const n = MAP_NODES[id];
-  if (n.kind !== 'boss') return 0;
-  const boss = nodeBoss(n)!;
-  if (nodeStatus(save.map!, id) !== 'cleared' || firstKillOwed(save, boss, n.circle)) return 0;
-  return mapCfg.resonanceCost;
+  const who = nodeFighter(n);
+  if (!who || nodeStatus(save.map!, id) !== 'cleared' || firstKillOwed(save, who, n.circle)) return {};
+  if (n.kind === 'boss') return { [who as BossId]: mapCfg.resonanceCost };
+  return Object.fromEntries(pinnacleQuarters(n).map((b) => [b, mapCfg.pinnacleCost]));
+}
+
+/** All the Resonance a fight takes now (summed over its quarters). */
+export function nodeCost(save: RiftSave, id: string): number {
+  return Object.values(nodeCosts(save, id)).reduce((a, v) => a + (v ?? 0), 0);
 }
 
 export const resonance = (save: RiftSave, boss: BossId) => save.map?.res[boss] ?? 0;
@@ -336,20 +369,30 @@ export const resonance = (save: RiftSave, boss: BossId) => save.map?.res[boss] ?
 export function enterBlock(save: RiftSave, id: string): string {
   const n = MAP_NODES[id];
   const st = nodeStatus(save.map!, id);
-  if (n.kind === 'pinnacle' || n.kind === 'heart') return 'A boss still to come will stand here.';
-  if (st === 'locked') return n.kind === 'boss' ? 'Clear a room linked to it to open it.' : 'Clear a node linked to it to open it.';
-  const cost = nodeCost(save, id);
-  const boss = nodeBoss(n);
-  if (cost && boss && resonance(save, boss) < cost) return `Needs ${cost} Resonance (you have ${resonance(save, boss)}): clear rooms in its quarter.`;
-  return '';
+  if (n.kind === 'heart' || (n.kind === 'pinnacle' && !PINNACLE_BOSS[id])) return 'A boss still to come will stand here.';
+  if (st === 'locked') {
+    if (n.kind === 'pinnacle') return `Opens once ${n.req!.map(nodeName).join(' and ')} are dead.`;
+    return n.kind === 'boss' ? 'Clear a room linked to it to open it.' : 'Clear a node linked to it to open it.';
+  }
+  const short = Object.entries(nodeCosts(save, id)).filter(([b, c]) => resonance(save, b as BossId) < (c ?? 0));
+  if (!short.length) return '';
+  if (n.kind === 'boss') {
+    const [b, c] = short[0];
+    return `Needs ${c} Resonance (you have ${resonance(save, b as BossId)}): clear rooms in its quarter.`;
+  }
+  const each = Object.entries(nodeCosts(save, id)).map(([b, c]) => `${c} ${BOSS_NAME[b as BossId]} (you have ${resonance(save, b as BossId)})`);
+  return `Needs ${each.join(' and ')} Resonance: clear rooms in both quarters.`;
 }
 
-/** Take a boss replay's Resonance as it is entered. */
+/** Take a replay's Resonance as it is entered (a pinnacle's from both quarters). Returns the total taken. */
 export function payEntry(save: RiftSave, id: string): number {
-  const cost = nodeCost(save, id);
-  const boss = nodeBoss(MAP_NODES[id]);
-  if (cost && boss) save.map!.res[boss] = Math.max(0, resonance(save, boss) - cost);
-  return cost;
+  let paid = 0;
+  for (const [b, c] of Object.entries(nodeCosts(save, id))) {
+    const boss = b as BossId;
+    save.map!.res[boss] = Math.max(0, resonance(save, boss) - (c ?? 0));
+    paid += c ?? 0;
+  }
+  return paid;
 }
 
 /**
@@ -379,14 +422,14 @@ export function nodeName(id: string): string {
     case 'boss':
       return `${BOSS_NAME[nodeBoss(n)!]} ${roman}`;
     case 'pinnacle':
-      return `Pinnacle ${roman}`;
+      return PINNACLE_BOSS[id] ? BOSS_NAME[PINNACLE_BOSS[id]!] : `Pinnacle ${roman}`;
     case 'heart':
       return 'The Heart';
     default:
       return `Rift${n.kind === 'room' ? '' : n.kind === 'vault' ? ' Vault' : ' Gauntlet'} · Tier ${n.tier} · ${REGION_NAME[region!]}`;
   }
 }
-const BOSS_NAME: Record<BossId, string> = { dragon: 'Dragon', derolle: 'De Rol Le', warden: 'Warden', falz: 'Dark Falz' };
+const BOSS_NAME: Record<RiftBossId, string> = { dragon: 'Dragon', derolle: 'De Rol Le', warden: 'Warden', falz: 'Dark Falz', gryphon: 'Gal Gryphon' };
 const REGION_NAME: Record<RiftBiome, string> = { forest: 'Forest', caves: 'Caves', mines: 'Mines', ruins: 'Ruins' };
 
 /** Every node opened (debug): nothing cleared, every first kill still where it was. */

@@ -28,6 +28,8 @@ export const drops = {
    */
   riftUnique: 0.12,
   riftUniqueDry: 0.04,
+  /** A pinnacle boss's odds (both) are this many times a boss's: its replay takes Resonance from two quarters (2026-10-21). */
+  pinnacleUniqueMult: 2,
   /** In the main pool the class's own weapon counts this many times (the others once). */
   uniqueClassWeight: 2,
 };
@@ -349,4 +351,23 @@ export const uniqueCfg = {
   dfBossShare: 0.03,
   dfRise: 0.4,
   dfHeal: 0.3,
+  // Gal Gryphon (2026-10-21, the Circle II pinnacle's; picked in a question round).
+  /**
+   * Storm Crest: Static a metre moved (dashes too), the most it holds, the damage a point adds to the hit that spends
+   * it; at `crestBoltAt` points or more that hit also sends a bolt to `crestJumps` more enemies within `crestRange` m for
+   * `crestJumpShare` of it. Hits with no Static in them deal `crestDry` less.
+   */
+  crestPerM: 1,
+  crestMax: 40,
+  crestPerPoint: 0.04,
+  crestBoltAt: 10,
+  crestJumps: 3,
+  crestRange: 5,
+  crestJumpShare: 0.5,
+  crestDry: 0.25,
+  /** Grounding Coil: Ground a hit on a boss or champion builds (1 = full), seconds grounded, damage taken grounded; how much harder they hit you. */
+  coilPerHit: 0.04,
+  coilTime: 5,
+  coilMult: 0.5,
+  coilTaken: 0.2,
 };

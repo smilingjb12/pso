@@ -1,4 +1,4 @@
-import type { BossId } from './bosses';
+import type { RiftBossId } from './bosses';
 import type { ClassId } from './stats';
 import type { WeaponKind } from './items';
 
@@ -20,7 +20,9 @@ export type UniqueId =
   // Warden
   | 'overclockCore' | 'limiter' | 'sBeatBlade' | 'v801' | 'motav' | 'yasakani'
   // Dark Falz
-  | 'falzHalo' | 'devilBattle' | 'darkBridge' | 'soulEater' | 'dfShield' | 'heartOfFalz';
+  | 'falzHalo' | 'devilBattle' | 'darkBridge' | 'soulEater' | 'dfShield' | 'heartOfFalz'
+  // Gal Gryphon (the Circle II pinnacle)
+  | 'stormCrest' | 'groundingCoil';
 
 /** Where a unique drops: main-game bosses, or Falz Rift bosses (each its own). */
 export type UniquePool = 'main' | 'rift';
@@ -36,8 +38,8 @@ export interface UniqueDef {
   pool: UniquePool;
   /** The class it is made for (weapons; main-pool drops lean to it). */
   cls?: ClassId;
-  /** Rift uniques: the boss that drops it, and the circle it starts dropping in. */
-  boss?: BossId;
+  /** Rift uniques: the boss that drops it (a pinnacle's too), and the circle it starts dropping in. */
+  boss?: RiftBossId;
   circle?: RiftCircle;
   base: UniqueBase;
   /** What it does, and what it costs (the item card's two Unique lines). */
@@ -245,6 +247,25 @@ export const UNIQUES: Record<UniqueId, UniqueDef> = {
     cost: 'So are their costs',
     notes: ["Gear uniques aren't affected"],
     flavour: 'It beats louder with every unit you feed it.',
+  },
+
+  // ------------------------------------------------------------- Gal Gryphon (the Circle II pinnacle): the storm, grounding
+  stormCrest: {
+    id: 'stormCrest', name: 'Storm Crest', pool: 'rift', boss: 'gryphon', circle: 2, base: BARRIER,
+    effect: 'Moving builds Static, 1 a metre (dashes too), up to 40; your next hit spends it all for +4% a point, and from 10 points a bolt jumps from it to 3 more enemies within 5 m for half',
+    cost: 'Hits with no Static in them deal 25% less',
+    notes: [
+      'Every hit of one swing, shot or cast shares the Static it spends (a sweep through a pack gets it on each)',
+      "Knockback and being pulled don't build Static: only your own walking and dashing",
+    ],
+    flavour: 'A crest feather from Gal Gryphon, still crackling.',
+  },
+  groundingCoil: {
+    id: 'groundingCoil', name: 'Grounding Coil', pool: 'rift', boss: 'gryphon', circle: 2, base: UNIT,
+    effect: 'Your hits on a boss or champion build Ground, 4% a hit; at 100% it is grounded for 5 s and takes 50% more damage, then it builds again',
+    cost: 'Bosses and champions hit you 20% harder',
+    notes: ["Grounding isn't crowd control: bosses can't shrug it off", 'Damage over time and the bolt of a Storm Crest build no Ground'],
+    flavour: 'Wound from a rod that took a storm and lived.',
   },
 };
 

@@ -4,10 +4,10 @@ import { maxAffixTier } from '../game/data/itemAffixes';
 import { areas } from '../game/data/areas';
 import { UNIQUES } from '../game/data/uniques';
 import { RIFT_GEN } from '../game/riftGen';
-import { bossUniques, circleName, firstKillOwed, hasFound } from '../game/riftCircles';
+import { bossUniques, circleName, firstKillOwed, hasFound, riftUniqueOdds } from '../game/riftCircles';
 import {
-  CACHE_NAME, enterBlock, isRoomKind, MAP_EDGES, MAP_IDS, MAP_NODES, mapCfg, nodeBoss, nodeCost, nodeName, nodeRegion, nodeRoll, nodeShown,
-  nodeStatus, QUARTERS, resonance, type MapNode, type NodeKind, type RiftMapSave,
+  CACHE_NAME, enterBlock, isRoomKind, MAP_EDGES, MAP_IDS, MAP_NODES, mapCfg, nodeBoss, nodeCost, nodeCosts, nodeName, nodeRegion, nodeRoll, nodeShown,
+  nodeStatus, PINNACLE_BOSS, pinnacleQuarters, QUARTERS, resonance, type MapNode, type NodeKind, type RiftMapSave,
 } from '../game/riftMap';
 import { modText, RIFT_MODS, riftBossHp, riftIlvl, riftLoot, riftName, riftSave, riftThreat, type RiftInfo } from '../game/rifts';
 import type { RiftBiome } from '../game/riftTypes';
@@ -181,7 +181,7 @@ export class RiftMapMenu implements Menu {
     const res = QUARTERS.map((q) => {
       const v = resonance(save, q.boss);
       const pips = Array.from({ length: mapCfg.resonanceCap }, (_, i) => `<i class="rm-pip${i < v ? ' on' : ''}"></i>`).join('');
-      return `<div class="rm-res" style="color:${REGION_COL[q.region]}" title="Resonance: every room node cleared in the ${REGION_NAME[q.region]} quarter adds one; a ${esc(BOSSES[q.boss].name)} replay takes ${mapCfg.resonanceCost}">
+      return `<div class="rm-res" style="color:${REGION_COL[q.region]}" title="Resonance: every room node cleared in the ${REGION_NAME[q.region]} quarter adds one; a ${esc(BOSSES[q.boss].name)} replay takes ${mapCfg.resonanceCost}, a pinnacle beside its quarter ${mapCfg.pinnacleCost}">
         <b>${esc(BOSSES[q.boss].name)}</b><span class="rm-pips">${pips}</span></div>`;
     }).join('');
     return `<div class="menu-head"><div class="win-title">Rift Gate</div><span class="head-gap"></span>
@@ -199,6 +199,7 @@ export class RiftMapMenu implements Menu {
     const n = MAP_NODES[id];
     if (isRoomKind(n.kind)) return this.roomDetail(n, hasOpen);
     if (n.kind === 'boss') return this.bossDetail(n, hasOpen);
+    if (n.kind === 'pinnacle' && PINNACLE_BOSS[n.id]) return this.pinnacleDetail(n, hasOpen);
     return this.gatedDetail(n);
   }
 
@@ -207,7 +208,7 @@ export class RiftMapMenu implements Menu {
     const st = nodeStatus(map, n.id);
     const times = map.nodes[n.id]?.n ?? 0;
     if (st === 'cleared') return `<span class="rm-chip cleared">${isRoomKind(n.kind) ? 'Cleared' : 'Killed'}${times > 1 ? ` ${times}×` : ''}</span>`;
-    if (st === 'open') return `<span class="rm-chip open">${n.kind === 'boss' ? 'Open · first kill' : 'Open'}</span>`;
+    if (st === 'open') return `<span class="rm-chip open">${n.kind === 'boss' || n.kind === 'pinnacle' ? 'Open · first kill' : 'Open'}</span>`;
     return `<span class="rm-chip">${isRoomKind(n.kind) ? 'Locked' : 'Sealed'}</span>`;
   }
 
@@ -217,7 +218,8 @@ export class RiftMapMenu implements Menu {
     if (open?.node === n.id) return '<div class="rm-act"><button class="btn primary" data-act="return">Return<span class="btn-sub">Back into the node you have open</span></button></div>';
     const block = enterBlock(save, n.id);
     const sub = hasOpen ? 'The node you have open collapses' : '';
-    if (block) return `<div class="rm-act"><button class="btn disabled">${n.kind === 'boss' || isRoomKind(n.kind) ? 'Enter' : 'Sealed'}</button><div class="dim">${esc(block)}</div></div>`;
+    const enterable = n.kind === 'boss' || isRoomKind(n.kind) || (n.kind === 'pinnacle' && !!PINNACLE_BOSS[n.id] && nodeStatus(save.map!, n.id) !== 'locked');
+    if (block) return `<div class="rm-act"><button class="btn disabled">${enterable ? 'Enter' : 'Sealed'}</button><div class="dim">${esc(block)}</div></div>`;
     return `<div class="rm-act"><button class="btn primary" data-act="enter" data-arg="${n.id}">Enter${sub ? `<span class="btn-sub">${sub}</span>` : ''}</button></div>`;
   }
 
@@ -288,6 +290,38 @@ export class RiftMapMenu implements Menu {
       </dl>
       <div class="rm-sub">Circle ${circleName(n.circle)} uniques</div><ul class="rm-uq">${uq}</ul>
       <div class="dim">${esc(replay)}${n.circle > 1 ? ` Earlier circles' uniques can drop here too.` : ''}</div>
+      ${this.enterBtn(n, hasOpen)}`;
+  }
+
+  /** A pinnacle with its boss (Gal Gryphon at P2NE): the fight, its uniques, what it needs to open and to replay. */
+  private pinnacleDetail(n: MapNode, hasOpen: boolean): string {
+    const ch = this.api.char;
+    const save = riftSave(ch.data);
+    const map = save.map!;
+    const boss = PINNACLE_BOSS[n.id]!;
+    const owed = firstKillOwed(save, boss, n.circle);
+    const uq = bossUniques(boss, n.circle, n.circle)
+      .map((id) => `<li class="${hasFound(ch.data, id) ? 'got' : ''}" title="${esc(`${UNIQUES[id].effect}. Cost: ${UNIQUES[id].cost}.`)}"><b>${esc(UNIQUES[id].name)}</b><span>${esc(kindLine(id))}</span></li>`)
+      .join('');
+    const quarters = pinnacleQuarters(n);
+    const each = quarters.map((b) => `${mapCfg.pinnacleCost} ${BOSSES[b].name} (now ${resonance(save, b)}/${mapCfg.resonanceCap})`).join(' and ');
+    const costs = nodeCosts(save, n.id);
+    const replay = owed
+      ? 'Its first kill always drops one of these (one you lack first), and takes no Resonance.'
+      : `Each fight takes ${each} Resonance${Object.keys(costs).length ? '' : ' once it has been killed'}. A kill drops one of its uniques ${Math.round(riftUniqueOdds(save, boss) * 100)}% of the time, twice a boss's odds, more with every kill in a row without one.`;
+    const reqs = n.req!.map((id) => `<li class="${nodeStatus(map, id) === 'cleared' ? 'ok' : ''}">${esc(nodeName(id))}</li>`).join('');
+    const region = (b: typeof quarters[number]) => QUARTERS.find((q) => q.boss === b)!.region;
+    return `<div class="rm-eyebrow">Pinnacle · Tier ${n.tier} · Circle ${circleName(n.circle)}</div>
+      <div class="rm-title">${esc(BOSSES[boss].name)}</div>
+      <div class="rm-chips">${this.stateChip(n)}<span class="rm-chip" style="color:${PIN_COL}">Storm Peak</span></div>
+      <dl class="rm-facts">
+        <dt>Fight</dt><dd>A storm griffin on a summit ringed by six lightning rods. When it calls the storm, stand by a rod: the bolts bend into it, and a full rod grounds the Gryphon, weak point open. Bolts that miss the rods strike you.</dd>
+        <dt>HP</dt><dd>${hp(riftBossHp({ bossRegion: 'forest', pinnacle: boss, tier: n.tier, mods: [] }))}</dd>
+        <dt>Between</dt><dd>${quarters.map((b) => `<span style="color:${REGION_COL[region(b)]}">${esc(BOSSES[b].name)}'s ${REGION_NAME[region(b)]}</span>`).join(' and ')} quarters</dd>
+      </dl>
+      <div class="rm-sub">Its uniques</div><ul class="rm-uq">${uq}</ul>
+      <div class="dim">${esc(replay)}</div>
+      <div class="rm-sub">Opens when both are dead</div><ul class="rm-req">${reqs}</ul>
       ${this.enterBtn(n, hasOpen)}`;
   }
 

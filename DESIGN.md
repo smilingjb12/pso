@@ -244,6 +244,8 @@ then walk or dash straight out):
 | Warden | **Phase 2 hand slams** (3.5 m circle on you, 1.0 s; both of the pair) | fails from the middle (walks ~3 m of the ~3.9 needed) | not measured yet |
 | Dark Falz | **Teleport slam** (form 2: 4.2 m circle on you as it vanishes, 1.3 s) | fails at a 0.35 s reaction (a very quick 0.25 s one just makes it) | ~1.0 s (from standing still: ~0.8 s) |
 | Dark Falz | **Lance** (form 3: a 7 m lane across the altar through you, 1.0 s) | fails from its middle (~3 m of 3.95) | not measured yet |
+| Gal Gryphon | **Plummet** (a 6 m circle on you, 1.5 s, never cut by the enrage) | fails (4.4 m of 6.45 at the rift tempo) | not measured yet |
+| Gal Gryphon | **Crossing lash** (phase 2: a lane across its swoop through you, 1.0 s) | fails (2.4 m of 2.95) | not measured yet |
 
 Phase 1 of De Rol Le and the Warden stays walkable (wider lane, longer windups) so the shapes can be
 learned first. Pairs (De Rol Le's double slam, the Warden's double hand slam) fit the 2 charges; spending
@@ -870,7 +872,8 @@ Agreed 2026-10-05: everything **synthesized in code with the Web Audio API**, wi
   Pioneer 2 (jazz-fusion, also the title screen), Forest, Caves. Boss arenas are silent until the boss wakes,
   then play its own theme (Dragon, De Rol Le, Warden, Dark Falz). The enraged / shattered / overclocked phase (the Angel for Dark Falz) brings in the boss
   theme's battle layer. After the kill, a victory fanfare plays, then the expedition's field theme.
-  Mines, Warden, Ruins and Dark Falz play their synth arrangements until ElevenLabs recordings are made (credits ran out).
+  Mines, Warden, Ruins, Dark Falz and Gal Gryphon (2026-10-21) play their synth arrangements until ElevenLabs
+  recordings are made (credits ran out).
   The Caves battle loop (2026-10-09) is no ElevenLabs take (they kept coming out as synthwave): it is the synth
   arrangement `cavesBattle` (primal and urgent: taiko, hand drums, a drone, a low chant, a wooden flute at 126 BPM)
   rendered offline by `audio/music/render.ts` into `public/music/caves-battle.mp3`.
@@ -1787,10 +1790,11 @@ tuning panel **Rifts**).
   rooms per boss, and you choose when to spend it. The Gate shows each boss's pips.
 - **Pinnacles** (four, on the spokes between quarters: Circle II's past the N-E and S-W bosses II, Circle III's past
   the E-S and W-N bosses III) open when **both neighbouring bosses of their circle are dead**; the **Heart** opens when
-  **all four Circle III bosses are**. Both are landmarks for bosses still to come (nothing to enter yet). The user's
+  **all four Circle III bosses are**. **Gal Gryphon** stands at `P2NE` since 2026-10-21 (see "Gal Gryphon" below); the
+  other three pinnacles and the Heart are still landmarks for bosses to come (nothing to enter yet). The user's
   picks from the mockup's candidates: **Gal Gryphon** (lightning rods: draw the storm into a rod, a full rod grounds
-  it for a damage window) and **Barba Ray** (the arena floods, raised platforms sink one at a time) for the first two
-  pinnacles; Gol Dragon (soak the gold meteors) and Saint-Milion (break the sandstorm gland in time) were the other
+  it for a damage window) and **Barba Ray** (the arena floods, raised platforms sink one at a time, not built yet) for
+  the first two pinnacles; Gol Dragon (soak the gold meteors) and Saint-Milion (break the sandstorm gland in time) were the other
   pinnacle pitches; the Heart's boss is not picked (Olga Flow, casting your last Art back at you, or the Convergence,
   the four bosses' mechanics in turn and then two at once).
 - **Chaining:** a rift's teleporters (the start room's, the Guardian room's, the boss arena's after the kill) offer
@@ -1815,6 +1819,88 @@ tuning panel **Rifts**).
   first kill (its unique) and a paid replay, and the map from a rift's teleporter. Untuned past that: node length
   (the bot took 30-50 s a room at tier 2 with Nightmare-ceiling gear), Resonance, caches and the Gauntlet are first
   drafts.
+
+### Gal Gryphon (Pinnacle II, 2026-10-21; `enemies/GalGryphon.ts`, `enemies/gryphonStorm.ts`, `models/gryphon.ts`)
+The first pinnacle boss, at `P2NE` (Circle II, tier 6, between the Dragon's Forest and De Rol Le's Caves quarters).
+Designed in two question rounds with the user, every recommendation taken: Storm Peak, spent rods, two phases, Storm
+Crest and Grounding Coil, 2 + 2 Resonance with doubled odds, a new synth track. The pitch it grew from (picked from
+the Rift Map mockup): lightning rods ring the arena; when it calls the storm, standing by a rod pulls the bolts into
+it, a full rod discharges into the Gryphon and grounds it for a damage window, and missing the rods lets the bolts
+hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**); all first drafts.
+- **Rift-only.** It guards no expedition and has no Normal / Nightmare / Hell of its own: `BossId` stays the main
+  game's four, `RiftBossId` adds the pinnacle bosses (`PinnacleBossId`, `BOSSES.gryphon.pinnacle`, `isMainBoss`).
+  Its `rift` block stands in for Hell's boss scaling (ATP 235 in all, between the Dragon's and De Rol Le's; armour 10,
+  technique resistance 14, XP 6000), and the rift lifts it like the others: **a tier 6 boss's HP (2.3M)** and damage,
+  at the rifts' fixed ×1.15 tempo. A rift node names it with `RiftInfo.pinnacle` (`riftBossId`).
+- **Storm Peak** (area `stormPeak`, scenery `peak`): a round stone summit about 33 m across (the walkable radius is 16 m;
+  you are kept on it like on the Falz altar) above a sea of cloud, a low parapet, a compass rose inlaid in the floor,
+  distant peaks, rain and far sheet lightning, under a slate storm sky. You arrive in the south; it perches 9 m north
+  of the middle and wakes when you are within 21 m. **Six lightning rods** stand 11 m out, 60° apart, the first 30°
+  east of north: an iron mast on a stone plinth with three copper coils (one lights per bolt) and a glass bulb, each
+  with a 3.5 m **reach** ring on the floor. They block like tree trunks, and one within 4.5 m of you fades to 30% so it
+  doesn't fill the screen (the camera trails you, as with the Dragon's cover rocks).
+- **The look:** a storm griffin, PSO-faithful in colour: an eagle's head with a gold hooked beak and a swept blue
+  crest, white chest and sky-blue plumage, deep blue flight feathers tipped white, gold-banded talons in front and a
+  lion's haunches behind, a fan tail and a gold collar; about 5 m to the crest and ~17 m across the wings. Cyan
+  lightning veins down the wings and crest flare as it charges and go dark when it is grounded. In /viewer.html.
+- **The storm** (its signature): first ~10 s into the fight, then 22 s after the last was called, never sooner than
+  9 s after it is back on its feet. "Gal Gryphon calls the storm: stand by a rod!" (the first time). It rises into the
+  clouds over the middle (can't be hit) and every usable rod's reach lights. The first bolt falls 2.5 s after the call
+  (never under **2.3 real seconds**: 2.3 at the rift's tempo), then one every 1.4 s; each is marked on you 1 s before it
+  falls by a ring that **follows you** (cyan when you stand in a usable reach, amber when it will strike you).
+  - **In a usable rod's reach** the bolt bends into the rod (+1, a coil lights). **Anywhere else it strikes you for 27%
+    of your max HP**, past armour (a failed mechanic, `mechanicHit`): three is about the usual 80%. Dashing or
+    side-stepping doesn't help; only a rod does.
+  - **A full rod (3 bolts)** arcs into the Gryphon: it crashes down 5.5 m inside that rod, toward the middle,
+    **grounded for 8 s of its clock (~7 real seconds)**, weak point open, taking **+50% damage** ("Grounded! Weak point
+    exposed!"; the bar reads `GROUNDED`). With no rod filled it comes back down in the middle after the last bolt.
+  - **Spent rods** (the user's pick of three twists): the rod that fired is **scorched for the next storm** (dark,
+    smoking, its ring dim red; a bolt by it strikes you), so you work round the ring. A rod you part-filled keeps its
+    charge for later, so one missed bolt can still pay off next storm.
+  - **Reach:** with every rod up, the worst walk to a reach is from the middle, 7.5 m (11 − 3.5), and walking covers
+    8.97 m in the lead (2.3 s less a 0.35 s reaction). A scorched rod can leave the rim behind it 10.7 m from the next
+    reach, so the storm **waits** while no usable reach is within walking range of you (like the Dragon's rampage
+    waits for a shadow), and comes on its next turn.
+- **Phase 1** (100-50%), all walkable at the rift's tempo (tests pin it):
+  - **Talon Swoop**: a 5 m lane from it through you to the far rim, warned 1.3 s; it flies the lane at 24 m/s.
+  - **Gale Wing**: a wing beat in a 60° / 9 m cone, warned 1.3 s, shoving you away (knockback 16). Narrowed from the
+    pitched 100° / 11 m, which no walk could leave from the middle of it.
+  - **Thunder Orbs**: three 3 m circles, one on you and two 4.5 m round it, lobbed from its beak, 1.4 s.
+  - **Plummet** (dash check): it springs up, then a 6 m circle on you, warned 1.5 s (walking clears 4.4 of the 6.45 m;
+    a dash makes it); it slams down and stays down 1.4 s. The enrage never cuts it (at ×0.8 not even a dash would).
+- **Phase 2, "The eye of the storm!"** (below 50%; the battle layer comes in; the bar reads `EYE OF THE STORM`):
+  - **Cyclones**: two tornadoes rise at the rim away from you and wander for 10 s, leaning toward you; a touch tosses
+    you (0.6 × ATP, knockback 14, once every 1.5 s each).
+  - **Crossing Swoop** (dash check): a Talon Swoop, and 0.6 s in a lightning lash across it, rim to rim **through where
+    you stand**, warned 1 s: having just stepped out of the swoop's lane sideways, you are in the lash's (walking clears
+    2.4 of the 2.95 m). Built as a lash rather than a second dive (the bird is still flying the first lane).
+  - **Four-bolt storms with a gale**: one bolt to spare (a rod still fills on three), but from the first mark to the
+    last bolt a gale pushes you away from the middle at 2 m/s, so you walk into it to stay in a reach.
+- **Enraged** (below 20%): windups ×0.8, the storm's never cut. The swoop, gale and orbs then no longer walk out and
+  get the dash check's cyan rim; every one stays clearable with a dash (a test pins it).
+- **Its node** (`PINNACLE_BOSS`, riftMap.ts): `P2NE` opens once **Dragon II and De Rol Le II** are dead (the map rule;
+  "Opens once Dragon II and De Rol Le II are dead."). **The first kill is free and always drops one of its two
+  uniques** (one you lack first; `RiftSave.firsts` "gryphon2"). After that a fight takes **2 Resonance from each of its
+  quarters** (the Dragon's and De Rol Le's, 4 in all; `mapCfg.pinnacleCost`, `nodeCosts`), and a kill rolls **twice a
+  boss's odds**: 24%, +8% for every kill in a row without one (`drops.pinnacleUniqueMult`). The end drop, loot ring
+  (at the arena's centre: off the body it could land off the summit) and teleporter are a boss node's. The Gate shows
+  the fight, HP, its quarters, its uniques and the cost; the other pinnacles and the Heart stay "a boss still to come".
+- **Music:** `gryphon` (synth: a fast storm theme in F# minor at 152 BPM, a soaring brass line over racing string
+  arpeggios, brass stabs, a pumping bass and thunder hits; the eye of the storm adds choir, taiko and a lead
+  arpeggio). Recorded loops can come later (ElevenLabs credits). Sounds: the **Gal Gryphon** group in the sound lab
+  (screech, wing beat, dive, thunder, a bolt into a rod rising in pitch as it fills, the discharge, cyclones).
+- **Checked:** `gryphon.test.ts` (the rods' ring, reach geometry, scorched rods, the bolt schedule, every attack's
+  walk / dash math at the rift tempo, and a scripted fight against the boss itself: a rod you stand by fills and
+  grounds it beside the rod, bolts in the open or by a scorched rod strike for 27% each, phase 2's four bolts and
+  gale), `riftMap.test.ts` (the node, its opening, its 2 + 2 cost, the doubled odds), `riftUniques.test.ts` (both
+  uniques). In the game (Lv 100 Hunter, tier 15 gear, the debug warp): the storm came 12.8 s in; at a rod the bolts
+  fell at 2.30 s, then every 1.22 s, and the third grounded it 5.5 m from the rod with no damage taken; the next
+  storm by that scorched rod struck three times for 27% and it landed in the middle; phase 2 called the cyclones and a
+  four-bolt storm, and walking back against the gale still filled a rod; the first kill dropped Storm Crest and cleared
+  the node. Not done: a balance pass (the bot can't use rods), ElevenLabs music.
+- **Debug** (tuning panel): Rifts > "enter Gal Gryphon (Pinnacle II)" goes straight in (its first kill stays owed);
+  the **Gal Gryphon** folder has the storm's clock, lead and bolts, the bolt's share, grounding, the gale and the
+  attacks' warnings; Rifts has its speed, HP multiplier and the pinnacle's Resonance cost.
 
 ### Layout (riftGen.ts)
 - `generateRift(options)` is pure: everything comes from the seed (mixed with the region, so one seed differs per
@@ -2041,6 +2127,18 @@ effects), `uniqueCfg` in config/progression.ts (numbers), `Character.hasUnique` 
   | Dark Falz | II | Soul Eater | Unit | A kill Dooms the nearest enemy within 8 m: 1.5 s later it takes 30% of the dead one's max HP (it chains) | You gain Corruption twice as fast |
   | Dark Falz | III | DF Shield | Barrier | A killing blow Dooms you instead: 4 s unkillable at 1 HP; kill 3 enemies (or deal 3% of a boss's HP) to rise at 40% HP, or die. Once a room (a boss: every quarter of its HP) | All healing −30% (Mate doses, Resta, regen, HP/Drain, Dark Flow) |
   | Dark Falz | III | Heart of Falz | Unit | Your other unique units' numbers are 50% stronger | So are their costs |
+  | Gal Gryphon | II (pinnacle) | Storm Crest | Barrier | Moving builds Static, 1 a metre (dashes too), up to 40; your next hit spends it for +4% a point, and from 10 points a bolt jumps from it to 3 more enemies within 5 m for half | Hits with no Static in them deal 25% less |
+  | Gal Gryphon | II (pinnacle) | Grounding Coil | Unit | Hits on a boss or champion build Ground, 4% a hit; at 100% it is grounded 5 s and takes 50% more damage, then it builds again | Bosses and champions hit you 20% harder |
+
+  Gal Gryphon's (2026-10-21, the user's picks from three of each, both anyone's so they fit with or without classes):
+  Storm Crest rewards hit and run (run between packs, open big; standing and swinging costs a quarter), Grounding Coil
+  is the fight's grounding in your pocket (about +19% on a boss at ~3 hits a second). Rules settled while building (my
+  calls, open to change): every hit landing in the same frame shares the Static one hit spends (a sweep through a
+  pack, a fan of pellets); the bolt needs 10 points or more (so a ranged kiter's every shot doesn't chain); only your
+  own walking and dashing build Static (not knockback, pulls or a teleport); damage over time neither spends Static nor
+  takes the cost; grounding isn't crowd control (bosses take it), each boss's parts share one Ground meter, and damage
+  over time and Storm Crest's bolt build none; the Coil's cost covers a boss's flat damage too (breath, beams,
+  burning ground) but not a failed mechanic's share.
 
   The answers to one-shots are Rol Carapace (a cap), Tide Shell (a soak) and DF Shield (a second chance); the chain
   killers for Swarming rooms Flame Visit, Plague Mantle, Ophelie Seize and Soul Eater. Few costs are max HP, since Rol

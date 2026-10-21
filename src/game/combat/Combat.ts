@@ -490,7 +490,8 @@ export class Combat {
       if (src.statusTimers?.().some((s) => s.kind === 'freeze')) chilled = true;
     }
     if (chilled) m *= Math.min(frost, this.c.pMult('frostbite', T.frostbiteMult));
-    return m;
+    // Grounding Coil's cost: bosses and champions hit harder.
+    return m * this.ufx.coilTakenMult('owns' in src || !!(src as { champion?: boolean }).champion);
   }
 
   // ------------------------------------------------------------ zones and timers
@@ -722,6 +723,7 @@ export class Combat {
     }
 
     const killed = this.deal(target, dmg, p.pos.x, p.pos.z, kb, staggerPts);
+    this.ufx.landed(target, dmg);
     if (!killed) this.ufx.afterHit(target, dmg, crit, handgun);
     sfx(crit ? 'hit.crit' : strong || s.finisher ? 'hit.heavy' : 'hit.normal', { x: target.pos.x, z: target.pos.z });
     const cls = crit ? 'dmg crit' : strong ? 'dmg heavy' : 'dmg';
@@ -833,6 +835,7 @@ export class Combat {
     // A storm's or blizzard's ticks don't flinch (2026-10-16: Razonde strikes kept enemies locked in place).
     const staggerPts = s.tick ? 0 : stagger.light * (s.stagger ?? 1) * (s.share ?? 1) * c.pMult('conductor', T.conductorMult);
     const killed = this.deal(target, dmg, p.pos.x, p.pos.z, (s.stagger ?? 1) > 1 ? 1.5 : 1, staggerPts);
+    this.ufx.landed(target, dmg);
     if (!killed) this.ufx.afterHit(target, dmg, crit, false);
     if (s.tick) target.quietHit?.();
     if (t.element === 'fire') sfx('tech.foie.hit', { x: target.pos.x, z: target.pos.z });
@@ -1050,6 +1053,7 @@ export class Combat {
         const mult = this.comboMult(streak) * (finisher ? c.pMult('followThrough', T.followThroughMult) : 1) * this.lowHpMult(true) * this.haloMult() * this.takenMult(t) * this.ufx.dealtMult(t);
         const dmg = Math.max(1, Math.round(c.boltDamage() * mult * cutMult(t.techResist ?? 0) * t.damageMult(p.pos.x, p.pos.z, false) * (crit ? c.critDamage() : 1)));
         const killed = this.deal(t, dmg, p.pos.x, p.pos.z, 0.8, stagger.light * (finisher ? 2 : 1));
+        this.ufx.landed(t, dmg);
         if (!killed) this.ufx.afterHit(t, dmg, crit, false);
         sfx(crit ? 'hit.crit' : 'hit.normal', { x: t.pos.x, z: t.pos.z });
         this.h.float(tmp.copy(t.pos).setY(t.aimHeight + 0.6), crit ? `${dmg}!` : String(dmg), crit ? 'dmg tech crit' : 'dmg tech');
@@ -1555,7 +1559,7 @@ export class Combat {
   bossTick(shape: TelegraphShape, damage: number, fromX: number, fromZ: number): void {
     const p = this.p;
     if (!p.alive || !inShape(shape, p.pos.x, p.pos.z, p.radius)) return;
-    const dmg = debug.invincible ? 0 : this.lastStand(this.soak(Math.max(1, Math.round(damage * cutMult(this.damageTaken('area')) * this.bulwark()))));
+    const dmg = debug.invincible ? 0 : this.lastStand(this.soak(Math.max(1, Math.round(damage * cutMult(this.damageTaken('area')) * this.bulwark() * this.ufx.coilTakenMult(true)))));
     p.hp = Math.max(0, p.hp - dmg);
     fightLog.push('tick', { dmg, hp: p.hp, x: p.pos.x, z: p.pos.z, shape });
     this.h.float(tmp.copy(p.pos).setY(2.2), String(dmg), 'burn');

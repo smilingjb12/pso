@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { sfx, type SfxId } from '../../audio';
 import type { CcKind } from '../ccResist';
 import type { HardBossScale } from '../config';
-import { BOSSES, type BossId } from '../data/bosses';
+import { BOSSES, type RiftBossId } from '../data/bosses';
 import type { Hittable, StatusEffect, StatusTimer } from '../combat/types';
 import type { Level } from '../world/Level';
 import { TelegraphGroup, type TelegraphShape } from '../world/Telegraph';
@@ -168,7 +168,7 @@ export class BossPart implements Hittable {
  * while it lives), `whileDead`, `collide`, `parts`, `objects`, `weakPointOpen` and `anchor`.
  */
 export abstract class BossBase<S extends string, A extends string = never> implements Boss, PartHost {
-  abstract readonly id: BossId;
+  abstract readonly id: RiftBossId;
   abstract readonly objects: THREE.Object3D[];
   abstract readonly weakPointOpen: boolean;
   readonly maxHp: number;

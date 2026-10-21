@@ -3,7 +3,7 @@ import { resolveCircleBoxes, type Box2 } from '../collision';
 import type { AreaDef, FeatureDef, RoomDef } from '../data/areas';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { neutralPropGeometry, propGeometry, propMaterial, type PropKind } from '../models/props';
-import { darkFalz as falzCfg, pylonCfg, warden as wardenCfg } from '../config';
+import { darkFalz as falzCfg, galGryphon as gryphonCfg, pylonCfg, warden as wardenCfg } from '../config';
 import { glowMaterial, glowSprite, glowTexture } from './glow';
 import { buildCityScenery } from './CityScenery';
 
@@ -376,8 +376,11 @@ export class Level {
     const river = t.scenery === 'river';
     const mine = t.scenery === 'foundry' || t.scenery === 'control' || t.scenery === 'warden';
     const temple = t.scenery === 'temple' || t.scenery === 'sanctum';
-    // The Dark Falz altar floats over the void: no tiles or walls, the scenery builds a round platform.
+    // The Dark Falz altar floats over the void, Storm Peak over a sea of cloud: no tiles or walls, the scenery builds a
+    // round platform.
     const altar = t.scenery === 'altar';
+    const peak = t.scenery === 'peak';
+    const floating = altar || peak;
     // Forest, cave and lair edges are uneven rock/earth; the city gets flat walls.
     const rugged = t.trees || lair || cave;
     const floorRng = mulberry32(hashString(`${this.def.id}:floor`));
@@ -386,7 +389,7 @@ export class Level {
     let wi = 0;
     for (let z = 0; z < this.height; z++)
       for (let x = 0; x < this.width; x++) {
-        if (altar) {
+        if (floating) {
           this.wallH[z * this.width + x] = -100;
           continue;
         }
@@ -437,8 +440,8 @@ export class Level {
         }
       }
     wallMesh.count = wi;
-    if (!altar) this.group.add(floorMesh);
-    if (!river && !altar) this.group.add(wallMesh);
+    if (!floating) this.group.add(floorMesh);
+    if (!river && !floating) this.group.add(wallMesh);
 
     if (t.trees) this.buildForestScenery();
     if (lair) this.buildLairScenery();
@@ -447,6 +450,7 @@ export class Level {
     if (mine) this.buildMineScenery(t.scenery as 'foundry' | 'control' | 'warden');
     if (temple) this.buildTempleScenery(t.scenery === 'sanctum');
     if (altar) this.buildAltarScenery();
+    if (peak) this.buildPeakScenery();
     if (t.scenery === 'city') {
       buildCityScenery({
         theme: t, group: this.group, rooms: this.rooms, features: this.features, colliders: this.trees,
@@ -1580,6 +1584,150 @@ export class Level {
     this.addDust([{ minX: cx - R - 4, maxX: cx + R + 4, minZ: cz - R - 4, maxZ: cz + R + 4 }], t.motes ?? accent3, 12, 0.16);
   }
 
+  /**
+   * Gal Gryphon's Storm Peak: a round summit of pale stone on a mountain that falls away into a sea of cloud, a low
+   * parapet round its rim, a compass rose inlaid in the floor, distant peaks through the clouds, rain, and sheet
+   * lightning flickering far off. The rods are the boss's (they light with the storm).
+   */
+  private buildPeakScenery(): void {
+    const rng = mulberry32(hashString(`${this.def.id}:peak`));
+    const t = this.def.theme;
+    const accent = t.accent ?? 0x8ae8ff;
+    const accent2 = t.accent2 ?? 0xd9b24a;
+    const q = this.rooms[0].rect;
+    const cx = (q.minX + q.maxX) / 2;
+    const cz = (q.minZ + q.maxZ) / 2;
+    const R = gryphonCfg.arenaRadius + 0.4;
+    const top = new THREE.MeshStandardMaterial({ color: t.floor, roughness: 0.9, flatShading: true });
+    const rock = new THREE.MeshStandardMaterial({ color: t.wall, roughness: 0.95, flatShading: true });
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(R, R * 1.02, 1.4, 72), [rock, top, rock]);
+    disc.position.set(cx, -0.7, cz);
+    disc.receiveShadow = true;
+    // The mountain under it: a jagged cone falling into the clouds, with crags on its flanks.
+    const mountain = new THREE.Mesh(new THREE.ConeGeometry(R * 2.2, 46, 14, 4), rock);
+    const mp = mountain.geometry.attributes.position;
+    for (let i = 0; i < mp.count; i++) {
+      const y = mp.getY(i);
+      if (y > 22.9) continue;
+      const k = 1 + (rng() - 0.5) * 0.25;
+      mp.setXYZ(i, mp.getX(i) * k, y + (rng() - 0.5) * 2, mp.getZ(i) * k);
+    }
+    mountain.geometry.computeVertexNormals();
+    mountain.position.set(cx, -1.4 - 23, cz);
+    this.group.add(disc, mountain);
+    for (let i = 0; i < 10; i++) {
+      const a = rng() * Math.PI * 2;
+      const crag = new THREE.Mesh(new THREE.DodecahedronGeometry(2 + rng() * 3, 0), rock);
+      const d = R + 1 + rng() * 6;
+      crag.position.set(cx + Math.sin(a) * d, -3 - rng() * 8, cz + Math.cos(a) * d);
+      crag.scale.set(1, 1.5 + rng(), 1);
+      crag.rotation.set(rng(), rng() * 3, rng());
+      this.group.add(crag);
+    }
+    // The parapet: low stone blocks round the rim, a gap now and then.
+    const blocks: THREE.BufferGeometry[] = [];
+    const n = 44;
+    for (let i = 0; i < n; i++) {
+      if (i % 11 === 5) continue;
+      const a = (i / n) * Math.PI * 2;
+      const h = 0.55 + rng() * 0.25;
+      blocks.push(new THREE.BoxGeometry(1.7, h, 0.6).translate(0, h / 2, 0).rotateY(a).translate(cx + Math.sin(a) * (R + 0.1), 0, cz + Math.cos(a) * (R + 0.1)));
+    }
+    const parapet = new THREE.Mesh(mergeGeometries(blocks)!, new THREE.MeshStandardMaterial({ color: new THREE.Color(t.wall).lerp(new THREE.Color(0xffffff), 0.25), roughness: 0.9, flatShading: true }));
+    parapet.castShadow = true;
+    this.group.add(parapet);
+    // The compass rose: rings and spokes cut in a lighter stone, a gold star in the middle.
+    const lines: THREE.BufferGeometry[] = [];
+    for (const r of [3.2, 7.5, 12.5]) lines.push(new THREE.RingGeometry(r - 0.06, r + 0.06, 72).rotateX(-Math.PI / 2).translate(cx, 0.012, cz));
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      const len = i % 4 === 0 ? R - 0.6 : i % 2 === 0 ? 9 : 5;
+      lines.push(new THREE.PlaneGeometry(i % 4 === 0 ? 0.14 : 0.08, len).rotateX(-Math.PI / 2).translate(0, 0, len / 2).rotateY(a).translate(cx, 0.013, cz));
+    }
+    this.group.add(new THREE.Mesh(mergeGeometries(lines)!, new THREE.MeshBasicMaterial({ color: new THREE.Color(t.floor).lerp(new THREE.Color(0xffffff), 0.3) })));
+    const star: THREE.BufferGeometry[] = [];
+    for (let i = 0; i < 4; i++) {
+      const shape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(-0.45, 1.1), new THREE.Vector2(0, 2.6), new THREE.Vector2(0.45, 1.1)]);
+      star.push(tinted(new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2).rotateY((i * Math.PI) / 2).translate(cx, 0.02, cz), accent2));
+    }
+    const starMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7, depthWrite: false });
+    this.group.add(new THREE.Mesh(mergeGeometries(star)!, starMat));
+    // The sea of cloud below, with puffs drifting round the mountain.
+    const sea = new THREE.Mesh(new THREE.CircleGeometry(260, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x5a6676, transparent: true, opacity: 0.92, depthWrite: false }));
+    sea.position.set(cx, -14, cz);
+    this.group.add(sea);
+    const puffMat = new THREE.MeshStandardMaterial({ color: 0x8a96a6, roughness: 1, transparent: true, opacity: 0.55, depthWrite: false, flatShading: true });
+    const puffs: { m: THREE.Mesh; a: number; r: number; y: number; speed: number }[] = [];
+    for (let i = 0; i < 46; i++) {
+      const m = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), puffMat);
+      const s = 3 + rng() * 7;
+      m.scale.set(s * 1.6, s * 0.55, s);
+      this.group.add(m);
+      puffs.push({ m, a: rng() * Math.PI * 2, r: R + 6 + rng() * 60, y: -13 + rng() * 4, speed: (0.004 + rng() * 0.01) * (rng() < 0.5 ? -1 : 1) });
+    }
+    // Far peaks through the clouds.
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2 + rng() * 0.5;
+      const d = 90 + rng() * 70;
+      const h = 30 + rng() * 40;
+      const p = new THREE.Mesh(new THREE.ConeGeometry(12 + rng() * 14, h, 6), rock);
+      p.position.set(cx + Math.sin(a) * d, -14 + h / 2 - 4, cz + Math.cos(a) * d);
+      p.rotation.y = rng() * 3;
+      this.group.add(p);
+    }
+    // Rain: streaks falling through a column round the summit.
+    const drops = 700;
+    const rpos = new Float32Array(drops * 6);
+    const span = R * 2 + 16;
+    for (let i = 0; i < drops; i++) {
+      const x = cx + (rng() - 0.5) * span;
+      const z = cz + (rng() - 0.5) * span;
+      const y = rng() * 22;
+      rpos.set([x, y, z, x + 0.12, y - 0.9, z + 0.05], i * 6);
+    }
+    const rainGeo = new THREE.BufferGeometry();
+    rainGeo.setAttribute('position', new THREE.BufferAttribute(rpos, 3));
+    const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: 0xb8c8dc, transparent: true, opacity: 0.32, depthWrite: false }));
+    rain.frustumCulled = false;
+    this.group.add(rain);
+    // Sheet lightning far off: glows that flicker now and then.
+    const flashes = Array.from({ length: 4 }, () => {
+      const g = glowSprite(accent, 70, 0);
+      const a = rng() * Math.PI * 2;
+      g.position.set(cx + Math.sin(a) * 120, 10 + rng() * 25, cz + Math.cos(a) * 120);
+      this.group.add(g);
+      return { g, next: 2 + rng() * 6, t: -1 };
+    });
+    this.animators.push((dt, time) => {
+      for (const p of puffs) {
+        const a = p.a + time * p.speed;
+        p.m.position.set(cx + Math.sin(a) * p.r, p.y + Math.sin(time * 0.2 + p.r) * 0.6, cz + Math.cos(a) * p.r);
+      }
+      const arr = rainGeo.attributes.position.array as Float32Array;
+      for (let i = 0; i < drops; i++) {
+        let y = arr[i * 6 + 1] - dt * 22;
+        if (y < -1) y += 23;
+        arr[i * 6 + 1] = y;
+        arr[i * 6 + 4] = y - 0.9;
+      }
+      rainGeo.attributes.position.needsUpdate = true;
+      for (const f of flashes) {
+        f.next -= dt;
+        if (f.next <= 0 && f.t < 0) f.t = 0;
+        if (f.t < 0) continue;
+        f.t += dt;
+        const k = f.t < 0.08 ? 1 : f.t < 0.16 ? 0.2 : f.t < 0.26 ? 0.8 : Math.max(0, 1 - (f.t - 0.26) * 3);
+        f.g.material.opacity = 0.35 * k;
+        if (f.t > 0.6) {
+          f.t = -1;
+          f.next = 3 + rng() * 8;
+          f.g.material.opacity = 0;
+        }
+      }
+      starMat.opacity = 0.55 + Math.sin(time * 0.8) * 0.12;
+    });
+  }
+
   /** Slow motes drifting up through these rects (temple dust, altar sparks). */
   private addDust(rects: Rect[], color: number, top: number, size: number): void {
     const rng = mulberry32(hashString(`${this.def.id}:dust`));
@@ -1811,7 +1959,8 @@ export class Level {
       const z = from.z + dir.z * d;
       const tx = Math.floor(x / TILE);
       const tz = Math.floor(z / TILE);
-      if (this.isFloor(tx, tz) || this.def.theme.scenery === 'river' || this.def.theme.scenery === 'altar') continue;
+      const sc = this.def.theme.scenery;
+      if (this.isFloor(tx, tz) || sc === 'river' || sc === 'altar' || sc === 'peak') continue;
       const inside = tx >= 0 && tz >= 0 && tx < this.width && tz < this.height;
       const h = inside ? this.wallH[tz * this.width + tx] + 0.6 : this.def.theme.wallHeight; // + leafy crest
       if (y < h) return d;

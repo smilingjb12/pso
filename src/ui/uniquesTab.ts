@@ -1,6 +1,6 @@
 import { forgeMult, type Character } from '../game/character';
 import { drops } from '../game/config';
-import { BOSS_IDS, BOSSES, type BossId } from '../game/data/bosses';
+import { BOSS_IDS, BOSSES, isMainBoss, RIFT_BOSS_IDS, type RiftBossId } from '../game/data/bosses';
 import { getDef, weaponKinds } from '../game/data/items';
 import { CLASSES, STAT_LABEL, statValue } from '../game/data/stats';
 import { isUniqueUnit, UNIQUE_IDS, UNIQUES, uniqueDropId, uniqueItemId, type UniqueId } from '../game/data/uniques';
@@ -19,7 +19,7 @@ import { itemGlyph } from './icons';
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 /** What the tab shows: every unique, the main game's, or one rift boss's. */
-export type UniqueFilter = 'all' | 'main' | BossId;
+export type UniqueFilter = 'all' | 'main' | RiftBossId;
 
 const DIFFS: Difficulty[] = ['normal', 'nightmare', 'hell'];
 const MAIN_IDS = UNIQUE_IDS.filter((id) => UNIQUES[id].pool === 'main');
@@ -86,6 +86,19 @@ function riftDrops(ch: Character, id: UniqueId): string[] {
   const state = !open ? '' : !reached ? ` <span class="uq-state">Circle ${circleName(c)} begins at rift tier ${lo}</span>`
     : firstKillOwed(save, boss, c) ? ' <span class="uq-state owed">still to claim</span>' : ' <span class="uq-state">claimed</span>';
   const shares = CIRCLES.filter((k) => k >= c).map((k) => `${circleName(k)} ${pct(bossUniqueShare(id, k))}`).join(' · ');
+  const forge = (tier: number) => `+${Math.round((forgeMult({ ilvl: riftIlvl(tier) }) - 1) * 100)}%`;
+  if (!isMainBoss(boss)) {
+    // A pinnacle's boss: one node, between two quarters, at its circle's boss tier, with doubled odds.
+    const mult = drops.pinnacleUniqueMult;
+    const lines = [
+      `<b>${name}</b> on the Rift Map: Pinnacle ${circleName(c)} (tier ${at}), open once both neighbouring Circle ${circleName(c)} bosses are dead`,
+      `Its first kill drops this or ${esc(pair ? UNIQUES[pair].name : '')}, one you lack first${state}`,
+      `Later kills: ${pct(drops.riftUnique * mult * drops.rareMult)} for one of its uniques (+${pct(drops.riftUniqueDry * mult)} a kill without one; twice a boss's odds, item rarity raises it)`,
+      `This one's share of those: ${pct(bossUniqueShare(id, c))}`,
+    ];
+    if (isUniqueUnit(id)) return [...lines, UNIT_NOTE];
+    return [...lines, `Gear tier 15, Rift-forged ${forge(at)}`, `Tier 15: ${baseAt(id, 15)}`];
+  }
   const lines = [
     `<b>${name}</b> on the Rift Map: its Circle ${circleName(c)} node (tier ${at}) and deeper circles' ${name} nodes`,
     `The first ${name} kill in Circle ${circleName(c)} drops this or ${esc(pair ? UNIQUES[pair].name : '')}, one you lack first${state}`,
@@ -93,7 +106,6 @@ function riftDrops(ch: Character, id: UniqueId): string[] {
     `This one's share of those, by circle: ${shares}`,
   ];
   if (isUniqueUnit(id)) return [...lines, UNIT_NOTE];
-  const forge = (tier: number) => `+${Math.round((forgeMult({ ilvl: riftIlvl(tier) }) - 1) * 100)}%`;
   return [
     ...lines,
     `Gear tier 15, Rift-forged ${forge(at)} from the Circle ${circleName(c)} node${c < 3 ? `, up to ${forge(BOSS_TIER[3])} from Circle III's` : ''}`,
@@ -124,7 +136,7 @@ export function uniquesTabHtml(ch: Character, filter: UniqueFilter): string {
   const save = riftSave(ch.data);
   const groups: { key: Exclude<UniqueFilter, 'all'>; label: string; ids: UniqueId[]; note: string }[] = [
     { key: 'main', label: 'Main game', ids: MAIN_IDS, note: 'One weapon per class, from Normal, Nightmare and Hell bosses' },
-    ...BOSS_IDS.map((b) => {
+    ...RIFT_BOSS_IDS.map((b) => {
       const dry = save.dry?.[b] ?? 0;
       const note = !open
         ? 'The Falz Rifts open once Dark Falz falls on Hell'

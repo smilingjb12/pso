@@ -1,6 +1,6 @@
 import { makeItem, type CharacterData, type ItemInstance } from './character';
 import { drops } from './config';
-import type { BossId } from './data/bosses';
+import { isMainBoss, type RiftBossId } from './data/bosses';
 import { getDef } from './data/items';
 import { isUniqueUnit, UNIQUE_IDS, UNIQUES, uniqueDropId, type RiftCircle, type UniqueId } from './data/uniques';
 import type { RiftSave } from './rifts';
@@ -25,7 +25,7 @@ export function circleOf(tier: number): RiftCircle {
 export const circleName = (c: RiftCircle): string => ['I', 'II', 'III'][c - 1];
 
 /** A boss's uniques from circle `from` to `to` (inclusive). */
-export function bossUniques(boss: BossId, to: RiftCircle, from: RiftCircle = 1): UniqueId[] {
+export function bossUniques(boss: RiftBossId, to: RiftCircle, from: RiftCircle = 1): UniqueId[] {
   return UNIQUE_IDS.filter((id) => {
     const u = UNIQUES[id];
     return u.pool === 'rift' && u.boss === boss && (u.circle ?? 1) >= from && (u.circle ?? 1) <= to;
@@ -37,15 +37,15 @@ export function hasFound(data: Pick<CharacterData, 'units' | 'inventory'>, id: U
   return (isUniqueUnit(id) ? data.units : data.inventory).some((it) => getDef(it.id).unique === id);
 }
 
-const firstKey = (boss: BossId, c: RiftCircle) => `${boss}${c}`;
+const firstKey = (boss: RiftBossId, c: RiftCircle) => `${boss}${c}`;
 
 /** This boss in this circle still owes its first-kill unique. */
-export function firstKillOwed(save: RiftSave, boss: BossId, c: RiftCircle): boolean {
+export function firstKillOwed(save: RiftSave, boss: RiftBossId, c: RiftCircle): boolean {
   return !save.firsts?.includes(firstKey(boss, c));
 }
 
 /** A later kill's pick in circle `c`: the boss's uniques so far, this circle's two counting double against the earlier circles'. */
-function circleWeights(boss: BossId, c: RiftCircle): [UniqueId, number][] {
+function circleWeights(boss: RiftBossId, c: RiftCircle): [UniqueId, number][] {
   return bossUniques(boss, c).map((id) => [id, UNIQUES[id].circle === c ? 2 : 1]);
 }
 
@@ -59,8 +59,10 @@ export function bossUniqueShare(id: UniqueId, c: RiftCircle): number {
 }
 
 /** The chance this boss's next kill (once its circle's first is claimed) drops one of its uniques; `rar`: item rarity, percent. */
-export function riftUniqueOdds(save: RiftSave, boss: BossId, rar = 0): number {
-  return (drops.riftUnique + drops.riftUniqueDry * (save.dry?.[boss] ?? 0)) * (1 + rar / 100) * drops.rareMult;
+export function riftUniqueOdds(save: RiftSave, boss: RiftBossId, rar = 0): number {
+  // A pinnacle boss's odds are doubled (base and dry streak): its replay takes Resonance from two quarters.
+  const mult = isMainBoss(boss) ? 1 : drops.pinnacleUniqueMult;
+  return (drops.riftUnique + drops.riftUniqueDry * (save.dry?.[boss] ?? 0)) * mult * (1 + rar / 100) * drops.rareMult;
 }
 
 /**
@@ -69,7 +71,7 @@ export function riftUniqueOdds(save: RiftSave, boss: BossId, rar = 0): number {
  * item level (Rift-forged).
  */
 export function rollBossUnique(
-  boss: BossId, tier: number, ilvl: number, save: RiftSave, data: Pick<CharacterData, 'units' | 'inventory'>, rng: () => number, rar = 0,
+  boss: RiftBossId, tier: number, ilvl: number, save: RiftSave, data: Pick<CharacterData, 'units' | 'inventory'>, rng: () => number, rar = 0,
 ): ItemInstance | null {
   const c = circleOf(tier);
   const dry = (save.dry ??= {});

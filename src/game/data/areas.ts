@@ -1,7 +1,7 @@
 import type { EnemyId } from '../config';
 import type { SfxId, Space, TrackId } from '../../audio';
 import { RUINS_AFFIXES, type Affix } from './affixes';
-import type { BossId } from './bosses';
+import type { BossId, RiftBossId } from './bosses';
 
 export type { BossId };
 
@@ -11,7 +11,9 @@ export type { BossId };
 
 export type AreaId = 'city' | 'forest1' | 'dragon' | 'cave1' | 'cave2' | 'derolle' | 'mine1' | 'mine2' | 'warden' | 'ruin1' | 'ruin2' | 'falz'
   /** Falz Rifts (DESIGN.md "Endgame: Falz Rifts"): generated at runtime, see `rifts.ts` (placeholders below). */
-  | 'rift' | 'riftBoss';
+  | 'rift' | 'riftBoss'
+  /** Rift Map pinnacle arenas (a boss node copies one into `riftBoss`). */
+  | 'stormPeak';
 
 export type FeatureKind =
   | 'start' | 'switch' | 'toBoss' | 'toNext' | 'toCity'
@@ -102,7 +104,7 @@ export interface AreaTheme {
   fogFar: number;
   trees: boolean;
   /** Set dressing beyond the defaults (forest = trees, boss = Dragon's lair). */
-  scenery?: 'volcanic' | 'marsh' | 'river' | 'foundry' | 'control' | 'warden' | 'temple' | 'sanctum' | 'altar' | 'city';
+  scenery?: 'volcanic' | 'marsh' | 'river' | 'foundry' | 'control' | 'warden' | 'temple' | 'sanctum' | 'altar' | 'peak' | 'city';
   /** Ambient/sun override; defaults to neutral daylight. */
   light?: AreaLight;
   // ---- Look extras (data/looks.ts fills these for the Caves and Mines; others keep the flat sky). ----
@@ -163,8 +165,8 @@ export interface AreaDef {
   name: string;
   kind: 'city' | 'field' | 'boss';
   audio: AreaAudio;
-  /** Boss areas: who lives here. */
-  boss?: BossId;
+  /** Boss areas: who lives here (a pinnacle arena's boss is rift-only). */
+  boss?: RiftBossId;
   /** Field areas: elite and rare (Nar Lily) spawns can appear. */
   elites?: boolean;
   /** Elites roll an affix from `affixPool` (Mines: Overclocked / Volatile) instead of plain elite stats. */
@@ -209,7 +211,7 @@ export function expeditionOf(area: AreaId): ExpeditionId | null {
 /** The boss at the end of an expedition. */
 export function bossOf(exp: ExpeditionId): BossId {
   const boss = areas[expeditions[exp].floors[expeditions[exp].floors.length - 1]].boss;
-  if (!boss) throw new Error(`expedition ${exp} has no boss arena`);
+  if (!boss || boss === 'gryphon') throw new Error(`expedition ${exp} has no boss arena`);
   return boss;
 }
 
@@ -699,6 +701,35 @@ export const areas: Record<AreaId, AreaDef> = {
     rooms: [{ id: 'k0', x: 0, z: 0, w: 10, h: 10, features: [{ kind: 'start', tx: 5, tz: 5 }] }],
     links: [],
   },
+  // Gal Gryphon (the Rift Map's Circle II pinnacle, 2026-10-21): Storm Peak, a round stone summit above a sea of
+  // cloud under a storm sky, six lightning rods round it (placed by the boss, galGryphon.rodRing). Rift-only.
+  stormPeak: {
+    id: 'stormPeak',
+    name: 'Storm Peak',
+    kind: 'boss',
+    audio: { track: null, after: 'forest', space: 'open', step: 'step.stone' },
+    boss: 'gryphon',
+    theme: {
+      floor: 0x6c7079, floorAlt: 0x626670, wall: 0x3c414b, wallHeight: 1,
+      sky: 0x3a4658, fogNear: 45, fogFar: 150, trees: false, scenery: 'peak',
+      light: { hemiSky: 0xbccbe2, hemiGround: 0x18202c, hemi: 1.05, sunColor: 0xd6e2ff, sun: 1.0 },
+      skybox: {
+        top: 0x0c111a, horizon: 0x3c4859, bottom: 0x1c2533,
+        nebulae: [
+          { color: 0x2a3446, dir: [0.4, 0.3, -1], size: 260, opacity: 0.6 },
+          { color: 0x222a38, dir: [-0.7, 0.25, 0.4], size: 240, opacity: 0.55 },
+        ],
+      },
+      fogColor: 0x2c3646,
+      bloom: { strength: 0.32, radius: 0.35, threshold: 0.8 },
+      accent: 0x8ae8ff, accent2: 0xd9b24a, accent3: 0xeaf6ff, motes: 0xc8dcf0,
+    },
+    rooms: [
+      { id: 'arena', x: 0, z: 0, w: 17, h: 17, features: [{ kind: 'start', tx: 8.5, tz: 15.5 }] },
+    ],
+    links: [],
+  },
+
   riftBoss: {
     id: 'riftBoss',
     name: 'Rift Core',

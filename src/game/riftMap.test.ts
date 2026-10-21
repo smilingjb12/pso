@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { Character } from './character';
-import { regionFloors, RIFT_MODS, riftSave, syncRiftDepth, type RiftSave } from './rifts';
+import { regionFloors, RIFT_MODS, riftBossHp, riftBossId, riftSave, syncRiftDepth, type RiftSave } from './rifts';
 import {
   BOSS_TIER, clearNode, enterBlock, isRoomKind, MAP_EDGES, MAP_IDS, MAP_NEIGHBOURS, MAP_NODES, mapBest, mapCfg, mapDepth, mapFromLadder, newMap,
-  nodeCost, nodeRift, nodeRoll, nodeShown, nodeStatus, payEntry, QUARTERS, resonance,
+  nodeCost, nodeCosts, nodeName, nodeRift, nodeRoll, nodeShown, nodeStatus, payEntry, PINNACLE_BOSS, QUARTERS, resonance,
 } from './riftMap';
+import { firstKillOwed, riftUniqueOdds, rollBossUnique } from './riftCircles';
+import { mulberry32 } from './world/Level';
 
 const save = (map = newMap(7)): RiftSave => ({ tier: 1, clears: 0, best: 0, ladder: 2, map });
 const ids = (pred: (id: string) => boolean) => MAP_IDS.filter(pred);
@@ -189,5 +191,71 @@ describe('old saves', () => {
     syncRiftDepth(s);
     expect(s.tier).toBe(10);
     expect(nodeStatus(s.map!, 'N9a')).toBe('cleared');
+  });
+});
+
+describe('Pinnacle II: Gal Gryphon', () => {
+  it('stands at P2NE only; the other pinnacles and the Heart are still to come', () => {
+    expect(Object.keys(PINNACLE_BOSS)).toEqual(['P2NE']);
+    const s = save();
+    for (const id of ['P2SW', 'P3SE', 'P3NW', 'HEART']) s.map!.nodes[id] = { s: 'open' };
+    for (const id of ['P2SW', 'P3SE', 'P3NW', 'HEART']) expect(enterBlock(s, id)).toBe('A boss still to come will stand here.');
+    expect(nodeName('P2NE')).toBe('Gal Gryphon');
+    expect(nodeName('P2SW')).toBe('Pinnacle II');
+  });
+
+  it('opens once Dragon II and De Rol Le II are dead, and its first kill is free', () => {
+    const s = save();
+    expect(enterBlock(s, 'P2NE')).toBe('Opens once Dragon II and De Rol Le II are dead.');
+    clearNode(s, 'NB2');
+    expect(enterBlock(s, 'P2NE')).not.toBe('');
+    clearNode(s, 'EB2');
+    expect(nodeStatus(s.map!, 'P2NE')).toBe('open');
+    expect(enterBlock(s, 'P2NE')).toBe('');
+    expect(nodeCost(s, 'P2NE')).toBe(0);
+    expect(payEntry(s, 'P2NE')).toBe(0);
+  });
+
+  it("runs as the Gryphon on Storm Peak at tier 6, with a tier 6 boss's HP and no modifiers", () => {
+    const map = newMap(5);
+    const r = nodeRift(map, 'P2NE');
+    expect(r).toMatchObject({ pinnacle: 'gryphon', tier: BOSS_TIER[2], mods: [], boss: true, node: 'P2NE', kind: 'boss', region: 'forest' });
+    expect(riftBossId(r)).toBe('gryphon');
+    expect(riftBossHp(r)).toBeCloseTo(riftBossHp(nodeRift(map, 'NB2')), 6);
+    expect(() => nodeRift(map, 'P2SW')).toThrow();
+  });
+
+  it('after its first kill takes 2 Resonance from each of its quarters, and needs both', () => {
+    const s = save();
+    clearNode(s, 'NB2');
+    clearNode(s, 'EB2');
+    clearNode(s, 'P2NE');
+    // Still free while its first-kill unique is owed.
+    expect(firstKillOwed(s, 'gryphon', 2)).toBe(true);
+    expect(nodeCost(s, 'P2NE')).toBe(0);
+    (s.firsts ??= []).push('gryphon2');
+    expect(nodeCosts(s, 'P2NE')).toEqual({ dragon: mapCfg.pinnacleCost, derolle: mapCfg.pinnacleCost });
+    expect(nodeCost(s, 'P2NE')).toBe(2 * mapCfg.pinnacleCost);
+    s.map!.res = { dragon: 6, derolle: 1 };
+    expect(enterBlock(s, 'P2NE')).toBe(`Needs ${mapCfg.pinnacleCost} Dragon (you have 6) and ${mapCfg.pinnacleCost} De Rol Le (you have 1) Resonance: clear rooms in both quarters.`);
+    s.map!.res.derolle = 3;
+    expect(enterBlock(s, 'P2NE')).toBe('');
+    expect(payEntry(s, 'P2NE')).toBe(2 * mapCfg.pinnacleCost);
+    expect(s.map!.res).toEqual({ dragon: 6 - mapCfg.pinnacleCost, derolle: 3 - mapCfg.pinnacleCost });
+    // The Dragon's own replays still take only from its quarter.
+    (s.firsts ??= []).push('dragon2');
+    expect(nodeCosts(s, 'NB2')).toEqual({ dragon: mapCfg.resonanceCost });
+  });
+
+  it("drops one of its two uniques on the first kill, then twice a boss's odds", () => {
+    const ch = Character.create('T', 'force');
+    const s = riftSave(ch.data);
+    const u = rollBossUnique('gryphon', BOSS_TIER[2], 112, s, ch.data, mulberry32(4));
+    expect(u).not.toBeNull();
+    expect(['unique_stormCrest_15', 'uunit_groundingCoil']).toContain(u!.id);
+    expect(s.firsts).toContain('gryphon2');
+    expect(riftUniqueOdds(s, 'gryphon')).toBeCloseTo(2 * riftUniqueOdds(s, 'dragon'), 6);
+    s.dry = { gryphon: 3, dragon: 3 };
+    expect(riftUniqueOdds(s, 'gryphon')).toBeCloseTo(2 * riftUniqueOdds(s, 'dragon'), 6);
   });
 });
