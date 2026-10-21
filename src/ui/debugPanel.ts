@@ -523,6 +523,16 @@ export function createDebugPanel(actions: DebugActions): GUI {
   gg.add(galGryphon, 'orbWindup', 0.3, 3, 0.05).name('orbs warning (s)');
   gg.add(galGryphon, 'plummetWindup', 0.3, 3, 0.05).name('plummet warning (s)');
   gg.add(galGryphon, 'crossWindup', 0.3, 3, 0.05).name('crossing lash warning (s)');
+  gg.add(galGryphon, 'attackGap', 0, 4, 0.05).name('between attacks (s)');
+  gg.add(galGryphon, 'phase3At', 0, 1, 0.05).name('the cage from HP %');
+  gg.add(galGryphon, 'cageWindup', 0.6, 3, 0.05).name('cage warning (s)');
+  gg.add(galGryphon, 'featherEvery', 0.4, 4, 0.05).name('feathers every (s)');
+  gg.add(galGryphon, 'streamEvery', 0.2, 5, 0.05).name('spark stream every (s)');
+  gg.add(galGryphon, 'streamEvery3', 0.2, 5, 0.05).name('spark stream every, below 1/3 (s)');
+  gg.add(galGryphon, 'sparkSpeed', 0.5, 6, 0.1).name('spark speed (m/s)');
+  gg.add(galGryphon, 'sparkAtp', 0, 2, 0.01).name('spark hit x ATP');
+  gg.add(galGryphon, 'spiralEvery', 0.1, 2, 0.05).name('spiral spark every (s)');
+  gg.add(galGryphon, 'spiralTurn', 0, 120, 1).name('spiral turn (deg/s)');
   gg.close();
 
   const dr = gui.addFolder('Drops');

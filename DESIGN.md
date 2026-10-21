@@ -244,8 +244,9 @@ then walk or dash straight out):
 | Warden | **Phase 2 hand slams** (3.5 m circle on you, 1.0 s; both of the pair) | fails from the middle (walks ~3 m of the ~3.9 needed) | not measured yet |
 | Dark Falz | **Teleport slam** (form 2: 4.2 m circle on you as it vanishes, 1.3 s) | fails at a 0.35 s reaction (a very quick 0.25 s one just makes it) | ~1.0 s (from standing still: ~0.8 s) |
 | Dark Falz | **Lance** (form 3: a 7 m lane across the altar through you, 1.0 s) | fails from its middle (~3 m of 3.95) | not measured yet |
-| Gal Gryphon | **Plummet** (a 6 m circle on you, 1.5 s, never cut by the enrage) | fails (4.4 m of 6.45 at the rift tempo) | not measured yet |
+| Gal Gryphon | **Plummet** (a 6 m circle on you, 1.5 s, never cut by the enrage; the ring's version only through its gap) | fails (4.4 m of 6.45 at the rift tempo) | not measured yet |
 | Gal Gryphon | **Crossing lash** (phase 2: a lane across its swoop through you, 1.0 s) | fails (2.4 m of 2.95) | not measured yet |
+| Gal Gryphon | **Relay run on** (a storm's light running on the way you came: 7.8 m to the next reach in 1.57 s) | fails (7.2 m) | as the middle rod's bolt falls |
 
 Phase 1 of De Rol Le and the Warden stays walkable (wider lane, longer windups) so the shapes can be
 learned first. Pairs (De Rol Le's double slam, the Warden's double hand slam) fit the 2 charges; spending
@@ -1827,57 +1828,98 @@ Crest and Grounding Coil, 2 + 2 Resonance with doubled odds, a new synth track. 
 the Rift Map mockup): lightning rods ring the arena; when it calls the storm, standing by a rod pulls the bolts into
 it, a full rod discharges into the Gryphon and grounds it for a damage window, and missing the rods lets the bolts
 hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**); all first drafts.
+- **Made harder the same day** (the user: "It's too easy"). Why it was: once known, about 13 of every ~19 seconds
+  were free: the storm was ~5.5 s of standing in a 3.5 m ring with nothing else going on, then a 7 s grounded window,
+  leaving ~5 s for one or two single walkable telegraphs; a miss cost 27% and left nothing behind. The user's picks
+  from a second question round: **relay rods**, **it fights from the sky** (feather rain in the storm), **busier
+  between storms** (pairs from the start, triples in phase 2), **Hell triples below 1/3**, and their own idea, a
+  bullet-hell layer: **sparks that drift through the arena all fight long** so you can't stand still ("if it
+  overlapped other mechanics that would be nice or it could even be a constant kind of thing"), as **streams +
+  spirals, a light hit**. Numbers otherwise kept ("mechanics only"); the new mechanics brought their own, and the
+  attack gap (1.6 → 0.9 s, part of "busier") and the bolt gap (1.4 → 1.8 s, so the relay's run fits) changed.
+  Not taken: Overcharge stacks on a miss, Static wisps draining rods, a shorter grounded window with a thunderclap,
+  attacks that knock rods down, and the tighter numbers.
 - **Rift-only.** It guards no expedition and has no Normal / Nightmare / Hell of its own: `BossId` stays the main
   game's four, `RiftBossId` adds the pinnacle bosses (`PinnacleBossId`, `BOSSES.gryphon.pinnacle`, `isMainBoss`).
   Its `rift` block stands in for Hell's boss scaling (ATP 235 in all, between the Dragon's and De Rol Le's; armour 10,
   technique resistance 14, XP 6000), and the rift lifts it like the others: **a tier 6 boss's HP (2.3M)** and damage,
   at the rifts' fixed ×1.15 tempo. A rift node names it with `RiftInfo.pinnacle` (`riftBossId`).
-- **Storm Peak** (area `stormPeak`, scenery `peak`): a round stone summit about 33 m across (the walkable radius is 16 m;
-  you are kept on it like on the Falz altar) above a sea of cloud, a low parapet, a compass rose inlaid in the floor,
-  distant peaks, rain and far sheet lightning, under a slate storm sky. You arrive in the south; it perches 9 m north
-  of the middle and wakes when you are within 21 m. **Six lightning rods** stand 11 m out, 60° apart, the first 30°
-  east of north: an iron mast on a stone plinth with three copper coils (one lights per bolt) and a glass bulb, each
-  with a 3.5 m **reach** ring on the floor. They block like tree trunks, and one within 4.5 m of you fades to 30% so it
-  doesn't fill the screen (the camera trails you, as with the Dragon's cover rocks).
+- **Storm Peak** (area `stormPeak`, scenery `peak`): a round stone summit about 33 m across (the walkable radius is
+  16 m; you are kept on it like on the Falz altar) above a sea of cloud, a low parapet, a compass rose inlaid in the
+  floor, distant peaks, rain and far sheet lightning, under a slate storm sky. You arrive in the south; it perches 9 m
+  north of the middle and wakes when you are within 21 m. **Six lightning rods** stand 11 m out, 60° apart, the first
+  30° east of north: an iron mast on a stone plinth with three copper coils and a glass bulb, each with a 3.5 m
+  **reach** ring on the floor. They block like tree trunks, and one within 4.5 m of you fades to 30% so it doesn't fill
+  the screen (the camera trails you, as with the Dragon's cover rocks).
 - **The look:** a storm griffin, PSO-faithful in colour: an eagle's head with a gold hooked beak and a swept blue
   crest, white chest and sky-blue plumage, deep blue flight feathers tipped white, gold-banded talons in front and a
   lion's haunches behind, a fan tail and a gold collar; about 5 m to the crest and ~17 m across the wings. Cyan
   lightning veins down the wings and crest flare as it charges and go dark when it is grounded. In /viewer.html.
+- **Sparks** (all fight long, from the moment it wakes until it dies, through storms, groundings and every attack):
+  glowing cyan balls (0.5 m) at chest height with a floor glow, drifting 3 m/s of its clock (~3.45 real, under your 4.6
+  walk). A touch is **a light hit** (×0.33 ATP, about a third of a normal hit, ~12% of a geared Hunter's HP at tier 6;
+  no knockback; it corrupts, as every Hell hit does) and the spark is gone.
+  - **Streams**: every 1.2 s (0.6 s below 1/3) four sparks in a line, 1.1 m apart, leave a random point just past the
+    rim **aimed at where you stand**: stand still and they hit you, a sidestep of a metre and a half lets them by, and
+    streams from different angles cross.
+  - **Spirals** (phase 2 on): four arms out of the Gryphon (out of the middle of the sky while it is up there), a spark
+    from each every 0.35 s, turning 30° a second; the gaps widen away from it.
+  - In the game a Lv 100 Hunter (tier 15 gear) standing still died in 16 s to five sparks and one swoop (each hit
+    corrupting: max HP 1506 → 753). Tests: standing still takes many times the sparks a player circling the summit does.
 - **The storm** (its signature): first ~10 s into the fight, then 22 s after the last was called, never sooner than
-  9 s after it is back on its feet. "Gal Gryphon calls the storm: stand by a rod!" (the first time). It rises into the
-  clouds over the middle (can't be hit) and every usable rod's reach lights. The first bolt falls 2.5 s after the call
-  (never under **2.3 real seconds**: 2.3 at the rift's tempo), then one every 1.4 s; each is marked on you 1 s before it
-  falls by a ring that **follows you** (cyan when you stand in a usable reach, amber when it will strike you).
-  - **In a usable rod's reach** the bolt bends into the rod (+1, a coil lights). **Anywhere else it strikes you for 27%
-    of your max HP**, past armour (a failed mechanic, `mechanicHit`): three is about the usual 80%. Dashing or
-    side-stepping doesn't help; only a rod does.
-  - **A full rod (3 bolts)** arcs into the Gryphon: it crashes down 5.5 m inside that rod, toward the middle,
-    **grounded for 8 s of its clock (~7 real seconds)**, weak point open, taking **+50% damage** ("Grounded! Weak point
-    exposed!"; the bar reads `GROUNDED`). With no rod filled it comes back down in the middle after the last bolt.
-  - **Spent rods** (the user's pick of three twists): the rod that fired is **scorched for the next storm** (dark,
-    smoking, its ring dim red; a bolt by it strikes you), so you work round the ring. A rod you part-filled keeps its
-    charge for later, so one missed bolt can still pay off next storm.
-  - **Reach:** with every rod up, the worst walk to a reach is from the middle, 7.5 m (11 − 3.5), and walking covers
-    8.97 m in the lead (2.3 s less a 0.35 s reaction). A scorched rod can leave the rim behind it 10.7 m from the next
-    reach, so the storm **waits** while no usable reach is within walking range of you (like the Dragon's rampage
-    waits for a shadow), and comes on its next turn.
-- **Phase 1** (100-50%), all walkable at the rift's tempo (tests pin it):
-  - **Talon Swoop**: a 5 m lane from it through you to the far rim, warned 1.3 s; it flies the lane at 24 m/s.
-  - **Gale Wing**: a wing beat in a 60° / 9 m cone, warned 1.3 s, shoving you away (knockback 16). Narrowed from the
-    pitched 100° / 11 m, which no walk could leave from the middle of it.
-  - **Thunder Orbs**: three 3 m circles, one on you and two 4.5 m round it, lobbed from its beak, 1.4 s.
-  - **Plummet** (dash check): it springs up, then a 6 m circle on you, warned 1.5 s (walking clears 4.4 of the 6.45 m;
-    a dash makes it); it slams down and stays down 1.4 s. The enrage never cuts it (at ×0.8 not even a dash would).
-- **Phase 2, "The eye of the storm!"** (below 50%; the battle layer comes in; the bar reads `EYE OF THE STORM`):
-  - **Cyclones**: two tornadoes rise at the rim away from you and wander for 10 s, leaning toward you; a touch tosses
-    you (0.6 × ATP, knockback 14, once every 1.5 s each).
-  - **Crossing Swoop** (dash check): a Talon Swoop, and 0.6 s in a lightning lash across it, rim to rim **through where
-    you stand**, warned 1 s: having just stepped out of the swoop's lane sideways, you are in the lash's (walking clears
-    2.4 of the 2.95 m). Built as a lash rather than a second dive (the bird is still flying the first lane).
-  - **Four-bolt storms with a gale**: one bolt to spare (a rod still fills on three), but from the first mark to the
-    last bolt a gale pushes you away from the middle at 2 m/s, so you walk into it to stay in a reach.
-- **Enraged** (below 20%): windups ×0.8, the storm's never cut. The swoop, gale and orbs then no longer walk out and
-  get the dash check's cyan rim; every one stays clearable with a dash (a test pins it).
+  9 s after it is back on its feet. It rises into the clouds over the middle (can't be hit). The first bolt falls 2.5 s
+  after the call (never under **2.3 real seconds**), then one every **1.8 s**; each is marked on you 1 s before it
+  falls by a ring that **follows you** (cyan when you stand in the lit rod's reach, amber when it will strike you).
+  "Gal Gryphon calls the storm: follow the lit rod!" (the first time). The bar reads `STORM 1/3 · BOLT 2/3`.
+  - **The relay**: the storm lights the usable rod nearest you (its reach bright); **only the lit rod draws the bolt**.
+    As each bolt is marked, the light's next rod shows (a neighbour round the ring, either way at random, never a
+    scorched one: an arc crackles between the two bulbs and its ring pulses), and after the bolt falls the light jumps
+    there. **Every bolt of a storm drawn** (3; phase 2 has 4 with one to spare) and the last rod arcs into the Gryphon.
+  - **A bolt the lit rod doesn't draw strikes you for 27% of your max HP**, past armour (a failed mechanic,
+    `mechanicHit`); dashing doesn't help, only being in the lit reach.
+  - **Reach:** the reaches are 4 m apart. From the near edge of the lit reach the next one is an easy walk in the
+    1.57 real seconds between bolts; when the light doubles back you are already on that side; **when it runs on the
+    way you came** (three rods in a row) you reach the middle rod's near side as its bolt falls at best and the last
+    leg is 7.8 m: **a dash** (walking covers 7.2). Don't follow the arc before the lit rod's bolt has fallen. Scripted
+    walker in the game: 5 of 7 storms grounded with no hit; the two misses were straight runs it never dashed.
+  - **Feather rain** (it fights from the sky): every 1.2 s of the storm two 2.5 m circles fall, warned 1 s (×0.8 ATP,
+    a little shove): one with its middle 1.5 m off you away from the lit rod, so stepping toward the rod (1.45 m) gets
+    you out inside the reach, and one 3.5-5 m farther out. Hugging the post (within 2.2 m of the rod) the near one
+    comes from beside you, so you step round the post.
+  - **A full storm** grounds it: it crashes 5.5 m inside the last rod, toward the middle, **grounded for 8 s of its clock
+    (~7 real seconds)**, weak point open, taking **+50% damage** ("Grounded! Weak point exposed!"; the bar reads
+    `GROUNDED`). The sparks keep coming. A storm with a bolt missed lands it back in the middle after the last bolt.
+  - **Spent rods**: the rod that grounded it is **scorched for the next storm** (dark, smoking; the relay skips it).
+  - **Getting there:** with every rod up the worst walk to the first lit rod's reach is from the middle, 7.5 m, and
+    walking covers 8.97 m in the lead. A scorched rod can leave the rim behind it 10.7 m from the next reach, so the
+    storm **waits** while no usable reach is in walking range (like the Dragon's rampage waits for a shadow).
+- **Phase 1** (100-50%): **every attack is a pair**, 0.9 s apart (pool: swoop + flank orbs ×2, gale + plummet,
+  plummet ring):
+  - **Swoop + flank orbs**: a 5 m swoop lane from it through you to the far rim (1.3 s; it flies it at 24 m/s) and three
+    3 m orb circles along one side of the lane, 4.5 m off its middle, at you and 5 m either way (1.4 s): the way out is
+    the other side, the one facing into the summit (a walk).
+  - **Gale + plummet**: Gale Wing (a 60° / 9 m cone, 1.3 s, a shove of 16; narrowed from the pitched 100° / 11 m, which
+    no walk could leave), and as it lands it springs up into a **Plummet** on where it threw you: a 6 m circle, warned
+    1.5 s (a dash check: walking clears 4.4 of the 6.45 m).
+  - **Plummet ring**: the plummet with eight 3 m orbs in nine slots 7.5 m round it, one slot open toward the middle of
+    the summit (±60°): **dash out through the gap**, nowhere else (a test pins it).
+- **Phase 2, "The eye of the storm!"** (below 50%; the battle layer comes in; the bar reads `EYE OF THE STORM`): the
+  pairs become triples, and the spirals start. Pool: crossing triple ×2, gale ring, cyclones ×2 (when none are up).
+  - **Crossing triple**: swoop + flank orbs, and 0.6 s in a **lightning lash** across the swoop, rim to rim, through
+    where you stand (1.0 s, a dash check: having stepped out of the lane sideways you are in the lash's; walking clears
+    2.4 of the 2.95 m). A lash, not a second dive: the bird is still flying the first lane.
+  - **Gale ring**: the gale, then the plummet ring on where it threw you.
+  - **Cyclones**: two tornadoes rise at the rim away from you and wander 10 s, leaning toward you; a touch tosses you
+    (0.6 × ATP, knockback 14, once every 1.5 s each).
+  - **Four-bolt storms with a gale**: one bolt to spare, but from the first mark to the last bolt a gale pushes you
+    away from the middle at 2 m/s, so you walk into it to stay in the lit reach.
+- **Phase 3, "The storm breaks loose!"** (below 1/3; the bar reads `THE STORM BREAKS`): **every second attack is the
+  cage** (a Hell triple: three telegraphs at once, exactly one way out, warned 1.6 s and never cut by the enrage): the
+  swoop's lane through you, the lash across it through you, and orbs in three of the four corners they leave (5 m out
+  on the diagonals). The pocket is the fourth corner, 4.6 m out on its diagonal (the one on the summit nearest its
+  middle): a walk (4.79 m in the warning). The other attacks are phase 2's; streams come twice as often.
+- **Enraged** (below 20%): windups ×0.8, the storm's, the plummet's and the cage's never cut. The swoop and gale then
+  no longer walk out and get the dash check's cyan rim; every one stays clearable with a dash (a test pins it).
 - **Its node** (`PINNACLE_BOSS`, riftMap.ts): `P2NE` opens once **Dragon II and De Rol Le II** are dead (the map rule;
   "Opens once Dragon II and De Rol Le II are dead."). **The first kill is free and always drops one of its two
   uniques** (one you lack first; `RiftSave.firsts` "gryphon2"). After that a fight takes **2 Resonance from each of its
@@ -1888,19 +1930,20 @@ hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**
 - **Music:** `gryphon` (synth: a fast storm theme in F# minor at 152 BPM, a soaring brass line over racing string
   arpeggios, brass stabs, a pumping bass and thunder hits; the eye of the storm adds choir, taiko and a lead
   arpeggio). Recorded loops can come later (ElevenLabs credits). Sounds: the **Gal Gryphon** group in the sound lab
-  (screech, wing beat, dive, thunder, a bolt into a rod rising in pitch as it fills, the discharge, cyclones).
-- **Checked:** `gryphon.test.ts` (the rods' ring, reach geometry, scorched rods, the bolt schedule, every attack's
-  walk / dash math at the rift tempo, and a scripted fight against the boss itself: a rod you stand by fills and
-  grounds it beside the rod, bolts in the open or by a scorched rod strike for 27% each, phase 2's four bolts and
-  gale), `riftMap.test.ts` (the node, its opening, its 2 + 2 cost, the doubled odds), `riftUniques.test.ts` (both
-  uniques). In the game (Lv 100 Hunter, tier 15 gear, the debug warp): the storm came 12.8 s in; at a rod the bolts
-  fell at 2.30 s, then every 1.22 s, and the third grounded it 5.5 m from the rod with no damage taken; the next
-  storm by that scorched rod struck three times for 27% and it landed in the middle; phase 2 called the cyclones and a
-  four-bolt storm, and walking back against the gale still filled a rod; the first kill dropped Storm Crest and cleared
-  the node. Not done: a balance pass (the bot can't use rods), ElevenLabs music.
+  (screech, wing beat, dive, thunder, a bolt into a rod rising in pitch as the storm fills, the discharge, cyclones).
+- **Checked:** `gryphon.test.ts` (the rods' ring and reach geometry, scorched rods, the relay's neighbours and its
+  timing, feathers walkable inside the reach, every attack's walk / dash math at the rift tempo, one way out of the
+  flank, the ring and the cage, the sparks; a scripted fight against the boss itself: following the lit rod grounds it
+  beside the last rod, staying at the first one takes the other two bolts, phase 2's four bolts and gale, and the
+  sparks hitting a still player far more than a moving one), `riftMap.test.ts` (the node, its opening, its 2 + 2 cost,
+  the doubled odds), `riftUniques.test.ts` (both uniques). In the game (Lv 100 Hunter, tier 15 gear, the debug warp):
+  the first build's storm, grounding, kill and drop (Storm Crest), then the rework's sparks, relay (a walker grounding
+  it), the pairs, the phase 2 triples and the cage. Not done: a balance pass (the bot can't use rods or dodge sparks),
+  ElevenLabs music.
 - **Debug** (tuning panel): Rifts > "enter Gal Gryphon (Pinnacle II)" goes straight in (its first kill stays owed);
-  the **Gal Gryphon** folder has the storm's clock, lead and bolts, the bolt's share, grounding, the gale and the
-  attacks' warnings; Rifts has its speed, HP multiplier and the pinnacle's Resonance cost.
+  the **Gal Gryphon** folder has the storm's clock, lead and bolts, the bolt's share, grounding, the gale, the attacks'
+  warnings, the attack gap, the cage, feathers and the sparks; Rifts has its speed, HP multiplier and the pinnacle's
+  Resonance cost.
 
 ### Layout (riftGen.ts)
 - `generateRift(options)` is pure: everything comes from the seed (mixed with the region, so one seed differs per

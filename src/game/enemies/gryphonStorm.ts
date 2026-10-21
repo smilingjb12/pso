@@ -1,14 +1,19 @@
 import * as THREE from 'three';
 import { galGryphon as cfg } from '../config';
 import { mat, part } from '../models/Rig';
-import { glowDecal, glowSprite } from '../world/glow';
+import { glowDecal, glowSprite, glowTexture } from '../world/glow';
 import type { TreeCollider } from '../world/Level';
 
-// Gal Gryphon's storm (see GalGryphon and DESIGN.md "Gal Gryphon"): the six lightning rods round Storm Peak, which rod
-// a bolt bends into, when the bolts fall, and the ring that marks the next bolt on you. A rod that filled is scorched
-// for the storm after; a part-filled one keeps its charge. Pure rules first, so they can be tested without the boss.
+// Gal Gryphon's storm and its sparks (see GalGryphon and DESIGN.md "Gal Gryphon"): the six lightning rods round Storm
+// Peak, the relay that lights one rod after another through a storm, when the bolts fall, the ring that marks the next
+// bolt on you, where its feathers fall, the layouts of its paired and triple attacks (each with its way out), and the
+// sparks that drift through the arena all fight long. A rod that grounded it is scorched for the storm after. Pure
+// rules first, so they can be tested without the boss.
 
-/** A rod's spot and state. `firedIn`: the storm it last discharged in (it sits out the next one). */
+/** What a rod is doing in the storm on: off (no storm), the lit one, the next one the relay jumps to, or idle. */
+export type RodRole = 'off' | 'lit' | 'next' | 'idle';
+
+/** A rod's spot and state. `charge`: the storm's bolts it shows (the lit rod carries them). `firedIn`: the storm it last discharged in (it sits out the next one). */
 export interface RodState {
   x: number;
   z: number;
@@ -53,6 +58,150 @@ export function stormLead(tempo: number, lead = cfg.stormLead, floor = cfg.storm
 export function boltSchedule(n: number, lead: number, warn = cfg.boltWarn, gap = cfg.boltGap): { mark: number; fall: number }[] {
   return Array.from({ length: n }, (_, i) => ({ mark: lead - warn + i * gap, fall: lead + i * gap }));
 }
+
+// ------------------------------------------------------------------ the relay
+
+/** The usable rod nearest (x, z) this storm (its index), or -1 if none is usable. */
+export function nearestRod(rods: readonly RodState[], x: number, z: number, storm: number): number {
+  let best = -1;
+  let bestD = Infinity;
+  rods.forEach((r, i) => {
+    const d = Math.hypot(r.x - x, r.z - z);
+    if (rodUsable(r, storm) && d < bestD) {
+      best = i;
+      bestD = d;
+    }
+  });
+  return best;
+}
+
+/**
+ * The relay's next rod after rod `i`: a usable neighbour round the ring, either side at random (the only one if the
+ * other is scorched); `i` itself if neither is usable.
+ */
+export function relayNext(rods: readonly RodState[], i: number, storm: number, rng: () => number): number {
+  const n = rods.length;
+  const sides = [(i + 1) % n, (i + n - 1) % n].filter((k) => rodUsable(rods[k], storm));
+  if (!sides.length) return i;
+  return sides.length === 1 ? sides[0] : sides[rng() < 0.5 ? 0 : 1];
+}
+
+// ------------------------------------------------------------------ attack layouts
+
+type Pt = [number, number];
+const on = (x: number, z: number, yaw: number, d: number): Pt => [x + Math.sin(yaw) * d, z + Math.cos(yaw) * d];
+
+/**
+ * Feather rain (each storm, from the sky): one circle by you, its middle `near` m off you on the side away from the
+ * lit rod (stepping toward the rod gets you out, inside its reach), and one `far` m farther out (within 45° of away
+ * from the rod, so it never shuts the way in). Hugging the rod's post (within `hug` m of it) the near one comes from
+ * beside you instead, so you step round the post.
+ */
+export function featherSpots(px: number, pz: number, rodX: number, rodZ: number, rng: () => number, near = cfg.featherNear, far = cfg.featherFar, hug = 2.2): [Pt, Pt] {
+  const out = Math.atan2(px - rodX, pz - rodZ);
+  const away = Math.hypot(px - rodX, pz - rodZ) < hug ? out + (rng() < 0.5 ? 1 : -1) * (Math.PI / 2) : out + (rng() - 0.5) * (Math.PI * 2 / 3);
+  const a = out + (rng() - 0.5) * (Math.PI / 2);
+  const d = far[0] + rng() * (far[1] - far[0]);
+  return [on(px, pz, away, near), on(px, pz, a, d)];
+}
+
+/** Which side of a lane (yaw) points into the summit more: +1 (its right, yaw + 90°) or -1. */
+function inward(px: number, pz: number, yaw: number, cx: number, cz: number): 1 | -1 {
+  const [rx, rz] = on(0, 0, yaw + Math.PI / 2, 1);
+  return (cx - px) * rx + (cz - pz) * rz >= 0 ? 1 : -1;
+}
+
+/**
+ * Swoop + flank orbs: three orb circles along one side of a swoop lane through you (at you and `spacing` m either way
+ * along it, `offset` m off its middle), so the way out is the other side, the one facing into the summit. Returns the
+ * orbs' middles and the open side.
+ */
+export function flankOrbs(px: number, pz: number, yaw: number, cx: number, cz: number, offset = cfg.flankOffset, spacing = cfg.flankSpacing): { orbs: Pt[]; open: 1 | -1 } {
+  const open = inward(px, pz, yaw, cx, cz);
+  const side = yaw - (open * Math.PI) / 2;
+  const orbs = [-1, 0, 1].map((k): Pt => {
+    const [ax, az] = on(px, pz, yaw, k * spacing);
+    return on(ax, az, side, offset);
+  });
+  return { orbs, open };
+}
+
+/**
+ * A ring of orbs round a plummet's circle with one gap (toward the middle of the summit, give or take 60°): `slots`
+ * evenly round at `ring` m from (px, pz), the gap's left out. Returns the orbs and the gap's direction.
+ */
+export function ringOrbs(px: number, pz: number, cx: number, cz: number, rng: () => number, slots = cfg.ringSlots, ring = cfg.ringR): { orbs: Pt[]; gap: number } {
+  const toMid = Math.hypot(cx - px, cz - pz) > 1 ? Math.atan2(cx - px, cz - pz) : rng() * Math.PI * 2;
+  const step = (Math.PI * 2) / slots;
+  const gap = toMid + Math.round(((rng() - 0.5) * (Math.PI * 2 / 3)) / step) * step;
+  const orbs: Pt[] = [];
+  for (let i = 1; i < slots; i++) orbs.push(on(px, pz, gap + i * step, ring));
+  return { orbs, gap };
+}
+
+/**
+ * Below 1/3 HP, the cage (a Hell triple: three telegraphs at once, one way out): the swoop's lane through you along
+ * `yaw`, the lash's across it through you, and orbs in three of the four corners the cross leaves, `dist` m out on
+ * the diagonals. The free corner is one whose pocket (`pocketAt` m out on its diagonal) lies on the summit, nearest
+ * its middle; null if none does. Returns the lash's yaw, the orbs and the pocket.
+ */
+export function cagePlan(
+  px: number, pz: number, yaw: number, cx: number, cz: number, rim: number, dist = cfg.cageOrbDist, pocketAt = cfg.cagePocket,
+): { lashYaw: number; orbs: Pt[]; pocket: Pt } | null {
+  const corners = [1, 3, 5, 7].map((k) => yaw + (k * Math.PI) / 4);
+  const pockets = corners.map((a) => on(px, pz, a, pocketAt));
+  const ok = pockets.map(([x, z]) => Math.hypot(x - cx, z - cz) <= rim);
+  let free = -1;
+  pockets.forEach(([x, z], i) => {
+    if (ok[i] && (free < 0 || Math.hypot(x - cx, z - cz) < Math.hypot(pockets[free][0] - cx, pockets[free][1] - cz))) free = i;
+  });
+  if (free < 0) return null;
+  return {
+    lashYaw: yaw + Math.PI / 2,
+    orbs: corners.filter((_, i) => i !== free).map((a) => on(px, pz, a, dist)),
+    pocket: pockets[free],
+  };
+}
+
+// ------------------------------------------------------------------ sparks
+
+/** One spark drifting across the summit (its own clock: `t` seconds old). */
+export interface Spark {
+  x: number;
+  z: number;
+  vx: number;
+  vz: number;
+  t: number;
+}
+
+/** A stream: `n` sparks in a line leaving (fx, fz) toward (tx, tz), `spacing` m apart (the first at the start). */
+export function aimedStream(fx: number, fz: number, tx: number, tz: number, n = cfg.streamCount, spacing = cfg.streamSpacing, speed = cfg.sparkSpeed): Spark[] {
+  const d = Math.hypot(tx - fx, tz - fz) || 1;
+  const ux = (tx - fx) / d;
+  const uz = (tz - fz) / d;
+  return Array.from({ length: n }, (_, i) => ({ x: fx - ux * spacing * i, z: fz - uz * spacing * i, vx: ux * speed, vz: uz * speed, t: 0 }));
+}
+
+/** A spiral's beat: one spark out of each of `arms` arms at angle `base` (radians) round (x, z). */
+export function spiralBurst(x: number, z: number, arms: number, base: number, speed = cfg.sparkSpeed): Spark[] {
+  return Array.from({ length: arms }, (_, i) => {
+    const a = base + (i * Math.PI * 2) / arms;
+    return { x, z, vx: Math.sin(a) * speed, vz: Math.cos(a) * speed, t: 0 };
+  });
+}
+
+/** Move a spark on `dt`; false once it has left the summit (`rim` m from its middle) or lived too long. */
+export function driftSpark(s: Spark, dt: number, cx: number, cz: number, rim: number): boolean {
+  s.x += s.vx * dt;
+  s.z += s.vz * dt;
+  s.t += dt;
+  // Streams start just outside the rim: only those heading out again (or old ones) go.
+  const out = Math.hypot(s.x - cx, s.z - cz) > rim + 1.5 && (s.x - cx) * s.vx + (s.z - cz) * s.vz > 0;
+  return !out && s.t < cfg.sparkLife;
+}
+
+/** Does a spark touch a body of radius `r` at (x, z)? */
+export const sparkTouches = (s: Spark, x: number, z: number, r: number): boolean => Math.hypot(s.x - x, s.z - z) <= cfg.sparkRadius + r;
 
 // ------------------------------------------------------------------ the rods
 
@@ -135,9 +284,9 @@ export class Rod implements RodState {
     return out.set(this.x, 6.6, this.z);
   }
 
-  /** A bolt bent into it. */
-  struck(): void {
-    this.charge = Math.min(cfg.rodCharge, this.charge + 1);
+  /** A bolt bent into it; the storm's charge now stands at `charge`. */
+  struck(charge: number): void {
+    this.charge = Math.min(cfg.rodCharge, charge);
     this.flash = 1;
   }
 
@@ -163,11 +312,15 @@ export class Rod implements RodState {
     }
   }
 
-  /** `storm`: the storm on (or the next one, between storms) and whether it is on. */
-  update(dt: number, time: number, storm: number, on: boolean): void {
+  /**
+   * `storm`: the storm on (or the next one, between storms). `role`: off between storms; in one, the lit rod (it
+   * draws the next bolt), the next one (the relay's light jumps there after it), or idle.
+   */
+  update(dt: number, time: number, storm: number, role: RodRole): void {
     this.flash = Math.max(0, this.flash - dt * 3);
     const usable = rodUsable(this, storm);
-    const pulse = 0.5 + 0.5 * Math.sin(time * 6 + this.x);
+    const on = role === 'lit' || role === 'next';
+    const pulse = role === 'next' ? 0.5 + 0.5 * Math.sin(time * 14) : 0.5 + 0.5 * Math.sin(time * 6 + this.x);
     this.coils.forEach((m, i) => {
       m.emissive.setHex(usable ? LIT : SCORCHED);
       m.emissiveIntensity = i < this.charge ? 1.6 + pulse * 0.6 : 0.05 + this.flash;
@@ -176,9 +329,9 @@ export class Rod implements RodState {
     this.bulb.emissiveIntensity = (usable ? 0.2 + (this.charge / cfg.rodCharge) * 1.2 : 0.1) + (on && usable ? 0.6 * pulse : 0) + this.flash * 2;
     this.halo.material.opacity = Math.min(1, (on && usable ? 0.35 + 0.25 * pulse : 0) + (this.charge / cfg.rodCharge) * 0.4 + this.flash);
     this.ring.material.color.setHex(usable ? LIT : SCORCHED);
-    this.ring.material.opacity = usable ? (on ? 0.55 + 0.3 * pulse : 0.14) : on ? 0.25 : 0.08;
+    this.ring.material.opacity = !usable ? 0.08 : role === 'lit' ? 0.7 + 0.25 * pulse : role === 'next' ? 0.25 + 0.5 * pulse : role === 'idle' ? 0.07 : 0.14;
     this.fill.material.color.setHex(usable ? LIT : SCORCHED);
-    this.fill.material.opacity = on ? (usable ? 0.1 + 0.05 * pulse : 0.04) : 0;
+    this.fill.material.opacity = role === 'lit' ? 0.12 + 0.06 * pulse : role === 'next' ? 0.04 * pulse : 0;
     // Scorched: smoke curls off the bulb.
     const scorched = !usable;
     this.smoke.forEach((s, i) => {
@@ -206,8 +359,9 @@ export class LightningRods {
     for (const r of this.list) if (!trees.includes(r.collider)) trees.push(r.collider);
   }
 
-  update(dt: number, time: number, storm: number, on: boolean): void {
-    for (const r of this.list) r.update(dt, time, storm, on);
+  /** `lit` / `next`: the relay's rods while a storm is on (-1: none; no storm: both -1 and `on` false). */
+  update(dt: number, time: number, storm: number, on: boolean, lit = -1, next = -1): void {
+    this.list.forEach((r, i) => r.update(dt, time, storm, !on ? 'off' : i === lit ? 'lit' : i === next ? 'next' : 'idle'));
   }
 
   seeThrough(dt: number, px: number, pz: number): void {
@@ -306,5 +460,74 @@ export class Cyclone {
 
   get done(): boolean {
     return this.life <= 0;
+  }
+}
+
+/**
+ * The sparks drifting over the summit, drawn instanced: a white core in a cyan halo at chest height, and a glow on the
+ * floor under each so you can read them at your feet. The boss spawns them and does the hits.
+ */
+export class SparkField {
+  readonly group = new THREE.Group();
+  readonly list: Spark[] = [];
+  private cores: THREE.InstancedMesh;
+  private halos: THREE.InstancedMesh;
+  private floors: THREE.InstancedMesh;
+  private m = new THREE.Matrix4();
+  private q = new THREE.Quaternion();
+  private v = new THREE.Vector3();
+  private sc = new THREE.Vector3();
+
+  constructor(private max = 220) {
+    const add = { transparent: true, depthWrite: false, blending: THREE.AdditiveBlending } as const;
+    this.cores = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.22, 1), new THREE.MeshBasicMaterial({ color: 0xf0fcff }), max);
+    this.halos = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(cfg.sparkRadius, 1), new THREE.MeshBasicMaterial({ color: LIT, opacity: 0.32, ...add }), max);
+    this.floors = new THREE.InstancedMesh(
+      new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+      // Dimmer and smaller than an orb's warning (the same cyan), so the two don't read alike.
+      new THREE.MeshBasicMaterial({ color: LIT, map: glowTexture(), opacity: 0.35, ...add }),
+      max,
+    );
+    for (const im of [this.cores, this.halos, this.floors]) {
+      im.count = 0;
+      im.frustumCulled = false;
+      this.group.add(im);
+    }
+  }
+
+  add(sparks: Spark[]): void {
+    for (const s of sparks) if (this.list.length < this.max) this.list.push(s);
+  }
+
+  clear(): void {
+    this.list.length = 0;
+    this.draw(0);
+  }
+
+  /** Move them on and drop the ones gone (`keep`: false drops one, e.g. it hit you). */
+  update(dt: number, time: number, cx: number, cz: number, rim: number, keep: (s: Spark) => boolean): void {
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const s = this.list[i];
+      if (!driftSpark(s, dt, cx, cz, rim) || !keep(s)) this.list.splice(i, 1);
+    }
+    this.draw(time);
+  }
+
+  private draw(time: number): void {
+    const n = this.list.length;
+    this.list.forEach((s, i) => {
+      const y = cfg.sparkHeight + Math.sin(time * 9 + i * 1.7) * 0.08;
+      const flicker = 0.85 + 0.3 * Math.sin(time * 31 + i * 2.3);
+      this.m.compose(this.v.set(s.x, y, s.z), this.q.identity(), this.sc.setScalar(flicker));
+      this.cores.setMatrixAt(i, this.m);
+      this.m.compose(this.v.set(s.x, y, s.z), this.q, this.sc.setScalar(0.9 + 0.2 * flicker));
+      this.halos.setMatrixAt(i, this.m);
+      this.m.compose(this.v.set(s.x, 0.05, s.z), this.q, this.sc.set(1.2, 1, 1.2));
+      this.floors.setMatrixAt(i, this.m);
+    });
+    for (const im of [this.cores, this.halos, this.floors]) {
+      im.count = n;
+      im.instanceMatrix.needsUpdate = true;
+    }
   }
 }

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { galGryphon as cfg, player as playerCfg, type HardBossScale } from '../config';
-import { angleDelta, separateCircles, turnToward, yawTo } from '../collision';
+import { separateCircles, turnToward, yawTo } from '../collision';
 import type { Hittable } from '../combat/types';
 import type { Level, Rect } from '../world/Level';
 import { Lob, Pillar, Ring, type Effect } from '../world/Effects';
@@ -9,27 +9,35 @@ import type { TelegraphShape } from '../world/Telegraph';
 import { GryphonModel } from '../models/gryphon';
 import type { BossContext } from './Boss';
 import { BossBase } from './BossBase';
-import { boltSchedule, BoltMark, Cyclone, LightningRods, rodAt, rodWalk, stormLead, type Rod } from './gryphonStorm';
+import {
+  aimedStream, boltSchedule, BoltMark, cagePlan, Cyclone, featherSpots, flankOrbs, LightningRods, nearestRod, relayNext, ringOrbs, rodWalk,
+  sparkTouches, SparkField, spiralBurst, stormLead, type Rod,
+} from './gryphonStorm';
 
 // Gal Gryphon, the Rift Map's Circle II pinnacle boss (DESIGN.md "Endgame: Falz Rifts" > "Gal Gryphon"; the user's
-// picks from a question round, 2026-10-21). A storm griffin on Storm Peak: it swoops, beats a gale, spits thunder orbs
-// and plummets on you (a dash check), and every ~22 s it rises into the clouds and calls the storm down on you. Stand
-// in a lightning rod's reach and the bolts bend into the rod; a full rod arcs into the Gryphon and grounds it, weak
-// point open. Below half HP the eye of the storm: cyclones, a crossing swoop (a dash check) and four-bolt storms with
-// a gale pushing you off the rods.
+// picks from question rounds, 2026-10-21). A storm griffin on Storm Peak. Sparks drift through the arena all fight
+// long (streams aimed at you, spiral arms from it in phase 2), so you can't stand still. Its attacks come in pairs
+// from the start (a swoop with orbs closing one side, a gale shoving you under a plummet, a plummet ringed by orbs),
+// triples in phase 2 (a lash across the swoop, the ring after the gale) and the cage below 1/3 (a Hell triple: three
+// telegraphs at once, one way out). Every ~22 s it rises into the clouds and calls the storm: a relay of rods lights
+// one after another, each drawing one bolt, while feathers rain round you; draw every bolt and the last rod grounds
+// it, weak point open. A bolt you don't draw strikes you.
 
-type GryphonState =
-  | 'dormant' | 'intro' | 'stalk' | 'recover'
-  | 'swoopWindup' | 'swooping' | 'galeWindup' | 'orbWindup' | 'plummetRise' | 'plummetWindup' | 'plummetRest' | 'cycloneCall'
-  | 'storm' | 'stormFall' | 'grounded' | 'stormLand'
-  | 'dead';
+type GryphonState = 'dormant' | 'intro' | 'stalk' | 'attack' | 'recover' | 'storm' | 'stormFall' | 'grounded' | 'stormLand' | 'dead';
 
-type Attack = 'swoop' | 'gale' | 'orbs' | 'plummet' | 'cyclones' | 'cross';
+type Attack = 'swoopOrbs' | 'galePlummet' | 'plummetRing' | 'crossTriple' | 'galeRing' | 'cyclones' | 'cage';
+
+/** What its body is doing in an attack (the animation). */
+type Pose = 'idle' | 'swoopWindup' | 'swoop' | 'gale' | 'orbs' | 'rise' | 'hang' | 'rest' | 'call';
+
+type Pt = [number, number];
 
 const STORM_ALT = 15;
+const PLUMMET_ALT = 12;
 const BOLT_COLOR = 0x9ae8ff;
 const LASH_COLOR = 0xb8f0ff;
 const GALE_COLOR = 0xd8ecff;
+const FEATHER_COLOR = 0xeaf4ff;
 
 /** A wing beat's gust: the cone flashes pale and fades. */
 class GustFlash implements Effect {
@@ -55,6 +63,34 @@ class GustFlash implements Effect {
   }
 }
 
+/** A feather falling out of the clouds onto its circle, landing as the warning runs out. */
+class FeatherFall implements Effect {
+  readonly object = new THREE.Group();
+  private t = 0;
+  private from: THREE.Vector3;
+  private to: THREE.Vector3;
+
+  constructor(x: number, z: number, private seconds: number) {
+    this.from = new THREE.Vector3(x + 2, 20, z - 1);
+    this.to = new THREE.Vector3(x, 0.4, z);
+    const blade = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.04, 2.2),
+      new THREE.MeshBasicMaterial({ color: FEATHER_COLOR, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending }),
+    );
+    blade.rotation.x = -1.1;
+    this.object.add(blade);
+    this.object.position.copy(this.from);
+  }
+
+  update(dt: number): boolean {
+    this.t += dt;
+    const k = Math.min(1, this.t / this.seconds);
+    this.object.position.lerpVectors(this.from, this.to, k * k);
+    this.object.rotation.y += dt * 9;
+    return k < 1;
+  }
+}
+
 export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittable {
   readonly id = 'gryphon' as const;
   readonly group = new THREE.Group();
@@ -67,6 +103,7 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   private readonly cz: number;
   private readonly rods: LightningRods;
   private readonly mark = new BoltMark();
+  private readonly sparks = new SparkField();
   private readonly cyclones: Cyclone[] = [];
   private readonly cycloneGroup = new THREE.Group();
 
@@ -77,8 +114,20 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   private walkPhase = NaN;
   private cooldown = 2;
   private phase2 = false;
+  private phase3 = false;
   /** Seconds of fight (its clock). */
   private fightT = 0;
+  // ---- attacks: the one under way is a list of timed steps (its clock, from the attack's start)
+  private pose: Pose = 'idle';
+  private steps: { at: number; run: () => void }[] = [];
+  private actEnd = 0;
+  private recoverFor = 1;
+  /** Phase 3 attacks to go before the next cage. */
+  private tripleDue = 0;
+  /** A swoop in flight: its heading, the distance left, and whether it has hit you. */
+  private fly: { yaw: number; left: number; hit: boolean } | null = null;
+  /** Where a plummet hangs before it drops. */
+  private hangAt: Pt | null = null;
   // ---- the storm
   /** Storms called so far (the one on, while in one). */
   private storms = 0;
@@ -89,15 +138,18 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   private bolts: { mark: number; fall: number }[] = [];
   private boltsDone = 0;
   private marked = -1;
+  /** The relay: the lit rod (its index), the one it jumps to after this bolt (-1 until shown), bolts drawn this storm. */
+  private lit = -1;
+  private nextLit = -1;
+  private stormCharge = 0;
+  private arcT = 0;
+  private featherT = 0;
   private taught = false;
   private gustT = 0;
-  // ---- attacks
-  private swoopYaw = 0;
-  private swoopLeft = 0;
-  private swoopHit = false;
-  private lash: TelegraphShape | null = null;
-  private plummetAt: [number, number] = [0, 0];
-  private recoverFor = 1;
+  // ---- the sparks
+  private streamT = 1.5;
+  private spiralT = 0;
+  private spiralBase = 0;
 
   constructor(room: Rect, hard: HardBossScale | null = null) {
     super(cfg, hard);
@@ -108,13 +160,12 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
     this.lastZ = this.pos.z;
     this.group.add(this.model.group);
     this.rods = new LightningRods(this.cx, this.cz);
-    this.alt = 0;
   }
 
   // ---------------------------------------------------------------- Boss
 
   get objects(): THREE.Object3D[] {
-    return [this.group, this.rods.group, this.mark.group, this.cycloneGroup];
+    return [this.group, this.rods.group, this.mark.group, this.cycloneGroup, this.sparks.group];
   }
   parts(): Hittable[] {
     return [this];
@@ -142,9 +193,9 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
 
   /** Shown after the name on the boss bar. */
   get hudNote(): string {
-    if (this.state === 'storm') return `  — STORM ${Math.min(this.boltsDone, this.bolts.length)}/${this.bolts.length}`;
+    if (this.state === 'storm') return `  — STORM ${this.stormCharge}/${cfg.rodCharge} · BOLT ${Math.min(this.boltsDone + 1, this.bolts.length)}/${this.bolts.length}`;
     if (this.state === 'grounded' || this.state === 'stormFall') return '  — GROUNDED';
-    return this.phase2 ? '  — EYE OF THE STORM' : '';
+    return this.phase3 ? '  — THE STORM BREAKS' : this.phase2 ? '  — EYE OF THE STORM' : '';
   }
 
   // ------------------------------------------------------------ Hittable
@@ -152,7 +203,7 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   get aimHeight(): number {
     return this.alt + 3.4;
   }
-  /** Up in the clouds (the storm, the plummet's climb) it can't be hit. */
+  /** Up in the clouds (the storm, a plummet's climb) it can't be hit. */
   get invulnerable(): boolean {
     return this.untouchable || this.alt > 5;
   }
@@ -180,7 +231,7 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
 
   protected always(dt: number, ctx: BossContext): void {
     const on = this.state === 'storm';
-    this.rods.update(dt, this.time, on ? this.storms : this.storms + 1, on);
+    this.rods.update(dt, this.time, on ? this.storms : this.storms + 1, on, on ? this.lit : -1, on ? this.nextLit : -1);
     this.rods.seeThrough(dt, ctx.playerX, ctx.playerZ);
     for (const c of this.cyclones) {
       c.update(dt, this.time, ctx.playerX, ctx.playerZ, this.cx, this.cz, cfg.arenaRadius - cfg.cycloneRadius);
@@ -192,10 +243,14 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
       this.cycloneGroup.remove(c.group);
       this.cyclones.splice(this.cyclones.indexOf(c), 1);
     }
+    this.updateSparks(dt, ctx);
   }
 
   protected onDeath(): void {
     this.mark.hide();
+    this.sparks.clear();
+    this.steps = [];
+    this.fly = null;
     for (const c of this.cyclones) c.life = Math.min(c.life, 0.8);
   }
 
@@ -211,6 +266,13 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
       this.phase2 = true;
       this.escalate(ctx, 'The eye of the storm!');
       ctx.shake(0.5);
+      this.sound('gryphon.screech');
+    }
+    if (!this.phase3 && this.hp <= this.maxHp * cfg.phase3At) {
+      this.phase3 = true;
+      this.tripleDue = 0;
+      this.escalate(ctx, 'The storm breaks loose!');
+      ctx.shake(0.6);
       this.sound('gryphon.screech');
     }
 
@@ -232,82 +294,24 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
         const want = dist > cfg.keepAway + 2 ? 1 : dist < cfg.keepAway - 2 ? -0.6 : 0;
         this.pos.x += Math.sin(this.yaw) * cfg.walkSpeed * want * dt;
         this.pos.z += Math.cos(this.yaw) * cfg.walkSpeed * want * dt;
+        this.alt = Math.max(0, this.alt - dt * 6);
         this.cooldown -= dt;
         if (this.cooldown > 0) break;
         if (this.startStorm(ctx)) break;
-        if (Math.abs(angleDelta(this.yaw, toPlayer)) < 0.5) this.chooseAttack(dist, ctx);
+        this.chooseAttack(ctx);
         break;
       }
 
-      case 'swoopWindup':
-        this.alt = Math.min(2, this.stateT * 2);
-        this.updateLash(ctx);
-        if (this.stateT >= cfg.swoopWindup * this.sm()) {
-          this.enter('swooping');
-          this.swoopHit = false;
-          this.sound('gryphon.dive');
-        }
-        break;
-
-      case 'swooping': {
-        this.updateLash(ctx);
-        const step = cfg.swoopSpeed * dt;
-        this.pos.x += Math.sin(this.swoopYaw) * step;
-        this.pos.z += Math.cos(this.swoopYaw) * step;
-        this.yaw = this.swoopYaw;
-        this.alt = 1.3;
-        this.swoopLeft -= step;
-        if (!this.swoopHit) {
-          const shape: TelegraphShape = { kind: 'circle', x: this.pos.x, z: this.pos.z, radius: cfg.swoopWidth / 2 };
-          if (ctx.hitPlayer(shape, cfg.swoopAtp, this.pos.x, this.pos.z, cfg.swoopKnockback)) this.swoopHit = true;
-        }
-        if (this.swoopLeft <= 0 && !this.lash) this.endAttack(0.9);
-        break;
-      }
-
-      case 'galeWindup':
-        if (this.stateT >= cfg.galeWindup * this.sm()) {
-          const shape = this.galeShape();
-          ctx.hitPlayer(shape, cfg.galeAtp, this.pos.x, this.pos.z, cfg.galeKnockback);
-          ctx.effect(new GustFlash(shape.x, shape.z, this.yaw, cfg.galeRange, cfg.galeArcDeg));
-          ctx.shake(0.25);
-          this.sound('gryphon.flap');
-          this.endAttack(1.0);
-        }
-        break;
-
-      case 'orbWindup':
-        if (this.stateT >= cfg.orbWindup * this.sm()) this.endAttack(0.8);
-        break;
-
-      case 'plummetRise':
-        this.alt = Math.min(12, this.alt + dt * 18);
-        if (this.stateT >= cfg.plummetRise) this.warnPlummet(ctx);
-        break;
-
-      case 'plummetWindup': {
-        // It hangs over the circle, then drops.
-        const [x, z] = this.plummetAt;
-        this.pos.x += (x - this.pos.x) * Math.min(1, dt * 5);
-        this.pos.z += (z - this.pos.z) * Math.min(1, dt * 5);
-        break;
-      }
-
-      case 'plummetRest':
-        this.alt = 0;
-        if (this.stateT >= cfg.plummetRest) this.endAttack(0.6);
-        break;
-
-      case 'cycloneCall':
-        if (this.stateT >= 1.0) this.endAttack(0.5);
+      case 'attack':
+        this.runAttack(dt, ctx);
         break;
 
       case 'storm':
         this.updateStorm(dt, ctx);
         break;
 
-      case 'stormFall': {
-        // A full rod's bolt knocked it out of the sky: down beside the rod.
+      case 'stormFall':
+        // The storm's last bolt drawn knocked it out of the sky: down beside the rod.
         this.alt = Math.max(0, this.alt - dt * 30);
         if (this.alt <= 0) {
           ctx.shake(0.8);
@@ -317,7 +321,6 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
           this.enter('grounded');
         }
         break;
-      }
 
       case 'grounded':
         this.alt = 0;
@@ -325,7 +328,7 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
         break;
 
       case 'stormLand':
-        // No rod filled: it comes back down in the middle.
+        // Not every bolt drawn: it comes back down in the middle.
         this.alt = Math.max(0, STORM_ALT * (1 - this.stateT / cfg.stormLand));
         if (this.stateT >= cfg.stormLand) {
           this.alt = 0;
@@ -345,49 +348,101 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
     this.animate(dt);
   }
 
-  private endAttack(recover: number): void {
-    this.recoverFor = recover;
-    this.cooldown = cfg.attackGap * this.sm();
-    this.enter('recover');
-  }
-
   /** Back on its feet after a storm (grounded or not). */
   private backUp(recover: number): void {
     this.upT = 0;
     this.endAttack(recover);
   }
 
+  private endAttack(recover: number): void {
+    this.recoverFor = recover;
+    this.cooldown = cfg.attackGap * this.sm();
+    this.pose = 'idle';
+    this.steps = [];
+    this.fly = null;
+    this.hangAt = null;
+    this.enter('recover');
+  }
+
   // ---------------------------------------------------------- attacks
 
-  private chooseAttack(dist: number, ctx: BossContext): void {
-    const pool: Attack[] = dist < cfg.galeRange ? ['gale', 'gale', 'orbs', 'plummet', 'swoop'] : ['swoop', 'swoop', 'orbs', 'orbs', 'plummet'];
-    if (this.phase2) {
-      if (!this.cyclones.length) pool.push('cyclones', 'cyclones');
-      pool.push('cross');
+  /** Run `fn` this many s into the attack under way (its clock); the attack lasts at least that long. */
+  private after(delay: number, fn: () => void): void {
+    this.steps.push({ at: this.stateT + delay, run: fn });
+    this.hold(delay);
+  }
+
+  /** The attack under way lasts at least this much longer. */
+  private hold(delay: number): void {
+    this.actEnd = Math.max(this.actEnd, this.stateT + delay);
+  }
+
+  private begin(): void {
+    this.enter('attack');
+    this.steps = [];
+    this.actEnd = 0;
+    this.fly = null;
+    this.hangAt = null;
+  }
+
+  private runAttack(dt: number, ctx: BossContext): void {
+    for (const s of this.steps.filter((s) => this.stateT >= s.at)) {
+      this.steps.splice(this.steps.indexOf(s), 1);
+      if (this.alive) s.run();
     }
+    switch (this.pose) {
+      case 'rise':
+        this.alt = Math.min(PLUMMET_ALT, this.alt + dt * 18);
+        break;
+      case 'hang':
+        this.alt = PLUMMET_ALT;
+        if (this.hangAt) {
+          this.pos.x += (this.hangAt[0] - this.pos.x) * Math.min(1, dt * 5);
+          this.pos.z += (this.hangAt[1] - this.pos.z) * Math.min(1, dt * 5);
+        }
+        break;
+      case 'swoopWindup':
+        this.alt = Math.min(2, this.alt + dt * 2);
+        break;
+      case 'rest':
+        this.alt = 0;
+        break;
+      default:
+        this.alt = Math.max(0, this.alt - dt * 6);
+    }
+    if (this.fly) this.flySwoop(dt, ctx);
+    if (!this.steps.length && !this.fly && this.stateT >= this.actEnd) this.endAttack(0.7);
+  }
+
+  private chooseAttack(ctx: BossContext): void {
+    // Below 1/3 every second attack is the cage.
+    if (this.phase3 && this.tripleDue <= 0 && this.cage(ctx)) {
+      this.tripleDue = cfg.tripleEvery - 1;
+      return;
+    }
+    this.tripleDue--;
+    const pool: Attack[] = !this.phase2
+      ? ['swoopOrbs', 'swoopOrbs', 'galePlummet', 'plummetRing']
+      : ['crossTriple', 'crossTriple', 'galeRing', ...(this.cyclones.length ? [] : (['cyclones', 'cyclones'] as Attack[]))];
     const pick = this.pickAttack(ctx, pool);
+    this.begin();
     switch (pick) {
-      case 'swoop':
-      case 'cross':
-        this.startSwoop(ctx, pick === 'cross');
+      case 'swoopOrbs':
+      case 'crossTriple':
+        this.swoopFlank(ctx, pick === 'crossTriple');
         break;
-      case 'gale':
-        this.enter('galeWindup');
-        this.yaw = yawTo(this.pos.x, this.pos.z, ctx.playerX, ctx.playerZ);
-        this.sound('gryphon.flap');
-        // Enraged its windups are too short to walk out of: they get the dash cue (like the Dragon's enraged stomp).
-        this.warn(ctx, this.galeShape(), cfg.galeWindup * this.sm(), GALE_COLOR, undefined, this.enraged);
+      case 'galePlummet':
+      case 'galeRing':
+        this.gale(ctx, () => this.plummet(ctx, pick === 'galeRing'));
         break;
-      case 'orbs':
-        this.startOrbs(ctx);
-        break;
-      case 'plummet':
-        this.enter('plummetRise');
-        this.sound('gryphon.flap');
+      case 'plummetRing':
+        this.plummet(ctx, true);
         break;
       case 'cyclones':
         this.startCyclones(ctx);
         break;
+      default:
+        this.endAttack(0.5);
     }
   }
 
@@ -407,100 +462,152 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
     return Math.max(0, -b + Math.sqrt(Math.max(0, b * b - c)));
   }
 
-  /** Talon Swoop (and phase 2's Crossing Swoop): a lane from it through you to the far rim; the crossing one lashes a second lane across it. */
-  private startSwoop(ctx: BossContext, cross: boolean): void {
-    this.enter('swoopWindup');
-    this.swoopYaw = this.yaw = yawTo(this.pos.x, this.pos.z, ctx.playerX, ctx.playerZ);
-    const dist = Math.hypot(ctx.playerX - this.pos.x, ctx.playerZ - this.pos.z);
-    this.swoopLeft = Math.max(dist + 4, this.toRim(this.pos.x, this.pos.z, this.swoopYaw, cfg.radius));
-    this.sound('gryphon.screech');
-    this.warn(ctx, { kind: 'line', x: this.pos.x, z: this.pos.z, yaw: this.swoopYaw, length: this.swoopLeft, width: cfg.swoopWidth }, cfg.swoopWindup * this.sm(), undefined, undefined, this.enraged);
-    this.lash = cross ? { kind: 'line', x: 0, z: 0, yaw: 0, length: 0, width: cfg.swoopWidth } : null;
-    this.lashWarned = false;
+  /** A chord of the summit through (x, z) along `yaw`, rim to rim, a swoop's width. */
+  private chord(x: number, z: number, yaw: number): TelegraphShape {
+    const back = this.toRim(x, z, yaw + Math.PI, 0.5);
+    const fwd = this.toRim(x, z, yaw, 0.5);
+    return { kind: 'line', x: x - Math.sin(yaw) * back, z: z - Math.cos(yaw) * back, yaw, length: back + fwd, width: cfg.swoopWidth };
   }
 
-  private lashWarned = false;
+  /** Talon Swoop: a lane from it through you to the far rim, warned `windup`; then it flies it. Returns the lane's heading. */
+  private swoop(ctx: BossContext, windup: number, dash: boolean): number {
+    const yaw = (this.yaw = yawTo(this.pos.x, this.pos.z, ctx.playerX, ctx.playerZ));
+    const dist = Math.hypot(ctx.playerX - this.pos.x, ctx.playerZ - this.pos.z);
+    const len = Math.max(dist + 4, this.toRim(this.pos.x, this.pos.z, yaw, cfg.radius));
+    this.pose = 'swoopWindup';
+    this.sound('gryphon.screech');
+    this.warn(ctx, { kind: 'line', x: this.pos.x, z: this.pos.z, yaw, length: len, width: cfg.swoopWidth }, windup, undefined, undefined, dash);
+    this.after(windup, () => {
+      this.fly = { yaw, left: len, hit: false };
+      this.pose = 'swoop';
+      this.sound('gryphon.dive');
+    });
+    return yaw;
+  }
 
-  /** The Crossing Swoop's lash: `crossDelay` s in, a lane across the swoop's through where you stand (a dash check). */
-  private updateLash(ctx: BossContext): void {
-    if (!this.lash || this.lashWarned) return;
-    const t = this.state === 'swoopWindup' ? this.stateT : this.stateT + cfg.swoopWindup * this.sm();
-    if (t < cfg.crossDelay * this.sm()) return;
-    this.lashWarned = true;
-    const yaw = this.swoopYaw + (ctx.rng() < 0.5 ? 1 : -1) * (Math.PI / 2);
-    // A chord of the summit through you, rim to rim.
-    const back = this.toRim(ctx.playerX, ctx.playerZ, yaw + Math.PI, 0.5);
-    const fwd = this.toRim(ctx.playerX, ctx.playerZ, yaw, 0.5);
-    const lane: TelegraphShape = {
-      kind: 'line', x: ctx.playerX - Math.sin(yaw) * back, z: ctx.playerZ - Math.cos(yaw) * back, yaw, length: back + fwd, width: cfg.swoopWidth,
-    };
+  private flySwoop(dt: number, ctx: BossContext): void {
+    const f = this.fly!;
+    const step = Math.min(f.left, cfg.swoopSpeed * dt);
+    this.pos.x += Math.sin(f.yaw) * step;
+    this.pos.z += Math.cos(f.yaw) * step;
+    this.yaw = f.yaw;
+    this.alt = 1.3;
+    f.left -= step;
+    if (!f.hit) {
+      const shape: TelegraphShape = { kind: 'circle', x: this.pos.x, z: this.pos.z, radius: cfg.swoopWidth / 2 };
+      if (ctx.hitPlayer(shape, cfg.swoopAtp, this.pos.x, this.pos.z, cfg.swoopKnockback)) f.hit = true;
+    }
+    if (f.left <= 0) {
+      this.fly = null;
+      this.pose = 'idle';
+    }
+  }
+
+  /**
+   * The swoop paired with orbs closing the lane's side away from the middle of the summit (step out the other way);
+   * phase 2's triple adds the crossing lash, `crossDelay` s in, through where you stand (a dash check).
+   */
+  private swoopFlank(ctx: BossContext, lash: boolean): void {
+    const px = ctx.playerX;
+    const pz = ctx.playerZ;
+    const sm = this.sm();
+    const yaw = this.swoop(ctx, cfg.swoopWindup * sm, this.enraged);
+    this.orbs(ctx, flankOrbs(px, pz, yaw, this.cx, this.cz).orbs, cfg.orbWindup * sm, false);
+    if (lash) this.after(cfg.crossDelay * sm, () => this.lash(ctx, this.chord(ctx.playerX, ctx.playerZ, yaw + (ctx.rng() < 0.5 ? 1 : -1) * (Math.PI / 2)), cfg.crossWindup * sm));
+  }
+
+  /** The lash: a lightning lane across the summit, warned `windup` (a dash check), then a sheet of lightning down it. */
+  private lash(ctx: BossContext, lane: TelegraphShape, windup: number): void {
+    if (lane.kind !== 'line') return;
     this.sound('gryphon.thunder', ctx.playerX, ctx.playerZ);
-    this.warn(ctx, lane, cfg.crossWindup * this.sm(), LASH_COLOR, () => {
-      this.lash = null;
+    this.warn(ctx, lane, windup, LASH_COLOR, () => {
       if (!this.alive) return;
       ctx.hitPlayer(lane, cfg.swoopAtp, ctx.playerX, ctx.playerZ, 8);
-      // A sheet of lightning down the lane.
       const n = Math.max(2, Math.round(lane.length / 6));
       for (let i = 0; i < n; i++) {
         const k = (i + 0.5) / n;
-        const x = lane.x + Math.sin(yaw) * lane.length * k;
-        const z = lane.z + Math.cos(yaw) * lane.length * k;
+        const x = lane.x + Math.sin(lane.yaw) * lane.length * k;
+        const z = lane.z + Math.cos(lane.yaw) * lane.length * k;
         ctx.effect(new Lightning(new THREE.Vector3(x, 14, z), new THREE.Vector3(x, 0.1, z), LASH_COLOR, 0.35, 1.6));
       }
-      ctx.effect(new Lightning(new THREE.Vector3(lane.x, 0.6, lane.z), new THREE.Vector3(lane.x + Math.sin(yaw) * lane.length, 0.6, lane.z + Math.cos(yaw) * lane.length), LASH_COLOR, 0.4, 2.2, 0.5));
+      ctx.effect(new Lightning(new THREE.Vector3(lane.x, 0.6, lane.z), new THREE.Vector3(lane.x + Math.sin(lane.yaw) * lane.length, 0.6, lane.z + Math.cos(lane.yaw) * lane.length), LASH_COLOR, 0.4, 2.2, 0.5));
       ctx.shake(0.35);
       this.sound('gryphon.thunder', ctx.playerX, ctx.playerZ);
     }, true);
+    this.hold(windup);
   }
 
-  /** Thunder Orbs: one circle on you and the rest round it, each lobbed from its beak. */
-  private startOrbs(ctx: BossContext): void {
-    this.enter('orbWindup');
-    this.yaw = yawTo(this.pos.x, this.pos.z, ctx.playerX, ctx.playerZ);
-    this.sound('gryphon.screech');
-    const spots: [number, number][] = [[ctx.playerX, ctx.playerZ]];
-    const a0 = ctx.rng() * Math.PI * 2;
-    for (let i = 1; i < cfg.orbCount; i++) {
-      const a = a0 + ((i - 1) * Math.PI * 2) / Math.max(1, cfg.orbCount - 1) + (ctx.rng() - 0.5) * 0.8;
-      spots.push([ctx.playerX + Math.sin(a) * cfg.orbSpread, ctx.playerZ + Math.cos(a) * cfg.orbSpread]);
-    }
-    const dur = cfg.orbWindup * this.sm();
-    const beak = new THREE.Vector3(this.pos.x + Math.sin(this.yaw) * 2.5, 4.4, this.pos.z + Math.cos(this.yaw) * 2.5);
+  /** Thunder orbs on these spots, lobbed from its beak, bursting after `windup` (`dashFirst`: the first one is a dash check). */
+  private orbs(ctx: BossContext, spots: Pt[], windup: number, dashFirst: boolean): void {
+    const beak = new THREE.Vector3(this.pos.x + Math.sin(this.yaw) * 2.5, this.alt + 4.4, this.pos.z + Math.cos(this.yaw) * 2.5);
     spots.forEach(([x, z], i) => {
       const shape: TelegraphShape = { kind: 'circle', x, z, radius: cfg.orbRadius };
-      ctx.effect(new Lob(beak, x, z, dur / this.tempo, BOLT_COLOR, 0.45));
-      this.warn(ctx, shape, dur, BOLT_COLOR, () => {
+      ctx.effect(new Lob(beak, x, z, windup / this.tempo, BOLT_COLOR, 0.45));
+      this.warn(ctx, shape, windup, BOLT_COLOR, () => {
         if (!this.alive) return;
         ctx.hitPlayer(shape, cfg.orbAtp, x, z, 6);
         ctx.effect(new Pillar(x, z, BOLT_COLOR, 0.3, 0.5, 9));
         ctx.effect(new Ring(x, z, BOLT_COLOR, cfg.orbRadius * 1.2, 0.35));
         this.sound('gryphon.thunder', x, z);
-      }, this.enraged && i === 0);
+      }, dashFirst && i === 0);
+    });
+    this.hold(windup);
+  }
+
+  /** Gale Wing: a cone at you shoving you away; `then` runs as it lands (the plummet comes down where it threw you). */
+  private gale(ctx: BossContext, then?: () => void): void {
+    const windup = cfg.galeWindup * this.sm();
+    this.yaw = yawTo(this.pos.x, this.pos.z, ctx.playerX, ctx.playerZ);
+    this.pose = 'gale';
+    this.sound('gryphon.flap');
+    const shape = this.galeShape();
+    // Enraged its windup is too short to walk out of: the dash cue (like the Dragon's enraged stomp).
+    this.warn(ctx, shape, windup, GALE_COLOR, undefined, this.enraged);
+    this.after(windup, () => {
+      ctx.hitPlayer(shape, cfg.galeAtp, this.pos.x, this.pos.z, cfg.galeKnockback);
+      ctx.effect(new GustFlash(shape.x, shape.z, this.yaw, cfg.galeRange, cfg.galeArcDeg));
+      ctx.shake(0.25);
+      this.sound('gryphon.flap');
+      this.pose = 'idle';
+      then?.();
     });
   }
 
-  /** Plummet: up into the air, then a circle on you that it drops onto (a dash check). */
-  private warnPlummet(ctx: BossContext): void {
-    this.enter('plummetWindup');
-    this.plummetAt = [ctx.playerX, ctx.playerZ];
-    const shape: TelegraphShape = { kind: 'circle', x: ctx.playerX, z: ctx.playerZ, radius: cfg.plummetRadius };
-    this.sound('gryphon.screech');
-    // Never cut by the enrage: at ×0.8 not even a dash would clear it.
-    this.warn(ctx, shape, cfg.plummetWindup, undefined, () => {
-      if (!this.alive) return;
-      this.pos.set(shape.x, 0, shape.z);
-      this.alt = 0;
-      ctx.hitPlayer(shape, cfg.plummetAtp, shape.x, shape.z, cfg.plummetKnockback);
-      ctx.shake(0.6);
-      ctx.effect(new Ring(shape.x, shape.z, 0xffffff, cfg.plummetRadius * 1.1, 0.45));
-      this.sound('boss.slam');
-      this.enter('plummetRest');
-    }, true);
+  /**
+   * Plummet (a dash check): up into the air, then a circle on you that it drops onto; `ring`: orbs round the circle
+   * with one gap, toward the middle of the summit, to dash out through. The enrage never cuts its windup (at ×0.8 not
+   * even a dash would clear it).
+   */
+  private plummet(ctx: BossContext, ring: boolean): void {
+    this.pose = 'rise';
+    this.sound('gryphon.flap');
+    this.after(cfg.plummetRise, () => {
+      const x = ctx.playerX;
+      const z = ctx.playerZ;
+      const shape: TelegraphShape = { kind: 'circle', x, z, radius: cfg.plummetRadius };
+      this.hangAt = [x, z];
+      this.pose = 'hang';
+      this.sound('gryphon.screech');
+      this.warn(ctx, shape, cfg.plummetWindup, undefined, () => {
+        if (!this.alive) return;
+        this.pos.set(x, 0, z);
+        this.alt = 0;
+        this.hangAt = null;
+        ctx.hitPlayer(shape, cfg.plummetAtp, x, z, cfg.plummetKnockback);
+        ctx.shake(0.6);
+        ctx.effect(new Ring(x, z, 0xffffff, cfg.plummetRadius * 1.1, 0.45));
+        this.sound('boss.slam');
+        this.pose = 'rest';
+        this.hold(cfg.plummetRest);
+      }, true);
+      if (ring) this.orbs(ctx, ringOrbs(x, z, this.cx, this.cz, ctx.rng).orbs, cfg.plummetWindup, false);
+      this.hold(cfg.plummetWindup + cfg.plummetRest);
+    });
   }
 
   /** Phase 2: two tornadoes rise at the rim, well away from you. */
   private startCyclones(ctx: BossContext): void {
-    this.enter('cycloneCall');
+    this.pose = 'call';
     this.sound('gryphon.cyclone');
     const rim = cfg.arenaRadius - cfg.cycloneRadius - 1;
     const pa = Math.atan2(ctx.playerX - this.cx, ctx.playerZ - this.cz);
@@ -510,6 +617,60 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
       this.cyclones.push(c);
       this.cycloneGroup.add(c.group);
     }
+    this.hold(1.0);
+  }
+
+  /**
+   * Below 1/3, the cage (a Hell triple): the swoop's lane through you, the lash across it through you, and orbs in three
+   * of the four corners they leave, all warned together (`cageWindup`, never cut by the enrage). The one way out is
+   * the fourth corner. False if no corner's pocket lies on the summit (a normal attack then).
+   */
+  private cage(ctx: BossContext): boolean {
+    const px = ctx.playerX;
+    const pz = ctx.playerZ;
+    const yaw = yawTo(this.pos.x, this.pos.z, px, pz);
+    const plan = cagePlan(px, pz, yaw, this.cx, this.cz, cfg.arenaRadius - playerCfg.radius - 0.5);
+    if (!plan) return false;
+    this.lastAttack = 'cage';
+    this.begin();
+    this.swoop(ctx, cfg.cageWindup, false);
+    this.lash(ctx, this.chord(px, pz, plan.lashYaw), cfg.cageWindup);
+    this.orbs(ctx, plan.orbs, cfg.cageWindup, false);
+    return true;
+  }
+
+  // ---------------------------------------------------------- the sparks
+
+  /**
+   * All fight long (not before it wakes, nor once it is dead): a stream aimed at you every `streamEvery` s from a
+   * random point just past the rim, and in phase 2 a spiral out of it (or out of the middle of the sky while it is up
+   * there). A spark that touches you is a light hit and is gone.
+   */
+  private updateSparks(dt: number, ctx: BossContext): void {
+    const fighting = this.alive && this.state !== 'dormant' && this.state !== 'intro';
+    if (fighting && ctx.playerAlive) {
+      this.streamT -= dt;
+      if (this.streamT <= 0) {
+        this.streamT += this.phase3 ? cfg.streamEvery3 : cfg.streamEvery;
+        const a = ctx.rng() * Math.PI * 2;
+        const r = cfg.arenaRadius + 1;
+        this.sparks.add(aimedStream(this.cx + Math.sin(a) * r, this.cz + Math.cos(a) * r, ctx.playerX, ctx.playerZ));
+      }
+      if (this.phase2) {
+        this.spiralT -= dt;
+        while (this.spiralT <= 0) {
+          this.spiralT += cfg.spiralEvery;
+          this.spiralBase += THREE.MathUtils.degToRad(cfg.spiralTurn) * cfg.spiralEvery;
+          const up = this.alt > 5;
+          this.sparks.add(spiralBurst(up ? this.cx : this.pos.x, up ? this.cz : this.pos.z, cfg.spiralArms, this.spiralBase));
+        }
+      }
+    }
+    const pr = playerCfg.radius;
+    this.sparks.update(dt, this.time, this.cx, this.cz, cfg.arenaRadius, (s) => {
+      if (!fighting || !ctx.playerAlive || !sparkTouches(s, ctx.playerX, ctx.playerZ, pr)) return true;
+      return !ctx.hitPlayer({ kind: 'circle', x: s.x, z: s.z, radius: cfg.sparkRadius }, cfg.sparkAtp, s.x, s.z, 0);
+    });
   }
 
   // ---------------------------------------------------------- the storm
@@ -530,14 +691,26 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
     this.boltsDone = 0;
     this.marked = -1;
     this.gustT = 0;
+    this.featherT = 0.6;
+    this.stormCharge = 0;
+    for (const r of this.rods.list) r.charge = 0;
+    // The relay starts at the usable rod nearest you.
+    this.lit = nearestRod(this.rods.list, ctx.playerX, ctx.playerZ, storm);
+    this.nextLit = -1;
+    this.pose = 'idle';
+    this.steps = [];
     this.enter('storm');
     this.sound('gryphon.screech');
     ctx.shake(0.3);
     if (!this.taught) {
       this.taught = true;
-      ctx.announce('Gal Gryphon calls the storm: stand by a rod!');
+      ctx.announce('Gal Gryphon calls the storm: follow the lit rod!');
     }
     return true;
+  }
+
+  private get litRod(): Rod | null {
+    return this.lit >= 0 ? this.rods.list[this.lit] : null;
   }
 
   private updateStorm(dt: number, ctx: BossContext): void {
@@ -549,6 +722,7 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
     const px = ctx.playerX;
     const pz = ctx.playerZ;
     const next = this.bolts[this.boltsDone];
+    const rod = this.litRod;
     // Phase 2: a gale off the middle from the first mark to the last bolt (walk into it to stay in a reach).
     if (this.phase2 && next && this.stormT >= this.bolts[0].mark && ctx.playerAlive) {
       const body = ctx.body();
@@ -563,31 +737,66 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
         ctx.effect(new Ring(this.cx, this.cz, GALE_COLOR, cfg.arenaRadius, 1.1, 0.25));
       }
     }
+    // Feathers rain round you all storm.
+    this.featherT -= dt;
+    if (next && this.featherT <= 0 && ctx.playerAlive) {
+      this.featherT += cfg.featherEvery;
+      this.featherRain(ctx, rod);
+    }
     if (next && this.stormT >= next.mark) {
       if (this.marked !== this.boltsDone) {
         this.marked = this.boltsDone;
         this.sound('gryphon.rod', px, pz, 0);
+        // The relay shows where its light goes after this bolt.
+        if (this.boltsDone < this.bolts.length - 1 && this.lit >= 0) this.nextLit = relayNext(this.rods.list, this.lit, this.storms, ctx.rng);
+        this.arcT = 0;
       }
       const k = Math.min(1, (this.stormT - next.mark) / (next.fall - next.mark));
-      this.mark.show(px, pz, k, !!rodAt(this.rods.list, px, pz, this.storms), this.time);
+      this.mark.show(px, pz, k, !!rod && Math.hypot(rod.x - px, rod.z - pz) <= cfg.rodReach, this.time);
+      // An arc crackles from the lit rod to the next one.
+      this.arcT -= dt;
+      if (this.arcT <= 0 && rod && this.nextLit >= 0 && this.nextLit !== this.lit) {
+        this.arcT = 0.3;
+        ctx.effect(new Lightning(rod.top(), this.rods.list[this.nextLit].top(), BOLT_COLOR, 0.28, 1.2, 1.5));
+      }
     }
     if (next && this.stormT >= next.fall) {
       this.mark.hide();
       this.boltsDone++;
       if (this.fallBolt(ctx)) return;
+      // The light moves on.
+      if (this.nextLit >= 0 && this.lit >= 0) {
+        this.rods.list[this.lit].charge = 0;
+        this.lit = this.nextLit;
+        this.rods.list[this.lit].charge = this.stormCharge;
+      }
+      this.nextLit = -1;
     }
-    if (!next || this.boltsDone >= this.bolts.length) {
-      if (this.stormT >= this.bolts[this.bolts.length - 1].fall + 0.3) this.enter('stormLand');
+    if (this.boltsDone >= this.bolts.length && this.stormT >= this.bolts[this.bolts.length - 1].fall + 0.3) this.enter('stormLand');
+  }
+
+  /** Two feathers fall round you: one by you (step toward the lit rod), one farther off. */
+  private featherRain(ctx: BossContext, rod: Rod | null): void {
+    const [a, b] = featherSpots(ctx.playerX, ctx.playerZ, rod?.x ?? this.cx, rod?.z ?? this.cz, ctx.rng);
+    for (const [x, z] of [a, b]) {
+      const shape: TelegraphShape = { kind: 'circle', x, z, radius: cfg.featherRadius };
+      ctx.effect(new FeatherFall(x, z, cfg.featherWindup / this.tempo));
+      this.warn(ctx, shape, cfg.featherWindup, FEATHER_COLOR, () => {
+        if (!this.alive) return;
+        ctx.hitPlayer(shape, cfg.featherAtp, x, z, 3);
+        ctx.effect(new Ring(x, z, FEATHER_COLOR, cfg.featherRadius * 1.1, 0.3));
+      });
     }
   }
 
-  /** A bolt falls: into the rod whose reach you stand in (true if that filled it: it is grounded), else onto you. */
+  /** A bolt falls: into the lit rod if you stand in its reach (true if that grounds it), else onto you. */
   private fallBolt(ctx: BossContext): boolean {
     const px = ctx.playerX;
     const pz = ctx.playerZ;
-    const rod = ctx.playerAlive ? rodAt(this.rods.list, px, pz, this.storms) : null;
+    const rod = this.litRod;
+    const drawn = !!rod && ctx.playerAlive && Math.hypot(rod.x - px, rod.z - pz) <= cfg.rodReach;
     const sky = (x: number, z: number) => new THREE.Vector3(x + (ctx.rng() - 0.5) * 6, 24, z + (ctx.rng() - 0.5) * 6);
-    if (!rod) {
+    if (!drawn || !rod) {
       ctx.effect(new Lightning(sky(px, pz), new THREE.Vector3(px, 0.2, pz), BOLT_COLOR, 0.35, 2.4));
       ctx.effect(new Pillar(px, pz, BOLT_COLOR, 0.3, 0.6, 12));
       ctx.shake(0.45);
@@ -595,21 +804,22 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
       if (ctx.playerAlive) ctx.mechanicHit(cfg.boltShare, px, pz, 4, 'Storm bolt');
       return false;
     }
-    const top = rod.top();
-    ctx.effect(new Lightning(sky(rod.x, rod.z), top, BOLT_COLOR, 0.35, 2.4));
+    ctx.effect(new Lightning(sky(rod.x, rod.z), rod.top(), BOLT_COLOR, 0.35, 2.4));
     ctx.effect(new Ring(rod.x, rod.z, BOLT_COLOR, 3.6, 0.4));
-    rod.struck();
+    this.stormCharge++;
+    rod.struck(this.stormCharge);
     ctx.shake(0.3);
-    this.sound('gryphon.rod', rod.x, rod.z, rod.charge);
-    if (rod.charge < cfg.rodCharge) return false;
+    this.sound('gryphon.rod', rod.x, rod.z, this.stormCharge);
+    if (this.stormCharge < cfg.rodCharge) return false;
     this.discharge(rod, ctx);
     return true;
   }
 
-  /** A full rod arcs into the Gryphon: it crashes beside the rod, grounded, weak point open. */
+  /** The storm's last bolt drawn: the rod arcs into the Gryphon, which crashes beside it, grounded, weak point open. */
   private discharge(rod: Rod, ctx: BossContext): void {
     rod.discharge(this.storms);
     this.mark.hide();
+    this.lit = this.nextLit = -1;
     const sky = new THREE.Vector3(this.pos.x, this.alt + 3, this.pos.z);
     ctx.effect(new Lightning(rod.top(), sky, 0xffffff, 0.6, 3.2));
     ctx.effect(new Lightning(rod.top(), sky, BOLT_COLOR, 0.5, 2));
@@ -648,26 +858,60 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
     let neck = 0;
     let beak = 0;
     let tuck = Math.min(1, this.alt / 2);
-    let veins = this.phase2 ? 0.45 : 0.2;
+    let veins = this.phase3 ? 0.7 : this.phase2 ? 0.45 : 0.2;
     let weak = 0;
-    switch (this.state) {
-      case 'intro':
-        spread = Math.min(1, this.stateT / 0.8);
-        flap = Math.sin(t * 9) * 0.6 * spread;
-        neck = -0.6;
-        beak = this.stateT < 1.4 ? 1 : 0.2;
-        veins = 0.8;
-        break;
-      case 'swoopWindup': {
-        const k = Math.min(1, this.stateT / (cfg.swoopWindup * this.sm()));
+    const pose = this.state === 'attack' ? this.pose : 'idle';
+    if (this.state === 'intro') {
+      spread = Math.min(1, this.stateT / 0.8);
+      flap = Math.sin(t * 9) * 0.6 * spread;
+      neck = -0.6;
+      beak = this.stateT < 1.4 ? 1 : 0.2;
+      veins = 0.8;
+    } else if (this.state === 'storm') {
+      spread = 1;
+      flap = Math.sin(t * 5) * 0.55;
+      neck = -0.4;
+      beak = 0.6;
+      veins = 1;
+    } else if (this.state === 'stormFall') {
+      spread = 0.6;
+      flap = 0.8;
+      pitch = 0.7;
+      roll = 0.5;
+      veins = 1;
+    } else if (this.state === 'grounded') {
+      // Sprawled beside the rod, wings dropped, veins dead, weak point aglow.
+      spread = 0.75;
+      flap = -0.35;
+      pitch = 0.25;
+      roll = 0.25 * Math.sin(t * 1.1);
+      neck = 0.9;
+      beak = 0.3;
+      veins = 0;
+      weak = 0.4 + Math.sin(t * 8) * 0.18;
+    } else if (this.state === 'stormLand') {
+      spread = 1;
+      flap = Math.sin(t * 8) * 0.6;
+      veins = 0.6;
+    } else if (this.state === 'dead') {
+      spread = 0.7;
+      flap = -0.5;
+      pitch = Math.min(0.5, this.deadT * 0.4);
+      roll = Math.min(0.9, this.deadT * 0.6);
+      neck = Math.min(1, this.deadT);
+      beak = 0.4;
+      veins = 0;
+      tuck = 0;
+    }
+    switch (pose) {
+      case 'swoopWindup':
         spread = 1;
-        flap = 0.7 * k;
-        pitch = -0.2 * k;
+        flap = 0.7;
+        pitch = -0.2;
         neck = -0.3;
         beak = 0.6;
         break;
-      }
-      case 'swooping':
+      case 'swoop':
         spread = 0.85;
         flap = -0.15;
         pitch = 0.35;
@@ -676,80 +920,38 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
         tuck = 1;
         veins = 0.7;
         break;
-      case 'galeWindup': {
-        const k = Math.min(1, this.stateT / (cfg.galeWindup * this.sm()));
+      case 'gale':
         spread = 1;
-        flap = 0.9 * k;
-        pitch = -0.15 * k;
+        flap = 0.9;
+        pitch = -0.15;
         neck = -0.2;
         break;
-      }
-      case 'orbWindup':
-        neck = -0.35 + Math.min(1, this.stateT * 2) * 0.55;
+      case 'orbs':
+        neck = 0.2;
         beak = 1;
         veins = 0.9;
         spread = 0.6;
         break;
-      case 'plummetRise':
-      case 'plummetWindup':
+      case 'rise':
+      case 'hang':
         spread = 1;
         flap = Math.sin(t * 10) * 0.6;
-        pitch = this.state === 'plummetWindup' ? 0.5 : -0.2;
+        pitch = pose === 'hang' ? 0.5 : -0.2;
         neck = 0.4;
         tuck = 1;
         break;
-      case 'plummetRest':
+      case 'rest':
         spread = 0.8;
         flap = -0.3;
         pitch = 0.2;
         neck = 0.5;
         break;
-      case 'cycloneCall':
+      case 'call':
         spread = 1;
         flap = Math.sin(t * 12) * 0.8;
         neck = -0.5;
         beak = 1;
         veins = 0.7;
-        break;
-      case 'storm':
-        spread = 1;
-        flap = Math.sin(t * 5) * 0.55;
-        neck = -0.4;
-        beak = 0.6;
-        veins = 1;
-        break;
-      case 'stormFall':
-        spread = 0.6;
-        flap = 0.8;
-        pitch = 0.7;
-        roll = 0.5;
-        veins = 1;
-        break;
-      case 'grounded':
-        // Sprawled beside the rod, wings dropped, veins dead, weak point aglow.
-        spread = 0.75;
-        flap = -0.35;
-        pitch = 0.25;
-        roll = 0.25 * Math.sin(t * 1.1);
-        neck = 0.9;
-        beak = 0.3;
-        veins = 0;
-        weak = 0.4 + Math.sin(t * 8) * 0.18;
-        break;
-      case 'stormLand':
-        spread = 1;
-        flap = Math.sin(t * 8) * 0.6;
-        veins = 0.6;
-        break;
-      case 'dead':
-        spread = 0.7;
-        flap = -0.5;
-        pitch = Math.min(0.5, this.deadT * 0.4);
-        roll = Math.min(0.9, this.deadT * 0.6);
-        neck = Math.min(1, this.deadT);
-        beak = 0.4;
-        veins = 0;
-        tuck = 0;
         break;
     }
     if (this.enraged && this.alive) veins = Math.max(veins, 0.6 + 0.3 * Math.sin(t * 6));

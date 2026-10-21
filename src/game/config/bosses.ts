@@ -480,6 +480,9 @@ export const darkFalz = {
  * a storm griffin on Storm Peak, a round summit ringed by six lightning rods. Rift-only (it guards no expedition), so
  * `rift` stands in for the Hell scaling the four get there. Seconds are its own clock (a rift's fixed tempo runs it
  * faster) unless they say real seconds. Picked by the user in a question round: Storm Peak, spent rods, two phases.
+ * Made harder the same day (the user: "too easy"; their picks): relay rods, feather rain in the storm, sparks drifting
+ * through the arena all fight long (streams, spirals from phase 2), paired attacks from the start, triples in phase 2
+ * and the cage below 1/3; the first draft's numbers kept.
  */
 export const galGryphon = {
   /** Only the ratio to the rift's common boss HP is used (riftBossHp). */
@@ -500,11 +503,15 @@ export const galGryphon = {
   turnSpeed: 1.6,
   /** It keeps about this far from you between attacks (m). */
   keepAway: 7,
-  attackGap: 1.6,
+  /** Between attacks (was 1.6 until the 2026-10-21 rework: busier between storms). */
+  attackGap: 0.9,
   enrageAt: 0.2,
   enrageSpeed: 0.8,
-  /** Below this HP share: the eye of the storm (cyclones, the crossing swoop, 4-bolt storms with a gale). */
+  /** Below this HP share: the eye of the storm (triples, cyclones, spiral sparks, 4-bolt storms with a gale). */
   phase2At: 0.5,
+  /** Below this HP share every `tripleEvery`-th attack is the cage (a Hell triple), and the streams come every `streamEvery3` s. */
+  phase3At: 1 / 3,
+  tripleEvery: 2,
   /** Grounded (a full rod) it takes this much damage (×1.5: +50%). */
   weakPointMult: 1.5,
   // ---- attacks (all walkable but the plummet and the crossing swoop's second lane)
@@ -559,7 +566,8 @@ export const galGryphon = {
   stormLead: 2.5,
   stormLeadFloor: 2.3,
   boltWarn: 1.0,
-  boltGap: 1.4,
+  /** 1.4 until the relay (2026-10-21): the run from one rod's reach to the next has to fit between bolts. */
+  boltGap: 1.8,
   bolts: 3,
   bolts2: 4,
   boltMark: 2,
@@ -568,9 +576,10 @@ export const galGryphon = {
   galePush: 2,
   /**
    * Rods: `rodCount` round the summit `rodRing` m out (30° off north first), each drawing bolts within `rodReach` m.
-   * `rodCharge` bolts fill one: it discharges into the Gryphon, which crashes `rodLand` m inside it, grounded for
-   * `groundedTime` s (about 7 real seconds at a rift's tempo). A rod that fired is scorched for the next storm; a
-   * part-filled one keeps its charge.
+   * The relay: a storm lights one rod (the usable one nearest you); after each bolt the light jumps to a neighbour,
+   * shown as each bolt is marked. `rodCharge` bolts drawn in one storm fill it: the rod that drew the last discharges
+   * into the Gryphon, which crashes `rodLand` m inside it, grounded for `groundedTime` s (about 7 real seconds at a
+   * rift's tempo). A rod that fired is scorched for the next storm (the relay skips it).
    */
   rodCount: 6,
   rodRing: 11,
@@ -581,4 +590,47 @@ export const galGryphon = {
   groundedTime: 8,
   /** With no rod filled, it comes back down in the middle this long after the last bolt. */
   stormLand: 1.2,
+  /**
+   * Feather rain (every storm, from the clouds): every `featherEvery` s two `featherRadius` m circles, one with its
+   * middle `featherNear` m off you away from the lit rod (step toward the rod), one `featherFar` m away; warned
+   * `featherWindup` s, × `featherAtp` ATP. Walkable inside the reach: 2.5 - 1.5 + 0.45 = 1.45 m to get out.
+   */
+  featherEvery: 1.2,
+  featherWindup: 1.0,
+  featherRadius: 2.5,
+  featherNear: 1.5,
+  featherFar: [3.5, 5] as [number, number],
+  featherAtp: 0.8,
+  // ---- the sparks (2026-10-21, the user's idea: bolts that drift through the arena all the time, so you can't stand still)
+  /**
+   * Sparks: `sparkRadius` m balls at chest height drifting `sparkSpeed` m/s (its clock: ~3.45 real, under your 4.6 walk),
+   * gone past the rim or after `sparkLife` s. A touch is a light hit: × `sparkAtp` ATP (about a third of a normal hit),
+   * no knockback. All fight long, through storms, groundings and every attack: every `streamEvery` s (`streamEvery3`
+   * below 1/3) a stream of `streamCount` sparks `streamSpacing` m apart leaves a random point just past the rim,
+   * aimed at where you stand. Phase 2 adds a spiral from the Gryphon (the middle of the sky while it is up there):
+   * `spiralArms` arms, a spark out of each every `spiralEvery` s, turning `spiralTurn` degrees a second.
+   */
+  sparkRadius: 0.5,
+  sparkSpeed: 3,
+  sparkHeight: 1,
+  sparkLife: 14,
+  sparkAtp: 0.33,
+  streamEvery: 1.2,
+  streamEvery3: 0.6,
+  streamCount: 4,
+  streamSpacing: 1.1,
+  spiralArms: 4,
+  spiralEvery: 0.35,
+  spiralTurn: 30,
+  // ---- paired and triple attacks (2026-10-21: pairs from the start, triples in phase 2, the cage below 1/3)
+  /** Swoop + flank orbs: orbs `flankOffset` m off the lane's middle on one side, at you and `flankSpacing` m either way. */
+  flankOffset: 4.5,
+  flankSpacing: 5,
+  /** Plummet ring: orbs in `ringSlots` slots `ringR` m round the plummet's circle, one slot left open (toward the middle). */
+  ringSlots: 9,
+  ringR: 7.5,
+  /** The cage (below 1/3): swoop + lash crossing on you + orbs in three corners `cageOrbDist` m out; warned `cageWindup` s (never cut by the enrage); the pocket `cagePocket` m out in the fourth. */
+  cageWindup: 1.6,
+  cageOrbDist: 5,
+  cagePocket: 4.6,
 };
