@@ -1863,13 +1863,15 @@ hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**
   glowing cyan balls (0.5 m) at chest height with a floor glow, drifting 3 m/s of its clock (~3.45 real, under your 4.6
   walk). A touch is **a light hit** (×0.33 ATP, about a third of a normal hit, ~12% of a geared Hunter's HP at tier 6;
   no knockback; it corrupts, as every Hell hit does) and the spark is gone.
-  - **Streams**: every 1.2 s (0.6 s below 1/3) four sparks in a line, 1.1 m apart, leave a random point just past the
-    rim **aimed at where you stand**: stand still and they hit you, a sidestep of a metre and a half lets them by, and
-    streams from different angles cross.
-  - **Spirals** (phase 2 on): four arms out of the Gryphon (out of the middle of the sky while it is up there), a spark
-    from each every 0.35 s, turning 30° a second; the gaps widen away from it.
-  - In the game a Lv 100 Hunter (tier 15 gear) standing still died in 16 s to five sparks and one swoop (each hit
-    corrupting: max HP 1506 → 753). Tests: standing still takes many times the sparks a player circling the summit does.
+  - **One at a time** (2026-10-22, the user: the streams and spirals stacked up into walls of sparks by phase 3): a
+    spark every 0.4 s (0.35 s in phase 2, 0.28 s below 1/3) leaves a random point just past the rim, **aimed at where you
+    stand give or take 3 m**, so they cross from every side and never line up; stand still and some hit you, a sidestep
+    of a metre and a half lets one by. From phase 2 every third one comes out of the Gryphon (out of the middle of the
+    sky while it is up there) in a random direction instead. About 11 / 22 / 24 drift at once in the game (the old
+    streams and spirals had ~130 up by phase 3).
+  - Before (2026-10-21 to 10-22): **streams** of four sparks in a line aimed at you every 1.2 s (0.6 s below 1/3), and
+    from phase 2 **spirals** of four arms out of the Gryphon; a Lv 100 Hunter standing still died in 16 s to them. Tests
+    still pin standing still taking many times the sparks a player circling the summit does.
 - **The storm** (its signature; 2026-10-22, the user's design): first ~10 s into the fight, then 22 s after the last
   was called, never sooner than 9 s after it is back on its feet. It rises into the clouds over the middle (can't be
   hit), the whole summit is warned (a violet-blue telegraph that runs out at the last pulse), and **one rod lights
@@ -1908,7 +1910,7 @@ hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**
   - **Plummet ring**: the plummet with eight 3 m orbs in nine slots 6 m round it, one slot open toward the middle of
     the summit (±60°): **out through the gap** (a walk), and not even a dash finds another way (a test pins it).
 - **Phase 2, "The eye of the storm!"** (below 50%; the battle layer comes in; the bar reads `EYE OF THE STORM`): the
-  pairs become triples, and the spirals start. Pool: crossing triple ×2, gale ring, cyclones ×2 (when none are up).
+  pairs become triples, and sparks come off the Gryphon too. Pool: crossing triple ×2, gale ring, cyclones ×2 (when none are up).
   - **Crossing triple**: swoop + flank orbs, and 0.6 s in a **lightning lash** across the swoop, rim to rim, through
     where you stand (the light blue lane), warned 1.3 s, a walk (3.6 m of 2.95 needed; enraged a dash check). It was
     1.0 s, a dash check, until 2026-10-22 (the user: too fast). A lash, not a second dive: the bird is still flying the
@@ -1922,7 +1924,7 @@ hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**
   cage** (a Hell triple: three telegraphs at once, exactly one way out, warned 1.6 s and never cut by the enrage): the
   swoop's lane through you, the lash across it through you, and orbs in three of the four corners they leave (5 m out
   on the diagonals). The pocket is the fourth corner, 4.6 m out on its diagonal (the one on the summit nearest its
-  middle): a walk (4.79 m in the warning). The other attacks are phase 2's; streams come twice as often.
+  middle): a walk (4.79 m in the warning). The other attacks are phase 2's; sparks come faster.
 - **Enraged** (below 20%): windups ×0.8, the storm's, the plummet's and the cage's never cut. The swoop and gale then
   no longer walk out and get the dash check's cyan rim; every one stays clearable with a dash (a test pins it).
 - **Its node** (`PINNACLE_BOSS`, riftMap.ts): `P2NE` opens once **Dragon II and De Rol Le II** are dead (the map rule;

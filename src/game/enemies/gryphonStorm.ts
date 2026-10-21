@@ -180,20 +180,22 @@ export interface Spark {
   t: number;
 }
 
-/** A stream: `n` sparks in a line leaving (fx, fz) toward (tx, tz), `spacing` m apart (the first at the start). */
-export function aimedStream(fx: number, fz: number, tx: number, tz: number, n = cfg.streamCount, spacing = cfg.streamSpacing, speed = cfg.sparkSpeed): Spark[] {
-  const d = Math.hypot(tx - fx, tz - fz) || 1;
-  const ux = (tx - fx) / d;
-  const uz = (tz - fz) / d;
-  return Array.from({ length: n }, (_, i) => ({ x: fx - ux * spacing * i, z: fz - uz * spacing * i, vx: ux * speed, vz: uz * speed, t: 0 }));
+/** One spark leaving (x, z) along `yaw`. */
+export function sparkAlong(x: number, z: number, yaw: number, speed = cfg.sparkSpeed): Spark {
+  return { x, z, vx: Math.sin(yaw) * speed, vz: Math.cos(yaw) * speed, t: 0 };
 }
 
-/** A spiral's beat: one spark out of each of `arms` arms at angle `base` (radians) round (x, z). */
-export function spiralBurst(x: number, z: number, arms: number, base: number, speed = cfg.sparkSpeed): Spark[] {
-  return Array.from({ length: arms }, (_, i) => {
-    const a = base + (i * Math.PI * 2) / arms;
-    return { x, z, vx: Math.sin(a) * speed, vz: Math.cos(a) * speed, t: 0 };
-  });
+/**
+ * One spark from a random point just past the rim of the summit (middle (cx, cz)), aimed at (tx, tz) give or take
+ * `spread` m (a random spot in a disc round it), so sparks cross from every side and never line up.
+ */
+export function rimSpark(cx: number, cz: number, tx: number, tz: number, rng: () => number, spread = cfg.sparkSpread, rim = cfg.arenaRadius + 1): Spark {
+  const a = rng() * Math.PI * 2;
+  const fx = cx + Math.sin(a) * rim;
+  const fz = cz + Math.cos(a) * rim;
+  const o = rng() * Math.PI * 2;
+  const r = Math.sqrt(rng()) * spread;
+  return sparkAlong(fx, fz, Math.atan2(tx + Math.sin(o) * r - fx, tz + Math.cos(o) * r - fz));
 }
 
 /** Move a spark on `dt`; false once it has left the summit (`rim` m from its middle) or lived too long. */

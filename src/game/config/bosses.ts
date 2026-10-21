@@ -481,7 +481,7 @@ export const darkFalz = {
  * `rift` stands in for the Hell scaling the four get there. Seconds are its own clock (a rift's fixed tempo runs it
  * faster) unless they say real seconds. Picked by the user in a question round: Storm Peak, spent rods, two phases.
  * Made harder the same day (the user: "too easy"; their picks): relay rods, feather rain in the storm, sparks drifting
- * through the arena all fight long (streams, spirals from phase 2), paired attacks from the start, triples in phase 2
+ * through the arena all fight long (one at a time from 2026-10-22), paired attacks from the start, triples in phase 2
  * and the cage below 1/3; the first draft's numbers kept.
  */
 export const galGryphon = {
@@ -507,9 +507,9 @@ export const galGryphon = {
   attackGap: 0.9,
   enrageAt: 0.2,
   enrageSpeed: 0.8,
-  /** Below this HP share: the eye of the storm (triples, cyclones, spiral sparks, 4-bolt storms with a gale). */
+  /** Below this HP share: the eye of the storm (triples, cyclones, sparks off the Gryphon too, storms with a gale). */
   phase2At: 0.5,
-  /** Below this HP share every `tripleEvery`-th attack is the cage (a Hell triple), and the streams come every `streamEvery3` s. */
+  /** Below this HP share every `tripleEvery`-th attack is the cage (a Hell triple), and a spark comes every `sparkEvery3` s. */
   phase3At: 1 / 3,
   tripleEvery: 2,
   /** Grounded (a full rod) it takes this much damage (×1.5: +50%). */
@@ -607,23 +607,22 @@ export const galGryphon = {
   /**
    * Sparks: `sparkRadius` m balls at chest height drifting `sparkSpeed` m/s (its clock: ~3.45 real, under your 4.6 walk),
    * gone past the rim or after `sparkLife` s. A touch is a light hit: × `sparkAtp` ATP (about a third of a normal hit),
-   * no knockback. All fight long, through storms, groundings and every attack: every `streamEvery` s (`streamEvery3`
-   * below 1/3) a stream of `streamCount` sparks `streamSpacing` m apart leaves a random point just past the rim,
-   * aimed at where you stand. Phase 2 adds a spiral from the Gryphon (the middle of the sky while it is up there):
-   * `spiralArms` arms, a spark out of each every `spiralEvery` s, turning `spiralTurn` degrees a second.
+   * no knockback. All fight long, through storms, groundings and every attack, **one at a time** (2026-10-22, the
+   * user: the streams of four and the spiral arms stacked up into lines and walls): a spark every `sparkEvery` s
+   * (`sparkEvery2` in phase 2, `sparkEvery3` below 1/3) leaves a random point just past the rim, aimed at where you
+   * stand give or take `sparkSpread` m, so they cross from every side; from phase 2 every `sparkFromBoss`-th one comes
+   * out of the Gryphon (the middle of the sky while it is up there) in a random direction instead.
    */
   sparkRadius: 0.5,
   sparkSpeed: 3,
   sparkHeight: 1,
   sparkLife: 14,
   sparkAtp: 0.33,
-  streamEvery: 1.2,
-  streamEvery3: 0.6,
-  streamCount: 4,
-  streamSpacing: 1.1,
-  spiralArms: 4,
-  spiralEvery: 0.35,
-  spiralTurn: 30,
+  sparkEvery: 0.4,
+  sparkEvery2: 0.35,
+  sparkEvery3: 0.28,
+  sparkSpread: 3,
+  sparkFromBoss: 3,
   // ---- paired and triple attacks (2026-10-21: pairs from the start, triples in phase 2, the cage below 1/3)
   /** Swoop + flank orbs: orbs `flankOffset` m off the lane's middle on one side, at you and `flankSpacing` m either way. */
   flankOffset: 4.5,

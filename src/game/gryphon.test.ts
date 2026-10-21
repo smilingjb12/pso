@@ -4,8 +4,8 @@ import { galGryphon as cfg, hell, player } from './config';
 import type { BossContext } from './enemies/Boss';
 import { GalGryphon } from './enemies/GalGryphon';
 import {
-  aimedStream, cagePlan, driftSpark, featherSpots, flankOrbs, nearestRod, pulseTimes, ringOrbs, rodAt, rodSpots, rodUsable, rodWalk, sparkTouches,
-  spiralBurst, stormRod, stormWalk, type RodState,
+  cagePlan, driftSpark, featherSpots, flankOrbs, nearestRod, pulseTimes, ringOrbs, rimSpark, rodAt, rodSpots, rodUsable, rodWalk, sparkAlong,
+  sparkTouches, stormRod, stormWalk, type RodState,
 } from './enemies/gryphonStorm';
 import { riftBossScale } from './rifts';
 import { inShape, type TelegraphShape } from './world/Telegraph';
@@ -245,36 +245,42 @@ describe('Gal Gryphon: its pairs and triples each leave one way out', () => {
 });
 
 describe('Gal Gryphon: the sparks', () => {
-  it('streams line up behind each other toward where you stood, slower than you walk', () => {
-    const s = aimedStream(0, 0, 10, 0);
-    expect(s).toHaveLength(cfg.streamCount);
-    expect(s[1].x).toBeCloseTo(-cfg.streamSpacing, 6);
-    for (const k of s) expect(Math.hypot(k.vx, k.vz)).toBeCloseTo(cfg.sparkSpeed, 6);
+  it('come one at a time from all round the rim, each aimed within a few metres of you, slower than you walk', () => {
+    const rng = mulberry32(21);
+    const [tx, tz] = [CX + 4, CZ - 2];
+    const angles = new Set<number>();
+    for (let k = 0; k < 400; k++) {
+      const s = rimSpark(CX, CZ, tx, tz, rng);
+      expect(Math.hypot(s.x - CX, s.z - CZ)).toBeCloseTo(cfg.arenaRadius + 1, 6);
+      expect(Math.hypot(s.vx, s.vz)).toBeCloseTo(cfg.sparkSpeed, 6);
+      angles.add(Math.floor(((Math.atan2(s.x - CX, s.z - CZ) + Math.PI) / (Math.PI * 2)) * 8));
+      // Its line passes within the spread of you.
+      const ux = s.vx / cfg.sparkSpeed;
+      const uz = s.vz / cfg.sparkSpeed;
+      const off = Math.abs((tx - s.x) * uz - (tz - s.z) * ux);
+      expect(off).toBeLessThanOrEqual(cfg.sparkSpread + 1e-9);
+    }
+    // From every eighth of the rim.
+    expect(angles.size).toBe(8);
     expect(cfg.sparkSpeed * TEMPO).toBeLessThan(player.moveSpeed);
-    const arms = spiralBurst(0, 0, cfg.spiralArms, 0);
-    expect(arms).toHaveLength(cfg.spiralArms);
-    expect(Math.atan2(arms[1].vx, arms[1].vz)).toBeCloseTo((Math.PI * 2) / cfg.spiralArms, 6);
+    const off = sparkAlong(0, 0, Math.PI / 2);
+    expect(off.vx).toBeCloseTo(cfg.sparkSpeed, 6);
   });
 
-  it('hit you if you stand still; a sidestep of a metre and a half lets a stream by', () => {
+  it('hit you if you stand still in their line; a sidestep of a metre and a half lets one by', () => {
     const run = (dodge: boolean) => {
-      const stream = aimedStream(0, 0, 12, 0);
+      const k = sparkAlong(0, 0, Math.PI / 2);
       let pz = 0;
-      let hits = 0;
-      for (let t = 0; t < 6; t += 1 / 60) {
+      let hit = false;
+      for (let t = 0; t < 6 && !hit; t += 1 / 60) {
         if (dodge && t > 1) pz = Math.min(1.5, pz + player.moveSpeed / 60);
-        for (const k of [...stream]) {
-          driftSpark(k, 1 / 60, 0, 0, 50);
-          if (sparkTouches(k, 12, pz, pr)) {
-            hits++;
-            stream.splice(stream.indexOf(k), 1);
-          }
-        }
+        driftSpark(k, 1 / 60, 0, 0, 50);
+        hit = sparkTouches(k, 12, pz, pr);
       }
-      return hits;
+      return hit;
     };
-    expect(run(false)).toBe(cfg.streamCount);
-    expect(run(true)).toBe(0);
+    expect(run(false)).toBe(true);
+    expect(run(true)).toBe(false);
     // They go once they're past the rim heading out.
     const k = { x: 0, z: 0, vx: 3, vz: 0, t: 0 };
     let alive = true;

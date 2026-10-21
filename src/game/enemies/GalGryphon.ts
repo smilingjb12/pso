@@ -10,13 +10,13 @@ import { GryphonModel } from '../models/gryphon';
 import type { BossContext } from './Boss';
 import { BossBase } from './BossBase';
 import {
-  aimedStream, cagePlan, Cyclone, featherSpots, flankOrbs, LightningRods, pulseTimes, ringOrbs, sparkTouches, SparkField, spiralBurst, stormRod,
+  cagePlan, Cyclone, featherSpots, flankOrbs, LightningRods, pulseTimes, ringOrbs, rimSpark, sparkAlong, sparkTouches, SparkField, stormRod,
   stormWalk, type Rod,
 } from './gryphonStorm';
 
 // Gal Gryphon, the Rift Map's Circle II pinnacle boss (DESIGN.md "Endgame: Falz Rifts" > "Gal Gryphon"; the user's
 // picks from question rounds, 2026-10-21). A storm griffin on Storm Peak. Sparks drift through the arena all fight
-// long (streams aimed at you, spiral arms from it in phase 2), so you can't stand still. Its attacks come in pairs
+// long, one at a time (from the rim, aimed near you; off the Gryphon too from phase 2), so you can't stand still. Its attacks come in pairs
 // from the start (a swoop with orbs closing one side, a gale shoving you under a plummet, a plummet ringed by orbs),
 // triples in phase 2 (a lash across the swoop, the ring after the gale) and the cage below 1/3 (a Hell triple: three
 // telegraphs at once, one way out). Every ~22 s it rises into the clouds and calls the storm: one rod lights under a
@@ -146,9 +146,8 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   private taught = false;
   private gustT = 0;
   // ---- the sparks
-  private streamT = 1.5;
-  private spiralT = 0;
-  private spiralBase = 0;
+  private sparkT = 1.5;
+  private sparkN = 0;
 
   constructor(room: Rect, hard: HardBossScale | null = null) {
     super(cfg, hard);
@@ -640,27 +639,23 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   // ---------------------------------------------------------- the sparks
 
   /**
-   * All fight long (not before it wakes, nor once it is dead): a stream aimed at you every `streamEvery` s from a
-   * random point just past the rim, and in phase 2 a spiral out of it (or out of the middle of the sky while it is up
-   * there). A spark that touches you is a light hit and is gone.
+   * All fight long (not before it wakes, nor once it is dead), one spark at a time: every `sparkEvery` s (faster in
+   * phase 2 and below 1/3) one from a random point past the rim aimed near you; from phase 2 every `sparkFromBoss`-th
+   * one comes out of the Gryphon (out of the middle of the sky while it is up there) in a random direction. A spark
+   * that touches you is a light hit and is gone.
    */
   private updateSparks(dt: number, ctx: BossContext): void {
     const fighting = this.alive && this.state !== 'dormant' && this.state !== 'intro';
     if (fighting && ctx.playerAlive) {
-      this.streamT -= dt;
-      if (this.streamT <= 0) {
-        this.streamT += this.phase3 ? cfg.streamEvery3 : cfg.streamEvery;
-        const a = ctx.rng() * Math.PI * 2;
-        const r = cfg.arenaRadius + 1;
-        this.sparks.add(aimedStream(this.cx + Math.sin(a) * r, this.cz + Math.cos(a) * r, ctx.playerX, ctx.playerZ));
-      }
-      if (this.phase2) {
-        this.spiralT -= dt;
-        while (this.spiralT <= 0) {
-          this.spiralT += cfg.spiralEvery;
-          this.spiralBase += THREE.MathUtils.degToRad(cfg.spiralTurn) * cfg.spiralEvery;
+      this.sparkT -= dt;
+      while (this.sparkT <= 0) {
+        this.sparkT += this.phase3 ? cfg.sparkEvery3 : this.phase2 ? cfg.sparkEvery2 : cfg.sparkEvery;
+        this.sparkN++;
+        if (this.phase2 && this.sparkN % cfg.sparkFromBoss === 0) {
           const up = this.alt > 5;
-          this.sparks.add(spiralBurst(up ? this.cx : this.pos.x, up ? this.cz : this.pos.z, cfg.spiralArms, this.spiralBase));
+          this.sparks.add([sparkAlong(up ? this.cx : this.pos.x, up ? this.cz : this.pos.z, ctx.rng() * Math.PI * 2)]);
+        } else {
+          this.sparks.add([rimSpark(this.cx, this.cz, ctx.playerX, ctx.playerZ, ctx.rng)]);
         }
       }
     }

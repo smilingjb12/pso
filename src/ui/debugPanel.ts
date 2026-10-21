@@ -528,12 +528,13 @@ export function createDebugPanel(actions: DebugActions): GUI {
   gg.add(galGryphon, 'phase3At', 0, 1, 0.05).name('the cage from HP %');
   gg.add(galGryphon, 'cageWindup', 0.6, 3, 0.05).name('cage warning (s)');
   gg.add(galGryphon, 'featherEvery', 0.4, 4, 0.05).name('feathers every (s)');
-  gg.add(galGryphon, 'streamEvery', 0.2, 5, 0.05).name('spark stream every (s)');
-  gg.add(galGryphon, 'streamEvery3', 0.2, 5, 0.05).name('spark stream every, below 1/3 (s)');
+  gg.add(galGryphon, 'sparkEvery', 0.05, 3, 0.01).name('a spark every (s)');
+  gg.add(galGryphon, 'sparkEvery2', 0.05, 3, 0.01).name('a spark every, phase 2 (s)');
+  gg.add(galGryphon, 'sparkEvery3', 0.05, 3, 0.01).name('a spark every, below 1/3 (s)');
+  gg.add(galGryphon, 'sparkSpread', 0, 10, 0.1).name('sparks aimed within (m of you)');
   gg.add(galGryphon, 'sparkSpeed', 0.5, 6, 0.1).name('spark speed (m/s)');
   gg.add(galGryphon, 'sparkAtp', 0, 2, 0.01).name('spark hit x ATP');
-  gg.add(galGryphon, 'spiralEvery', 0.1, 2, 0.05).name('spiral spark every (s)');
-  gg.add(galGryphon, 'spiralTurn', 0, 120, 1).name('spiral turn (deg/s)');
+  gg.add(galGryphon, 'sparkFromBoss', 1, 10, 1).name('phase 2: every Nth spark off the boss');
   gg.close();
 
   const dr = gui.addFolder('Drops');
