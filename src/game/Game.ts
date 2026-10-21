@@ -32,7 +32,7 @@ import { fightLog, hex } from './fightLog';
 import { affixes as affixCfg, hard as hardCfg, hell as hellCfg, camera as camCfg, comboDamage, dash as dashCfg, debug, formulas, injectorCfg, lockOn, magCfg, passiveCfg, player as playerCfg, pylonCfg, uniqueCfg } from './config';
 import { AFFIXES } from './data/affixes';
 import { areas, DEFAULT_LIGHT, expeditionOf, expeditionOfBoss, expeditionOpenedBy, expeditions, isCounter, type AreaId, type ExpeditionId } from './data/areas';
-import { BOSS_IDS, BOSSES, type BossDef } from './data/bosses';
+import { BOSS_IDS, BOSSES, isMainBoss, type BossDef, type BossId } from './data/bosses';
 import { areaDef } from './data/looks';
 import { STAT_KEYS, statDelta, type MagStat } from './data/stats';
 import { ART_IDS, ARTS, type ArtId } from './data/arts';
@@ -41,7 +41,7 @@ import { affixText, tierIlvl, type AffixRoll } from './data/itemAffixes';
 import { UNIQUES } from './data/uniques';
 import { CORRUPT_COLOR, Enemy, type EnemyContext } from './enemies/Enemy';
 import {
-  buyPrice, rollArmor, rollBoxDrop, rollBossDrops, rollChampionBonus, rollEliteBonus, rollEnemyDrops, rollRiftEndDrops, rollUnit, rollWeapon,
+  buyPrice, rollArmor, rollBoxDrop, rollBossDrops, rollChampionBonus, rollEliteBonus, rollEnemyDrops, rollRiftCache, rollRiftEndDrops, rollUnit, rollWeapon,
   shopCopy, shopStock, type Drop, type ShopKind, type ShopUnlocks,
 } from './loot';
 import { addCharge, chargeOf, doseAmount, fillInjector, injectorDef, injectorStats, spendDose } from './injectors';
@@ -59,11 +59,15 @@ import { Interactable } from './world/Interactable';
 import type { Pickup } from './world/Pickup';
 import { newRiftRun, newRun, World, type RunState } from './world/World';
 import {
-  clampTier, modText, pickedTier, plainRift, RIFT_MODS, riftBonus, riftBossOf, riftCfg, riftFoe, riftIlvl, riftLoot, riftName, riftSave, riftsOpen, riftTitle,
-  rollShard, setRiftAreas, shardRift, type RiftInfo,
+  modText, RIFT_MODS, riftBonus, riftBossId, riftBossXp, riftFoe, riftIlvl, riftLoot, riftName, riftSave, riftsOpen, setRiftAreas, syncRiftDepth,
+  type RiftInfo,
 } from './rifts';
 import { circleName, circleOf, rollBossUnique } from './riftCircles';
-import { RiftGateMenu } from '../ui/riftGate';
+import { RIFT_GEN } from './riftGen';
+import {
+  CACHE_NAME, clearNode, deepestNode, enterBlock, isRoomKind, MAP_NODES, mapCfg, mapDepth, nodeName, nodeRift, openWholeMap, payEntry, PINNACLE_BOSS, QUARTERS,
+} from './riftMap';
+import { RiftMapMenu } from '../ui/riftGate';
 
 /** LMB: the basic chain. RMB, Q, E, R: the Art bar's four slots (2026-10-14, the Arts redesign). */
 const BASIC_KEY = 'Mouse0';
@@ -116,8 +120,8 @@ export class Game implements GameApi {
   private runs: Partial<Record<ExpeditionId, RunState>> = {};
   /** The Falz Rift open this session (DESIGN.md "Endgame: Falz Rifts"): opening another collapses it. */
   private riftRun: RunState | null = null;
-  /** The shard stash was full when a shard was walked over (told once per rift). */
-  private stashFullTold = false;
+  /** Kills in the open Rift Map node (a Gauntlet's cache grows with them). */
+  private nodeKills = 0;
   /** Photon kinds whose stack was full when one was walked over (told once per area). */
   private photonFullTold = new Set<string>();
   /** Session difficulty, picked at login: Nightmare (the run state's `hard` flag) for every expedition. */
@@ -347,22 +351,31 @@ export class Game implements GameApi {
         this.showRiftGate();
         this.hud.toast('Hell is unlocked for this character (every expedition): pick it at login.', 'good');
       },
-      riftShards: (n) => {
+      riftMapAll: () => {
         this.openRiftsForDebug();
         const save = riftSave(this.char.data);
-        for (let i = 0; i < n && save.shards.length < riftCfg.stash; i++) save.shards.push(rollShard(save.tier, this.rng));
-        this.hud.toast(`${n} Rift Shards in the Rift Gate's stash.`, 'good');
+        openWholeMap(save.map!);
+        syncRiftDepth(save);
+        this.hud.toast('Every node on the Rift Map is open.', 'good');
       },
-      riftMoreTiers: (n) => {
+      riftResonance: () => {
         this.openRiftsForDebug();
         const save = riftSave(this.char.data);
-        save.tier = clampTier(save.tier + n);
-        this.hud.toast(`Rift tiers 1-${save.tier} are open.`, 'good');
+        for (const q of QUARTERS) save.map!.res[q.boss] = mapCfg.resonanceCap;
+        this.hud.toast('Full Resonance for every boss.', 'good');
+      },
+      riftPinnacle: () => {
+        this.openRiftsForDebug();
+        const map = riftSave(this.char.data).map!;
+        map.nodes.P2NE ??= { s: 'open' };
+        this.openRift(nodeRift(map, 'P2NE'), 'riftBoss');
       },
       riftOpen: (boss) => {
-        const info = plainRift(pickedTier(riftSave(this.char.data)), this.rng);
-        info.boss = boss;
-        this.openRift(info);
+        // The deepest node reached of that kind (a boss takes no Resonance here).
+        this.openRiftsForDebug();
+        const map = riftSave(this.char.data).map!;
+        const id = deepestNode(map, boss) ?? (boss ? 'NB1' : 'N1');
+        this.openRift(nodeRift(map, id), boss ? 'riftBoss' : 'rift');
       },
       fightLog: () => {
         const p = this.player;
@@ -381,18 +394,18 @@ export class Game implements GameApi {
       },
       clearFightLog: () => fightLog.clear(),
       riftBoss: () => {
+        // Skip to the open node's end (its Guardian room, Vault or Gauntlet, or its boss); with none open, the
+        // deepest boss node reached.
         const r = this.riftRun?.rift;
-        // The tier picked at the Rift Gate: an open rift of another tier gives way to a fresh one.
-        const tier = pickedTier(riftSave(this.char.data));
-        if (!r || r.complete || r.tier !== tier) {
-          const info = plainRift(tier, this.rng);
-          info.boss = true;
-          this.openRift(info, 'riftBoss');
-        } else if (r.boss) {
+        if (r && !r.complete && r.boss) {
           this.enterArea('riftBoss', 'start');
-        } else {
+        } else if (r && !r.complete) {
           if (this.world?.areaId !== 'rift') this.enterArea('rift', 'start');
           this.warpToGuardian();
+        } else {
+          this.openRiftsForDebug();
+          const map = riftSave(this.char.data).map!;
+          this.openRift(nodeRift(map, deepestNode(map, true) ?? 'NB1'), 'riftBoss');
         }
       },
       testCharacter: () => {
@@ -726,7 +739,7 @@ export class Game implements GameApi {
     this.roomInfo = null;
     this.hud.clearFloats();
     this.hud.banner(def.name + (run.rift ? '' : difficultyTag(runDifficulty(run))));
-    if (run.rift && id === 'rift' && spawn === 'start') this.announceRift(run.rift);
+    if (run.rift && (id === 'rift' || (id === 'riftBoss' && run.rift.boss)) && spawn === 'start') this.announceRift(run.rift);
     this.playAreaMusic();
     setSpace(areas[id].audio.space);
 
@@ -995,7 +1008,7 @@ export class Game implements GameApi {
     }
 
     this.refreshDropVerdicts();
-    // Walk-over pickups: meseta, Rift Shards, photons (crafting currency) and units worth learning (no bag slot;
+    // Walk-over pickups: meseta, photons (crafting currency) and units worth learning (no bag slot;
     // one learned at least as well stays put, to pick up by hand).
     for (const pk of [...world.pickups]) {
       const c = pk.content;
@@ -1367,21 +1380,6 @@ export class Game implements GameApi {
       world.removePickup(pk);
       return;
     }
-    if (pk.content.kind === 'shard') {
-      const save = riftSave(this.char.data);
-      if (save.shards.length >= riftCfg.stash) {
-        if (!this.stashFullTold) this.hud.toast('The Rift Gate holds no more shards: use or shatter some in Pioneer 2.', 'warn');
-        this.stashFullTold = true;
-        return;
-      }
-      const shard = pk.content.shard;
-      save.shards.push(shard);
-      world.removePickup(pk);
-      sfx('pickup.item', { pitch: 0.8 });
-      this.hud.toast(`Rift Shard: <b>${riftTitle(shard)}</b> (${shard.mods.length} modifier${shard.mods.length === 1 ? '' : 's'})`, 'rare');
-      this.autosave();
-      return;
-    }
     const item = pk.content.item;
     const def = getDef(item.id);
     const took = this.char.take(item);
@@ -1489,6 +1487,16 @@ export class Game implements GameApi {
         this.riftGateMenu();
         break;
       case 'toCity':
+        if (this.run.rift && this.world?.def.kind !== 'city') {
+          // A rift's teleporters open the Rift Map too, so nodes can be chained without walking back to the Gate.
+          const done = this.run.rift.complete;
+          this.choice('Teleporter', done ? 'The rift is closed. Where to?' : 'The rift stays open: the Rift Gate brings you back.', [
+            { label: 'Rift Map', sub: done ? 'Pick the next node from here' : 'Opening another node collapses this one', run: () => this.openMenu(this.riftMapMenu()) },
+            { label: 'Return to Pioneer 2', run: () => this.travel(() => this.enterArea('city', 'start')) },
+            cancel,
+          ]);
+          break;
+        }
         this.choice('Teleporter', 'Return to Pioneer 2?', [
           { label: 'Return to Pioneer 2', run: () => this.travel(() => this.enterArea('city', 'start')) },
           cancel,
@@ -1551,36 +1559,37 @@ export class Game implements GameApi {
       this.choice('Rift Gate', 'The air here hums, but nothing answers. Dark Falz still holds Ragol: defeat it on Hell to tear the rifts open.', [close]);
       return;
     }
-    this.openMenu(
-      new RiftGateMenu({
-        char: this.char,
-        openRift: () => (this.riftRun?.rift && !this.riftRun.rift.complete ? this.riftRun.rift : null),
-        startRift: (tier: number) => this.travel(() => this.openRift(plainRift(tier, this.rng))),
-        startShard: (uid: string) => {
-          const save = riftSave(this.char.data);
-          const s = save.shards.find((x) => x.uid === uid);
-          if (!s) return;
-          save.shards.splice(save.shards.indexOf(s), 1);
-          this.travel(() => this.openRift(shardRift(s, this.rng)));
-        },
-        shatterShard: (uid: string) => {
-          const save = riftSave(this.char.data);
-          save.shards = save.shards.filter((x) => x.uid !== uid);
-          this.autosave();
-        },
-        returnToRift: () => {
-          const r = this.riftRun;
-          if (r) this.travel(() => this.enterArea(r.floor >= 1 ? 'riftBoss' : 'rift', 'start'));
-        },
-        closeMenu: () => this.closeMenu(),
-      }),
-    );
+    this.openMenu(this.riftMapMenu());
+  }
+
+  /** The Rift Map (the Rift Gate, and a rift's teleporters): pick a node and go. */
+  private riftMapMenu(): RiftMapMenu {
+    return new RiftMapMenu({
+      char: this.char,
+      openRift: () => (this.riftRun?.rift && !this.riftRun.rift.complete ? this.riftRun.rift : null),
+      enter: (id: string) => this.enterNode(id),
+      returnToRift: () => {
+        const r = this.riftRun?.rift;
+        if (r) this.travel(() => this.enterArea(r.boss ? 'riftBoss' : 'rift', 'start'));
+      },
+      closeMenu: () => this.closeMenu(),
+    });
+  }
+
+  /** Enter a Rift Map node: a boss replay takes its Resonance now, and the rift open before collapses. */
+  private enterNode(id: string): void {
+    const save = riftSave(this.char.data);
+    if (enterBlock(save, id)) return;
+    payEntry(save, id);
+    save.map!.sel = id;
+    const info = nodeRift(save.map!, id);
+    this.travel(() => this.openRift(info, info.boss ? 'riftBoss' : 'rift'));
   }
 
   /** Open a rift: build its areas, collapse the one before, and go in (debug: straight to its boss arena). */
   private openRift(info: RiftInfo, at: 'rift' | 'riftBoss' = 'rift'): void {
     this.riftRun = newRiftRun(info);
-    this.stashFullTold = false;
+    this.nodeKills = 0;
     setRiftAreas(info);
     this.autosave();
     this.enterArea(at, 'start');
@@ -1606,10 +1615,18 @@ export class Game implements GameApi {
   /** On entering a rift: what it holds (two toasts; each modifier's line goes to the log). */
   private announceRift(r: RiftInfo): void {
     const { qty, rar } = riftLoot(r);
-    this.hud.toast(`Item level ${riftIlvl(r.tier)} · quantity +${qty}% · rarity +${rar}% · ${r.boss ? 'its Core holds a boss' : 'a Guardian waits at the end'}`, 'rare');
+    const what = r.boss
+      ? 'a first kill in each circle always drops one of its uniques'
+      : r.kind === 'vault'
+        ? 'a Vault: three champion packs guard it'
+        : r.kind === 'gauntlet'
+          ? `a Gauntlet: hold out ${RIFT_GEN.hold.time} s, the cache grows with your kills`
+          : 'a Guardian waits at the end';
+    const cache = r.cache ? ` · ${CACHE_NAME[r.cache]} cache` : '';
+    this.hud.toast(`Item level ${riftIlvl(r.tier)} · quantity +${qty}% · rarity +${rar}% · ${what}${cache}`, 'rare');
     if (!r.mods.length) return;
     const m = riftBonus(r.mods);
-    this.hud.toast(`${r.mods.map((id) => `<b>${RIFT_MODS[id].name}</b>`).join(' · ')} · shard quantity +${m.qty}% · rarity +${m.rar}%`, 'warn');
+    this.hud.toast(`${r.mods.map((id) => `<b>${RIFT_MODS[id].name}</b>`).join(' · ')} · modifiers: quantity +${m.qty}% · rarity +${m.rar}%`, 'warn');
     for (const m of r.mods) this.hud.pushLog(`<span class="l-proc">${RIFT_MODS[m].name}: ${modText(m, r.second)}</span>`);
   }
 
@@ -1624,49 +1641,71 @@ export class Game implements GameApi {
     sfx('jingle.victory');
     this.victoryT = 8;
     this.hud.banner(`${world.boss!.name.toUpperCase()} DEFEATED`, 'boss');
-    this.gainXp(hellCfg.bosses[def.id].xp);
+    this.gainXp(riftBossXp(def.id));
     const at = def.dropsAt === 'center' ? world.level.center() : t.pos;
     this.completeRift(at.x, at.z, def.dropRing, def.dropStretch ?? 1);
     world.spawnReturnTeleporter();
   }
 
-  /** The rift is closed (its Guardian room cleared, or its boss down): the next tier, its loot and shards. */
+  /**
+   * A Rift Map node is done (its last room cleared, or its boss down): the map counts it (a room node rolls anew and
+   * fills its boss's Resonance; what it links to opens), and its loot drops: the end drop, a room node's cache, a
+   * boss's own unique.
+   */
   private completeRift(x: number, z: number, ring = 2.2, stretch = 1): void {
     const r = this.run.rift;
     if (!r || r.complete) return;
     r.complete = true;
     const save = riftSave(this.char.data);
     save.clears++;
-    save.best = Math.max(save.best, r.tier);
-    if (r.tier >= save.tier && r.tier < riftCfg.maxTier) {
-      // A pick on the top tier follows it up (the gate opens on the new one, as before it remembered picks).
-      if (save.picked === save.tier) save.picked = r.tier + 1;
-      save.tier = r.tier + 1;
-      this.hud.toast(`Tier ${save.tier} rifts are open at the Rift Gate.${circleOf(save.tier) > circleOf(r.tier) ? ` Rift Circle ${circleName(circleOf(save.tier))} begins: its bosses drop new uniques.` : ''}`, 'rare');
-    } else if (r.tier === riftCfg.maxTier && save.best === r.tier && save.clears > 0 && !save.firsts?.includes('top')) {
-      (save.firsts ??= []).push('top');
-      this.hud.toast(`Tier ${riftCfg.maxTier} closed: the deepest rift. Its bosses keep dropping Circle III's uniques.`, 'rare');
-    }
+    const depth = mapDepth(save.map!);
+    const opened = MAP_NODES[r.node] ? clearNode(save, r.node) : [];
+    syncRiftDepth(save);
     if (!r.boss) {
       sfx('jingle.victory');
       this.hud.banner('RIFT CLOSED', 'boss');
     }
-    this.hud.toast(`${riftName(r)} closed. A teleporter to Pioneer 2 stands ${r.boss ? 'in the arena' : 'in the Guardian room'}.`, 'good');
-    const drops: Drop[] = rollRiftEndDrops(r.boss, r.tier, riftIlvl(r.tier), this.rng, riftLoot(r).qty);
-    // Rift Circles: the boss's own unique (its first kill in a circle always drops one).
+    this.announceOpened(opened, depth);
+    const q = MAP_NODES[r.node]?.q;
+    const res = !r.boss && q !== undefined ? ` ${BOSSES[QUARTERS[q].boss].name} Resonance +1.` : '';
+    this.hud.toast(`${r.boss ? nodeName(r.node) : riftName(r)} closed.${res} Its teleporter opens the Rift Map.`, 'good');
+    const ilvl = riftIlvl(r.tier);
+    const drops: Drop[] = rollRiftEndDrops(r.boss, r.tier, ilvl, this.rng, riftLoot(r).qty);
     if (r.boss) {
-      const u = rollBossUnique(riftBossOf(r.bossRegion), r.tier, riftIlvl(r.tier), save, this.char.data, this.rng, riftLoot(r).rar);
+      // Rift Circles: the boss's own unique (its first kill in a circle always drops one).
+      const u = rollBossUnique(riftBossId(r), r.tier, ilvl, save, this.char.data, this.rng, riftLoot(r).rar);
       if (u) drops.push({ kind: 'item', item: u });
-    }
-    // Shards keep the rifts coming: the Guardian (or boss) always drops one; item quantity is the chance of another.
-    for (let odds = riftCfg.guardianShard * (1 + riftBonus(r.mods).qty / 100); odds > 0; odds--) {
-      if (this.rng() < odds) drops.push({ kind: 'shard', shard: rollShard(r.tier, this.rng) });
+    } else if (r.cache) {
+      // The node's cache: more of its kind (a Vault's twice over, a Gauntlet's grows with the kills).
+      const mult = r.kind === 'vault' ? mapCfg.vaultMult : 1;
+      const base = r.cache === 'photons' ? mapCfg.spheres : mapCfg.cache;
+      const extra = r.kind === 'gauntlet' ? Math.floor(this.nodeKills / mapCfg.killsPerPiece) : 0;
+      drops.push(...rollRiftCache(r.cache, base * mult + extra, ilvl, this.rng, mapCfg.crystal * mult));
     }
     drops.forEach((d, i) => {
       const a = (i / drops.length) * Math.PI * 2;
       this.spawnDrop(d, x + Math.sin(a) * ring, z + Math.cos(a) * ring * stretch);
     });
     this.autosave();
+  }
+
+  /** Say what a clear opened on the Rift Map (and when a new Rift Circle begins). */
+  private announceOpened(opened: string[], depthBefore: number): void {
+    if (!opened.length) return;
+    const shown = opened.filter((id) => isRoomKind(MAP_NODES[id].kind) || MAP_NODES[id].kind === 'boss');
+    const landmarks = opened.filter((id) => !shown.includes(id));
+    const save = riftSave(this.char.data);
+    const deeper = circleOf(save.tier) > circleOf(depthBefore) ? ` Rift Circle ${circleName(circleOf(save.tier))} begins: its bosses drop new uniques.` : '';
+    if (shown.length) this.hud.toast(`New on the Rift Map: ${shown.map(nodeName).join(', ')}.${deeper}`, 'rare');
+    for (const id of landmarks) {
+      const n = MAP_NODES[id];
+      const text = n.kind === 'heart'
+        ? 'All four seals of the Heart are broken. What waits there is still to come.'
+        : PINNACLE_BOSS[id]
+          ? `Pinnacle ${circleName(n.circle)} stands open between two quarters: ${nodeName(id)} waits on Storm Peak. Its first kill is free.`
+          : `${nodeName(id)} stands open between two quarters. Its boss is still to come.`;
+      this.hud.toast(text, 'rare');
+    }
   }
 
   /** The city teleporter's expedition list for the session's difficulty. */
@@ -1715,6 +1754,13 @@ export class Game implements GameApi {
     this.updateOverlay();
   }
 
+  /** A Gauntlet being held: its clock, then what's left to clear. */
+  private holdInfo(): string | null {
+    const left = this.world?.holdLeft();
+    if (left === null || left === undefined) return null;
+    return left > 0 ? `Hold out: ${Math.ceil(left)} s` : 'Clear the rest';
+  }
+
   // ============================================================ killing
 
   private onKill(t: Hittable): void {
@@ -1727,11 +1773,8 @@ export class Game implements GameApi {
       this.gainXp(t.xp);
       for (const d of rollEnemyDrops(t.arch, this.rng)) this.spawnDrop(d, t.pos.x, t.pos.z);
       if (t.champion) for (const d of rollChampionBonus(t.arch, this.rng)) this.spawnDrop(d, t.pos.x, t.pos.z);
-      const rift = this.run.rift;
-      if (rift && t.champion && this.rng() < riftCfg.championShard * (1 + riftBonus(rift.mods).qty / 100)) {
-        this.spawnDrop({ kind: 'shard', shard: rollShard(rift.tier, this.rng) }, t.pos.x, t.pos.z);
-      }
-      else if (t.elite) this.spawnDrop(rollEliteBonus(t.arch, this.rng), t.pos.x, t.pos.z);
+      if (this.run.rift) this.nodeKills++;
+      if (t.elite) this.spawnDrop(rollEliteBonus(t.arch, this.rng), t.pos.x, t.pos.z);
       return;
     }
     const boss = world.boss;
@@ -1740,13 +1783,14 @@ export class Game implements GameApi {
       if (boss.alive) return;
       this.darkFlowKill();
       const def = BOSSES[boss.id];
-      if (this.run.rift) {
+      const id = boss.id;
+      if (this.run.rift || !isMainBoss(id)) {
         this.riftBossKilled(def, t);
         return;
       }
       const diff = runDifficulty(this.run);
       this.char.data.stats.kills++;
-      const first = this.char.addBossKill(def.id, diff) === 1;
+      const first = this.char.addBossKill(id, diff) === 1;
       this.cleanse();
       this.run.bossDefeated = true;
       this.camTarget = null;
@@ -1756,11 +1800,11 @@ export class Game implements GameApi {
       this.hud.banner(`${boss.name.toUpperCase()} DEFEATED`, 'boss');
       this.autosave();
       this.hud.toast('Quest complete! A teleporter to Pioneer 2 has appeared.', 'good');
-      if (first) this.announceUnlocks(def, diff);
-      this.gainXp(diff === 'hell' ? hellCfg.bosses[def.id].xp : diff === 'nightmare' ? hardCfg.bosses[def.id].xp : def.xp());
+      if (first) this.announceUnlocks(def, id, diff);
+      this.gainXp(diff === 'hell' ? hellCfg.bosses[id].xp : diff === 'nightmare' ? hardCfg.bosses[id].xp : def.xp());
       // Loot lands on the deck / arena floor around the centre, or where it fell.
       const at = def.dropsAt === 'center' ? world.level.center() : t.pos;
-      const drops = rollBossDrops(def.id, diff, this.rng);
+      const drops = rollBossDrops(id, diff, this.rng);
       drops.forEach((d, i) => {
         const a = (i / drops.length) * Math.PI * 2;
         this.spawnDrop(d, at.x + Math.sin(a) * def.dropRing, at.z + Math.cos(a) * def.dropRing * (def.dropStretch ?? 1));
@@ -1770,10 +1814,10 @@ export class Game implements GameApi {
   }
 
   /** Toasts for what a boss's first kill opened: shop tiers, the next expedition, Nightmare or Hell. */
-  private announceUnlocks(def: BossDef, diff: Difficulty): void {
+  private announceUnlocks(def: BossDef, id: BossId, diff: Difficulty): void {
     const shop = (diff === 'hell' ? def.hellShop : diff === 'nightmare' ? def.hardShop : def.shop)[0];
     if (shop) this.hud.toast(`Pioneer 2 shops will now stock tier ${shop.tier} gear (from Lv ${shop.level}).`, 'rare');
-    const next = expeditionOpenedBy(def.id);
+    const next = expeditionOpenedBy(id);
     if (next) this.hud.toast(`A new ${diff === 'normal' ? '' : `${DIFFICULTY_NAME[diff]} `}expedition is open: the ${next.name}.`, 'rare');
     if (diff === 'normal' && def.opensNightmare && !this.char.data.stats.nightmareKept) {
       this.hud.toast('Nightmare is open: Save &amp; quit (menu, I) and pick it when you start again.', 'rare');
@@ -1788,7 +1832,7 @@ export class Game implements GameApi {
     const ox = (this.rng() - 0.5) * 1.2;
     const oz = (this.rng() - 0.5) * 1.2;
     this.judgeDrop(this.world.addPickup(d, x + ox, z + oz));
-    if ((d.kind === 'item' && (getDef(d.item.id).rare || rarityOf(d.item) === 'rare')) || d.kind === 'shard') sfx('loot.rare', { x, z });
+    if (d.kind === 'item' && (getDef(d.item.id).rare || rarityOf(d.item) === 'rare')) sfx('loot.rare', { x, z });
   }
 
   private gainXp(xp: number): void {
@@ -1881,7 +1925,10 @@ export class Game implements GameApi {
   private openDeathMenu(): void {
     sfx('jingle.death');
     const floor = areas[expeditions[this.run.expedition].floors[this.run.floor]];
-    const back = `The city teleporter brings you back to ${floor.name}`;
+    const rift = this.run.rift;
+    const back = rift
+      ? `The Rift Gate brings you back into ${rift.boss ? nodeName(rift.node) : riftName(rift)}`
+      : `The city teleporter brings you back to ${floor.name}`;
     this.choice(
       'You have fallen',
       '',
@@ -2059,14 +2106,6 @@ export class Game implements GameApi {
     return null;
   }
 
-  /** Reorder the Mag's units (the first ones are active). */
-  unitMove(index: number, dir: number): string | null {
-    this.char.moveUnit(index, dir);
-    sfx('ui.cursor');
-    this.autosave();
-    return null;
-  }
-
   /** Sell every bag item the verdict calls junk: gear worse than what is worn, units already learned (uniques stay). */
   sellJunk(): string | null {
     const ch = this.char;
@@ -2115,14 +2154,7 @@ export class Game implements GameApi {
   }
 
   equipItem(uid: string): string | null {
-    const inactiveBefore = this.char.inactiveUnits;
     const r = this.char.equip(uid);
-    // A frame with fewer unit slots switches some of the Mag's units off: say so, and point at the Mag tab.
-    const off = this.char.inactiveUnits;
-    if (r.ok && off > inactiveBefore) {
-      const n = this.char.unitSlotsOpen;
-      this.hud.toast(`This frame has ${n ? n : 'no'} unit slot${n === 1 ? '' : 's'}: ${off} of your Mag's units ${off === 1 ? 'is' : 'are'} inactive (Mag tab).`, 'warn');
-    }
     this.player.refreshLook();
     this.player.refreshWeapon();
     this.player.combo.interrupt();
@@ -2325,7 +2357,7 @@ export class Game implements GameApi {
             }
           : null,
       area: world.def.name + (this.run.rift && world.def.kind !== 'city' ? '' : difficultyTag(this.diff)),
-      roomInfo: this.roomInfo,
+      roomInfo: this.holdInfo() ?? this.roomInfo,
       prompt,
       buffs,
       statuses,

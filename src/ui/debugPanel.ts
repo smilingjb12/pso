@@ -32,11 +32,14 @@ import {
   nodes,
   warden,
   darkFalz,
+  galGryphon,
   pylonCfg,
   ruinsCfg,
 } from '../game/config';
 import { areas, expeditions, type AreaId, type ExpeditionId } from '../game/data/areas';
 import { weaponKinds } from '../game/data/items';
+import { RIFT_GEN } from '../game/riftGen';
+import { mapCfg } from '../game/riftMap';
 import { riftCfg } from '../game/rifts';
 
 export interface DebugActions {
@@ -56,11 +59,13 @@ export interface DebugActions {
   unlockHell(): void;
   /** Save a premade Lv 76 character (Hell open) into the first empty slot. */
   testCharacter(): void;
-  /** Falz Rifts: put shards in the stash, open more tiers, or go straight into a rift (Hell rules, any session). */
-  riftShards(n: number): void;
-  riftMoreTiers(n: number): void;
+  /** Falz Rifts: open the whole Rift Map, fill every boss's Resonance, or go straight into the deepest node reached (Hell rules, any session). */
+  riftMapAll(): void;
+  riftResonance(): void;
   riftOpen(boss: boolean): void;
-  /** Skip to the open rift's end (its boss arena, or the Guardian room); with none open, open a boss rift. */
+  /** Straight into Gal Gryphon's pinnacle (P2NE), open or not; its first kill stays owed. */
+  riftPinnacle(): void;
+  /** Skip to the open node's end (its boss, or its Guardian room / Vault / Gauntlet); with none open, the deepest boss node. */
   riftBoss(): void;
   /** The fight log as a JSON file (what hit you, where you stood, the boss's telegraphs), and wiping it. */
   fightLog(): { name: string; text: string };
@@ -79,6 +84,8 @@ function download(name: string, text: string): void {
 
 export function createDebugPanel(actions: DebugActions): GUI {
   const gui = new GUI({ title: 'Tuning  ( ` to toggle )', width: 310 });
+  // Up top so it's easy to find while playing (the same setting as Camera / Lock-on > distance).
+  gui.add(camera, 'distance', 2, 15, 0.1).name('camera zoom (m behind you)').listen();
 
   const au = gui.addFolder('Audio').close();
   au.add(mix, 'master', 0, 1, 0.05).onChange(applyMix);
@@ -132,11 +139,12 @@ export function createDebugPanel(actions: DebugActions): GUI {
   }
 
   const rf = gui.addFolder('Rifts').close();
-  rf.add({ s: () => actions.riftShards(5) }, 's').name('give 5 Rift Shards');
-  rf.add({ t: () => actions.riftMoreTiers(10) }, 't').name('open every rift tier');
-  rf.add({ o: () => actions.riftOpen(false) }, 'o').name('enter a rift (Guardian)');
-  rf.add({ o: () => actions.riftOpen(true) }, 'o').name('enter a rift (boss)');
-  rf.add({ b: () => actions.riftBoss() }, 'b').name('warp: rift boss / Guardian');
+  rf.add({ t: () => actions.riftMapAll() }, 't').name('open the whole Rift Map');
+  rf.add({ r: () => actions.riftResonance() }, 'r').name('fill every Resonance');
+  rf.add({ o: () => actions.riftOpen(false) }, 'o').name('enter the deepest room node');
+  rf.add({ o: () => actions.riftOpen(true) }, 'o').name('enter the deepest boss node');
+  rf.add({ b: () => actions.riftBoss() }, 'b').name('warp: node end / boss');
+  rf.add({ p: () => actions.riftPinnacle() }, 'p').name('enter Gal Gryphon (Pinnacle II)');
   rf.add(riftCfg, 'fieldHpPerTier', 1, 1.5, 0.005).name('field HP x per tier (next rift)');
   rf.add(riftCfg, 'bossHpPerTier', 1, 1.7, 0.005).name('boss HP x per tier (next fight)');
   rf.add(riftCfg, 'heavyPerTier', 1, 1.4, 0.005).name('heavy hits x per tier (next rift)');
@@ -144,14 +152,19 @@ export function createDebugPanel(actions: DebugActions): GUI {
   rf.add(riftCfg, 'heavyBase', 1, 20, 0.5).name('heavy hits x at tier 1 (next rift)');
   rf.add(riftCfg, 'chipBase', 1, 20, 0.5).name('chip damage x at tier 1 (next rift)');
   rf.add(riftCfg, 'capTier', 1, 10, 1).name('CC resist stops at tier');
-  for (const id of ['dragon', 'derolle', 'warden', 'falz'] as const) rf.add(riftCfg.bossTempo, id, 1, 1.5, 0.01).name(`${id} speed x (next fight)`);
+  for (const id of ['dragon', 'derolle', 'warden', 'falz', 'gryphon'] as const) rf.add(riftCfg.bossTempo, id, 1, 1.5, 0.01).name(`${id} speed x (next fight)`);
   rf.add(riftCfg, 'bossHp', 50000, 2000000, 10000).name('boss HP at tier 1 (next fight)');
-  for (const id of ['dragon', 'derolle', 'warden', 'falz'] as const) rf.add(riftCfg.bossHpMult, id, 0.5, 1.5, 0.01).name(`${id} HP x (next fight)`);
+  for (const id of ['dragon', 'derolle', 'warden', 'falz', 'gryphon'] as const) rf.add(riftCfg.bossHpMult, id, 0.5, 1.5, 0.01).name(`${id} HP x (next fight)`);
+  rf.add(mapCfg, 'pinnacleCost', 0, 6, 1).name('Resonance a pinnacle replay takes (each quarter)');
   rf.add(riftCfg, 'elite', 0, 1, 0.01).name('elite share');
-  rf.add(riftCfg, 'bossChance', 0, 1, 0.01).name('boss chance');
-  rf.add(riftCfg, 'guardianShard', 0, 2, 0.05).name('Guardian shard odds');
-  rf.add(riftCfg, 'championShard', 0, 0.5, 0.01).name('champion shard odds');
-  rf.add(riftCfg, 'yellow', 0, 1, 0.05).name('yellow shard share');
+  rf.add(mapCfg, 'resonanceCap', 2, 12, 1).name('Resonance cap');
+  rf.add(mapCfg, 'resonanceCost', 0, 6, 1).name('Resonance a boss replay takes');
+  rf.add(mapCfg, 'cache', 0, 8, 1).name('cache pieces (Weapons/Armour/Units)');
+  rf.add(mapCfg, 'spheres', 0, 6, 1).name('cache Spheres (Photons)');
+  rf.add(mapCfg, 'crystal', 0, 1, 0.05).name('cache Crystal chance');
+  rf.add(mapCfg, 'vaultMult', 1, 4, 0.5).name('Vault cache x');
+  rf.add(mapCfg, 'killsPerPiece', 2, 30, 1).name('Gauntlet kills per cache piece');
+  rf.add(RIFT_GEN.hold, 'time', 30, 180, 5).name('Gauntlet hold s (next node)');
 
   const c = gui.addFolder('Combo timing');
   c.add(combo, 'windowOpen', 0.2, 1, 0.01).name('window opens at (swing %)');
@@ -278,7 +291,7 @@ export function createDebugPanel(actions: DebugActions): GUI {
   f.close();
 
   const cam = gui.addFolder('Camera / Lock-on');
-  cam.add(camera, 'distance', 2, 15, 0.1);
+  cam.add(camera, 'distance', 2, 15, 0.1).listen();
   cam.add(camera, 'height', 0, 4, 0.1);
   cam.add(camera, 'sensitivity', 0.0005, 0.01, 0.0001);
   cam.add(lockOn, 'aimDeg', 2, 45, 1).name('target cone (deg)');
@@ -464,6 +477,36 @@ export function createDebugPanel(actions: DebugActions): GUI {
   fz.add(darkFalz, 'lanceWindup', 0.3, 4, 0.05).name('lance warning (s)');
   fz.add(darkFalz, 'lanceWidth', 1, 12, 0.1).name('lance width (m)');
   fz.close();
+
+  const gg = gui.addFolder('Gal Gryphon');
+  gg.add(galGryphon, 'phase2At', 0, 1, 0.05).name('eye of the storm at HP %');
+  gg.add(galGryphon, 'stormFirst', 0, 40, 1).name('first storm (s)');
+  gg.add(galGryphon, 'stormEvery', 8, 60, 1).name('storm every (s)');
+  gg.add(galGryphon, 'stormAfterUp', 0, 30, 1).name('storm after it is up (s)');
+  gg.add(galGryphon, 'pulses', 1, 6, 1).name('storm pulses (the last strikes)');
+  gg.add(galGryphon, 'pulseGap', 0.4, 3, 0.05).name('pulse every (s)');
+  gg.add(galGryphon, 'pulseFloor', 0.3, 3, 0.05).name('pulse never under (real s)');
+  gg.add(galGryphon, 'stormSpare', 0, 3, 0.1).name('lit rod: real s to spare on the walk');
+  gg.add(galGryphon, 'groundedTime', 1, 15, 0.5).name('grounded (s)');
+  gg.add(galGryphon, 'weakPointMult', 1, 3, 0.05).name('grounded damage x');
+  gg.add(galGryphon, 'galePush', 0, 5, 0.1).name('phase 2 storm gale (m/s)');
+  gg.add(galGryphon, 'swoopWindup', 0.3, 3, 0.05).name('swoop warning (s)');
+  gg.add(galGryphon, 'galeWindup', 0.3, 3, 0.05).name('gale warning (s)');
+  gg.add(galGryphon, 'orbWindup', 0.3, 3, 0.05).name('orbs warning (s)');
+  gg.add(galGryphon, 'plummetWindup', 0.3, 3, 0.05).name('plummet warning (s)');
+  gg.add(galGryphon, 'crossWindup', 0.3, 3, 0.05).name('crossing lash warning (s)');
+  gg.add(galGryphon, 'attackGap', 0, 4, 0.05).name('between attacks (s)');
+  gg.add(galGryphon, 'phase3At', 0, 1, 0.05).name('the cage from HP %');
+  gg.add(galGryphon, 'cageWindup', 0.6, 3, 0.05).name('cage warning (s)');
+  gg.add(galGryphon, 'featherEvery', 0.4, 4, 0.05).name('feathers every (s)');
+  gg.add(galGryphon, 'sparkEvery', 0.05, 3, 0.01).name('a spark every (s)');
+  gg.add(galGryphon, 'sparkEvery2', 0.05, 3, 0.01).name('a spark every, phase 2 (s)');
+  gg.add(galGryphon, 'sparkEvery3', 0.05, 3, 0.01).name('a spark every, below 1/3 (s)');
+  gg.add(galGryphon, 'sparkSpread', 0, 10, 0.1).name('sparks aimed within (m of you)');
+  gg.add(galGryphon, 'sparkSpeed', 0.5, 6, 0.1).name('spark speed (m/s)');
+  gg.add(galGryphon, 'sparkAtp', 0, 2, 0.01).name('spark hit x ATP');
+  gg.add(galGryphon, 'sparkFromBoss', 1, 10, 1).name('phase 2: every Nth spark off the boss');
+  gg.close();
 
   const dr = gui.addFolder('Drops');
   dr.add(drops, 'rateMult', 0, 5, 0.1).name('drop rate x');

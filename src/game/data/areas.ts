@@ -1,7 +1,7 @@
 import type { EnemyId } from '../config';
 import type { SfxId, Space, TrackId } from '../../audio';
 import { RUINS_AFFIXES, type Affix } from './affixes';
-import type { BossId } from './bosses';
+import type { BossId, RiftBossId } from './bosses';
 
 export type { BossId };
 
@@ -11,7 +11,9 @@ export type { BossId };
 
 export type AreaId = 'city' | 'forest1' | 'dragon' | 'cave1' | 'cave2' | 'derolle' | 'mine1' | 'mine2' | 'warden' | 'ruin1' | 'ruin2' | 'falz'
   /** Falz Rifts (DESIGN.md "Endgame: Falz Rifts"): generated at runtime, see `rifts.ts` (placeholders below). */
-  | 'rift' | 'riftBoss';
+  | 'rift' | 'riftBoss'
+  /** Rift Map pinnacle arenas (a boss node copies one into `riftBoss`). */
+  | 'stormPeak';
 
 export type FeatureKind =
   | 'start' | 'switch' | 'toBoss' | 'toNext' | 'toCity'
@@ -75,6 +77,14 @@ export interface RoomDef {
   window?: 'n' | 's' | 'e' | 'w';
   /** Rifts: the Guardian room (its champions are stronger; clearing it completes the rift). */
   guardian?: boolean;
+  /** Rift Map Vaults: every wave brings a champion. */
+  vault?: boolean;
+  /**
+   * Rift Map Gauntlets: hold the room `time` seconds; until then the next wave comes when a third of the last is left
+   * or `gap` seconds have passed (looping the waves, never the timed one past `maxAlive` enemies up), then the rest
+   * must be cleared.
+   */
+  hold?: { time: number; gap: number; maxAlive: number };
 }
 
 export interface LinkDef {
@@ -94,7 +104,7 @@ export interface AreaTheme {
   fogFar: number;
   trees: boolean;
   /** Set dressing beyond the defaults (forest = trees, boss = Dragon's lair). */
-  scenery?: 'volcanic' | 'marsh' | 'river' | 'foundry' | 'control' | 'warden' | 'temple' | 'sanctum' | 'altar' | 'city';
+  scenery?: 'volcanic' | 'marsh' | 'river' | 'foundry' | 'control' | 'warden' | 'temple' | 'sanctum' | 'altar' | 'peak' | 'city';
   /** Ambient/sun override; defaults to neutral daylight. */
   light?: AreaLight;
   // ---- Look extras (data/looks.ts fills these for the Caves and Mines; others keep the flat sky). ----
@@ -155,8 +165,8 @@ export interface AreaDef {
   name: string;
   kind: 'city' | 'field' | 'boss';
   audio: AreaAudio;
-  /** Boss areas: who lives here. */
-  boss?: BossId;
+  /** Boss areas: who lives here (a pinnacle arena's boss is rift-only). */
+  boss?: RiftBossId;
   /** Field areas: elite and rare (Nar Lily) spawns can appear. */
   elites?: boolean;
   /** Elites roll an affix from `affixPool` (Mines: Overclocked / Volatile) instead of plain elite stats. */
@@ -201,7 +211,7 @@ export function expeditionOf(area: AreaId): ExpeditionId | null {
 /** The boss at the end of an expedition. */
 export function bossOf(exp: ExpeditionId): BossId {
   const boss = areas[expeditions[exp].floors[expeditions[exp].floors.length - 1]].boss;
-  if (!boss) throw new Error(`expedition ${exp} has no boss arena`);
+  if (!boss || boss === 'gryphon') throw new Error(`expedition ${exp} has no boss arena`);
   return boss;
 }
 
@@ -691,6 +701,39 @@ export const areas: Record<AreaId, AreaDef> = {
     rooms: [{ id: 'k0', x: 0, z: 0, w: 10, h: 10, features: [{ kind: 'start', tx: 5, tz: 5 }] }],
     links: [],
   },
+  // Gal Gryphon (the Rift Map's Circle II pinnacle, 2026-10-21): Storm Peak, a round stone summit above a sea of
+  // cloud, six lightning rods round it (placed by the boss, galGryphon.rodRing). Rift-only. The sky is a bright
+  // silver-blue overcast with a pale sun showing through and the rain still falling (2026-10-22, the user: the dark
+  // storm sky looked too depressing).
+  stormPeak: {
+    id: 'stormPeak',
+    name: 'Storm Peak',
+    kind: 'boss',
+    audio: { track: null, after: 'forest', space: 'open', step: 'step.stone' },
+    boss: 'gryphon',
+    theme: {
+      floor: 0x767b85, floorAlt: 0x6c717b, wall: 0x515866, wallHeight: 1,
+      sky: 0xa9bed3, fogNear: 50, fogFar: 170, trees: false, scenery: 'peak',
+      light: { hemiSky: 0xe2ecf7, hemiGround: 0x46566a, hemi: 1.3, sunColor: 0xfff2dc, sun: 1.35 },
+      skybox: {
+        top: 0x5d7fa6, horizon: 0xb4c6d8, bottom: 0x8a9db2,
+        nebulae: [
+          { color: 0xdbe5ef, dir: [0.4, 0.3, -1], size: 260, opacity: 0.35 },
+          { color: 0x9fb1c4, dir: [-0.7, 0.25, 0.4], size: 240, opacity: 0.35 },
+        ],
+        // A pale sun through the overcast: lit from the front, so the face you see is bright.
+        planet: { color: 0xfff7e6, glow: 0xffefc8, glowOpacity: 0.45, dir: [0.35, 0.45, -1], size: 26, light: [-0.35, -0.45, 1] },
+      },
+      fogColor: 0x9eb0c3,
+      bloom: { strength: 0.32, radius: 0.35, threshold: 0.8 },
+      accent: 0x8ae8ff, accent2: 0xd9b24a, accent3: 0xeaf6ff, motes: 0xc8dcf0,
+    },
+    rooms: [
+      { id: 'arena', x: 0, z: 0, w: 17, h: 17, features: [{ kind: 'start', tx: 8.5, tz: 15.5 }] },
+    ],
+    links: [],
+  },
+
   riftBoss: {
     id: 'riftBoss',
     name: 'Rift Core',

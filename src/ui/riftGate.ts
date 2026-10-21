@@ -1,198 +1,340 @@
 import { forgeMult, type Character } from '../game/character';
-import { BOSSES, type BossId } from '../game/data/bosses';
-import { AFFIX_TIER_ILVL, maxAffixTier } from '../game/data/itemAffixes';
-import { UNIQUES, type RiftCircle } from '../game/data/uniques';
-import { weaponKinds } from '../game/data/items';
-import { bossUniques, CIRCLE_TIERS, CIRCLES, circleName, circleOf, firstKillOwed, hasFound } from '../game/riftCircles';
+import { BOSSES } from '../game/data/bosses';
+import { maxAffixTier } from '../game/data/itemAffixes';
+import { areas } from '../game/data/areas';
+import { UNIQUES } from '../game/data/uniques';
+import { RIFT_GEN } from '../game/riftGen';
+import { bossUniques, circleName, firstKillOwed, hasFound, riftUniqueOdds } from '../game/riftCircles';
 import {
-  modText, pickedTier, RIFT_MODS, riftCfg, riftGrowth, riftIlvl, riftLoot, riftName, riftSave, riftTierBonus, riftThreat, riftTitle, shardBossText,
-  shardRarity, sortedShards,
-  type RiftInfo, type RiftShard,
-} from '../game/rifts';
+  CACHE_NAME, enterBlock, isRoomKind, MAP_EDGES, MAP_IDS, MAP_NODES, mapCfg, nodeBoss, nodeCost, nodeCosts, nodeName, nodeRegion, nodeRoll, nodeShown,
+  nodeStatus, PINNACLE_BOSS, pinnacleQuarters, QUARTERS, resonance, type MapNode, type NodeKind, type RiftMapSave,
+} from '../game/riftMap';
+import { modText, RIFT_MODS, riftBossHp, riftIlvl, riftLoot, riftName, riftSave, riftThreat, type RiftInfo } from '../game/rifts';
+import type { RiftBiome } from '../game/riftTypes';
 import { esc, type Menu } from './Menus';
+import { kindLine } from './uniquesTab';
 
-// The Rift Gate in Pioneer 2 (DESIGN.md "Endgame: Falz Rifts"): open a plain rift of any unlocked tier, or one
-// from a Rift Shard in the stash; return to the open rift; see what each boss drops in each Rift Circle.
+// The Rift Gate in Pioneer 2, and a rift's teleporters (DESIGN.md "Endgame: Falz Rifts" > "The Rift Map"): the map
+// of nodes (rings are tiers, quarters the four bosses, the Heart at the centre) beside the picked node's details,
+// and Enter. Return goes back into a node left open. What each boss drops in each Rift Circle is on the inventory's
+// Uniques tab.
 
 export interface RiftGateApi {
   readonly char: Character;
-  /** The rift open this session (not complete), if any. */
+  /** The node run open this session (not complete), if any. */
   openRift(): RiftInfo | null;
-  startRift(tier: number): void;
-  startShard(uid: string): void;
-  shatterShard(uid: string): void;
+  /** Enter a node (the menu only offers it when enterBlock allows). */
+  enter(id: string): void;
   returnToRift(): void;
   closeMenu(): void;
 }
 
-type Tab = 'open' | 'shards' | 'circles';
+const REGION_COL: Record<RiftBiome, string> = { forest: '#74e06c', caves: '#43d6e0', mines: '#ffa53a', ruins: '#b78cff' };
+const REGION_NAME: Record<RiftBiome, string> = { forest: 'Forest', caves: 'Caves', mines: 'Mines', ruins: 'Ruins' };
+const HAZARDS: Record<RiftBiome, string> = {
+  forest: 'trees',
+  caves: 'vents or a poison marsh',
+  mines: 'crushers, lasers, slag and belts on power switches',
+  ruins: 'light pylons',
+};
+const PIN_COL = '#ffe08a';
+const HEART_COL = '#d27bff';
+const ROMAN = ['', 'I', 'II', 'III'];
+/** Node sizes on the map (its radius). */
+const SIZE: Record<NodeKind, number> = { room: 11, vault: 13, gauntlet: 12.5, boss: 16, pinnacle: 17, heart: 26 };
 
-const RIFT_BOSSES: BossId[] = ['dragon', 'derolle', 'warden', 'falz'];
+const f1 = (v: number) => Math.round(v * 10) / 10;
+const pol = (r: number, deg: number): [number, number] => [f1(r * Math.cos((deg * Math.PI) / 180)), f1(r * Math.sin((deg * Math.PI) / 180))];
+const pctOf = (v: number) => `${v >= 10 ? Math.round(v) : v.toFixed(1)}%`;
+const hp = (v: number) => (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : `${Math.round(v / 1000)}k`);
 
-/** The rift tier an item level first drops at. */
-const tierOfIlvl = (ilvl: number) => Math.ceil((ilvl - 100) / 2);
-
-/** "Item level 108 · affix tier 7": what a tier's drops can roll. */
-function ilvlLine(tier: number): string {
-  const ilvl = riftIlvl(tier);
-  const at = maxAffixTier(ilvl);
-  const next = AFFIX_TIER_ILVL.find((need) => need > ilvl);
-  const nextTier = next ? ` (tier ${at + 1} from rift tier ${tierOfIlvl(next)})` : '';
-  return `Item level ${ilvl} · affixes up to tier ${at}${nextTier}`;
+function shape(kind: NodeKind, r: number): string {
+  if (kind === 'vault') return `<path d="M0 ${-r}L${r} 0L0 ${r}L${-r} 0Z"/>`;
+  if (kind === 'gauntlet') return `<path d="M${[0, 1, 2, 3, 4, 5].map((i) => pol(r, i * 60).join(' ')).join('L')}Z"/>`;
+  if (kind === 'pinnacle') {
+    const a = f1(r * 0.32);
+    return `<path d="M0 ${-r}L${a} ${-a}L${r} 0L${a} ${a}L0 ${r}L${-a} ${a}L${-r} 0L${-a} ${-a}Z"/>`;
+  }
+  return `<circle r="${r}"/>`;
 }
 
-/** The next loot step above `tier`, if any. */
-function nextStep(tier: number): string {
-  const steps: [number, string][] = [
-    [tierOfIlvl(AFFIX_TIER_ILVL[6]), `affix tier 7 and Rift Circle ${circleName(2)}'s uniques`],
-    [tierOfIlvl(AFFIX_TIER_ILVL[7]), `affix tier 8 and Rift Circle ${circleName(3)}'s uniques`],
-  ];
-  const next = steps.find(([t]) => t > tier);
-  if (next) return `Next step: ${next[1]} at tier ${next[0]}.`;
-  return tier < riftCfg.maxTier
-    ? `Every affix tier and circle is open: deeper tiers still raise Rift-forging, item quantity and rarity, up to tier ${riftCfg.maxTier}.`
-    : `Tier ${riftCfg.maxTier} is the deepest rift: its drops are the best Rift-forged there are.`;
+function nodeColor(n: MapNode): string {
+  if (n.kind === 'pinnacle') return PIN_COL;
+  if (n.kind === 'heart') return HEART_COL;
+  return REGION_COL[nodeRegion(n)!];
 }
 
-/** "+12%" from a multiplier. */
-const pctUp = (m: number) => `+${Math.round((m - 1) * 100)}%`;
-const pct = (v: number) => `${v >= 10 ? Math.round(v) : v.toFixed(1)}%`;
+/** The rings, bands, quarter tints and labels under the nodes. */
+function backdrop(): string {
+  const arc = (R: number, a1: number, a2: number) => {
+    const [x1, y1] = pol(R, a1);
+    const [x2, y2] = pol(R, a2);
+    return `M${x1} ${y1} A${R} ${R} 0 0 1 ${x2} ${y2}`;
+  };
+  const labels: [number, string][] = [[454, 'CIRCLE I · TIERS 1-3'], [336, 'CIRCLE II · TIERS 4-6'], [204, 'CIRCLE III · TIERS 7-10']];
+  let s = `<defs><radialGradient id="rm-heart"><stop offset="0" stop-color="${HEART_COL}" stop-opacity=".6"/><stop offset=".55" stop-color="#7a3cff" stop-opacity=".18"/><stop offset="1" stop-color="#7a3cff" stop-opacity="0"/></radialGradient>`;
+  labels.forEach(([R], i) => (s += `<path id="rm-cl${i}" d="${arc(R, -79, -11)}"/>`));
+  s += '</defs><circle r="470" class="rm-band"/><circle r="348" class="rm-band b2"/><circle r="217" class="rm-band b3"/>';
+  for (const q of QUARTERS) {
+    const [x1, y1] = pol(470, q.ang - 45);
+    const [x2, y2] = pol(470, q.ang + 45);
+    s += `<path d="M0 0L${x1} ${y1}A470 470 0 0 1 ${x2} ${y2}Z" fill="${REGION_COL[q.region]}" fill-opacity=".05"/>`;
+  }
+  for (const a of [-45, 45, 135, 225]) {
+    const [x1, y1] = pol(44, a);
+    const [x2, y2] = pol(470, a);
+    s += `<line class="rm-spoke" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+  }
+  const rings = [...new Set(MAP_IDS.map((id) => MAP_NODES[id]).filter((n) => isRoomKind(n.kind)).map((n) => n.r))];
+  for (const r of rings) s += `<circle r="${r}" class="rm-ring"/>`;
+  s += '<circle r="348" class="rm-bound"/><circle r="217" class="rm-bound"/><circle r="470" class="rm-bound rim"/>';
+  labels.forEach(([, t], i) => (s += `<text class="rm-clabel"><textPath href="#rm-cl${i}" startOffset="50%" text-anchor="middle">${t}</textPath></text>`));
+  s += '<circle r="96" fill="url(#rm-heart)"/>';
+  const rim: [string, number, number, number][] = [['FOREST · DRAGON', 0, -487, 0], ['CAVES · DE ROL LE', 487, 0, 90], ['MINES · WARDEN', 0, 487, 0], ['RUINS · DARK FALZ', -487, 0, -90]];
+  rim.forEach(([t, x, y, rot], i) => {
+    s += `<text class="rm-rim" x="${x}" y="${y}" fill="${REGION_COL[QUARTERS[i].region]}" text-anchor="middle" dominant-baseline="middle" transform="rotate(${rot} ${x} ${y})">${t}</text>`;
+  });
+  return s + '<text class="rm-hlabel" x="0" y="47" text-anchor="middle">THE HEART</text>';
+}
+const BACKDROP = backdrop();
 
-/** The chosen tier at a glance: how much tougher than tier 1, how hard it hits you, and what its drops can roll. */
-function tierPreview(tier: number, ch: Character): string {
-  const g = riftGrowth(tier);
-  const ilvl = riftIlvl(tier);
-  const forge = forgeMult({ ilvl });
-  const top = maxAffixTier(ilvl);
-  const tiers = [top, top - 1, top - 2].filter((t) => t >= 1);
-  const odds = tiers.map((t, i) => `${[50, 30, 20][i]}% tier ${t}`).join(' · ');
-  const threat = riftThreat(tier, ch.maxHp, ch.damageTaken('strike'), ch.damageTaken('area'));
-  const enemies = [
-    tier === 1
-      ? "Each one as tough as its own Hell expedition, lifted to Lv 100, and hitting far harder"
-      : `vs tier 1: enemy HP ×${g.hp.toFixed(2)}, boss HP ×${g.bossHp.toFixed(2)}, heavy hits ×${g.heavy.toFixed(2)}, shots ×${g.chip.toFixed(2)}`,
-    `On you: a heavy hit takes about ${pct(threat.heavy)} of your HP (the hardest ${pct(threat.hardest)}), a shot ${pct(threat.chip)}`,
-    'Hell rules: every hit corrupts, every enemy has affixes',
-  ];
-  const loot = [
-    bonusText(riftTierBonus(tier)),
-    `Item level ${ilvl}: gear tiers 13-15, Rift-forged ${pctUp(forge)}`,
-    `Each affix rolls ${odds}`,
-    `Rares: 6 affixes and 3 dormant · Meseta +${10 * tier}%`,
-  ];
-  const col = (title: string, lines: string[]) =>
-    `<div class="rift-col"><div class="rift-col-title">${title}</div>${lines.map((l) => `<div>${esc(l)}</div>`).join('')}</div>`;
-  const where =
-    'Every rift opens onto a random region (the Forest, Caves, Mines or Ruins), with its look and hazards, and enemies from ' +
-    'every expedition, and ends at one of the four bosses at random.';
-  return `<div class="rift-preview">${col('Enemies', enemies)}${col('Loot', loot)}</div>
-    <div class="dim">${esc(nextStep(tier))}</div><div class="dim">${esc(where)}</div>`;
+/** The map: edges between shown nodes, then the nodes (state, kind, tier or circle inside, the picked one ringed). */
+function mapSvg(save: { map: RiftMapSave }, sel: string, all: boolean): string {
+  const map = save.map;
+  const shown = (id: string) => all || nodeShown(map, id);
+  let edges = '';
+  for (const e of MAP_EDGES) {
+    if (!shown(e.a) || !shown(e.b)) continue;
+    const a = MAP_NODES[e.a];
+    const b = MAP_NODES[e.b];
+    const sa = nodeStatus(map, e.a);
+    const sb = nodeStatus(map, e.b);
+    let cls = 'rm-e';
+    if (e.kind === 'req' || e.kind === 'seal') cls += ` ${e.kind}${sa === 'cleared' ? ' met' : ''}`;
+    else if (sa === 'cleared' && sb === 'cleared') cls += ' walked';
+    else if (sa === 'cleared' || sb === 'cleared') cls += ' reach';
+    else cls += ' dim';
+    const [ax, ay] = pol(a.r, a.ang);
+    const [bx, by] = pol(b.r, b.ang);
+    edges += e.kind === 'cross'
+      ? `<path class="${cls}" d="M${ax} ${ay} A${a.r} ${a.r} 0 0 1 ${bx} ${by}"/>`
+      : `<line class="${cls}" x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}"/>`;
+  }
+  let nodes = '';
+  // Rooms first, landmarks on top.
+  const order = [...MAP_IDS].sort((a, b) => Number(isRoomKind(MAP_NODES[b].kind)) - Number(isRoomKind(MAP_NODES[a].kind)));
+  for (const id of order) {
+    if (!shown(id)) continue;
+    const n = MAP_NODES[id];
+    const st = nodeStatus(map, id);
+    const col = nodeColor(n);
+    const r = SIZE[n.kind];
+    const fill = st === 'cleared' ? col : st === 'open' ? '#0d2366' : '#0a1438';
+    const stroke = st === 'cleared' ? '#eef5ff' : col;
+    const sop = st === 'locked' ? 0.4 : st === 'cleared' ? 0.75 : 1;
+    const txt = st === 'cleared' ? '#06102e' : st === 'open' ? '#eef5ff' : col;
+    const label = isRoomKind(n.kind) ? String(n.tier) : n.kind === 'boss' || n.kind === 'pinnacle' ? ROMAN[n.circle] : '';
+    let extra = '';
+    if (isRoomKind(n.kind) && st !== 'locked' && nodeRoll(map, id).mods.length >= 3) extra = `<circle class="rm-yel" r="${r + 4}"/>`;
+    if (n.kind === 'heart') extra = `<circle r="${r - 7}" fill="none" stroke="${col}" stroke-opacity=".7" stroke-width="1.2"/><circle r="${r - 14}" fill="${col}" fill-opacity="${st === 'locked' ? 0.25 : 0.7}"/>`;
+    const [x, y] = pol(n.r, n.ang);
+    nodes += `<g class="rm-n ${st}${sel === id ? ' sel' : ''}" data-act="node" data-arg="${id}" transform="translate(${x} ${y})"><title>${esc(tip(map, n))}</title>`
+      + `<circle class="rm-halo" r="${r + 6}" stroke="${col}"/>`
+      + `<g fill="${fill}" stroke="${stroke}" stroke-opacity="${sop}" stroke-width="${st === 'open' ? 2.4 : 1.4}">${shape(n.kind, r)}</g>${extra}`
+      + (label ? `<text text-anchor="middle" dominant-baseline="central" font-size="${n.tier >= 10 && isRoomKind(n.kind) ? 9.5 : 11}" fill="${txt}" fill-opacity="${st === 'locked' ? 0.6 : 1}">${label}</text>` : '')
+      + `<circle class="rm-selr" r="${r + 9}"/></g>`;
+  }
+  return `<svg class="rm-svg" viewBox="-505 -505 1010 1010" role="img" aria-label="Rift Map">${BACKDROP}${edges}${nodes}</svg>`;
 }
 
-/** "Item quantity +35% · Item rarity +42%". */
-const bonusText = ({ qty, rar }: { qty: number; rar: number }) => `Item quantity +${qty}% · Item rarity +${rar}%`;
-
-/** A shard's modifiers, and its loot: the tier's own and the modifiers' together. */
-function modsHtml(s: RiftShard): string {
-  const lines = s.mods.map((m) => `<li><b>${esc(RIFT_MODS[m].name)}</b> ${esc(modText(m, s.second))}</li>`);
-  if (s.boss) lines.unshift(`<li><b>Summons</b> ${esc(shardBossText(s.boss))}</li>`);
-  const mods = lines.length ? `<ul class="rift-mods">${lines.join('')}</ul>` : '<div class="dim">No modifiers.</div>';
-  return `${mods}<div class="rift-bonus">${bonusText(riftLoot(s))}</div>`;
+function tip(map: RiftMapSave, n: MapNode): string {
+  const st = nodeStatus(map, n.id);
+  if (isRoomKind(n.kind)) {
+    const r = nodeRoll(map, n.id);
+    return `${nodeName(n.id)} · ${CACHE_NAME[r.cache]} cache · ${r.mods.length} modifier${r.mods.length === 1 ? '' : 's'} · ${st}`;
+  }
+  return `${nodeName(n.id)} · tier ${n.tier} · ${st === 'cleared' ? 'killed' : st}`;
 }
 
-/** One unique in the circles table: found or not. */
-function uniqueChip(ch: Character, id: keyof typeof UNIQUES): string {
-  const u = UNIQUES[id];
-  const found = hasFound(ch.data, id);
-  const kind = u.base.type === 'unit' ? 'Unit' : u.base.type === 'weapon' ? weaponKinds[u.base.kind].label : u.base.slot;
-  return `<div class="rift-uq${found ? ' found' : ''}" title="${esc(`${u.effect}. Cost: ${u.cost}.`)}">
-    <span class="rift-uq-name">${found ? '✓ ' : ''}${esc(u.name)}</span><span class="rift-uq-kind">${esc(kind)}</span></div>`;
-}
-
-export class RiftGateMenu implements Menu {
+export class RiftMapMenu implements Menu {
   cls = 'rift-gate';
   closable = true;
-  private tab: Tab = 'open';
-  private tier: number;
-  private sel: string | null = null;
+  private sel: string;
+  /** Show the whole map, not just what's in reach. */
+  private all = false;
 
   constructor(private api: RiftGateApi) {
-    this.tier = pickedTier(riftSave(api.char.data));
+    const map = riftSave(api.char.data).map!;
+    // The node last picked, else the deepest room still open, else the way in.
+    const open = MAP_IDS.filter((id) => isRoomKind(MAP_NODES[id].kind) && nodeStatus(map, id) === 'open').sort((a, b) => MAP_NODES[b].tier - MAP_NODES[a].tier);
+    this.sel = map.sel && MAP_NODES[map.sel] ? map.sel : open[0] ?? 'N1';
   }
 
   render(): string {
     const save = riftSave(this.api.char.data);
+    const map = save.map!;
     const open = this.api.openRift();
-    const label: Record<Tab, string> = { open: 'Open a rift', shards: `Shards (${save.shards.length}/${riftCfg.stash})`, circles: 'Rift Circles' };
-    const tabs = (['open', 'shards', 'circles'] as Tab[])
-      .map((t) => `<button class="tab${this.tab === t ? ' on' : ''}" data-act="tab" data-arg="${t}">${label[t]}</button>`)
-      .join('');
     const openRow = open
-      ? `<div class="rift-open"><span>Open: <b>${esc(riftName(open))}</b>${open.mods.length ? ` · ${open.mods.length} modifier${open.mods.length > 1 ? 's' : ''}` : ''}${open.boss ? ' · boss' : ''}</span>
+      ? `<div class="rift-open"><span>Open: <b>${esc(open.boss ? nodeName(open.node) : riftName(open))}</b>${open.mods.length ? ` · ${open.mods.length} modifier${open.mods.length > 1 ? 's' : ''}` : ''}</span>
         <button class="btn small" data-act="return">Return</button></div>`
       : '';
-    const body = this.tab === 'open' ? this.openTab(save.tier, !!open) : this.tab === 'shards' ? this.shardTab(save.shards, !!open) : this.circlesTab(save.tier);
-    return `<div class="menu-head"><div class="win-title">Rift Gate</div><span class="head-gap"></span><button class="btn small" data-act="close">Close</button></div>
-      <p class="menu-text">Dark Falz is gone, but Ragol remembers it: every rift pulls the planet's creatures together, stronger every tier.
-      Tiers 1-${save.tier} open · ${save.clears} closed${save.best ? ` · best tier ${save.best}` : ''}. Tier ${riftCfg.maxTier} is the deepest.</p>
-      ${openRow}<div class="tabs">${tabs}</div>${body}`;
+    const res = QUARTERS.map((q) => {
+      const v = resonance(save, q.boss);
+      const pips = Array.from({ length: mapCfg.resonanceCap }, (_, i) => `<i class="rm-pip${i < v ? ' on' : ''}"></i>`).join('');
+      return `<div class="rm-res" style="color:${REGION_COL[q.region]}" title="Resonance: every room node cleared in the ${REGION_NAME[q.region]} quarter adds one; a ${esc(BOSSES[q.boss].name)} replay takes ${mapCfg.resonanceCost}, a pinnacle beside its quarter ${mapCfg.pinnacleCost}">
+        <b>${esc(BOSSES[q.boss].name)}</b><span class="rm-pips">${pips}</span></div>`;
+    }).join('');
+    return `<div class="menu-head"><div class="win-title">Rift Gate</div><span class="head-gap"></span>
+        <button class="btn small${this.all ? '' : ' ghost'}" data-act="all">${this.all ? 'Show what is in reach' : 'Show the whole map'}</button>
+        <button class="btn small" data-act="close">Close</button></div>
+      <p class="menu-text">Rings are tiers, 1 at the rim to 10 at the centre; each quarter is a boss's. Clearing a node opens what it links to, and every node stays open to run again: rooms roll new modifiers and a new cache each clear.
+        ${save.clears} cleared · deepest tier ${save.tier}.</p>
+      ${openRow}
+      <div class="rm-body"><div class="rm-mapcol"><div class="rm-map">${mapSvg({ map }, this.sel, this.all)}</div>
+        <div class="rm-resbar">${res}</div></div>
+        <div class="rm-detail">${this.detail(this.sel, !!open)}</div></div>`;
   }
 
-  private openTab(maxTier: number, hasOpen: boolean): string {
-    const t = Math.min(this.tier, maxTier);
-    const c = circleOf(t);
-    const [lo, hi] = CIRCLE_TIERS[c];
-    const next = maxTier < riftCfg.maxTier ? `Close tier ${maxTier} to open tier ${maxTier + 1}.` : `Every tier is open.`;
-    return `<div class="rift-pick">
-      <div class="rift-line"><span class="rift-label">Tier</span>
-        <button class="btn small ghost${t <= 1 ? ' disabled' : ''}" data-act="tier" data-arg="-1">−</button>
-        <span class="rift-tier">${t}</span>
-        <button class="btn small ghost${t >= maxTier ? ' disabled' : ''}" data-act="tier" data-arg="1">+</button>
-        <button class="btn small ghost${t >= maxTier ? ' disabled' : ''}" data-act="tier" data-arg="max">Max</button>
-        <span class="rift-circle">Rift Circle ${circleName(c)} · tiers ${lo}-${hi}</span></div>
-      ${tierPreview(t, this.api.char)}
-      <div class="dim">${next} Rift bosses drop their own uniques, more of them each circle: the first kill of each boss in a circle always drops one (Rift Circles tab).</div>
-      <div class="choices menu-list"><button class="btn" data-act="start">Open the rift${hasOpen ? '<span class="btn-sub">The rift you have open collapses</span>' : ''}</button></div>
-    </div>`;
+  private detail(id: string, hasOpen: boolean): string {
+    const n = MAP_NODES[id];
+    if (isRoomKind(n.kind)) return this.roomDetail(n, hasOpen);
+    if (n.kind === 'boss') return this.bossDetail(n, hasOpen);
+    if (n.kind === 'pinnacle' && PINNACLE_BOSS[n.id]) return this.pinnacleDetail(n, hasOpen);
+    return this.gatedDetail(n);
   }
 
-  private shardTab(shards: RiftShard[], hasOpen: boolean): string {
-    if (!shards.length) return '<div class="dim empty-note">No Rift Shards yet. Rift bosses and champions drop them.</div>';
-    const list = sortedShards(shards);
-    if (!this.sel || !shards.some((s) => s.uid === this.sel)) this.sel = list[0].uid;
-    const rows = list
-      .map((s) => {
-        const r = shardRarity(s);
-        return `<div class="row${r === 'rare' ? ' r-rare' : ' r-magic'}${this.sel === s.uid ? ' sel' : ''}" data-act="sel" data-arg="${s.uid}">
-          <span class="rift-shard-ico"></span><span class="row-name">${esc(riftTitle(s))}${s.boss ? ` · ${esc(BOSSES[s.boss].name)}` : ''}</span><span class="price">${s.mods.length}</span></div>`;
-      })
-      .join('');
-    const s = shards.find((x) => x.uid === this.sel)!;
-    const detail = `<div class="detail-title ${shardRarity(s) === 'rare' ? 'r-rare' : 'r-magic'}">${esc(riftTitle(s))}</div>
-      <div class="dim">${esc(ilvlLine(s.tier))} · Rift Circle ${circleName(circleOf(s.tier))}</div>${modsHtml(s)}
-      <div class="choices menu-list">
-        <button class="btn" data-act="shard" data-arg="${s.uid}">Enter${hasOpen ? '<span class="btn-sub">The rift you have open collapses</span>' : ''}</button>
-        <button class="btn" data-act="shatter" data-arg="${s.uid}">Shatter<span class="btn-sub">Destroy this shard</span></button>
-      </div>`;
-    return `<div class="split"><div class="list">${rows}</div><div class="detail">${detail}</div></div>`;
+  private stateChip(n: MapNode): string {
+    const map = riftSave(this.api.char.data).map!;
+    const st = nodeStatus(map, n.id);
+    const times = map.nodes[n.id]?.n ?? 0;
+    if (st === 'cleared') return `<span class="rm-chip cleared">${isRoomKind(n.kind) ? 'Cleared' : 'Killed'}${times > 1 ? ` ${times}×` : ''}</span>`;
+    if (st === 'open') return `<span class="rm-chip open">${n.kind === 'boss' || n.kind === 'pinnacle' ? 'Open · first kill' : 'Open'}</span>`;
+    return `<span class="rm-chip">${isRoomKind(n.kind) ? 'Locked' : 'Sealed'}</span>`;
   }
 
-  /** Each boss's uniques by circle: found ones ticked, circles not reached yet dimmed, first kills still owed marked. */
-  private circlesTab(maxTier: number): string {
+  private enterBtn(n: MapNode, hasOpen: boolean): string {
+    const save = riftSave(this.api.char.data);
+    const open = this.api.openRift();
+    if (open?.node === n.id) return '<div class="rm-act"><button class="btn primary" data-act="return">Return<span class="btn-sub">Back into the node you have open</span></button></div>';
+    const block = enterBlock(save, n.id);
+    const sub = hasOpen ? 'The node you have open collapses' : '';
+    const enterable = n.kind === 'boss' || isRoomKind(n.kind) || (n.kind === 'pinnacle' && !!PINNACLE_BOSS[n.id] && nodeStatus(save.map!, n.id) !== 'locked');
+    if (block) return `<div class="rm-act"><button class="btn disabled">${enterable ? 'Enter' : 'Sealed'}</button><div class="dim">${esc(block)}</div></div>`;
+    return `<div class="rm-act"><button class="btn primary" data-act="enter" data-arg="${n.id}">Enter${sub ? `<span class="btn-sub">${sub}</span>` : ''}</button></div>`;
+  }
+
+  private roomDetail(n: MapNode, hasOpen: boolean): string {
     const ch = this.api.char;
     const save = riftSave(ch.data);
-    const reached = circleOf(maxTier);
-    const head = CIRCLES.map((c) => `<div class="rift-uq-head${c > reached ? ' locked' : ''}">Circle ${circleName(c)}<span class="dim"> · tiers ${CIRCLE_TIERS[c][0]}-${CIRCLE_TIERS[c][1]}</span></div>`).join('');
-    const rows = RIFT_BOSSES.map((boss) => {
-      const cells = CIRCLES.map((c: RiftCircle) => {
-        const owed = c <= reached && firstKillOwed(save, boss, c);
-        return `<div class="rift-uq-cell${c > reached ? ' locked' : ''}">${bossUniques(boss, c, c).map((id) => uniqueChip(ch, id)).join('')}
-          ${owed ? '<div class="rift-uq-first">First kill here drops one</div>' : ''}</div>`;
-      }).join('');
-      return `<div class="rift-uq-boss">${esc(BOSSES[boss].name)}</div>${cells}`;
-    }).join('');
-    return `<div class="rift-uq-grid"><div></div>${head}${rows}</div>
-      <div class="dim">Each boss drops only its own: this circle's two, and the earlier circles' less often. Hover one to see what it does. Unique units are learned into the Mag: run as many as your frame has unit slots.</div>`;
+    const map = save.map!;
+    const roll = nodeRoll(map, n.id);
+    const region = nodeRegion(n)!;
+    const boss = nodeBoss(n)!;
+    const loot = riftLoot({ tier: n.tier, mods: roll.mods });
+    const ilvl = riftIlvl(n.tier);
+    const mult = n.kind === 'vault' ? mapCfg.vaultMult : 1;
+    const cache =
+      roll.cache === 'photons'
+        ? `+${mapCfg.spheres * mult} Photon Spheres and a ${pctOf(100 * Math.min(1, mapCfg.crystal * mult))} chance of a Crystal`
+        : `+${mapCfg.cache * mult} ${roll.cache === 'weapons' ? 'rare weapons' : roll.cache === 'armour' ? 'rare frames or barriers' : 'units'}`;
+    const length = n.kind === 'vault'
+      ? 'One big room: three champion packs, one after another, guard the vault. About 2 min.'
+      : n.kind === 'gauntlet'
+        ? `Hold one big room for ${RIFT_GEN.hold.time} s against waves that keep coming, then clear the rest.`
+        : 'Three fight rooms (now and then a bonus room), then the Guardian room. About 4 min.';
+    const threat = riftThreat(n.tier, ch.maxHp, ch.damageTaken('strike'), ch.damageTaken('area'));
+    const mods = roll.mods.length
+      ? `<ul class="rm-mods">${roll.mods.map((m) => `<li><span><b>${esc(RIFT_MODS[m].name)}</b> ${esc(modText(m, roll.second))}</span><em>+${RIFT_MODS[m].qty}% / +${RIFT_MODS[m].rar}%</em></li>`).join('')}</ul>`
+      : '<div class="dim">No modifiers: the tier alone.</div>';
+    const kind = n.kind === 'vault' ? 'Vault' : n.kind === 'gauntlet' ? 'Gauntlet' : 'Room';
+    return `<div class="rm-eyebrow">${kind} · Tier ${n.tier} · Circle ${circleName(n.circle)}</div>
+      <div class="rm-title">${esc(nodeName(n.id))}</div>
+      <div class="rm-chips">${this.stateChip(n)}<span class="rm-chip" style="color:${REGION_COL[region]}">${esc(BOSSES[boss].name)}'s quarter</span></div>
+      <dl class="rm-facts">
+        <dt>Length</dt><dd>${esc(length)}</dd>
+        <dt>Look</dt><dd>${esc(areas[roll.look].name)}: ${esc(HAZARDS[region])}. Waves from every expedition.</dd>
+        <dt>Cache</dt><dd><b>${CACHE_NAME[roll.cache]}</b>: ${esc(cache)}${n.kind === 'gauntlet' ? `, and one more for every ${mapCfg.killsPerPiece} kills` : ''}, on top of the end drop.</dd>
+        <dt>Loot</dt><dd>Item level ${ilvl} · affixes up to tier ${maxAffixTier(ilvl)} · Rift-forged +${Math.round((forgeMult({ ilvl }) - 1) * 100)}%</dd>
+        <dt>Finds</dt><dd>Item quantity +${loot.qty}% · rarity +${loot.rar}%</dd>
+        <dt>On you</dt><dd>A heavy hit takes about ${pctOf(threat.heavy)} of your HP (the hardest ${pctOf(threat.hardest)}), a shot ${pctOf(threat.chip)}</dd>
+        <dt>Feeds</dt><dd>${esc(BOSSES[boss].name)} Resonance +1 (now ${resonance(save, boss)}/${mapCfg.resonanceCap})</dd>
+      </dl>
+      <div class="rm-sub">Modifiers</div>${mods}
+      ${this.enterBtn(n, hasOpen)}`;
+  }
+
+  private bossDetail(n: MapNode, hasOpen: boolean): string {
+    const ch = this.api.char;
+    const save = riftSave(ch.data);
+    const boss = nodeBoss(n)!;
+    const region = nodeRegion(n)!;
+    const owed = firstKillOwed(save, boss, n.circle);
+    const own = bossUniques(boss, n.circle, n.circle);
+    const uq = own
+      .map((id) => `<li class="${hasFound(ch.data, id) ? 'got' : ''}" title="${esc(`${UNIQUES[id].effect}. Cost: ${UNIQUES[id].cost}.`)}"><b>${esc(UNIQUES[id].name)}</b><span>${esc(kindLine(id))}</span></li>`)
+      .join('');
+    const cost = nodeCost(save, n.id);
+    const replay = owed
+      ? 'The first kill in this circle always drops one of these (one you lack first), and takes no Resonance.'
+      : cost
+        ? `Each fight takes ${cost} ${BOSSES[boss].name} Resonance, from rooms cleared in its quarter. A kill drops one of its uniques now and then.`
+        : 'Its first kill takes no Resonance. A kill drops one of its uniques now and then.';
+    const opens = n.circle < 3 ? `Tier ${n.tier + 1} in the ${REGION_NAME[region]} quarter` : 'A seal of the Heart; with its neighbour, a pinnacle';
+    return `<div class="rm-eyebrow">Boss · Tier ${n.tier} · Circle ${circleName(n.circle)}</div>
+      <div class="rm-title">${esc(BOSSES[boss].name)} · Circle ${circleName(n.circle)}</div>
+      <div class="rm-chips">${this.stateChip(n)}<span class="rm-chip" style="color:${REGION_COL[region]}">${REGION_NAME[region]} arena</span></div>
+      <dl class="rm-facts">
+        <dt>Fight</dt><dd>Its own arena with Hell's third phase and its Hell mechanic.</dd>
+        <dt>HP</dt><dd>${hp(riftBossHp({ bossRegion: region, tier: n.tier, mods: [] }))}</dd>
+        <dt>Opens</dt><dd>${esc(opens)}</dd>
+      </dl>
+      <div class="rm-sub">Circle ${circleName(n.circle)} uniques</div><ul class="rm-uq">${uq}</ul>
+      <div class="dim">${esc(replay)}${n.circle > 1 ? ` Earlier circles' uniques can drop here too.` : ''}</div>
+      ${this.enterBtn(n, hasOpen)}`;
+  }
+
+  /** A pinnacle with its boss (Gal Gryphon at P2NE): the fight, its uniques, what it needs to open and to replay. */
+  private pinnacleDetail(n: MapNode, hasOpen: boolean): string {
+    const ch = this.api.char;
+    const save = riftSave(ch.data);
+    const map = save.map!;
+    const boss = PINNACLE_BOSS[n.id]!;
+    const owed = firstKillOwed(save, boss, n.circle);
+    const uq = bossUniques(boss, n.circle, n.circle)
+      .map((id) => `<li class="${hasFound(ch.data, id) ? 'got' : ''}" title="${esc(`${UNIQUES[id].effect}. Cost: ${UNIQUES[id].cost}.`)}"><b>${esc(UNIQUES[id].name)}</b><span>${esc(kindLine(id))}</span></li>`)
+      .join('');
+    const quarters = pinnacleQuarters(n);
+    const each = quarters.map((b) => `${mapCfg.pinnacleCost} ${BOSSES[b].name} (now ${resonance(save, b)}/${mapCfg.resonanceCap})`).join(' and ');
+    const costs = nodeCosts(save, n.id);
+    const replay = owed
+      ? 'Its first kill always drops one of these (one you lack first), and takes no Resonance.'
+      : `Each fight takes ${each} Resonance${Object.keys(costs).length ? '' : ' once it has been killed'}. A kill drops one of its uniques ${Math.round(riftUniqueOdds(save, boss) * 100)}% of the time, twice a boss's odds, more with every kill in a row without one.`;
+    const reqs = n.req!.map((id) => `<li class="${nodeStatus(map, id) === 'cleared' ? 'ok' : ''}">${esc(nodeName(id))}</li>`).join('');
+    const region = (b: typeof quarters[number]) => QUARTERS.find((q) => q.boss === b)!.region;
+    return `<div class="rm-eyebrow">Pinnacle · Tier ${n.tier} · Circle ${circleName(n.circle)}</div>
+      <div class="rm-title">${esc(BOSSES[boss].name)}</div>
+      <div class="rm-chips">${this.stateChip(n)}<span class="rm-chip" style="color:${PIN_COL}">Storm Peak</span></div>
+      <dl class="rm-facts">
+        <dt>Fight</dt><dd>A storm griffin on a summit ringed by six lightning rods. When it calls the storm, stand by a rod: the bolts bend into it, and a full rod grounds the Gryphon, weak point open. Bolts that miss the rods strike you.</dd>
+        <dt>HP</dt><dd>${hp(riftBossHp({ bossRegion: 'forest', pinnacle: boss, tier: n.tier, mods: [] }))}</dd>
+        <dt>Between</dt><dd>${quarters.map((b) => `<span style="color:${REGION_COL[region(b)]}">${esc(BOSSES[b].name)}'s ${REGION_NAME[region(b)]}</span>`).join(' and ')} quarters</dd>
+      </dl>
+      <div class="rm-sub">Its uniques</div><ul class="rm-uq">${uq}</ul>
+      <div class="dim">${esc(replay)}</div>
+      <div class="rm-sub">Opens when both are dead</div><ul class="rm-req">${reqs}</ul>
+      ${this.enterBtn(n, hasOpen)}`;
+  }
+
+  private gatedDetail(n: MapNode): string {
+    const map = riftSave(this.api.char.data).map!;
+    const heart = n.kind === 'heart';
+    const reqs = n.req!.map((id) => `<li class="${nodeStatus(map, id) === 'cleared' ? 'ok' : ''}">${esc(nodeName(id))}</li>`).join('');
+    const where = heart ? 'The centre of the map, the end of the game.' : `Between two quarters, past their Circle ${circleName(n.circle)} bosses.`;
+    return `<div class="rm-eyebrow">${heart ? 'The Heart · final node' : `Pinnacle · Tier ${n.tier} · Circle ${circleName(n.circle)}`}</div>
+      <div class="rm-title">${esc(nodeName(n.id))}</div>
+      <div class="rm-chips">${this.stateChip(n)}<span class="rm-chip">Boss still to come</span></div>
+      <p>${esc(where)} A new boss will stand here, with uniques of its own.</p>
+      <div class="rm-sub">${heart ? 'Four seals' : 'Opens when both are dead'}</div><ul class="rm-req">${reqs}</ul>`;
   }
 
   onAction(act: string, arg: string): void {
@@ -201,29 +343,28 @@ export class RiftGateMenu implements Menu {
       case 'close':
         this.api.closeMenu();
         break;
-      case 'tab':
-        this.tab = arg as Tab;
+      case 'all':
+        this.all = !this.all;
         break;
-      case 'tier':
-        this.tier = arg === 'max' ? save.tier : Math.max(1, Math.min(save.tier, Math.min(this.tier, save.tier) + Number(arg)));
-        save.picked = this.tier;
-        break;
-      case 'sel':
+      case 'node':
         this.sel = arg;
+        save.map!.sel = arg;
         break;
-      case 'start':
-        this.api.startRift(Math.min(this.tier, save.tier));
-        break;
-      case 'shard':
-        this.api.startShard(arg);
-        break;
-      case 'shatter':
-        this.api.shatterShard(arg);
-        this.sel = null;
+      case 'enter':
+        if (!enterBlock(save, arg)) this.api.enter(arg);
         break;
       case 'return':
         this.api.returnToRift();
         break;
     }
+  }
+
+  onKey(e: KeyboardEvent): boolean {
+    // Enter goes into the picked node (when it can be entered).
+    if (e.key !== 'Enter') return false;
+    if (this.api.openRift()?.node === this.sel) this.api.returnToRift();
+    else if (!enterBlock(riftSave(this.api.char.data), this.sel)) this.api.enter(this.sel);
+    else return false;
+    return true;
   }
 }

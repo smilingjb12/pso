@@ -1,6 +1,6 @@
 import type * as THREE from 'three';
 import type { EnemyId } from '../config';
-import type { BossId } from '../data/bosses';
+import type { RiftBossId } from '../data/bosses';
 import type { CcKind } from '../ccResist';
 import type { Hittable, StatusTimer } from '../combat/types';
 import type { Level } from '../world/Level';
@@ -52,7 +52,7 @@ export interface BossContext {
 
 /** An area boss: one or more hittable parts plus its own state machine. */
 export interface Boss {
-  readonly id: BossId;
+  readonly id: RiftBossId;
   readonly name: string;
   readonly atp: number;
   /** Whole-boss HP (damage dealt to it charges injectors). */

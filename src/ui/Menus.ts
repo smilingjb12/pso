@@ -1,6 +1,6 @@
 import {
   affixLines, dropVerdict, fitsSlot, GEAR_SLOTS, gearSlot, gearVerdict, isGearItem, itemHeadline, itemName,
-  MAG_UNIT_SLOTS, magPointValue, rarityOf, sellPrice, simulateEquip, simulateUnits, unitKind, type Character, type GearSlot, type ItemInstance, type UnitKind,
+  MAG_UNIT_SLOTS, magPointValue, rarityOf, sellPrice, simulateEquip, simulateUnits, unitKind, unitTitle, type Character, type GearSlot, type ItemInstance, type UnitKind,
 } from '../game/character';
 import { craftPlan } from '../game/crafting';
 import { damageBreakdown, type Foe } from '../game/dps';
@@ -20,6 +20,7 @@ import { sfx, type SfxId } from '../audio';
 import { itemGlyph, techIcon } from './icons';
 import { modIcon, passiveIcon } from './skillIcons';
 import { itemCardHtml } from './itemCard';
+import { uniquesTabHtml, type UniqueFilter } from './uniquesTab';
 
 // DOM menus. All menus pause the game; the Game owns open/close.
 
@@ -37,10 +38,9 @@ export interface GameApi {
   artSlot(slot: number, id: ArtId | null): string | null;
   /** The photon blast the Mag fires. */
   photonBlastPick(id: PhotonBlastId): string | null;
-  /** Slot a learned unit (by kind) into the Mag, take one out, or reorder them. */
+  /** Slot a learned unit (by kind) into the Mag, or take one out. */
   unitInsert(kind: UnitKind): string | null;
   unitRemove(index: number): string | null;
-  unitMove(index: number, dir: number): string | null;
   /** Switch exactly these learned units on (they go first in the Mag). */
   unitSet(kinds: UnitKind[]): string | null;
   /** Sell all bag gear that is worse than what is worn. */
@@ -83,8 +83,16 @@ const unitLine = (u: ItemInstance): string => {
   const q = unitUnique(u);
   return q ? `${q.effect} · Cost: ${q.cost}` : affixLines(u).join(', ');
 };
+/** A unit's name over what it does (a unique unit's cost on a line of its own), for the Mag tab's rows. */
+const unitText = (u: ItemInstance): string => {
+  const q = unitUnique(u);
+  const does = q
+    ? `<span class="unit-eff">${esc(q.effect)}</span><span class="unit-eff cost">Cost: ${esc(q.cost)}</span>`
+    : `<span class="unit-eff">${esc(affixLines(u).join(', '))}</span>`;
+  return `<span class="unit-text"><span class="unit-name${rarityCls(u)}">${esc(unitTitle(u))}</span>${does}</span>`;
+};
 
-const GAME_SOUNDED = new Set(['buy', 'sell', 'sellJunk', 'salvageJunk', 'equip', 'dmgEquip', 'unequip', 'magAdd', 'skillUp', 'skillMax', 'skillDown', 'artPick', 'artClear', 'pbPick', 'unitIn', 'unitOut', 'unitMove', 'dmgUnitsUse', 'use', 'learn', 'craftApply']);
+const GAME_SOUNDED = new Set(['buy', 'sell', 'sellJunk', 'salvageJunk', 'equip', 'dmgEquip', 'unequip', 'magAdd', 'skillUp', 'skillMax', 'skillDown', 'artPick', 'artClear', 'pbPick', 'unitIn', 'unitOut', 'dmgUnitsUse', 'use', 'learn', 'craftApply']);
 const ACT_SOUND: Record<string, SfxId> = {
   pick: 'ui.confirm', load: 'ui.confirm', new: 'ui.confirm', doDelete: 'ui.confirm',
   close: 'ui.cancel', cancelDelete: 'ui.cancel', cancelCraft: 'ui.cancel', quit: 'ui.cancel',
@@ -230,8 +238,8 @@ export class ChoiceMenu implements Menu {
 
 // --------------------------------------------------------------- inventory
 
-type InvTab = 'equip' | 'items' | 'arts' | 'skills' | 'mag' | 'status' | 'damage';
-const TAB_LABEL: Record<InvTab, string> = { equip: 'Equipment', items: 'Items', arts: 'Arts', skills: 'Skills', mag: 'Mag', status: 'Status', damage: 'Damage' };
+type InvTab = 'equip' | 'items' | 'arts' | 'skills' | 'mag' | 'status' | 'damage' | 'uniques';
+const TAB_LABEL: Record<InvTab, string> = { equip: 'Equipment', items: 'Items', arts: 'Arts', skills: 'Skills', mag: 'Mag', status: 'Status', damage: 'Damage', uniques: 'Uniques' };
 /** The Art bar's keys. */
 const ART_KEYS = ['RMB', 'Q', 'E', 'R'];
 const ROLE_LABEL: Record<string, string> = { area: 'Area', single: 'Single target', support: 'Support' };
@@ -239,7 +247,7 @@ const SLOT_LABEL: Record<GearSlot, string> = { weapon: 'Weapon', frame: 'Frame',
 
 
 /**
- * Stat gains as text, the two damage-taken stats merged when they move together: "Weapon damage +3 · HP +3",
+ * Stat gains as text, the two damage-taken stats merged when they move together: "Tech damage +3 · TP +2",
  * "Damage taken −1% · HP +4", "Crit chance +0.2%".
  */
 function gainsText(gains: [StatKey, number][]): string {
@@ -306,6 +314,8 @@ export class InventoryMenu implements Menu {
   private dmgPick: Partial<Record<'weapon' | 'frame' | 'barrier', string>> = {};
   /** Damage tab: units switched on to compare (null = the Mag's active units now). */
   private dmgUnits: UnitKind[] | null = null;
+  /** Uniques tab: whose uniques show. */
+  private uqFilter: UniqueFilter = 'all';
 
   constructor(private api: GameApi) {}
 
@@ -319,8 +329,8 @@ export class InventoryMenu implements Menu {
       mag: [this.ch.magPoints, 'Mag point'],
       skills: [this.ch.skillPointsFree, 'skill point'],
     };
-    // Units switched off by the frame, or a free slot with units in the bag: the Mag tab is flagged.
-    const unitWarn = this.ch.inactiveUnits > 0 ? `${this.ch.inactiveUnits} unit${this.ch.inactiveUnits > 1 ? 's' : ''} inactive: your frame has fewer unit slots` : this.ch.unitSlotIdle ? 'A unit slot is free and you have learned units to slot' : '';
+    // A free Mag slot with learned units to put in it: the Mag tab is flagged.
+    const unitWarn = this.ch.unitSlotIdle ? 'A unit slot is free and you have learned units to slot' : '';
     const tabs = (Object.keys(TAB_LABEL) as InvTab[])
       .map((t) => {
         const [pts, what] = unspent[t] ?? [0, ''];
@@ -339,6 +349,7 @@ export class InventoryMenu implements Menu {
     else if (this.tab === 'skills') body = this.renderSkills();
     else if (this.tab === 'status') body = this.renderStatus();
     else if (this.tab === 'arts') body = this.renderArts();
+    else if (this.tab === 'uniques') body = `${uniquesTabHtml(this.ch, this.uqFilter)}${this.foot()}`;
     else body = this.renderDamage();
     return `<div class="win-title">${esc(this.ch.data.name)} · Lv.${this.ch.level}</div>
       <div class="menu-head"><div class="tabs">${tabs}</div><span class="head-gap"></span><button class="btn small ghost" data-act="quit">Save &amp; quit</button><button class="btn small" data-act="close">Close <kbd>I</kbd></button></div>
@@ -640,10 +651,9 @@ export class InventoryMenu implements Menu {
       const inst = uid ? ch.find(uid) : undefined;
       if (inst) sim = simulateEquip(sim ?? ch, inst, slot);
     }
-    // Then the units switched on, in the slots of the frame worn (or picked).
+    // Then the units switched on.
     const unitsNow = ch.activeUnits().map((u) => unitKind(u)!);
     const unitsOn = this.dmgUnits ?? unitsNow;
-    const unitSlots = (sim ?? ch).unitSlotsOpen;
     if (this.dmgUnits) sim = simulateUnits(sim ?? ch, this.dmgUnits);
     const b2 = sim ? damageBreakdown(sim, foe) : null;
     const n = (v: number) => Math.round(v).toLocaleString();
@@ -692,22 +702,17 @@ export class InventoryMenu implements Menu {
         return row(`${esc(ARTS[x.id].name)} <span class="dim">· ${what} · ${x.tp} TP</span>`, rate(x), x2 && rate(x2));
       })
       .join('') || `<tr><td colspan="3" class="dim">No Arts on your bar (Menu → Arts).</td></tr>`;
-    // Units: a chip per learned unit (its affix), lit when switched on; the frame's slots cap how many.
-    const unitCap = Math.min(unitSlots, MAG_UNIT_SLOTS);
+    // Units: a chip per learned unit (its affix), lit when switched on; the Mag runs four.
     const chips = ch.data.units
       .map((u) => {
         const kind = unitKind(u)!;
-        const at = unitsOn.indexOf(kind);
-        const spare = at >= unitSlots; // on, but the (picked) frame has no slot left for it
-        const full = at < 0 && unitsOn.length >= unitCap;
-        const why =
-          at >= 0 ? (spare ? 'No slot for it in this frame: switch it off' : 'On: click to switch it off')
-          : full ? (unitSlots ? `Your frame opens ${unitSlots} unit slot${unitSlots === 1 ? '' : 's'}: switch one off first` : 'Your frame has no unit slots')
-          : 'Click to switch it on';
-        return `<button class="btn small dmg-chip${at >= 0 ? ' on' : ' ghost'}${spare ? ' spare' : ''}${full ? ' disabled' : ''}" data-act="dmgUnit" data-arg="${kind}" title="${esc(`${itemName(u)}${unitUnique(u) ? `: ${unitLine(u)}` : ''}. ${why}`)}">${esc(unitUnique(u) ? itemName(u) : unitLine(u))}</button>`;
+        const on = unitsOn.includes(kind);
+        const full = !on && unitsOn.length >= MAG_UNIT_SLOTS;
+        const why = on ? 'On: click to switch it off' : full ? `Your Mag runs ${MAG_UNIT_SLOTS} units: switch one off first` : 'Click to switch it on';
+        return `<button class="btn small dmg-chip${on ? ' on' : ' ghost'}${full ? ' disabled' : ''}" data-act="dmgUnit" data-arg="${kind}" title="${esc(`${itemName(u)}${unitUnique(u) ? `: ${unitLine(u)}` : ''}. ${why}`)}">${esc(unitUnique(u) ? itemName(u) : unitLine(u))}</button>`;
       })
       .join('');
-    const unitRow = `<div class="dmg-pick dmg-units"><span class="dmg-slot">Units <span class="dim">${Math.min(unitsOn.length, unitSlots)}/${unitSlots}</span></span>
+    const unitRow = `<div class="dmg-pick dmg-units"><span class="dmg-slot">Units <span class="dim">${unitsOn.length}/${MAG_UNIT_SLOTS}</span></span>
       <span class="dmg-chips">${chips || '<span class="dim">None learned yet</span>'}</span></div>`;
     const weaponTitle = kind2.label !== kind.label ? `${esc(kind.label)} → ${esc(kind2.label)}` : esc(kind.label);
     const crit = b2 && b2.critChance.toFixed(1) !== b.critChance.toFixed(1) ? `${b.critChance.toFixed(1)}% → ${b2.critChance.toFixed(1)}%` : `${b.critChance.toFixed(1)}%`;
@@ -777,7 +782,7 @@ export class InventoryMenu implements Menu {
         <div class="attr-list">${rows}</div>
         <div class="dim mag-note">One point per character level, into one track. Every point is permanent: the Mag is your long-term build, while Arts and skills change freely out of a fight. Its form follows the track with the most points.</div>
         ${this.photonBlastHtml()}</div>
-      <div class="detail">${this.unitsHtml()}</div></div>${this.foot()}`;
+      <div class="detail units-col">${this.unitsHtml()}</div></div>${this.foot()}`;
   }
 
   /** The Mag's photon blast: picked here once the Mag teaches them. */
@@ -950,23 +955,16 @@ export class InventoryMenu implements Menu {
   }
 
   /**
-   * The Mag's units: learned units slotted in priority order, the first N active where N is the equipped frame's
-   * unit slots. Reorder with ▲ ▼, take one out, or slot another learned one.
+   * The Mag's units (2026-10-21: four, all of them at work; frames' unit slots and the slot order went). Each row is
+   * the unit's name over what it does. Take one out, or click a learned one below to slot it.
    */
   private unitsHtml(): string {
     const ch = this.ch;
     const units = ch.slottedUnits();
-    const open = ch.unitSlotsOpen;
     const rows = Array.from({ length: MAG_UNIT_SLOTS }, (_, i) => {
       const u = units[i];
-      const active = i < open;
-      const tag = `<span class="unit-tag ${active ? 'on' : 'off'}">${active ? 'Active' : 'Inactive'}</span>`;
-      if (!u) return `<div class="unit-slot empty dim">${tag}— empty —</div>`;
-      // Order only matters when the frame switches some units off: then it decides which stay active.
-      const order = units.length > open;
-      const up = order && i > 0 ? `<button class="btn small ghost" data-act="unitMove" data-arg="${i}:-1" title="Move up (the first ones are active)">▲</button>` : '';
-      const down = order && i < units.length - 1 ? `<button class="btn small ghost" data-act="unitMove" data-arg="${i}:1" title="Move down">▼</button>` : '';
-      return `<div class="unit-slot${active ? '' : ' inactive'}">${tag}${glyph(u)}<span class="row-name${rarityCls(u)}" title="${esc(`${itemName(u)}: ${unitLine(u)}`)}">${esc(itemName(u))}: ${esc(unitLine(u))}</span>${up}${down}<button class="btn small ghost" data-act="unitOut" data-arg="${i}">Remove</button></div>`;
+      if (!u) return '<div class="unit-slot empty dim">— empty —</div>';
+      return `<div class="unit-slot">${glyph(u)}${unitText(u)}<button class="btn small ghost" data-act="unitOut" data-arg="${i}">Remove</button></div>`;
     }).join('');
     // Learned units not in the Mag: click one to slot it.
     // Best on top: rares (the downside units) first, then by item level.
@@ -975,15 +973,15 @@ export class InventoryMenu implements Menu {
     const full = units.length >= MAG_UNIT_SLOTS;
     const uniques = ch.data.units.filter((u) => unitUnique(u)).length;
     const plain = ch.data.units.length - uniques;
-    const learned = `<div class="list-group">Learned units (${plain} of ${UNIT_KINDS.length} kinds${uniques ? ` · ${uniques} unique` : ''})${spare.length && !full ? ': click one to slot it' : ''}</div>`;
+    const hint = !spare.length ? '' : full ? ' · the Mag is full: remove one to slot another' : ': click one to slot it';
+    const learned = `<div class="list-group">Learned units (${plain} of ${UNIT_KINDS.length} kinds${uniques ? ` · ${uniques} unique` : ''})${hint}</div>`;
     const pick = spare.length
-      ? `${learned}<div class="list short">${spare
-          .map((u) => `<div class="row${rarityCls(u)}${full ? ' dim' : ''}"${full ? '' : ` data-act="unitIn" data-arg="${unitKind(u)}"`}>${glyph(u)}<span class="row-name${rarityCls(u)}" title="${esc(`${itemName(u)}: ${unitLine(u)}`)}">${esc(itemName(u))}: ${esc(unitLine(u))}</span></div>`)
-          .join('')}</div>${full ? '<div class="dim units-note">The Mag is full: remove a unit to slot another.</div>' : ''}`
+      ? `${learned}<div class="list unit-list">${spare
+          .map((u) => `<div class="row${full ? ' dimmed' : ''}"${full ? '' : ` data-act="unitIn" data-arg="${unitKind(u)}"`}>${glyph(u)}${unitText(u)}</div>`)
+          .join('')}</div>`
       : `${learned}<div class="dim units-note">${ch.data.units.length ? 'Every learned unit is in the Mag.' : 'None yet.'} Picking up a unit learns it for good; a better roll of one you know replaces it.</div>`;
-    const frame = open ? `Your frame opens <b>${open}</b> unit slot${open === 1 ? '' : 's'}: the first ${open} unit${open === 1 ? ' is' : 's are'} active.` : 'Your frame has <b>no</b> unit slots: units stay inactive until you wear one that does.';
-    const choose = units.length > open && open > 0 ? ' Use ▲ ▼ to choose which.' : '';
-    return `<div class="units"><div class="detail-title">Units</div><div class="dim units-note">${frame}${choose}</div>${rows}${pick}</div>`;
+    return `<div class="units"><div class="detail-title">Units <span class="dim units-count">${units.length} / ${MAG_UNIT_SLOTS}</span></div>
+      <div class="dim units-note">Your Mag runs up to ${MAG_UNIT_SLOTS} units, every one of them at work.</div>${rows}${pick}</div>`;
   }
 
   /**
@@ -1085,6 +1083,9 @@ export class InventoryMenu implements Menu {
         delete this.dmgPick[slot];
         break;
       }
+      case 'uqFilter':
+        this.uqFilter = arg as UniqueFilter;
+        break;
       case 'dmgReset':
         this.dmgPick = {};
         this.dmgUnits = null;
@@ -1194,11 +1195,6 @@ export class InventoryMenu implements Menu {
       case 'unitOut':
         this.fail(this.api.unitRemove(Number(arg)));
         break;
-      case 'unitMove': {
-        const [i, dir] = arg.split(':').map(Number);
-        this.fail(this.api.unitMove(i, dir));
-        break;
-      }
       case 'discard':
         this.api.discardItem(arg);
         this.sel = null;

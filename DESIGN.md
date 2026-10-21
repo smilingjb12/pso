@@ -9,8 +9,8 @@ Living spec agreed during the kickoff interview. Gameplay first, graphics later.
 - Target run length for a fresh character: **~15–20 min**; each floor is a checkpoint (see Death & Saves).
 - **Single-player only.** No networking plans.
 - **Normal, Nightmare and Hell**, chosen at login, Diablo style (Nightmare opens after Dark Falz on Normal, Hell after it falls on Nightmare; see "Nightmare" and "Hell"). No Section IDs yet.
-- **Endgame:** Falz Rifts after the Hell Dark Falz: generated rifts on a 16-tier ladder, modded by Rift Shards (see
-  "Endgame: Falz Rifts").
+- **Endgame:** Falz Rifts after the Hell Dark Falz: a map of generated room nodes and boss nodes on ten tier rings
+  (see "Endgame: Falz Rifts" > "The Rift Map").
 - **Crafting:** photons change a weapon's or armour's affixes, each spending the item's Potential; every item is fully
   ground (no grinders since 2026-10-11, see "Grind: built in"); formerly grinders raised base
   stats on weapons and armour (see "Crafting: Photons").
@@ -34,7 +34,9 @@ Living spec agreed during the kickoff interview. Gameplay first, graphics later.
     one past their reach while Foie's longer one shows it says "Out of range" (nothing spent; the slot's icon goes
     red). Rafoie and Razonde land on the target, else on the enemy nearest the camera's line, else 8 m out (or as far
     as they reach toward a target past them).
-- **C** snaps the camera behind the player.
+- **C** snaps the camera behind the player. It sits 6.2 m behind you (5 until 2026-10-22, the user:
+  the mechanics behind you were hard to see; 7 for a few hours, then 6.2, the user's pick with the "camera zoom" slider
+  up top in the tuning panel). Distance is `camera.distance`.
 - **Attacks** (2026-10-14, see "Arts"): **LMB** is the basic chain; **RMB, Q, E and R** are the four Art slots
   (Menu → Arts). The HUD's hex cluster shows them with their TP cost. The photon blast fires
   by itself once the Mag has taught one and its gauge is full (key 2 until 2026-10-11). Until 2026-10-14 this was
@@ -84,7 +86,7 @@ chance never changes from repeated casts (the user: it should always affect a mo
   more) and how strong, rolled evenly in the range:
   - Normal 0 / 0.5 / 0.5 at 15-25%; Nightmare 0.3 / 1 / 2 at 20-35%; Hell 1 / 1.5 / 2 at 30-45%.
   - Rifts: Hell's, +1.5% a tier up to tier 16 (`riftCfg.capTier`, like armour) and one more affix at every rank
-    from tier 10. Shard modifiers can give one to every enemy (see "Modifiers and Rift Shards").
+    from tier 10. Room node modifiers can give one to every enemy (see "Modifiers").
   - Never above 75%: only bosses are immune. Each affix is a different kind. Rooted mobs (Lilies, the Control
     Node) can't be knocked back at all and never roll Anchored; the Control Node rolls none. Splitting copies come
     plain. Frenzied counts as stun-immune once it has frenzied.
@@ -559,12 +561,14 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
 - **Affix loot** (Diablo 2 / Path of Exile style, built 2026-10-08, `data/itemAffixes.ts`, rolled in `loot.ts`): the
   user's ask, so loot doesn't feel bad with classes. Rarity:
 
-  | Rarity | Name colour | Affixes | Frame unit slots |
-  |---|---|---|---|
-  | Normal | white | none | 0-1 |
-  | Magic | blue | 2 (one prefix, one suffix) | 1-2 |
-  | Rare | yellow | 4 active + 1 dormant on Normal tiers (1-7), 5 + 2 on Nightmare (8-11), 6 + 3 on Hell (12-15) and in rifts; at most 3 of each active | 2-3 |
-  | Unique | purple | none: one effect and one cost of its own (see "Uniques") | 2 (frames) |
+  | Rarity | Name colour | Affixes |
+  |---|---|---|
+  | Normal | white | none |
+  | Magic | blue | 2 (one prefix, one suffix) |
+  | Rare | yellow | 4 active + 1 dormant on Normal tiers (1-7), 5 + 2 on Nightmare (8-11), 6 + 3 on Hell (12-15) and in rifts; at most 3 of each active |
+  | Unique | purple | none: one effect and one cost of its own (see "Uniques") |
+
+  (Frames rolled 0-3 unit slots by rarity until 2026-10-21; see "Units" below.)
 
   Field drops roll 40% normal / 47% magic / 13% rare (elites 2.5× the rares); boss gear is at least magic, the
   Nightmare top weapon and all Hell boss gear rare. Shops sell white and blue only.
@@ -601,16 +605,17 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
     junk" takes it). Learnable units are walk-over pickups (2026-10-12, the user's ask), like meseta and photons;
     junk ones stay on the ground until picked up by hand. On the ground only learnable units get the pillar and a green ▲; the rest fade grey like junk
     gear. `data.units` is the learned collection (one per kind, "N of 21 kinds" on the Mag tab), `data.magUnits` the
-    kinds slotted in the Mag (up to 4, in priority order; the 2026-10-08 idea, after moving units between frames felt
-    like a chore). The **equipped frame's unit slots decide how many are active**: the first N in the order (▲ ▼ to
-    reorder; Remove only unslots, the unit stays learned). Swapping frames needs no unit handling: a frame with fewer
-    slots switches the rest off, with a toast and an orange ! on the Mag tab (also shown when a slot is free and a
-    learned unit isn't slotted). Frame cards show "Unit slots: N", and the frame verdict counts them (more slots, more
-    active units). Old saves learn every unit they had (Mag and bag, the best of each kind) and keep the Mag's slots.
-    Units are the deliberate part of a build: four TP units behind a 4-slot frame is a glass cannon on purpose.
+    kinds slotted in the Mag (the 2026-10-08 idea, after moving units between frames felt like a chore). **The Mag
+    runs four units, all of them active** (2026-10-21, the user's call: frames' unit slots, which switched the
+    rest off, are gone, and so are the slot order's ▲ ▼; old saves drop the slots on load). Remove only unslots, the
+    unit stays learned; an orange ! on the Mag tab shows when a slot is free and a learned unit isn't slotted. The
+    Mag tab lists each unit as its short name ("Fury"; the item is still "Fury Unit") over what it does, the four
+    slots on top and the learned ones below in a list that fills the column. Old saves learn every unit they had
+    (Mag and bag, the best of each kind) and keep the Mag's slots. Units are the deliberate part of a build: four
+    TP units is a glass cannon on purpose.
     **Unique units** (2026-10-17, Rift Circles; `uunit_<id>`, see "Uniques") are learned the same way, a kind of
-    their own each (`unitKind` is the unique's id), with an effect and a cost instead of an affix; as many as the
-    frame's unit slots allow can run (unique frames have 2). A second copy is junk.
+    their own each (`unitKind` is the unique's id), with an effect and a cost instead of an affix, and take a Mag
+    slot like any unit. A second copy is junk.
   - **Uniques**: the thirty from this pass were deleted on 2026-10-12 (see "Uniques").
   - **Hit %** is gone (accuracy was already capped). Grinders are unchanged (Edge or a race per level).
 - **No enemy races** (2026-10-17, the user's call). From 2026-10-07 they followed the expeditions like PSO's: Forest
@@ -642,7 +647,7 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
   flat affixes of a tile's stat fold in as a blue +N, and each tile shows its change against the equipped piece.
   **Affixes** (the rest): a green dot, or a red one for a downside affix (2026-10-09: per-role colours read red as "bad"), each tagged **new** or with its
   change; flat stats compare as totals, penalties included. **You'd lose**: what only the equipped piece has, struck
-  through. **Chips**: special, unit slots as pips. Weapons end with their damage per second (cells show %
+  through. **Chips**: the special. Weapons end with their damage per second (cells show %
   against the equipped weapon). Flavour text only where
   an item has its own (uniques, units, consumables); the armour lines' repeated blurb is gone.
 - **Verdicts**: all gear is judged by **damage per second** against the current expedition's average enemy (the
@@ -865,7 +870,8 @@ Agreed 2026-10-05: everything **synthesized in code with the Web Audio API**, wi
   Pioneer 2 (jazz-fusion, also the title screen), Forest, Caves. Boss arenas are silent until the boss wakes,
   then play its own theme (Dragon, De Rol Le, Warden, Dark Falz). The enraged / shattered / overclocked phase (the Angel for Dark Falz) brings in the boss
   theme's battle layer. After the kill, a victory fanfare plays, then the expedition's field theme.
-  Mines, Warden, Ruins and Dark Falz play their synth arrangements until ElevenLabs recordings are made (credits ran out).
+  Mines, Warden, Ruins, Dark Falz and Gal Gryphon (2026-10-21) play their synth arrangements until ElevenLabs
+  recordings are made (credits ran out).
   The Caves battle loop (2026-10-09) is no ElevenLabs take (they kept coming out as synthwave): it is the synth
   arrangement `cavesBattle` (primal and urgent: taiko, hand drums, a drone, a low chant, a wooden flute at 126 BPM)
   rendered offline by `audio/music/render.ts` into `public/music/caves-battle.mp3`.
@@ -1668,10 +1674,15 @@ possible at a rift's tempo with a floor (noted below); they were built when rift
 Planned in an ideas round and built on 2026-10-10. The user's picks: Path of Exile style maps, procedurally
 generated; a **hybrid** source (plain rifts of any unlocked tier are free, modded ones drop); the **Falz rifts**
 fiction; **medium** length (~10 min); and **item-level affix tiers** as the gear chase. Passed on for now: new base
-tiers (16-18), endgame uniques, Photon crafting currency. Not decided: a Survey Board (Atlas-like meta progression)
-and pinnacle bosses (Episode 2's Barba Ray, Gol Dragon, Gal Gryphon, Olga Flow). Code: `rifts.ts` (scaling,
-modifiers, shards, the look), `riftGen.ts` (rooms and waves), `riftTypes.ts`, `ui/riftGate.ts`; numbers in `riftCfg`
-(tuning panel **Rifts**, which also gives shards, opens every tier and warps into a rift).
+tiers (16-18), endgame uniques, Photon crafting currency. Code: `riftMap.ts` (the map, its rolls, Resonance),
+`rifts.ts` (scaling, modifiers, the look, the save), `riftGen.ts` (rooms and waves), `riftTypes.ts`, `ui/riftGate.ts`
+(the map menu); numbers in `riftCfg`, `mapCfg` and `RIFT_GEN` (tuning panel **Rifts**, which also opens the whole map,
+fills Resonance and warps into the deepest nodes).
+
+**2026-10-21: the Rift Map** (the user's idea, picked from a clickable mockup with every recommendation taken: "we
+could tweak them later"). Rift Shards are gone: the Rift Gate opens one persistent map per character with separate,
+replayable **room nodes** and **boss nodes** on branching paths, plus Vaults, Gauntlets, pinnacle slots for new bosses
+and the Heart (the final node). Details under "The Rift Map" below; the bullets that follow were updated to it.
 
 **2026-10-17 redesign** (the user's plan, built in one go): the ladder was **squished** (old tiers 1-20 into 1-10)
 and **ends at tier 10** (a separate final node with its own boss comes later as the end of the game);
@@ -1683,49 +1694,266 @@ Onslaught modifier, density rising with depth, Paragon levels, separate multipli
 
 ### Structure
 - **Fiction:** Dark Falz's death on Hell tears rifts in Ragol that pull the planet's creatures together.
-- **Every rift rolls a random region, with every expedition's enemies** (2026-10-14, the user's call: always the
-  Forest got samey; a random roll can't be gamed the way the old picker was). The floor takes the region's look
-  (one of its field floors at random: Forest 1, Cave 1 or 2, Mine 1 or 2, Ruin 1 or 2, untinted, `areaDef(look)`),
-  its music and its hazards (trees; vents or poison marsh; crushers, lasers, slag and belts on power switches;
-  light pylons). Each **wave** still comes from one random expedition (Boomas; Cave beasts with rooted Lilies;
-  gunbots, Sinows and Garanz, sometimes behind a control node; the Dark), so a room can go Boomas, then gunbots.
-  `RiftInfo.region` / `.look`, rolled in `plainRift` / `shardRift`; a Bleeding shard's rift never rolls the region
-  it bleeds in. The area is named "Rift · Tier 7 · Caves" (`riftName`). Hell rules hold: every hit corrupts, every
-  enemy has affixes, every room a champion. (2026-10-10 to 10-11 each rift was one region, darkened toward Falz
-  violet, picked at the Gate; 2026-10-11 to 10-14 always the Forest, because with the picker the Forest was always
-  the easy pick.)
+- **A room node takes its quarter's region, with every expedition's enemies** (2026-10-21, with the map: the Forest
+  quarter is the Dragon's, the Caves De Rol Le's, the Mines the Warden's, the Ruins Dark Falz's). The floor takes the
+  region's look (one of its field floors, rolled with the node: Forest 1, Cave 1 or 2, Mine 1 or 2, Ruin 1 or 2,
+  untinted, `areaDef(look)`), its music and its hazards (trees; vents or poison marsh; crushers, lasers, slag and belts
+  on power switches; light pylons). Each **wave** still comes from one random expedition (Boomas; Cave beasts with
+  rooted Lilies; gunbots, Sinows and Garanz, sometimes behind a control node; the Dark), so a room can go Boomas, then
+  gunbots. The area is named "Rift · Tier 7 · Caves" (`riftName`; "Rift Vault ...", "Rift Gauntlet ..."). Hell rules
+  hold: every hit corrupts, every enemy has affixes, every room a champion. Picking the region came back with the
+  quarters, which the user had dropped on 2026-10-14 because the Forest was always the pick; here each boss's
+  Resonance comes only from its own quarter's rooms, so every region gets farmed for its boss (a random look per
+  node was offered as the fallback). Before: 2026-10-14 to 10-21 every rift rolled a random region; 2026-10-11 to
+  10-14 always the Forest; 2026-10-10 to 10-11 one region per rift, darkened toward Falz violet, picked at the Gate.
 - **Unlock:** the Hell Dark Falz kill (`riftsOpen`), and nothing else: the **Rift Gate** only stands on Pioneer 2's
   teleporter deck once Falz has fallen on Hell, and then in every session, whatever difficulty was picked at login (rifts
   run on Hell rules regardless; 2026-10-11, the user's call: before that the Gate stood sealed from the start and only
   answered in Hell sessions) (`models/riftGate.ts`, also in /viewer.html: a dark ring on a stepped hex plinth, crowned with Falz crystal
   spikes, holding a swirling violet vortex shader, with orbiting shards and rising motes; it replaced a flat jagged
   tear on 2026-10-10 that the user found janky).
-- **Rift Gate menu** (`RiftGateMenu`): *Open a rift* (tier 1 up to the highest open, with a preview of what the tier
-  does: enemy HP / damage / armour against tier 1 and the step from the tier below, technique defence (boss speed
-  until 2026-10-17, when it stopped growing with the tier),
-  the item level, Rift-forging and the affix odds, the next loot step) and *Shards* (the stash, each shard's
-  modifiers, item quantity and rarity, Enter or Shatter). A rift left open shows a Return button; opening another
-  collapses it. The Gate remembers the tier you pick (`RiftSave.picked`, `pickedTier`; a pick on the top tier follows
-  it up when the next one opens), and the debug panel's rift warps open that tier (2026-10-18, the user's ask; they
-  used the highest open one).
-- **Tier ladder: 1-10** (2026-10-17, the user's call: there was very little difference between tiers, so the old
-  1-20 became 1-10, two old tiers to each; the ladder ends at 10, and a separate final node with a special boss will
-  come later as the end of the game). Closing the highest open tier opens the next; tier 10 is the top (a toast says
-  so the first time). Old saves are squished once on load (`riftSave`, `RiftSave.ladder` 2): the open tier, the best
-  tier and every shard's tier become half, rounded up, at most 10. Before: endless from 2026-10-14 (at tier 16 with
-  near-best gear most enemies died in one hit), 16 tiers until then. Debug: "open every rift tier".
-- **Rift Circles** (2026-10-17): tiers **1-3 (I), 4-6 (II), 7-10 (III)**. Each circle's bosses drop new uniques
-  (see "Uniques"), and circles II and III open affix tiers 7 and 8. The Gate shows the tier's circle, and its
-  **Rift Circles** tab lists every boss's uniques by circle (found ones ticked, hover for the effect and cost,
-  "First kill here drops one" where it's owed).
-- **A rift's run** (`newRiftRun`, `Game.riftRun`): one per session, like an expedition run (cleared rooms stay
-  cleared, death sends you to Pioneer 2 and the Gate brings you back to the start of the floor you reached).
-  The run's `expedition` is the Forest (whatever the region); `run.rift` carries the region and look, tier, seed,
-  modifiers, whether it ends at a boss and whose (`bossRegion`, rolled apart from the region). Damage estimates and ▲ verdicts measure against the average of every roster (`riftFoe`).
-- **Two areas filled at runtime:** `rift` (the generated floor) and `riftBoss` (the boss's own arena, as it looks on
-  its expedition); `setRiftAreas` writes both into `areas` before a rift loads. Area names: "Rift · Tier 7 · Caves",
-  "Rift Core · Tier 7 · Control Core", with no "(Hell)" tag; the boss bar reads "Warden · Tier 7" (2026-10-18, the
-  user's ask). After the boss, the arena plays the rift floor's music.
+- **Rift Gate menu** (`RiftMapMenu`, 2026-10-21): the map beside the picked node's details and Enter (see "The Rift
+  Map"). A node left open shows a Return button; entering another collapses it. Until 2026-10-21 the Gate had *Open a
+  rift* (a tier picker with a preview of what the tier does) and *Shards* (the stash: Enter or Shatter).
+- **Tiers 1-10** (2026-10-17, the user's call: there was very little difference between tiers, so the old 1-20
+  became 1-10, two old tiers to each; tier 10 is the deepest, and the Heart, a final node with a special boss, comes
+  later as the end of the game). Since 2026-10-21 the tiers are the map's rings. Saves from the endless ladder are
+  squished once on load (`riftSave`, `RiftSave.ladder` 2: the open tier and the best tier become half, rounded up, at
+  most 10) and then mapped (see "The Rift Map" > Old saves). Before: endless from 2026-10-14 (at tier 16 with
+  near-best gear most enemies died in one hit), 16 tiers until then.
+- **Rift Circles** (2026-10-17): tiers **1-3 (I), 4-6 (II), 7-10 (III)**, the map's three shaded bands. Each circle's
+  bosses drop new uniques (see "Uniques"), and circles II and III open affix tiers 7 and 8. Since the map each
+  circle's bosses stand at its inner edge and fight at tiers 3, 6 and 10 (`BOSS_TIER`). What each boss drops in each
+  circle is on the inventory's **Uniques** tab (see "Uniques"; the Gate's Rift Circles tab went on 2026-10-21, the
+  user's call).
+- **A node's run** (`newRiftRun`, `Game.riftRun`): one per session, like an expedition run (cleared rooms stay
+  cleared, death sends you to Pioneer 2 and the Gate brings you back into the node). The run's `expedition` is the
+  Forest (whatever the region); `run.rift` carries the node (`node`, `kind`, `cache`), region and look, tier, seed,
+  modifiers, and for a boss node whose boss (`bossRegion`). Damage estimates and ▲ verdicts measure against the
+  average of every roster (`riftFoe`, at the deepest tier reached).
+- **Two areas filled at runtime:** `rift` (a room node's generated floor) and `riftBoss` (a boss node: the boss's
+  own arena, as it looks on its expedition); `setRiftAreas` writes the one a node needs into `areas` before it
+  loads. Area names: "Rift · Tier 7 · Caves", "Rift Core · Tier 6 · Control Core", with no "(Hell)" tag; the boss bar
+  reads "Warden · Tier 6" (2026-10-18, the user's ask). After the boss, the arena plays its region's floor music.
+
+### The Rift Map (2026-10-21; `riftMap.ts`, `ui/riftGate.ts`)
+The user's ask: drop the collectable shards completely for a map of room nodes and boss nodes, with branches,
+room and boss nodes replayable separately, maybe other node kinds, maybe another way to unlock nodes, and new bosses.
+The shape and rules came from a clickable mockup, every recommendation taken. Numbers are first drafts (`mapCfg`,
+tuning panel **Rifts**).
+- **The shape is fixed** (the same for everyone; what each node holds rolls from the character's seed): a disc whose
+  **rings are tiers**, 1 at the rim to 10 innermost, shaded in the three Rift Circles; **four quarters**, one per
+  boss: north the Dragon's (Forest), east De Rol Le's (Caves), south the Warden's (Mines), west Dark Falz's (Ruins);
+  the **Heart** at the centre. Per quarter, from the rim: one room at tier 1, two at tiers 2 and 3, the circle I boss;
+  one at tier 4, two at 5 and 6, the circle II boss; one at 7, two at 8, 9 and 10, the circle III boss (68 rooms,
+  12 bosses). Pairs are branches: straight down both sides plus one diagonal. **Cross-links** at tiers 2, 5 and 8
+  join a quarter's outer node to the next quarter's (N-E and S-W at 2 and 8, E-S and W-N at 5). Node ids: "N5a"
+  (quarter, tier, side), "EB2" (a quarter's boss), "P2NE", "HEART".
+- **Opening:** a new map has the four tier-1 rooms open. **Clearing a node opens the nodes it links to**, deeper
+  along its quarter and across a cross-link (both ways). A boss opens once a room before it is cleared, and **only
+  the boss opens the next circle in its quarter**; the cross-links then spread you into the neighbours at the same
+  tier, so one boss kill per circle is enough to go deeper and the others are there for their uniques.
+- **Everything stays open.** Any reached node can be run again from the map. A room node **rolls anew after every
+  clear** (modifiers, cache, look and layout seed; `nodeRoll` from the seed, the node and its roll count), so each
+  tier always offers up to eight rooms to pick from; the roll stays until the node is cleared (dying or leaving keeps
+  it). **You can see what a locked node holds** once it is in reach (shown on the map), so picking a branch is a
+  real choice. The map shows reached nodes, locked ones linked to them, and the landmarks (bosses, pinnacles, the
+  Heart); "Show the whole map" shows the rest. A node with 3+ modifiers wears a dashed amber ring (the old yellow
+  shard).
+- **Room nodes** (`RIFT_GEN.node`): the start room (a teleporter to Pioneer 2), **three fight rooms** (a bonus room
+  hangs off one 35% of the time), then the **Guardian room** (three waves, two champions with an extra affix, a
+  teleporter); no switch room. About 4 minutes, half of the old floor. Two variants, one in each quarter's circle
+  (sides alternating):
+  - **Vault**: the start room and one big room where **three packs come one after another, each with a champion**
+    (each pack the Guardian's budget; `RoomDef.vault`). Its cache is doubled (`mapCfg.vaultMult`). About 2 minutes.
+  - **Gauntlet**: the start room and one big room to **hold for 90 s** (`RoomDef.hold`, `RIFT_GEN.hold`); Swarming is
+    always on. Waves keep coming: the next once a third of the last is left or 9 s have passed (not while 16 or more
+    are up), looping its 14 waves, until the clock runs out; then the rest must be cleared. The HUD reads "Hold out:
+    42 s", then "Clear the rest". Its cache gets one more piece every 8 kills (`mapCfg.killsPerPiece`).
+- **Modifiers** (the shards' same 20, with the same quantity and rarity): a room rolls 0-2 in Circle I, 1-3 in II,
+  2-4 in III (`mapCfg.mods`), at most one forced affix and one crowd-control resistance; Bleeding names a region
+  other than the node's own (never the Forest). Boss nodes have none.
+- **Caches:** a room node's end drop (`rollRiftEndDrops`: Meseta, a rare weapon, armour piece and unit, four
+  photons, more rare gear with item quantity) plus its cache, rolled with the node and shown on the map:
+  **Weapons** (+3 rare weapons), **Armour** (+3 rare frames or barriers), **Units** (+3 units) or **Photons** (+2
+  Photon Spheres and a 25% chance of a Crystal; `rollRiftCache`, `mapCfg`).
+- **Boss nodes** fight one of the four in its own arena with its Hell third phase and mechanic, at the rift tempo,
+  at its circle's tier (3, 6 or 10: 823k, 2.3M and 8.7M HP). They drop the boss's own uniques as before (Rift
+  Circles: this circle's two, the earlier circles' less often; the **first kill in each circle always drops one**).
+  That first kill (or any fight while that circle's first-kill unique is still owed) is **free**; after that a fight
+  takes **Resonance**.
+- **Resonance** (`RiftMapSave.res`): every room node cleared in a quarter (Vaults and Gauntlets too) adds 1 to that
+  quarter's boss, up to 6; a boss replay takes 2 as it is entered (`payEntry`; a death inside doesn't charge again,
+  entering another node loses it). Why (the mockup's case, accepted): free replays would make the two-minute boss
+  the only thing worth farming once regular gear is done; two rooms a fight keeps about today's eight minutes of
+  rooms per boss, and you choose when to spend it. The Gate shows each boss's pips.
+- **Pinnacles** (four, on the spokes between quarters: Circle II's past the N-E and S-W bosses II, Circle III's past
+  the E-S and W-N bosses III) open when **both neighbouring bosses of their circle are dead**; the **Heart** opens when
+  **all four Circle III bosses are**. **Gal Gryphon** stands at `P2NE` since 2026-10-21 (see "Gal Gryphon" below); the
+  other three pinnacles and the Heart are still landmarks for bosses to come (nothing to enter yet). The user's
+  picks from the mockup's candidates: **Gal Gryphon** (lightning rods: draw the storm into a rod, a full rod grounds
+  it for a damage window) and **Barba Ray** (the arena floods, raised platforms sink one at a time, not built yet) for
+  the first two pinnacles; Gol Dragon (soak the gold meteors) and Saint-Milion (break the sandstorm gland in time) were the other
+  pinnacle pitches; the Heart's boss is not picked (Olga Flow, casting your last Art back at you, or the Convergence,
+  the four bosses' mechanics in turn and then two at once).
+- **Chaining:** a rift's teleporters (the start room's, the Guardian room's, the boss arena's after the kill) offer
+  the **Rift Map** besides Pioneer 2, so nodes chain without walking back to the Gate. A clear says what it opened
+  ("New on the Rift Map: ...", a new Rift Circle, an open pinnacle or the Heart's broken seals).
+- **The save** (`RiftSave.map`): the seed, each reached node's state (open or cleared, clears or kills, roll count),
+  Resonance per boss and the node last picked. `RiftSave.tier` is the deepest tier reached and `best` the deepest
+  cleared (`syncRiftDepth`), for the Uniques tab and the damage estimates.
+- **Old saves** (`mapFromLadder`, once on load): the old ladder carries over: everything below the highest open tier
+  counts as cleared (rooms and bosses), that tier is open, and a boss on it is cleared too if the tier was ever closed;
+  Resonance starts empty and first-kill uniques still owed stay owed (`RiftSave.firsts`, so those fights are free).
+  The shard stash and the picked tier are deleted.
+- **Gone with the shards:** Rift Shards, the 30-shard stash, Shatter, shard drops (rift ends and champions), boss-pick
+  shards (a boss node is the pick), every rift ending at a boss (`riftCfg.bossChance`), the tier picker, the shard
+  pickup and its violet crystal.
+- **Debug** (tuning panel **Rifts**): open the whole map, fill every Resonance, enter the deepest room or boss node,
+  warp to the open node's end; sliders for Resonance, caches, the Vault multiplier and the Gauntlet's clock.
+- **Checked** (`riftMap.test.ts`; `riftGen.test.ts` sweeps room, Vault and Gauntlet nodes; a bot pass in the game):
+  every node reachable from the four ways in, a circle only past one of its bosses, cross-links on one tier,
+  pinnacles and the Heart on their bosses, Resonance and costs, rolls by circle and anew per clear, old ladders
+  mapped. In the game: a room node, a Vault (three champions), a Gauntlet (its clock and pacing), a boss node's free
+  first kill (its unique) and a paid replay, and the map from a rift's teleporter. Untuned past that: node length
+  (the bot took 30-50 s a room at tier 2 with Nightmare-ceiling gear), Resonance, caches and the Gauntlet are first
+  drafts.
+
+### Gal Gryphon (Pinnacle II, 2026-10-21; `enemies/GalGryphon.ts`, `enemies/gryphonStorm.ts`, `models/gryphon.ts`)
+The first pinnacle boss, at `P2NE` (Circle II, tier 6, between the Dragon's Forest and De Rol Le's Caves quarters).
+Designed in two question rounds with the user, every recommendation taken: Storm Peak, spent rods, two phases, Storm
+Crest and Grounding Coil, 2 + 2 Resonance with doubled odds, a new synth track. The pitch it grew from (picked from
+the Rift Map mockup): lightning rods ring the arena; when it calls the storm, standing by a rod pulls the bolts into
+it, a full rod discharges into the Gryphon and grounds it for a damage window, and missing the rods lets the bolts
+hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**); all first drafts.
+- **Made harder the same day** (the user: "It's too easy"). Why it was: once known, about 13 of every ~19 seconds
+  were free: the storm was ~5.5 s of standing in a 3.5 m ring with nothing else going on, then a 7 s grounded window,
+  leaving ~5 s for one or two single walkable telegraphs; a miss cost 27% and left nothing behind. The user's picks
+  from a second question round: **relay rods**, **it fights from the sky** (feather rain in the storm), **busier
+  between storms** (pairs from the start, triples in phase 2), **Hell triples below 1/3**, and their own idea, a
+  bullet-hell layer: **sparks that drift through the arena all fight long** so you can't stand still ("if it
+  overlapped other mechanics that would be nice or it could even be a constant kind of thing"), as **streams +
+  spirals, a light hit**. Numbers otherwise kept ("mechanics only"); the new mechanics brought their own, and the
+  attack gap (1.6 → 0.9 s, part of "busier") and the bolt gap (1.4 → 1.8 s, so the relay's run fits) changed.
+- **Tuned after the user's first play (2026-10-22):** the plummet is smaller and slower to dodge (6 m warned 1.5 s, a
+  dash check, became 4.5 m warned 1.8 s, a walk), the camera sits farther back (7 m, was 5), and the storm lights **one
+  rod** to get to instead of a relay from one rod to the next. Then the same day the storm became **three pulses**
+  (the user's design): step into the lit pillar any time before the third and you pass; no bolts on you any more.
+  The crossing lash's warning went 1.0 → 1.3 s (the user: too fast), a walk now.
+  Not taken: Overcharge stacks on a miss, Static wisps draining rods, a shorter grounded window with a thunderclap,
+  attacks that knock rods down, and the tighter numbers.
+- **Rift-only.** It guards no expedition and has no Normal / Nightmare / Hell of its own: `BossId` stays the main
+  game's four, `RiftBossId` adds the pinnacle bosses (`PinnacleBossId`, `BOSSES.gryphon.pinnacle`, `isMainBoss`).
+  Its `rift` block stands in for Hell's boss scaling (ATP 235 in all, between the Dragon's and De Rol Le's; armour 10,
+  technique resistance 14, XP 6000), and the rift lifts it like the others: **a tier 6 boss's HP (2.3M)** and damage,
+  at the rifts' fixed ×1.15 tempo. A rift node names it with `RiftInfo.pinnacle` (`riftBossId`).
+- **Storm Peak** (area `stormPeak`, scenery `peak`): a round stone summit about 33 m across (the walkable radius is
+  16 m; you are kept on it like on the Falz altar) above a sea of cloud, a low parapet, a compass rose inlaid in the
+  floor, distant peaks, rain and far sheet lightning, under a slate storm sky. You arrive in the south; it perches 9 m
+  north of the middle and wakes when you are within 21 m. **Six lightning rods** stand 11 m out, 60° apart, the first
+  30° east of north: an iron mast on a stone plinth with three copper coils and a glass bulb, each with a 3.5 m
+  **reach** ring on the floor. They block like tree trunks, and one within 4.5 m of you fades to 30% so it doesn't fill
+  the screen (the camera trails you, as with the Dragon's cover rocks).
+- **The look:** a storm griffin, PSO-faithful in colour: an eagle's head with a gold hooked beak and a swept blue
+  crest, white chest and sky-blue plumage, deep blue flight feathers tipped white, gold-banded talons in front and a
+  lion's haunches behind, a fan tail and a gold collar; about 5 m to the crest and ~17 m across the wings. Cyan
+  lightning veins down the wings and crest flare as it charges and go dark when it is grounded. In /viewer.html.
+- **Sparks** (all fight long, from the moment it wakes until it dies, through storms, groundings and every attack):
+  glowing cyan balls (0.5 m) at chest height with a floor glow, drifting 1.5 m/s of its clock (~1.7 real, well under
+  your 4.6 walk; 3 until 2026-10-22, the user: 50% slower). A touch is **a light hit** (×0.33 ATP, about a third of a normal hit, ~12% of a geared Hunter's HP at tier 6;
+  no knockback; it corrupts, as every Hell hit does) and the spark is gone.
+  - **One at a time** (2026-10-22, the user: the streams and spirals stacked up into walls of sparks by phase 3): a
+    spark every 0.4 s (0.35 s in phase 2, 0.28 s below 1/3) leaves a random point just past the rim, **aimed at where you
+    stand give or take 3 m**, so they cross from every side and never line up; stand still and some hit you, a sidestep
+    of a metre and a half lets one by. From phase 2 every third one comes out of the Gryphon (out of the middle of the
+    sky while it is up there) in a random direction instead. About 23 / 42 / 46 drift at once in the game at half speed
+    (11 / 22 / 24 at 3 m/s; the old streams and spirals had ~130 up by phase 3).
+  - Before (2026-10-21 to 10-22): **streams** of four sparks in a line aimed at you every 1.2 s (0.6 s below 1/3), and
+    from phase 2 **spirals** of four arms out of the Gryphon; a Lv 100 Hunter standing still died in 16 s to them. Tests
+    still pin standing still taking many times the sparks a player circling the summit does.
+- **The storm** (its signature; 2026-10-22, the user's design): first ~10 s into the fight, then 22 s after the last
+  was called, never sooner than 9 s after it is back on its feet. It rises into the clouds over the middle (can't be
+  hit), the whole summit is warned (a violet-blue telegraph that runs out at the last pulse), and **one rod lights
+  under a pillar of light** as wide as its reach. "Gal Gryphon calls the storm: step into the pillar of light!" (the
+  first time). The bar reads `STORM · PULSE 1/3`.
+  - **Three pulses**, 1.3 s of its clock apart (~1.13 real seconds; never under 1 s): the first two do nothing (a
+    thunderclap over the summit, a bolt into the lit rod and one more of its coils lit); **the third is the
+    thunderstorm**, lightning over the whole summit for **80% of your max HP** (`hell.mechanicHit`, past armour: a
+    failed mechanic), unless you have reached the pillar.
+  - **Step into the pillar at any point** (before the first pulse, after one, after two) and the pulses stop at once:
+    you pass, the rod discharges into the Gryphon.
+  - **The lit rod** is one usable rod at random among those whose pillar you can walk to with a second to spare before
+    the third pulse (9.4 m of walking; not always the nearest), and **never the one you stand by** while another is in
+    reach, so you always have to move. (Before: 2026-10-21 bolts on you, 27% each unless drawn into a rod, first any
+    rod then a relay from rod to rod; 2026-10-22 morning one lit rod drawing three bolts.)
+  - **Feather rain** (it fights from the sky): every 1.2 s of the storm two 2.5 m circles fall, warned 1.6 s (~1.4
+    real; 1 s until 2026-10-22, the user: more time to react) (×0.8 ATP,
+    a little shove): one with its middle 1.5 m off you away from the lit rod, so stepping toward the rod (1.45 m) gets
+    you out inside the reach, and one 3.5-5 m farther out. Hugging the post (within 2.2 m of the rod) the near one
+    comes from beside you, so you step round the post.
+  - **Passing** grounds it: it crashes 5.5 m inside the rod, toward the middle, **grounded for 8 s of its clock (~7
+    real seconds)**, weak point open, taking **+50% damage** ("Grounded! Weak point exposed!"; the bar reads
+    `GROUNDED`). The sparks keep coming. After the thunderstorm it lands back in the middle instead.
+  - **Spent rods**: the rod that grounded it is **scorched for the next storm** (dark, smoking; never lit).
+  - **Getting there:** with every rod up the worst walk to the nearest pillar is from the middle, 7.5 m. A scorched rod
+    can leave the rim behind it 10.7 m from the next pillar, so the storm **waits** while no usable pillar is in walking
+    range (like the Dragon's rampage waits for a shadow); in the rare spot where the only one in range is the rod you
+    stand by, that one lights (a pass at once).
+- **Phase 1** (100-50%): **every attack is a pair**, 0.9 s apart (pool: swoop + flank orbs ×2, gale + plummet,
+  plummet ring):
+  - **Swoop + flank orbs**: a 5 m swoop lane from it through you to the far rim (1.3 s; it flies it at 24 m/s) and three
+    3 m orb circles along one side of the lane, 4.5 m off its middle, at you and 5 m either way (1.4 s): the way out is
+    the other side, the one facing into the summit (a walk).
+  - **Gale + plummet**: Gale Wing (a 60° / 9 m cone, 1.3 s, a shove of 16; narrowed from the pitched 100° / 11 m, which
+    no walk could leave), and as it lands it springs up into a **Plummet** on where it threw you: a 4.5 m circle, warned
+    1.8 s (a walk: 4.95 m of 5.6 walkable at the rift tempo; until 2026-10-22 a 6 m dash check warned 1.5 s).
+  - **Plummet ring**: the plummet with eight 3 m orbs in nine slots 6 m round it, one slot open toward the middle of
+    the summit (±60°): **out through the gap** (a walk), and not even a dash finds another way (a test pins it).
+- **Phase 2, "The eye of the storm!"** (below 50%; the battle layer comes in; the bar reads `EYE OF THE STORM`): the
+  pairs become triples, sparks come off the Gryphon too, and feathers fall outside storms. Pool: crossing triple ×2, gale
+  ring.
+  - **Crossing triple**: swoop + flank orbs, and 0.6 s in a **lightning lash** across the swoop, rim to rim, through
+    where you stand (the light blue lane), warned 1.3 s, a walk (3.6 m of 2.95 needed; enraged a dash check). It was
+    1.0 s, a dash check, until 2026-10-22 (the user: too fast). A lash, not a second dive: the bird is still flying the
+    first lane.
+  - **Gale ring**: the gale, then the plummet ring on where it threw you.
+  - **Feather volleys** (2026-10-22, the user's call, in place of the cyclones): outside storms too, a volley of two
+    feathers every 3.5-5.5 s (the storm's feathers: one beside you on a random side, one farther out; warned 1.6 s),
+    overlapping whatever else it does, but never while the cage is warned (so none lands on its one way out). The
+    cyclones (2026-10-21: two tornadoes wandering 10 s that tossed you on a touch) are gone.
+  - **Storms with a gale**: from the call until you reach the pillar (or the thunderstorm) a gale pushes you away from
+    the middle at 2 m/s, so you walk into it on the way.
+- **Phase 3, "The storm breaks loose!"** (below 1/3; the bar reads `THE STORM BREAKS`): **every second attack is the
+  cage** (a Hell triple: three telegraphs at once, exactly one way out, warned 1.6 s and never cut by the enrage): the
+  swoop's lane through you, the lash across it through you, and orbs in three of the four corners they leave (5 m out
+  on the diagonals). The pocket is the fourth corner, 4.6 m out on its diagonal (the one on the summit nearest its
+  middle): a walk (4.79 m in the warning). The other attacks are phase 2's; sparks come faster.
+- **Enraged** (below 20%): windups ×0.8, the storm's, the plummet's and the cage's never cut. The swoop and gale then
+  no longer walk out and get the dash check's cyan rim; every one stays clearable with a dash (a test pins it).
+- **Its node** (`PINNACLE_BOSS`, riftMap.ts): `P2NE` opens once **Dragon II and De Rol Le II** are dead (the map rule;
+  "Opens once Dragon II and De Rol Le II are dead."). **The first kill is free and always drops one of its two
+  uniques** (one you lack first; `RiftSave.firsts` "gryphon2"). After that a fight takes **2 Resonance from each of its
+  quarters** (the Dragon's and De Rol Le's, 4 in all; `mapCfg.pinnacleCost`, `nodeCosts`), and a kill rolls **twice a
+  boss's odds**: 24%, +8% for every kill in a row without one (`drops.pinnacleUniqueMult`). The end drop, loot ring
+  (at the arena's centre: off the body it could land off the summit) and teleporter are a boss node's. The Gate shows
+  the fight, HP, its quarters, its uniques and the cost; the other pinnacles and the Heart stay "a boss still to come".
+- **Music:** `gryphon` (synth: a fast storm theme in F# minor at 152 BPM, a soaring brass line over racing string
+  arpeggios, brass stabs, a pumping bass and thunder hits; the eye of the storm adds choir, taiko and a lead
+  arpeggio). Recorded loops can come later (ElevenLabs credits). Sounds: the **Gal Gryphon** group in the sound lab
+  (screech, wing beat, dive, thunder, a bolt into a rod rising in pitch as the storm fills, the discharge).
+- **Checked:** `gryphon.test.ts` (the rods' ring and reach geometry, scorched rods, the lit rod always in walking
+  reach and any of the six from the middle, feathers walkable inside the reach, every attack's walk / dash math at the
+  rift tempo, one way out of the flank, the ring and the cage, the sparks; a scripted fight against the boss itself:
+  stepping into the pillar grounds it at once (before or after a pulse or two), staying out takes the thunderstorm on
+  the third pulse and nothing before it, phase 2's gale, and the sparks hitting a still player far more than a moving one), `riftMap.test.ts` (the node, its opening, its 2 + 2 cost,
+  the doubled odds), `riftUniques.test.ts` (both uniques). In the game (Lv 100 Hunter, tier 15 gear, the debug warp):
+  the first build's storm, grounding, kill and drop (Storm Crest), then the rework's sparks, relay (a walker grounding
+  it), the pairs, the phase 2 triples and the cage. Not done: a balance pass (the bot can't use rods or dodge sparks),
+  ElevenLabs music.
+- **Debug** (tuning panel): Rifts > "enter Gal Gryphon (Pinnacle II)" goes straight in (its first kill stays owed);
+  the **Gal Gryphon** folder has the storm's clock, lead and bolts, the bolt's share, grounding, the gale, the attacks'
+  warnings, the attack gap, the cage, feathers and the sparks; Rifts has its speed, HP multiplier and the pinnacle's
+  Resonance cost.
 
 ### Layout (riftGen.ts)
 - `generateRift(options)` is pure: everything comes from the seed (mixed with the region, so one seed differs per
@@ -1748,20 +1976,24 @@ Onslaught modifier, density rising with depth, Paragon levels, separate multipli
   (vents) or marsh (pools) rooms; Mines foundry (slag, crushers, belts) or control (lasers, crushers) rooms, most
   machinery wired to a power switch by a wall; Ruins 1-2 pylons. Bleeding gives half the fight rooms the second
   region's hazards at 60%. Nothing lands on corridor mouths, features, pinned spawns or other hazards.
-- `riftGen.test.ts` sweeps 3,200 rifts (four regions, four option sets) for determinism, spacing, valid corridors,
-  reachability, the lock and switch, feature and hazard placement and power wiring, and builds real `Level`s.
+- **Map nodes** (`o.kind`, 2026-10-21): `room` is the start room, three fight rooms (a bonus room 35% of the time)
+  and the Guardian room, no switch room; `vault` and `gauntlet` are the start room and one Guardian-sized room
+  (`RoomDef.vault`: three packs at the Guardian's budget; `RoomDef.hold`: 14 waves at 0.85 of a fight room's, looped
+  on a clock). The default (`floor`) is the old whole floor, which the Map Lab still draws.
+- `riftGen.test.ts` sweeps 6,400 rifts (four regions, eight option sets: the floor's five and the three node kinds)
+  for determinism, spacing, valid corridors, reachability, the lock and switch (floors only), the last room's kind,
+  feature and hazard placement and power wiring, and builds real `Level`s.
 - **Map Lab** (`/maplab.html`): region, seed and Reroll, boss, hazards ×2, Bleed and Convergence; the rift in 3D
   from above plus a 2D map (roles, the locked corridor, features, hazards) and counts. `window.maplab` scripts it.
 
 ### The end
-- **Every rift** (`riftCfg.bossChance` = 1 since 2026-10-12, the user's call when uniques became boss drops; it was
-  a third) ends in a teleporter room to a random one of the four bosses (`toBoss` to `riftBoss`) with its Hell third
-  phase. The **Guardian room** ending (big, three waves, two champions with one extra affix each, and a teleporter to
-  Pioneer 2) is still in the code for `bossChance` below 1, but no rift rolls it.
-- **Closing a rift:** "RIFT CLOSED" banner (the boss's own on a boss), the next tier opens, and the end loot drops
-  (`rollRiftEndDrops`): Meseta, a rare tier 15 weapon, a rare tier 14-15 armour piece and a unit; a boss adds a
-  second weapon, armour piece and unit, a modded tier 6 injector and a grinder. All at the rift's item level. The
-  boss's **own unique** rolls apart (`rollBossUnique`, riftCircles.ts; see "Uniques").
+- **A room node** ends when its last room (the Guardian room, the Vault, the Gauntlet) is cleared: "RIFT CLOSED", the
+  end loot and the cache, and the map moves on (the node counts and rolls anew, its quarter's boss gains Resonance,
+  what it links to opens). **A boss node** ends with the boss: its banner, the end loot (`rollRiftEndDrops`: Meseta,
+  rare weapons, armour and units, a modded tier 6 injector, photons), its own unique (`rollBossUnique`,
+  riftCircles.ts; see "Uniques") and a teleporter in the arena. All at the node's item level. Until 2026-10-21 every
+  rift was a floor ending at a random boss (`riftCfg.bossChance` 1 since 2026-10-12; a third before, otherwise the
+  Guardian room), and closing the highest open tier opened the next.
 
 ### Scaling (`riftScale`, `riftBossScale`)
 - **Damage-first** (2026-10-17, the user's call: the danger is what enemies deal, until a heavy hit almost
@@ -1830,17 +2062,11 @@ Onslaught modifier, density rising with depth, Paragon levels, separate multipli
   trim, Mines 8 fight rooms in ~690 s of fight time and ~5000 HP taken (~2.3 bars); after it, Ruins 8 fight rooms in
   ~320 s and ~7300 HP (~3.4 bars). Untuned past that: every number is a first draft.
 
-### Modifiers and Rift Shards
-- **Rift Shards** drop in rifts only: the Guardian or boss **always drops one**, and the rift's item quantity is
-  the chance of a second (+40% quantity: 40%); rift champions drop one 3% of the time (also scaled by quantity).
-  Every rift pays at least one, so plain rifts sustain the supply (2026-10-10, the user's pick after two empty
-  rifts; it was 60% at the end, which left about 30% of rifts with none). They go to the Gate's **stash** (30), never the bag,
-  taken by walking over them (a violet crystal with a pillar, a yellow halo on 3+ modifiers). A full stash leaves
-  them on the ground.
-- A shard: mostly its rift's tier (20% one up, 10% one down), **1-2 modifiers (blue) or 3-4 (yellow, 40%)**, at most
-  one forced affix and one crowd-control modifier; Bleeding names the region whose hazards come through (Caves, Mines or Ruins). Shards from before
-  2026-10-11 lose their region and the two removed modifiers on load (`riftSave`); one left with none is dropped.
-- **Modifiers** (each adds item quantity and rarity, shown on the shard; no immunities):
+### Modifiers
+- Since 2026-10-21 room nodes roll them (see "The Rift Map"). **Rift Shards** (2026-10-10 to 10-21) carried them
+  before: dropped at every rift's end (and by champions now and then), kept in the Gate's stash of 30, 1-2 modifiers
+  (blue) or 3-4 (yellow), 30% naming the boss their rift ended at.
+- **Modifiers** (each adds item quantity and rarity, shown on the map; no immunities):
   - **Forced affix**: every enemy is Overclocked / Molten / Stormcaller / Frenzied / Regenerating / Volatile (added
     on top of its rolls where it fits).
   - **Exalted**: elites and champions carry one more affix. **Teeming**: elites +20% of spawns.
@@ -1856,17 +2082,13 @@ Onslaught modifier, density rising with depth, Paragon levels, separate multipli
     extra filled with fodder (threat 1.25 or less) up to 11 a wave (`RIFT_GEN.swarm`); fodder never comes in elite
     (`RoomDef.fodder`). The attack director still lets two attacks be live at once, so it adds targets and steady
     pressure, not burst. Quantity +10%, rarity +5%.
-- **Boss-pick shards** (2026-10-17, Rift Circles): 30% of shards name the boss their rift ends at ("Summons: the
-  rift ends at the Dragon", `RiftShard.boss`, `riftCfg.bossShard`), on top of their modifiers, so a hunt for one
-  boss's uniques can be aimed. Plain rifts still end at a random one.
 - **Item quantity** multiplies every enemy's drop chance, which can pass 1: the rest is the chance of a second drop
   (`rollEnemyDrops`). At the end it adds rare gear (weapon, armour or unit) on top of the fixed pieces: quantity x 3
   on a Guardian, x 6 on a boss (+50%: 1.5 or 3 more). **Item rarity** multiplies rare-item odds; the rift's rarity
-  also raises a rift boss's unique odds. Rift Shard odds use only the shard's own quantity, so the stash doesn't flood.
+  also raises a rift boss's unique odds (a boss node's is its tier's alone).
 - **Every tier adds its own** (2026-10-12, the user's call): item quantity +10% and rarity +12% per tier (+100% /
-  +120% at tier 10, doubled with the squish; `drops.riftQtyPerTier` / `riftRarePerTier`), and a shard's modifiers
-  add theirs on top (`riftLoot`). The Rift Gate shows the tier's bonus in its preview, and a shard's total (tier plus
-  modifiers). Meseta +10% a tier.
+  +120% at tier 10, doubled with the squish; `drops.riftQtyPerTier` / `riftRarePerTier`), and a node's modifiers
+  add theirs on top (`riftLoot`); the map shows a node's total. Meseta +10% a tier.
 
 ### Item level and affix tiers 7-8
 - A rift's drops roll at **item level 100 + 2 x its tier** (102 to 120; `riftIlvl`, `ItemInstance.ilvl`; the card's
@@ -1910,16 +2132,18 @@ effects), `uniqueCfg` in config/progression.ts (numbers), `Character.hasUnique` 
     boss in each circle always drops one** of that circle's two (one you don't have yet, if any:
     `RiftSave.firsts`); after that a kill rolls 12% (`drops.riftUnique`) plus 4% for every kill of that boss in a
     row without one (`riftUniqueDry`, `RiftSave.dry`), times the rift's item rarity. So every boss, and every
-    circle's bosses, are worth farming for the power to clear the next. Boss-pick shards aim the hunt.
+    circle's bosses, are worth farming for the power to clear the next. Since the Rift Map each boss has a node in
+    each circle (tiers 3, 6 and 10), so the hunt is aimed by picking it; replays take Resonance, the first kill
+    doesn't.
 - **Gear base stats from an item level.** Each gear unique exists at all 15 gear tiers (`unique_<id>_<tier>`): a
   main-game drop is the tier the boss drops at (Normal: Dragon 3, De Rol Le 5, Warden 6, Dark Falz 7; Nightmare and
   Hell: the expedition's top tier, `bossUniqueTier`); a rift drop is tier 15 at the rift's item level, so
   Rift-forged. Weapons carry their kind's stats and requirement; armour no requirement and DFP between the Guard and
-  Combat lines', with no line bonus (unique frames open 2 unit slots). **No affixes, no crafting.** The user turned
+  Combat lines', with no line bonus. **No affixes, no crafting.** The user turned
   down uniques that rank up with boss kills (2026-10-17).
 - **Unique units** (`uunit_<id>`, one def each): learned into the Mag on pickup like any unit (walk-over, a toast,
-  "N unique" on the Mag tab's list), slotted like any unit, **as many as the frame's unit slots allow** (the user's
-  call). Their numbers (effect and cost) are raised by the Heart of Falz (`Character.uval`).
+  "N unique" on the Mag tab's list), slotted like any unit (the Mag runs four of any kind). Their numbers (effect
+  and cost) are raised by the Heart of Falz (`Character.uval`).
 - The main game's three:
 
   | Unique | Slot | Effect | Cost |
@@ -1957,6 +2181,18 @@ effects), `uniqueCfg` in config/progression.ts (numbers), `Character.hasUnique` 
   | Dark Falz | II | Soul Eater | Unit | A kill Dooms the nearest enemy within 8 m: 1.5 s later it takes 30% of the dead one's max HP (it chains) | You gain Corruption twice as fast |
   | Dark Falz | III | DF Shield | Barrier | A killing blow Dooms you instead: 4 s unkillable at 1 HP; kill 3 enemies (or deal 3% of a boss's HP) to rise at 40% HP, or die. Once a room (a boss: every quarter of its HP) | All healing −30% (Mate doses, Resta, regen, HP/Drain, Dark Flow) |
   | Dark Falz | III | Heart of Falz | Unit | Your other unique units' numbers are 50% stronger | So are their costs |
+  | Gal Gryphon | II (pinnacle) | Storm Crest | Barrier | Moving builds Static, 1 a metre (dashes too), up to 40; your next hit spends it for +4% a point, and from 10 points a bolt jumps from it to 3 more enemies within 5 m for half | Hits with no Static in them deal 25% less |
+  | Gal Gryphon | II (pinnacle) | Grounding Coil | Unit | Hits on a boss or champion build Ground, 4% a hit; at 100% it is grounded 5 s and takes 50% more damage, then it builds again | Bosses and champions hit you 20% harder |
+
+  Gal Gryphon's (2026-10-21, the user's picks from three of each, both anyone's):
+  Storm Crest rewards hit and run (run between packs, open big; standing and swinging costs a quarter), Grounding Coil
+  is the fight's grounding in your pocket (about +19% on a boss at ~3 hits a second). Rules settled while building (my
+  calls, open to change): every hit landing in the same frame shares the Static one hit spends (a sweep through a
+  pack, a fan of pellets); the bolt needs 10 points or more (so a ranged kiter's every shot doesn't chain); only your
+  own walking and dashing build Static (not knockback, pulls or a teleport); damage over time neither spends Static nor
+  takes the cost; grounding isn't crowd control (bosses take it), each boss's parts share one Ground meter, and damage
+  over time and Storm Crest's bolt build none; the Coil's cost covers a boss's flat damage too (breath, beams,
+  burning ground) but not a failed mechanic's share.
 
   The answers to one-shots are Rol Carapace (a cap), Tide Shell (a soak) and DF Shield (a second chance); the chain
   killers for Swarming rooms Flame Visit, Plague Mantle, Ophelie Seize and Soul Eater. Few costs are max HP, since Rol
@@ -1965,6 +2201,14 @@ effects), `uniqueCfg` in config/progression.ts (numbers), `Character.hasUnique` 
   the third step perfect as the chain does; Dragon Rush hits once per enemy per dash.
   Rule notes from 2026-10-12: the Reactor Rod's "chain" is any attack cast within 1.5 s of the last; the Falz Halo's
   cost also stops pylon light; the Frozen Shooter's shatter thaws and makes the enemy immune for 3 s.
+- **Uniques tab** (inventory, 2026-10-21, the user's ask; `ui/uniquesTab.ts`): every unique as a card, grouped Main
+  game / each rift boss, with a filter per group and found counts ("✓ Found", "✓ Learned" for units). A card has the
+  effect and cost, the finer rules (`UniqueDef.notes`), and where it drops: main-game ones the per-kill chance by
+  difficulty for this character (`uniqueShare`), the gear tier range by boss and the base stats at
+  the lowest and highest; rift ones the boss and circle, the first kill there (still to claim / claimed / opens at
+  tier N), the later odds and this unique's share by circle (`bossUniqueShare`, `riftUniqueOdds`), and for gear the
+  Rift-forging range and tier-15 base. Circles not open yet are dimmed; each rift boss's heading shows its next
+  kill's odds with the dry streak.
 - **Estimates** (Damage tab, ▲ verdicts) count Red Ring crits, the Reactor Rod's ramp and the Frozen Shooter's
   rhythm; not the rift uniques' conditional effects (Rampage, Sword-Saint, combos). The item card lists the effect
   (green) and cost (red) under "Unique", for unique units too, and "You'd lose" names an equipped unique's.
@@ -1987,7 +2231,7 @@ not the player").
 - **Downsides:** every Hell and rift rare holds at least one, active or dormant (one of the prefixes it drew turns
   into one if none came up; about two thirds of rift armour drew one anyway). An active downside always has a plain
   dormant prefix to be swapped for. Barriers have only 5 prefixes, so their dormant ones lean to suffixes.
-- **Photons** are a currency (2026-10-12): **picked up by walking over them** like Meseta and Rift Shards, one
+- **Photons** are a currency (2026-10-12): **picked up by walking over them** like Meseta (and, until 2026-10-21, Rift Shards), one
   stack of each kind **up to 100**, and they **take no bag space**. A full stack leaves the photon lying there, said
   once per area. They work on **active** affixes only, as often as you have photons (Items tab > Photons > "Use
   on..." > item > pick):
@@ -1998,7 +2242,7 @@ not the player").
   | Photon Sphere | rare | One affix a strength tier up, up to what the item level allows (tier 6 on Hell, 7 from rift tier 4, 8 from rift tier 7); never comes out lower (at least +1). Haste +1 up to the cap. |
   | Photon Crystal | very rare | Swaps an active affix for a dormant one of the same kind (prefix for prefix, suffix for suffix); the player picks the pair. Both keep their rolls, so it can be swapped back. |
 
-- **What stays a chase:** the base (line, gear tier, item level, a frame's unit slots) and the item's own 9 affixes:
+- **What stays a chase:** the base (line, gear tier, item level) and the item's own 9 affixes:
   with photons enough, a drop becomes the best 6 of its 9 at the item level's top values. The verdict judges that
   fully crafted self too (2026-10-13, the user's ask; `bestCrafted`): every active set Crystals can reach (same
   prefix / suffix split), each affix at the top tier and value its item level allows (a downside may stay
@@ -2019,7 +2263,7 @@ not the player").
 - Debug panel: "give 5 of each photon"; the Lv 64 test characters carry some. Every number is a first draft.
 
 ## Deferred / Later Milestones
-- More uniques (six so far), Falz Rifts' undecided parts (a Survey Board, pinnacle bosses, new base tiers), Section IDs, bank, tekker, guild quests, more enemy types (Rappy, Wolves,
+- More uniques (six so far), the Rift Map's bosses still to come (Gal Gryphon and Barba Ray for the first two pinnacles, two more pinnacles, the Heart's final boss), new base tiers, Section IDs, bank, tekker, guild quests, more enemy types (Rappy, Wolves,
   Mothmant/Monest, Hildebear, Shark family, Nano Dragon, Canadine drones, cloaking Sinows), gamepad support,
   ElevenLabs recordings for the Mines, Warden, Ruins and Dark Falz themes, a tier 7 injector and the new injector
   mods for Nightmare.

@@ -1,11 +1,16 @@
 import type { TrackId } from '../../audio';
-import { darkFalz, deRolLe, dragon, warden } from '../config';
+import { darkFalz, deRolLe, dragon, galGryphon, warden } from '../config';
 
 // One entry per area boss: everything the rest of the game needs to know about it besides its fight
 // (the class in enemies/, built by enemies/createBoss.ts) and its loot (loot.ts BOSS_DROPS / HARD_BOSS_LOOT).
 // Which expedition it guards and which one it opens come from data/areas.ts (`floors`, `needs`).
 
+/** The main game's bosses (one per expedition). */
 export type BossId = 'dragon' | 'derolle' | 'warden' | 'falz';
+/** The Rift Map's pinnacle bosses (rift-only: no expedition, no difficulty of their own). */
+export type PinnacleBossId = 'gryphon';
+/** Any boss that can stand in a rift: the four, and the pinnacles'. */
+export type RiftBossId = BossId | PinnacleBossId;
 
 /** A shop tier that a boss kill opens, from a character level. */
 export interface ShopUnlock {
@@ -14,7 +19,7 @@ export interface ShopUnlock {
 }
 
 export interface BossDef {
-  id: BossId;
+  id: RiftBossId;
   name: string;
   /** As it reads in a sentence: "Defeat the Warden to unlock". */
   title: string;
@@ -33,9 +38,11 @@ export interface BossDef {
   /** Radius of the loot ring, and its stretch along z (De Rol Le's long deck). */
   dropRing: number;
   dropStretch?: number;
+  /** A Rift Map pinnacle's boss: rift-only (no shops, no expedition). */
+  pinnacle?: boolean;
 }
 
-export const BOSSES: Record<BossId, BossDef> = {
+export const BOSSES: Record<RiftBossId, BossDef> = {
   dragon: {
     id: 'dragon', name: 'Dragon', title: 'the Dragon', music: 'dragon',
     xp: () => dragon.xp,
@@ -70,6 +77,20 @@ export const BOSSES: Record<BossId, BossDef> = {
     opensNightmare: true,
     dropsAt: 'center', dropRing: 3,
   },
+  // The Rift Map's Circle II pinnacle (2026-10-21): Storm Peak, between the Dragon's and De Rol Le's quarters.
+  gryphon: {
+    id: 'gryphon', name: 'Gal Gryphon', title: 'Gal Gryphon', music: 'gryphon',
+    xp: () => galGryphon.xp,
+    shop: [], hardShop: [], hellShop: [],
+    // The summit is round with cloud all round it: loot by the body could land off the edge.
+    dropsAt: 'center', dropRing: 3,
+    pinnacle: true,
+  },
 };
 
-export const BOSS_IDS = Object.keys(BOSSES) as BossId[];
+/** The main game's four, in expedition order (the pinnacle bosses are rift-only). */
+export const BOSS_IDS: BossId[] = ['dragon', 'derolle', 'warden', 'falz'];
+/** Every boss a rift can hold. */
+export const RIFT_BOSS_IDS: RiftBossId[] = [...BOSS_IDS, 'gryphon'];
+
+export const isMainBoss = (id: RiftBossId): id is BossId => !BOSSES[id].pinnacle;

@@ -30,7 +30,7 @@ export function testCharacter(level = 76): CharacterData {
 
   const staff = (id: string, name: string) => rare(id, name, [a('techPct', 23), a('mstFlat', 48), a('firePct', 32), a('tpCost', 12), a('haste', 4)]);
   const weapons = [staff('rod_11', 'Star Spire'), staff('wand_11', 'Night Whisper')];
-  const frame = rare('frame_psy_11', 'Spirit Mantle', [a('hp', 110), a('strike', 6), a('mstFlat', 48), a('regen', 4), a('injCharge', 22)], { slots: 3 });
+  const frame = rare('frame_psy_11', 'Spirit Mantle', [a('hp', 110), a('strike', 6), a('mstFlat', 48), a('regen', 4), a('injCharge', 22)]);
   const barrier = rare('barrier_psy_11', 'Dawn Veil', [a('hp', 110), a('strike', 6), a('areaDr', 6), a('resCorrupt', 32), a('haste', 4)]);
   const units = [unit('mstFlat', 48), unit('hp', 110), unit('strike', 6), unit('lck', 32)];
   const injector = makeItem('fluid_6', { mod: 'reserve' });

@@ -2245,48 +2245,75 @@ table.controls td:nth-child(odd) {
 }
 
 /* ------------------------------------------------------------- units */
+/* The Mag tab's units column: the four slots, then the learned list stretched to the bottom (it scrolls). */
+.detail.units-col {
+  display: flex;
+  flex-direction: column;
+}
 .units {
-  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.units-count {
+  margin-left: 6px;
+  font-size: 15px;
 }
 .unit-slot {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 6px;
-  margin-bottom: 3px;
+  gap: 8px;
+  padding: 5px 8px;
+  margin-bottom: 4px;
   border: 1px dashed var(--edge-dim);
   border-radius: 6px;
-  font-size: 14.5px;
 }
 .unit-slot.empty {
   justify-content: center;
-}
-.units-note {
-  margin-top: 6px;
+  min-height: 46px;
   font-size: 14.5px;
 }
-.unit-slot.inactive {
-  opacity: 0.55;
+.units-note {
+  margin: 0 0 6px;
+  font-size: 14.5px;
 }
-.unit-tag {
-  min-width: 52px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  font: 700 12px var(--font-head);
-  letter-spacing: 0.05em;
-  text-align: center;
-  text-transform: uppercase;
+.units .list-group {
+  margin-top: 8px;
 }
-.unit-tag.on {
-  color: #071026;
-  background: var(--good);
+.unit-list {
+  flex: 1;
+  min-height: 140px;
 }
-.unit-tag.off {
-  color: var(--text-dim);
-  border: 1px solid var(--edge-dim);
+.unit-list .row {
+  padding-top: 4px;
+  padding-bottom: 4px;
 }
-.unit-slot.empty .unit-tag {
-  margin-right: auto;
+/* A unit's name over what it does, both free to wrap. */
+.unit-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.unit-name {
+  font: 600 15.5px var(--font-head);
+  letter-spacing: 0.03em;
+  color: #9ad0ff;
+}
+.unit-name.rare {
+  color: var(--rare);
+}
+.unit-name.r-rare {
+  color: #ffd84a;
+}
+.unit-eff {
+  font-size: 14.5px;
+  color: var(--text);
+}
+.unit-eff.cost {
+  color: var(--bad);
 }
 .tab-badge.warn {
   top: auto;
@@ -2443,16 +2470,7 @@ table.controls td:nth-child(odd) {
   border: 1px solid var(--edge-dim);
   border-radius: 4px;
 }
-.ic-pip {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-left: 2px;
-  border: 1px solid #9ad0ff;
-  border-radius: 2px;
-  vertical-align: -1px;
-}
-.ic-pip.on { background: #9ad0ff; }
+
 .ic-lines {
   margin-top: 6px;
 }
@@ -2471,13 +2489,15 @@ table.controls td:nth-child(odd) {
   color: var(--text-dim);
 }
 
-/* ---------------- Rift Gate (Falz Rifts) ---------------- */
+/* ---------------- Rift Gate: the Rift Map (Falz Rifts) ---------------- */
 .menu-layer:not(.stage-layer) > .menu-panel.rift-gate {
-  width: min(680px, 94vw);
+  width: min(1200px, 97vw);
+  height: min(860px, 94vh);
   gap: 10px;
 }
 .rift-gate .menu-text {
   margin: 0;
+  font-size: 15px;
 }
 .rift-open {
   display: flex;
@@ -2489,147 +2509,464 @@ table.controls td:nth-child(odd) {
   border-radius: 8px;
   background: rgba(70, 30, 120, 0.35);
 }
-.rift-pick {
+.rm-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 370px;
+  gap: 12px;
+}
+.rm-mapcol {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rm-map {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border: 1px solid var(--edge-dim);
+  border-radius: 8px;
+  background: radial-gradient(circle at 50% 50%, rgba(160, 80, 255, 0.16), rgba(160, 80, 255, 0) 40%), rgba(3, 8, 30, 0.85);
+  overflow: hidden;
+}
+.rm-svg {
+  display: block;
+  height: 100%;
+  max-width: 100%;
+  aspect-ratio: 1 / 1;
+}
+.rm-band {
+  fill: rgba(140, 198, 255, 0.025);
+}
+.rm-band.b2 {
+  fill: rgba(140, 198, 255, 0.04);
+}
+.rm-band.b3 {
+  fill: rgba(150, 120, 255, 0.06);
+}
+.rm-ring {
+  fill: none;
+  stroke: rgba(140, 198, 255, 0.07);
+}
+.rm-bound {
+  fill: none;
+  stroke: rgba(140, 198, 255, 0.28);
+  stroke-width: 1.2;
+  stroke-dasharray: 6 6;
+}
+.rm-bound.rim {
+  stroke-dasharray: none;
+  stroke-opacity: 0.5;
+}
+.rm-spoke {
+  stroke: rgba(140, 198, 255, 0.1);
+}
+.rm-clabel {
+  font: 700 10.5px var(--font-head);
+  letter-spacing: 0.22em;
+  fill: rgba(164, 189, 230, 0.6);
+}
+.rm-rim {
+  font: 800 13px var(--font-head);
+  letter-spacing: 0.24em;
+}
+.rm-hlabel {
+  font: 800 10px var(--font-head);
+  letter-spacing: 0.2em;
+  fill: #d27bff;
+}
+.rm-e {
+  fill: none;
+  stroke: #8cc6ff;
+}
+.rm-e.dim {
+  stroke-opacity: 0.18;
+  stroke-dasharray: 3 4;
+  stroke-width: 1.2;
+}
+.rm-e.reach {
+  stroke-opacity: 0.5;
+  stroke-width: 1.6;
+}
+.rm-e.walked {
+  stroke-opacity: 0.9;
+  stroke-width: 2.6;
+}
+.rm-e.req {
+  stroke: #ffe08a;
+  stroke-opacity: 0.28;
+  stroke-dasharray: 2 5;
+  stroke-width: 1.4;
+}
+.rm-e.seal {
+  stroke: #d27bff;
+  stroke-opacity: 0.3;
+  stroke-dasharray: 2 5;
+  stroke-width: 1.4;
+}
+.rm-e.req.met,
+.rm-e.seal.met {
+  stroke-opacity: 0.88;
+}
+.rm-n {
+  cursor: pointer;
+}
+.rm-n text {
+  font-family: var(--font-head);
+  font-weight: 800;
+  pointer-events: none;
+}
+.rm-halo {
+  fill: none;
+  stroke-width: 1.6;
+  opacity: 0;
+}
+.rm-n.open .rm-halo {
+  animation: rm-pulse 2.2s ease-in-out infinite;
+}
+@keyframes rm-pulse {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+.rm-yel {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 3 2.4;
+}
+.rm-selr {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.8;
+  opacity: 0;
+}
+.rm-n:hover .rm-selr {
+  opacity: 0.45;
+}
+.rm-n.sel .rm-selr {
+  opacity: 1;
+}
+.rm-resbar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.rm-res {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--edge-dim);
+  border-radius: 6px;
+  background: rgba(2, 10, 36, 0.5);
+}
+.rm-res b {
+  font: 700 14px var(--font-head);
+}
+.rm-pips {
+  display: flex;
+  gap: 4px;
+}
+.rm-pip {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  opacity: 0.5;
+}
+.rm-pip.on {
+  background: currentColor;
+  opacity: 1;
+}
+.rm-detail {
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 10px;
-  background: rgba(2, 10, 36, 0.5);
+  padding: 12px 14px;
   border: 1px solid var(--edge-dim);
   border-radius: 8px;
+  background: rgba(2, 10, 36, 0.5);
+  font-size: 15px;
+  line-height: 1.45;
 }
-.rift-line {
+.rm-detail p {
+  margin: 0;
+}
+.rm-eyebrow {
+  font: 700 12px var(--font-head);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.rm-title {
+  font: 700 22px var(--font-head);
+  line-height: 1.15;
+}
+.rm-chips {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
   gap: 6px;
 }
-.rift-label {
-  width: 64px;
-  font: 600 14.5px var(--font-head);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  opacity: 0.75;
-}
-.rift-line .btn.on {
-  border-color: #b078ff;
-  box-shadow: 0 0 10px rgba(176, 120, 255, 0.45);
-}
-.rift-tier {
-  min-width: 36px;
-  text-align: center;
-  font: 700 24px var(--font-head);
-  color: #d0b0ff;
-}
-.rift-gate .split {
-  min-height: 260px;
-}
-.rift-shard-ico {
-  flex: none;
-  width: 12px;
-  height: 18px;
-  background: linear-gradient(160deg, #e0c8ff, #8a40ff 60%, #3a1070);
-  clip-path: polygon(50% 0, 100% 35%, 70% 100%, 30% 100%, 0 35%);
-}
-.rift-mods {
-  margin: 8px 0 6px;
-  padding-left: 18px;
-  font-size: 15.5px;
-  line-height: 1.5;
-}
-.rift-mods b {
-  color: #d0b0ff;
-}
-.rift-bonus {
-  font: 600 14.5px var(--font-head);
-  color: var(--accent-hi);
-}
-
-.rift-preview {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  font-size: 15.5px;
-  line-height: 1.45;
-}
-.rift-col {
-  padding: 8px 10px;
+.rm-chip {
+  padding: 2px 8px;
   border: 1px solid var(--edge-dim);
-  border-radius: 6px;
-  background: rgba(40, 20, 80, 0.25);
-}
-.rift-col-title {
-  margin-bottom: 3px;
-  font: 600 13px var(--font-head);
-  text-transform: uppercase;
+  border-radius: 4px;
+  font: 700 11.5px var(--font-head);
   letter-spacing: 0.08em;
-  color: #d0b0ff;
-}
-@media (max-width: 640px) {
-  .rift-preview {
-    grid-template-columns: 1fr;
-  }
-}
-.rift-circle {
-  margin-left: auto;
-  font: 600 13px var(--font-head);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #d0b0ff;
+  color: var(--text-dim);
 }
-
-/* Rift Gate, Rift Circles tab: each boss's uniques by circle. */
-.rift-uq-grid {
+.rm-chip.open {
+  color: var(--accent-hi);
+  border-color: rgba(255, 224, 138, 0.55);
+}
+.rm-chip.cleared {
+  color: var(--good);
+  border-color: rgba(125, 255, 176, 0.5);
+}
+.rm-facts {
   display: grid;
-  grid-template-columns: 110px repeat(3, 1fr);
-  gap: 6px;
-  align-items: stretch;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 5px 12px;
+  margin: 0;
   font-size: 14.5px;
 }
-.rift-uq-head {
-  font: 600 13px var(--font-head);
+.rm-facts dt {
+  padding-top: 2px;
+  font: 700 11.5px var(--font-head);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.rm-facts dd {
+  margin: 0;
+}
+.rm-sub {
+  font: 700 12.5px var(--font-head);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--edge);
+}
+.rm-mods,
+.rm-uq,
+.rm-req {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+  font-size: 14.5px;
+}
+.rm-mods li,
+.rm-uq li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 8px;
+  border-left: 2px solid var(--edge-dim);
+  background: rgba(5, 12, 40, 0.45);
+}
+.rm-mods b {
+  color: #d0b0ff;
+}
+.rm-mods em {
+  font-style: normal;
+  font-size: 12.5px;
+  color: var(--accent-hi);
+  white-space: nowrap;
+}
+.rm-uq li {
+  border-left-color: var(--rare);
+}
+.rm-uq li span {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.rm-uq li.got {
+  border-left-color: var(--good);
+}
+.rm-uq li.got b::after {
+  content: ' ✓';
+  color: var(--good);
+}
+.rm-req li::before {
+  content: '○ ';
+  color: var(--text-dim);
+}
+.rm-req li.ok::before {
+  content: '● ';
+  color: var(--good);
+}
+.rm-act {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+}
+@media (max-width: 900px) {
+  .rm-body {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+  .rm-map {
+    flex: none;
+    aspect-ratio: 1 / 1;
+  }
+  .rm-svg {
+    width: 100%;
+    height: auto;
+  }
+  .rm-resbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Uniques tab (Menu → Uniques): every unique as a card, grouped by where it drops. */
+.uq-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+.uq-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.uq-count {
+  margin-left: 2px;
+  opacity: 0.7;
+  font-size: 12.5px;
+}
+.uq-intro {
+  font-size: 14.5px;
+}
+.uq-list {
+  flex: 1;
+}
+.uq-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin: 12px 2px 6px;
+  font: 600 15px var(--font-head);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--rare);
+}
+.uq-group:first-child {
+  margin-top: 2px;
+}
+.uq-group-note {
+  font-size: 14px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-dim);
+}
+.uq-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(330px, 100%), 1fr));
+  gap: 8px;
+}
+.uq-card {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px 9px;
+  font-size: 15px;
+  line-height: 1.42;
+  border: 1px solid rgba(197, 140, 255, 0.35);
+  border-radius: 8px;
+  background: rgba(60, 24, 110, 0.22);
+}
+.uq-card.found {
+  border-color: rgba(197, 140, 255, 0.75);
+  box-shadow: inset 0 0 14px rgba(197, 140, 255, 0.12);
+}
+.uq-card.locked {
+  opacity: 0.55;
+}
+.uq-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.uq-name {
+  flex: 1;
+  min-width: 0;
+  font: 700 18.5px var(--font-head);
+  letter-spacing: 0.03em;
+  color: var(--rare);
+}
+.uq-found {
+  flex: none;
+  padding: 0 6px;
+  font: 600 12.5px var(--font-head);
+  color: var(--good);
+  border: 1px solid currentColor;
+  border-radius: 4px;
+}
+.uq-card .ic-sub {
+  margin-bottom: 4px;
+}
+.uq-circle {
+  font: 600 12.5px var(--font-head);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #d0b0ff;
-  padding: 2px 4px;
 }
-.rift-uq-boss {
-  display: flex;
-  align-items: center;
-  font: 600 15px var(--font-head);
+.uq-note {
+  padding-left: 14px;
+  font-size: 14px;
+  color: var(--text-dim);
 }
-.rift-uq-cell {
+.uq-note::before {
+  content: '·';
+  margin-left: -10px;
+  margin-right: 6px;
+}
+.uq-drops {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 6px;
-  border: 1px solid var(--edge-dim);
-  border-radius: 6px;
-  background: rgba(40, 20, 80, 0.25);
+  gap: 2px;
+  font-size: 14px;
+  color: var(--text-dim);
 }
-.rift-uq-cell.locked,
-.rift-uq-head.locked {
-  opacity: 0.45;
-}
-.rift-uq {
-  display: flex;
-  justify-content: space-between;
-  gap: 6px;
-  color: #c9a0ff;
-  cursor: help;
-}
-.rift-uq.found .rift-uq-name {
-  color: #e8d4ff;
+.uq-drops b {
+  color: #fff;
   font-weight: 600;
 }
-.rift-uq-kind {
-  opacity: 0.6;
-  font-size: 13px;
-  text-transform: capitalize;
+.uq-state {
+  padding: 0 5px;
+  font: 600 12px var(--font-head);
+  border: 1px solid var(--edge-dim);
+  border-radius: 3px;
+  white-space: nowrap;
 }
-.rift-uq-first {
-  font-size: 12.5px;
+.uq-state.owed {
   color: var(--accent-hi);
+  border-color: currentColor;
+}
+.uq-card .ic-flavour {
+  margin-top: auto;
+  padding-top: 6px;
+  font-size: 14px;
 }
 
 /* Status tab: everything else gear and talents add up to (run speed, resistances, technique %...). */

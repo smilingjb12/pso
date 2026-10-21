@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { CC_KINDS, ccCount, rollCcResist, type CcDifficulty, type CcRank, type CcRoll } from './ccResist';
 import { crowdControl as cfg, enemies } from './config';
-import { RIFT_MODS, riftCc, riftCfg, rollShard } from './rifts';
+import { MAP_IDS, MAP_NODES, isRoomKind, newMap, nodeRoll } from './riftMap';
+import { RIFT_MODS, riftCc, riftCfg } from './rifts';
 
 function mulberry(seed: number): () => number {
   let a = seed >>> 0;
@@ -92,11 +93,13 @@ describe('CC resistance affixes', () => {
     }
   });
 
-  it('come on shards at most one at a time', () => {
-    const rng = mulberry(17);
-    for (let i = 0; i < 3000; i++) {
-      const s = rollShard(1 + (i % 30), rng);
-      expect(s.mods.filter((m) => RIFT_MODS[m].cc).length).toBeLessThanOrEqual(1);
+  it('come on Rift Map nodes at most one at a time', () => {
+    const map = newMap(17);
+    for (const id of MAP_IDS.filter((x) => isRoomKind(MAP_NODES[x].kind))) {
+      for (let roll = 0; roll < 20; roll++) {
+        map.nodes[id] = { s: 'open', roll };
+        expect(nodeRoll(map, id).mods.filter((m) => RIFT_MODS[m].cc).length).toBeLessThanOrEqual(1);
+      }
     }
   });
 });

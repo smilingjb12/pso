@@ -6,7 +6,7 @@ import { fm, group, later, noise, pitched, tone, type V } from './synth';
 // audition in /soundlab.html; the game plays the variant chosen in picks.ts.
 // `x` is an optional per-call argument (duration of a breath / beam, ...).
 
-export type SfxGroup = 'Combat' | 'Techniques' | 'Player' | 'Enemies' | 'Dragon' | 'De Rol Le' | 'Mines' | 'Warden' | 'Ruins' | 'Dark Falz' | 'World' | 'Loot' | 'UI' | 'Jingles';
+export type SfxGroup = 'Combat' | 'Techniques' | 'Player' | 'Enemies' | 'Dragon' | 'De Rol Le' | 'Mines' | 'Warden' | 'Ruins' | 'Dark Falz' | 'Gal Gryphon' | 'World' | 'Loot' | 'UI' | 'Jingles';
 
 export interface Variant {
   name: string;
@@ -1699,6 +1699,80 @@ const DEFS = {
       }),
     ],
   },
+  // ---- Gal Gryphon (the Rift Map's Circle II pinnacle)
+  'gryphon.screech': {
+    group: 'Gal Gryphon', label: 'Screech (intro, the storm call, attacks)', gap: 0.6, ref: 40,
+    variants: [
+      v_('Eagle cry', 'A falling raptor scream with a rasp', (v) => {
+        tone(v, { type: 'sawtooth', f: 2100, f1: 1250, fT: 0.7, a: 0.03, d: 0.8, gain: 0.06, vib: [22, 40], filter: { type: 'bandpass', f: 2400, q: 1.2 }, wet: 0.5 });
+        tone(v, { type: 'triangle', f: 1600, f1: 900, fT: 0.8, a: 0.02, d: 0.9, gain: 0.07, vib: [9, 25], wet: 0.5 });
+        noise(v, { a: 0.02, d: 0.6, gain: 0.12, filter: { type: 'bandpass', f: 3000, f1: 1800, q: 2 } });
+      }),
+      v_('Low cry', 'Deeper, with a growl under it', (v) => {
+        tone(v, { type: 'sawtooth', f: 1300, f1: 800, fT: 0.9, a: 0.05, d: 1, gain: 0.07, vib: [14, 35], filter: { type: 'bandpass', f: 1600, q: 1 }, wet: 0.5 });
+        growl(v, 160, 0.9, 0.18, 20);
+      }),
+    ],
+  },
+  'gryphon.flap': {
+    group: 'Gal Gryphon', label: 'Wing beat (gale, takeoff)', gap: 0.3, ref: 30,
+    variants: [
+      v_('Beat', 'A heavy whump of wings', (v) => {
+        swoosh(v, 120, 520, 0.55, 0.5);
+        thump(v, 70, 0.3, 0.25, 0.05);
+      }),
+      v_('Gust', 'A long gust of wind', (v) => {
+        noise(v, { color: 'pink', a: 0.2, d: 0.9, gain: 0.35, filter: { type: 'bandpass', f: 300, f1: 900, fT: 0.8, q: 0.7 } });
+      }),
+    ],
+  },
+  'gryphon.dive': {
+    group: 'Gal Gryphon', label: 'Swoop (it dives down a lane)', gap: 0.4, ref: 35,
+    variants: [
+      v_('Dive', 'A rising rush of air', (v) => {
+        noise(v, { color: 'pink', a: 0.4, d: 0.5, gain: 0.5, filter: { type: 'bandpass', f: 400, f1: 2400, fT: 0.8, q: 1.1 } });
+        tone(v, { type: 'triangle', f: 1400, f1: 1000, a: 0.1, d: 0.5, gain: 0.04, wet: 0.4 });
+      }),
+    ],
+  },
+  'gryphon.thunder': {
+    group: 'Gal Gryphon', label: 'Thunder (bolts, orbs, the lash)', gap: 0.08, ref: 45,
+    variants: [
+      v_('Thunderclap', 'A sharp crack and a long roll', (v) => {
+        noise(v, { d: 0.06, gain: 0.7, filter: { type: 'highpass', f: 1400 } });
+        noise(v, { d: 0.4, gain: 0.35, filter: { type: 'bandpass', f: 3000, f1: 600, q: 0.8 }, wet: 0.5 });
+        rumble(v, 1.6, 0.55, 380, 0.04, 0.04);
+      }),
+      v_('Close strike', 'Drier and nearer', (v) => {
+        noise(v, { d: 0.04, gain: 0.8, filter: { type: 'highpass', f: 2000 } });
+        fm(v, { f: 90, ratio: 7.3, index: 9, index1: 1, d: 0.3, gain: 0.16 });
+        rumble(v, 0.9, 0.5, 500, 0.02, 0.02);
+      }),
+    ],
+  },
+  'gryphon.rod': {
+    group: 'Gal Gryphon', label: 'A bolt bends into a rod (higher as it fills; 0: the mark on you)', gap: 0.1, ref: 40, x: 1,
+    variants: [
+      v_('Coil', 'A zap into ringing metal', (v, x) => {
+        const f = 440 * 1.26 ** Math.max(0, x);
+        noise(v, { d: 0.05, gain: 0.55, filter: { type: 'highpass', f: 1800 } });
+        fm(v, { f: 140, ratio: 7.3, index: 7, index1: 0.5, d: 0.35, gain: 0.12 });
+        tone(v, { type: 'sine', f, a: 0.005, d: 1.2, gain: 0.08, wet: 0.6 });
+        tone(v, { type: 'sine', f: f * 2.76, a: 0.005, d: 0.7, gain: 0.03, wet: 0.6 });
+      }),
+    ],
+  },
+  'gryphon.ground': {
+    group: 'Gal Gryphon', label: 'A full rod discharges and grounds it', gap: 1, ref: 60, len: 3,
+    variants: [
+      v_('Discharge', 'A great crack, a falling whine and the crash', (v) => {
+        noise(v, { d: 0.1, gain: 0.8, filter: { type: 'highpass', f: 1200 } });
+        tone(v, { type: 'sawtooth', f: 1800, f1: 120, fT: 0.9, a: 0.01, d: 1, gain: 0.05, filter: { type: 'lowpass', f: 3000 }, wet: 0.5 });
+        rumble(v, 2, 0.6, 320, 0.05, 0.1);
+        thump(v, 55, 0.6, 0.45, 0.5);
+      }),
+    ],
+  },
   'falz.ascend': {
     group: 'Dark Falz', label: 'The Angel enrages', gap: 1, ref: 60, len: 4,
     variants: [
@@ -2016,4 +2090,4 @@ const DEFS = {
 export type SfxId = keyof typeof DEFS;
 export const SFX: Record<SfxId, SfxDef> = DEFS;
 
-export const SFX_GROUPS: SfxGroup[] = ['Combat', 'Techniques', 'Player', 'Enemies', 'Dragon', 'De Rol Le', 'Mines', 'Warden', 'Ruins', 'Dark Falz', 'World', 'Loot', 'UI', 'Jingles'];
+export const SFX_GROUPS: SfxGroup[] = ['Combat', 'Techniques', 'Player', 'Enemies', 'Dragon', 'De Rol Le', 'Mines', 'Warden', 'Ruins', 'Dark Falz', 'Gal Gryphon', 'World', 'Loot', 'UI', 'Jingles'];

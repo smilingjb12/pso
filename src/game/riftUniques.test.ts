@@ -13,11 +13,11 @@ import { UniqueFx } from './combat/riftUniques';
 import { Combat, frozen, type CombatHooks } from './combat/Combat';
 import type { Hittable, StatusEffect } from './combat/types';
 
-/** A Lv 100 character wearing these gear uniques (or item ids) and running these unique units (a 4-slot frame). */
+/** A Lv 100 character wearing these gear uniques (or item ids) and running these unique units. */
 function character(gear: (UniqueId | string)[] = [], units: UniqueId[] = []): Character {
   const ch = Character.create('t');
   ch.data.level = 100;
-  const frame = makeItem('frame_psy_15', { slots: 4 });
+  const frame = makeItem('frame_psy_15');
   ch.data.inventory.push(frame);
   ch.data.equipped.frame = frame.uid;
   for (const id of gear) {
@@ -204,6 +204,77 @@ describe('Rift Circle uniques in a fight', () => {
     expect(burnRules.stackCap).toBe(1 + U.emberExtraStacks);
     setup().fx.tick(0.01);
     expect(burnRules.stackCap).toBe(1);
+  });
+
+  it('Storm Crest: walking builds Static, the next hit spends it (hits landing with it share it); a hit with none deals 25% less', () => {
+    const { fx, p, k } = setup(['stormCrest']);
+    const pp = p as typeof p & { moving: boolean };
+    const a = enemy(1000);
+    const b = enemy(1000);
+    expect(fx.dealtMult(a)).toBeCloseTo(1 - U.crestDry, 6);
+    // Knocked about (not walking or dashing): no Static.
+    for (let i = 0; i < 30; i++) {
+      p.pos.x += 0.1;
+      fx.tick(1 / 60);
+    }
+    expect(fx.static).toBe(0);
+    // Walk 12.5 m.
+    pp.moving = true;
+    for (let i = 0; i < 125; i++) {
+      p.pos.x += 0.1;
+      fx.tick(1 / 60);
+    }
+    expect(Math.floor(fx.static)).toBe(12);
+    const m = 1 + U.crestPerPoint * 12;
+    expect(fx.dealtMult(a)).toBeCloseTo(m, 6);
+    expect(fx.dealtMult(b)).toBeCloseTo(m, 6);
+    expect(fx.static).toBe(0);
+    // 12 points: a bolt jumps on from the hit that spent them, for half of it.
+    const dealt: [Hittable, number][] = [];
+    const c = enemy(1000);
+    k.nearestOthers = (() => [b, c]) as never;
+    k.deal = ((t: Hittable, d: number) => (dealt.push([t, d]), false)) as never;
+    fx.landed(a, 1000);
+    expect(dealt).toEqual([[b, 1000 * U.crestJumpShare], [c, 1000 * U.crestJumpShare]]);
+    fx.landed(a, 1000);
+    expect(dealt).toHaveLength(2);
+    // Next frame it is spent: a dry hit again. And it holds 40 at most.
+    pp.moving = false;
+    fx.tick(1 / 60);
+    expect(fx.dealtMult(a)).toBeCloseTo(1 - U.crestDry, 6);
+    pp.moving = true;
+    for (let i = 0; i < 700; i++) {
+      p.pos.x += 0.1;
+      fx.tick(1 / 60);
+    }
+    expect(fx.static).toBe(U.crestMax);
+    expect(setup().fx.dealtMult(a)).toBe(1);
+  });
+
+  it('Grounding Coil: hits on a boss or champion ground it (+50% for 5 s), others build nothing; they hit you 20% harder', () => {
+    const { fx, k } = setup([], ['groundingCoil']);
+    const boss = { alive: true };
+    k.h.world = (() => ({ boss })) as never;
+    const part = { hp: 1e6, maxHp: 1e6, alive: true, pos: new THREE.Vector3(), radius: 2, aimHeight: 3 } as unknown as Hittable;
+    const champ = Object.assign(enemy(1000), { champion: true });
+    const plain = enemy(1000);
+    const hits = Math.ceil(1 / U.coilPerHit);
+    for (let i = 0; i < hits - 1; i++) fx.landed(part, 100);
+    expect(fx.dealtMult(part)).toBe(1);
+    fx.landed(part, 100);
+    expect(fx.dealtMult(part)).toBeCloseTo(1 + U.coilMult, 6);
+    // Grounded, it builds no more; the window runs out.
+    fx.tick(U.coilTime - 0.1);
+    expect(fx.dealtMult(part)).toBeCloseTo(1 + U.coilMult, 6);
+    fx.tick(0.2);
+    expect(fx.dealtMult(part)).toBe(1);
+    for (let i = 0; i < hits; i++) fx.landed(champ, 100);
+    expect(fx.dealtMult(champ)).toBeCloseTo(1 + U.coilMult, 6);
+    for (let i = 0; i < hits * 2; i++) fx.landed(plain, 100);
+    expect(fx.dealtMult(plain)).toBe(1);
+    expect(fx.coilTakenMult(true)).toBeCloseTo(1 + U.coilTaken, 6);
+    expect(fx.coilTakenMult(false)).toBe(1);
+    expect(setup().fx.coilTakenMult(true)).toBe(1);
   });
 });
 

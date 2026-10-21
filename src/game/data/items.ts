@@ -98,8 +98,6 @@ interface BaseDef {
   fixed?: AffixRoll[];
   /** A unique: which one (its effect lives in code, see data/uniques.ts). */
   unique?: UniqueId;
-  /** A unique frame's unit slots. */
-  slots?: number;
 }
 
 export interface WeaponItemDef extends BaseDef {
@@ -187,7 +185,7 @@ export const INJECTOR_MODS: Record<InjectorMod, { name: string; desc: string }> 
   bracing: { name: 'Bracing', desc: 'Each dose also cuts damage taken by 30% for 3 s.' },
 };
 
-/** A unit: one affix, learned into the Mag (PSO's units); the frame's unit slots activate them. Its tier sets the affix's item level. */
+/** A unit: one affix, learned into the Mag (PSO's units), which runs four of them. Its tier sets the affix's item level. */
 export interface UnitItemDef extends BaseDef {
   type: 'unit';
   tier: number;
@@ -323,7 +321,7 @@ for (const u of Object.values(UNIQUES)) {
       add({ ...common, type: 'weapon', kind: u.base.kind, req: base.req, bonus: { ...base.bonus } });
     } else {
       const dr = uniqueDr(u.base.slot, tier);
-      add({ ...common, type: 'armor', slot: u.base.slot, line: 'basic', dr, req: 0, ...(u.base.slot === 'frame' ? { slots: 2 } : {}) });
+      add({ ...common, type: 'armor', slot: u.base.slot, line: 'basic', dr, req: 0 });
     }
   }
 }

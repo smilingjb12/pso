@@ -474,3 +474,160 @@ export const darkFalz = {
   doomReach: 12,
   doomClear: 1.2,
 };
+
+/**
+ * Gal Gryphon (2026-10-21; DESIGN.md "Endgame: Falz Rifts" > "Gal Gryphon"): the Rift Map's Circle II pinnacle boss,
+ * a storm griffin on Storm Peak, a round summit ringed by six lightning rods. Rift-only (it guards no expedition), so
+ * `rift` stands in for the Hell scaling the four get there. Seconds are its own clock (a rift's fixed tempo runs it
+ * faster) unless they say real seconds. Picked by the user in a question round: Storm Peak, spent rods, two phases.
+ * Made harder the same day (the user: "too easy"; their picks): relay rods, feather rain in the storm, sparks drifting
+ * through the arena all fight long (one at a time from 2026-10-22), paired attacks from the start, triples in phase 2
+ * and the cage below 1/3; the first draft's numbers kept.
+ */
+export const galGryphon = {
+  /** Only the ratio to the rift's common boss HP is used (riftBossHp). */
+  hp: 10000,
+  atp: 120,
+  armor: 10,
+  techResist: 14,
+  xp: 0,
+  /** Injector doses its whole HP bar is worth (see injectorCfg). */
+  charge: 4,
+  /** What Hell's boss scaling is to the four: ATP added (235 in all, between the Dragon's and De Rol Le's), armour, technique resistance, flat damage, XP. */
+  rift: { hp: 1, atp: 115, armor: 0, techResist: 14, flat: 3.5, xp: 6000 },
+  radius: 2.4,
+  /** The summit you can walk on (m from its centre); it lands this far north of the centre at the start. */
+  arenaRadius: 16,
+  perch: 9,
+  walkSpeed: 2.6,
+  turnSpeed: 1.6,
+  /** It keeps about this far from you between attacks (m). */
+  keepAway: 7,
+  /** Between attacks (was 1.6 until the 2026-10-21 rework: busier between storms). */
+  attackGap: 0.9,
+  enrageAt: 0.2,
+  enrageSpeed: 0.8,
+  /** Below this HP share: the eye of the storm (triples, feather volleys, sparks off the Gryphon too, storms with a gale). */
+  phase2At: 0.5,
+  /** Below this HP share every `tripleEvery`-th attack is the cage (a Hell triple), and a spark comes every `sparkEvery3` s. */
+  phase3At: 1 / 3,
+  tripleEvery: 2,
+  /** Grounded (a full rod) it takes this much damage (×1.5: +50%). */
+  weakPointMult: 1.5,
+  // ---- attacks (all walkable but the plummet and the crossing swoop's second lane)
+  /** Talon Swoop: a lane from it through you to the far rim, `swoopWidth` m wide; it flies it at `swoopSpeed` m/s. */
+  swoopWindup: 1.3,
+  swoopWidth: 5,
+  swoopSpeed: 24,
+  swoopAtp: 1.2,
+  swoopKnockback: 12,
+  /** Gale Wing: a wing beat in a cone (60° / 9 m keeps it walkable from anywhere in it: the 100° / 11 m pitched wasn't), shoving you away. */
+  galeWindup: 1.3,
+  galeRange: 9,
+  galeArcDeg: 60,
+  galeAtp: 0.7,
+  galeKnockback: 16,
+  /** Thunder Orbs: `orbCount` circles, one on you and the rest `orbSpread` m round it, burst after the windup. */
+  orbWindup: 1.4,
+  orbCount: 3,
+  orbRadius: 3,
+  orbSpread: 4.5,
+  orbAtp: 1.0,
+  /**
+   * Plummet: it springs up for `plummetRise` s, then a `plummetRadius` m circle on you, warned `plummetWindup` s (the
+   * enrage never cuts it). 2026-10-22, the user: smaller and slower to dodge (it was a 6 m dash check warned 1.5 s);
+   * now a walk: 4.95 m out of 5.6 walkable at the rift tempo.
+   */
+  plummetRise: 0.7,
+  plummetWindup: 1.8,
+  plummetRadius: 4.5,
+  plummetAtp: 1.3,
+  plummetKnockback: 12,
+  plummetRest: 1.4,
+  /**
+   * Phase 2, Crossing Swoop: the first lane as a swoop's; `crossDelay` s in, a lightning lash across it through you,
+   * warned `crossWindup` s. 1.0 (a dash check) until 2026-10-22, the user: too fast; 1.3 is the swoop's, a walk (enraged
+   * a dash check again).
+   */
+  crossDelay: 0.6,
+  crossWindup: 1.3,
+  // ---- the storm (its signature)
+  /**
+   * The storm: due `stormFirst` s into the fight, then `stormEvery` s after the last was called, never sooner than
+   * `stormAfterUp` s after it is back on its feet. It rises into the clouds (can't be hit) and lights one rod (a pillar
+   * of light its reach wide). It pulses `pulses` times, every `pulseGap` s (never under `pulseFloor` real seconds apart):
+   * the first ones do nothing, the last is the thunderstorm, the whole summit struck for `hell.mechanicHit` of your max
+   * HP (a failed mechanic, past armour). Step into the lit rod's pillar at any point and the pulses stop: it discharges
+   * into the Gryphon. The lit rod is one whose reach you can walk to with `stormSpare` real seconds left before the last
+   * pulse. (2026-10-22, the user's design: the pulses replaced the bolts on you, 27% each unless drawn into a rod.)
+   */
+  stormFirst: 10,
+  stormEvery: 22,
+  stormAfterUp: 9,
+  pulses: 3,
+  pulseGap: 1.3,
+  pulseFloor: 1.0,
+  stormSpare: 1.0,
+  /** Phase 2 storms: a gale pushes you away from the middle (m/s) from the call until you reach the pillar (or the thunderstorm). */
+  galePush: 2,
+  /**
+   * Rods: `rodCount` round the summit `rodRing` m out (30° off north first), its pillar `rodReach` m wide. A storm
+   * lights one, at random among the usable ones you can walk to (never the one you stand by, while another is in
+   * reach); step into its pillar and it discharges into the Gryphon, which crashes `rodLand` m inside it, grounded for
+   * `groundedTime` s (about 7 real seconds at a rift's tempo). A rod that fired is scorched for the next storm (never lit).
+   */
+  rodCount: 6,
+  rodRing: 11,
+  rodReach: 3.5,
+  rodR: 0.9,
+  rodLand: 5.5,
+  groundedTime: 8,
+  /** With no rod filled, it comes back down in the middle this long after the last bolt. */
+  stormLand: 1.2,
+  /**
+   * Feather rain (every storm, from the clouds): every `featherEvery` s two `featherRadius` m circles, one with its
+   * middle `featherNear` m off you away from the lit rod (step toward the rod), one `featherFar` m away; warned
+   * `featherWindup` s, × `featherAtp` ATP. Walkable inside the reach: 2.5 - 1.5 + 0.45 = 1.45 m to get out. Warned 1.6 s
+   * since 2026-10-22 (the user: more time to react; it was 1.0).
+   */
+  featherEvery: 1.2,
+  featherWindup: 1.6,
+  featherRadius: 2.5,
+  featherNear: 1.5,
+  featherFar: [3.5, 5] as [number, number],
+  featherAtp: 0.8,
+  /** Phase 2 on, outside storms: a volley of the two every this many s (2026-10-22, in place of the cyclones). */
+  featherVolleyEvery: [3.5, 5.5] as [number, number],
+  // ---- the sparks (2026-10-21, the user's idea: bolts that drift through the arena all the time, so you can't stand still)
+  /**
+   * Sparks: `sparkRadius` m balls at chest height drifting `sparkSpeed` m/s (its clock: ~1.7 real, well under your 4.6
+   * walk; 3 until 2026-10-22, the user: 50% slower), gone past the rim or after `sparkLife` s (long enough to cross the
+   * summit). A touch is a light hit: × `sparkAtp` ATP (about a third of a normal hit),
+   * no knockback. All fight long, through storms, groundings and every attack, **one at a time** (2026-10-22, the
+   * user: the streams of four and the spiral arms stacked up into lines and walls): a spark every `sparkEvery` s
+   * (`sparkEvery2` in phase 2, `sparkEvery3` below 1/3) leaves a random point just past the rim, aimed at where you
+   * stand give or take `sparkSpread` m, so they cross from every side; from phase 2 every `sparkFromBoss`-th one comes
+   * out of the Gryphon (the middle of the sky while it is up there) in a random direction instead.
+   */
+  sparkRadius: 0.5,
+  sparkSpeed: 1.5,
+  sparkHeight: 1,
+  sparkLife: 24,
+  sparkAtp: 0.33,
+  sparkEvery: 0.4,
+  sparkEvery2: 0.35,
+  sparkEvery3: 0.28,
+  sparkSpread: 3,
+  sparkFromBoss: 3,
+  // ---- paired and triple attacks (2026-10-21: pairs from the start, triples in phase 2, the cage below 1/3)
+  /** Swoop + flank orbs: orbs `flankOffset` m off the lane's middle on one side, at you and `flankSpacing` m either way. */
+  flankOffset: 4.5,
+  flankSpacing: 5,
+  /** Plummet ring: orbs in `ringSlots` slots `ringR` m round the plummet's circle (its edge + 1.5), one slot left open (toward the middle). */
+  ringSlots: 9,
+  ringR: 6,
+  /** The cage (below 1/3): swoop + lash crossing on you + orbs in three corners `cageOrbDist` m out; warned `cageWindup` s (never cut by the enrage); the pocket `cagePocket` m out in the fourth. */
+  cageWindup: 1.6,
+  cageOrbDist: 5,
+  cagePocket: 4.6,
+};

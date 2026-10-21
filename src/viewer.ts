@@ -9,6 +9,7 @@ import {
   garanzPoses, GaranzModel, gunbotPoses, GunbotModel, NodeModel, nodePoses, sinowPoses, SinowModel, WARDEN_HAND_REST, WardenModel,
 } from './game/models/mines';
 import { DragonModel, type DragonPoseParams } from './game/models/dragon';
+import { GryphonModel, type GryphonPoseParams } from './game/models/gryphon';
 import { Heroine, PLAYER_LOOK, type CharacterModel } from './game/models/heroine';
 import { Humanoid, humanPoses, STYLES, type Grip } from './game/models/humanoid';
 import { LEAD_FORMS, MAG_STATS, STAGE1, type MagStat } from './game/mag';
@@ -75,6 +76,7 @@ type Entry =
   | { kind: 'migium' }
   | { kind: 'derolle' }
   | { kind: 'dragon' }
+  | { kind: 'gryphon' }
   | { kind: 'prop'; prop: PropKind }
   | { kind: 'weapon'; weapon: WeaponKind }
   | { kind: 'mag' }
@@ -113,6 +115,7 @@ const CATALOGUE: Record<string, Entry> = {
   Hidoom: { kind: 'brute', which: 'hidoom' },
   Migium: { kind: 'migium' },
   Dragon: { kind: 'dragon' },
+  'Gal Gryphon': { kind: 'gryphon' },
   'De Rol Le': { kind: 'derolle' },
   Gillchic: { kind: 'gunbot' },
   Garanz: { kind: 'garanz' },
@@ -210,9 +213,10 @@ const HUSK_ANIMS = ['idle', 'charge', 'open'];
 const FALZ_ANIMS = ['idle', 'glide', 'scythe windup', 'scythe', 'cast', 'release', 'slam', 'hurt'];
 const ANGEL_ANIMS = ['idle', 'charge', 'cast'];
 const NO_ANIMS = ['\u2014'];
+const GRYPHON_ANIMS = ['idle', 'walk', 'screech', 'fly', 'swoop windup', 'swoop', 'gale', 'orbs', 'storm', 'grounded (weak point)', 'dead'];
 const ANIMS: Record<Entry['kind'], string[]> = {
   human: HUMAN_ANIMS, booma: BOOMA_ANIMS, brute: BOOMA_ANIMS, lily: LILY_ANIMS, migium: MIGIUM_ANIMS,
-  derolle: DRL_ANIMS, dragon: DRAGON_ANIMS, prop: NO_ANIMS, weapon: NO_ANIMS, mag: NO_ANIMS,
+  derolle: DRL_ANIMS, dragon: DRAGON_ANIMS, gryphon: GRYPHON_ANIMS, prop: NO_ANIMS, weapon: NO_ANIMS, mag: NO_ANIMS,
   riftGate: ['idle'],
   gunbot: GUNBOT_ANIMS, garanz: GARANZ_ANIMS, sinow: SINOW_ANIMS, node: NODE_ANIMS, warden: WARDEN_ANIMS,
   dimenian: DIMENIAN_ANIMS, delsaber: DELSABER_ANIMS, sorcerer: SORCERER_ANIMS, belra: BELRA_ANIMS, bringer: BRINGER_ANIMS,
@@ -243,6 +247,7 @@ let lily: LilyModel | null = null;
 let migium: MigiumModel | null = null;
 let drl: DeRolLeModel | null = null;
 let dragon: DragonModel | null = null;
+let gryphon: GryphonModel | null = null;
 let gunbot: GunbotModel | null = null;
 let garanz: GaranzModel | null = null;
 let sinow: SinowModel | null = null;
@@ -287,6 +292,7 @@ function attachWeapon(): void {
 function build(): void {
   if (root) scene.remove(root);
   human = booma = dragon = lily = migium = drl = null;
+  gryphon = null;
   gunbot = null;
   garanz = null;
   sinow = null;
@@ -313,6 +319,10 @@ function build(): void {
     case 'dragon':
       dragon = new DragonModel();
       root = dragon.group;
+      break;
+    case 'gryphon':
+      gryphon = new GryphonModel();
+      root = gryphon.group;
       break;
     case 'brute':
       brute = e.which === 'panarms' ? new PanArmsModel() : new HidoomModel();
@@ -650,6 +660,91 @@ function dragonPose(): DragonPoseParams {
   return p;
 }
 
+function gryphonPose(): GryphonPoseParams {
+  const p: GryphonPoseParams = {
+    lift: 0, pitch: 0, roll: 0, flap: 0.1 + Math.sin(time * 1.5) * 0.05, spread: 0.25, neck: 0, beak: 0, tuck: 0, veins: 0.2, weak: 0,
+    flash: false, enraged: false, walk: NaN, time,
+  };
+  const k = phase(1.3);
+  switch (params.animation) {
+    case 'walk':
+      p.walk = time * 4;
+      break;
+    case 'screech':
+      p.spread = 1;
+      p.flap = Math.sin(time * 9) * 0.6;
+      p.neck = -0.6;
+      p.beak = 1;
+      p.veins = 0.8;
+      break;
+    case 'fly':
+      p.lift = 3 + Math.sin(time * 2) * 0.3;
+      p.spread = 1;
+      p.flap = Math.sin(time * 7) * 0.5;
+      p.tuck = 1;
+      break;
+    case 'swoop windup':
+      p.lift = 2 * k;
+      p.spread = 1;
+      p.flap = 0.7 * k;
+      p.pitch = -0.2 * k;
+      p.neck = -0.3;
+      p.beak = 0.6;
+      break;
+    case 'swoop':
+      p.lift = 1.3;
+      p.spread = 0.85;
+      p.flap = -0.15;
+      p.pitch = 0.35;
+      p.neck = 0.25;
+      p.beak = 1;
+      p.tuck = 1;
+      p.veins = 0.7;
+      break;
+    case 'gale':
+      p.spread = 1;
+      p.flap = 0.9 * k;
+      p.pitch = -0.15 * k;
+      p.neck = -0.2;
+      break;
+    case 'orbs':
+      p.neck = -0.35 + k * 0.55;
+      p.beak = 1;
+      p.veins = 0.9;
+      p.spread = 0.6;
+      break;
+    case 'storm':
+      p.lift = 4;
+      p.spread = 1;
+      p.flap = Math.sin(time * 5) * 0.55;
+      p.neck = -0.4;
+      p.beak = 0.6;
+      p.veins = 1;
+      p.tuck = 1;
+      break;
+    case 'grounded (weak point)':
+      p.spread = 0.75;
+      p.flap = -0.35;
+      p.pitch = 0.25;
+      p.roll = 0.25 * Math.sin(time * 1.1);
+      p.neck = 0.9;
+      p.beak = 0.3;
+      p.veins = 0;
+      p.weak = 0.4 + Math.sin(time * 8) * 0.18;
+      break;
+    case 'dead':
+      p.spread = 0.7;
+      p.flap = -0.5;
+      p.pitch = 0.5 * k;
+      p.roll = 0.9 * k;
+      p.neck = k;
+      p.beak = 0.4;
+      p.veins = 0;
+      break;
+  }
+  return p;
+}
+
 function gunbotPose(): { pose: Pose; rate: number } {
   const k = phase(1.2);
   switch (params.animation) {
@@ -906,6 +1001,7 @@ function tick(dt: number, snap = false): void {
   if (husk) husk.pose({ open: params.animation === 'open' ? 1 : 0, charge: params.animation === 'charge' ? 1 : 0, time, flash: false, shatter: 0 });
   if (angel) angel.pose({ charge: params.animation === 'charge' ? 1 : 0, cast: params.animation === 'cast' ? 1 : 0, time, flash: false, presence: 1 });
   if (dragon) dragon.pose(dragonPose());
+  if (gryphon) gryphon.pose(gryphonPose());
   // Owners stand facing the camera (+Z) so each Mag sits at its usual shoulder offset.
   mags.forEach((m, i) => m.update(snap ? 0 : dt, magOwner(i), Math.PI, false));
 }

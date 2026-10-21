@@ -8,7 +8,7 @@ import {
 // crossfades between them when a room's gates close / open. Boss tracks use
 // the battle layer for their enraged phase.
 
-export type TrackId = 'pioneer2' | 'forest' | 'caves' | 'dragon' | 'derolle' | 'mines' | 'warden' | 'ruins' | 'falz';
+export type TrackId = 'pioneer2' | 'forest' | 'caves' | 'dragon' | 'derolle' | 'mines' | 'warden' | 'ruins' | 'falz' | 'gryphon';
 
 export interface Track {
   id: TrackId;
@@ -409,6 +409,44 @@ function falz(): Track {
   };
 }
 
+function gryphon(): Track {
+  const bars = 16;
+  const prog = progression([
+    'F#m', 'D', 'A', 'E', 'F#m', 'D', 'Bm', 'C#7',
+    'D', 'E', 'C#m', 'F#m', 'Bm', 'D', 'C#sus4', 'C#',
+  ]);
+  const mel = melody(`
+    F#5! - - - C#6 - A5 - | D6 - - - C#6 - A5 - | E6 - - - C#6 - A5 - | B5 - - - G#5 - E5 - |
+    F#5! - - - A5 - C#6 - | F#6 - - - E6 - D6 - | D6 - - - B5 - F#5 - | G#5 - - - - - . . |
+    A5! - - - D6 - F#6 - | E6 - - - B5 - G#5 - | G#5 - - - C#6 - E6 - | F#6 - - - C#6 - - - |
+    D6! - - - B5 - F#5 - | A5 - - - D6 - F#6 - | F#6 - - - E6 - C#6 - | G#5 - - - - - . . |`, 2, 0.85);
+  return {
+    id: 'gryphon',
+    name: 'Gal Gryphon',
+    desc: 'Pinnacle boss. Synth (no recording yet): a fast storm theme in F# minor, a soaring brass line over racing string arpeggios, brass stabs and a pumping bass, with thunder hits (timpani, toms, crashes). The eye of the storm adds choir, taiko and a lead arpeggio.',
+    bpm: 152,
+    gain: 0.75,
+    bars,
+    parts: [
+      p('strings', 'base', arpPart(prog, [0, 1, 2, 3, 2, 1], 1, 54, 0.45), 0.8, -0.2),
+      p('darkpad', 'base', padPart(prog, 52, 0.4), 0.65),
+      p('pumpbass', 'base', bassPart(prog, 'r-r-r-r-o-r-r-5-', 40, 0.8)),
+      p('brass', 'base', mel, 1.1, 0.1),
+      p('stab', 'base', compPart(prog, 'X-....X-..X-....', 57, 0.6), 0.75, 0.2),
+      p('timpani', 'base', hits('X.......X.....X.', bars, 37), 0.7),
+      p('kick', 'base', hits('X...X...X...X.X.', bars), 0.9),
+      p('snare', 'base', hits('....X.......X...', bars, 60, [], { every: 4, pattern: '....X.......XXXX' }), 0.9),
+      p('hat', 'base', hits('x.x.x.x.x.x.x.x.', bars), 0.7, 0.25),
+      p('crash', 'base', onBars([0, 4, 8, 12]), 0.75),
+      // The eye of the storm (phase 2) and the enrage
+      p('choir', 'battle', padPart(prog, 61, 0.55)),
+      p('taiko', 'battle', hits('X..X..X.X..X.XX.', bars, 38), 0.8),
+      p('tom', 'battle', hits('..............XX', bars, 45), 0.7),
+      p('arp', 'battle', arpPart(prog, [0, 1, 2, 3, 4, 3, 2, 1], 1, 66, 0.45), 0.6, 0.3),
+    ],
+  };
+}
+
 export const TRACKS: Record<TrackId, Track> = {
   pioneer2: pioneer2(),
   forest: forest(),
@@ -419,4 +457,5 @@ export const TRACKS: Record<TrackId, Track> = {
   warden: warden(),
   ruins: ruins(),
   falz: falz(),
+  gryphon: gryphon(),
 };

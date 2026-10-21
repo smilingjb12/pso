@@ -59,6 +59,17 @@ export class UniqueFx {
   private rushHit = new Set<Hittable>();
   /** HP/Drain: healing below 1 HP, carried over. */
   private drainAcc = 0;
+  /** Storm Crest: Static built by moving, where the player stood last frame, and the frame whose hits share the Static spent. */
+  static = 0;
+  private lastX = NaN;
+  private lastZ = 0;
+  private frame = 0;
+  private crestFrame = -1;
+  private crestMult = 1;
+  /** The hit that spent enough Static for a bolt (it jumps once that hit has landed). */
+  private crestBolt: Hittable | null = null;
+  /** Grounding Coil: Ground built (0..1) and seconds grounded, per boss (all its parts) or champion. */
+  private grounds = new Map<object, { g: number; t: number }>();
 
   /** Back to nothing (a new area, Pioneer 2). */
   reset(): void {
@@ -72,6 +83,10 @@ export class UniqueFx {
     this.dfReady = true;
     this.bossMark = 1;
     this.c.extraHaste = 0;
+    this.static = 0;
+    this.lastX = NaN;
+    this.crestBolt = null;
+    this.grounds.clear();
   }
 
   // ------------------------------------------------------------ every frame
@@ -79,6 +94,19 @@ export class UniqueFx {
   tick(dt: number): void {
     const p = this.p;
     const c = this.c;
+    this.frame++;
+    // Storm Crest: your own walking and dashing build Static (a teleport's jump, knockback and pulls don't).
+    if (c.hasUnique('stormCrest') && p.alive) {
+      const moved = Number.isNaN(this.lastX) ? 0 : Math.hypot(p.pos.x - this.lastX, p.pos.z - this.lastZ);
+      if ((p.moving || p.dash) && moved < 2) this.static = Math.min(U.crestMax, this.static + moved * U.crestPerM);
+    } else this.static = 0;
+    this.lastX = p.pos.x;
+    this.lastZ = p.pos.z;
+    // Grounding Coil: a grounded target's window runs out.
+    for (const [k, g] of this.grounds) {
+      if (g.t > 0) g.t = Math.max(0, g.t - dt);
+      if (!(k as { alive?: boolean }).alive) this.grounds.delete(k);
+    }
     // Rampage falls off a while after the last kill.
     if (this.rampage > 0) {
       this.rampageT -= dt;
@@ -131,11 +159,13 @@ export class UniqueFx {
 
   // ------------------------------------------------------------ dealing damage
 
-  /** What the player's hits deal on top right now: Rampage, Devil/Battle, Proof of Sword-Saint. */
+  /** What the player's hits deal on top right now: Rampage, Devil/Battle, Proof of Sword-Saint, Storm Crest, Grounding Coil. */
   dealtMult(t: Hittable): number {
     const c = this.c;
     const p = this.p;
     let m = 1;
+    if (c.hasUnique('stormCrest')) m *= this.crest(t);
+    if (c.hasUnique('groundingCoil') && (this.grounds.get(this.groundKey(t) ?? {})?.t ?? 0) > 0) m *= 1 + c.uval(U.coilMult);
     if (this.rampage > 0) m *= 1 + U.rampageDmg * this.rampage;
     if (c.hasUnique('devilBattle')) m *= 1 + c.uval(U.devilPer10) * Math.min(9, Math.floor((1 - p.hp / Math.max(1, p.maxHp)) * 10));
     if (c.hasUnique('swordSaint')) {
@@ -143,6 +173,74 @@ export class UniqueFx {
       else if (t.hp < t.maxHp * 0.5) m *= Math.max(0, 1 - c.uval(U.saintLow));
     }
     return m;
+  }
+
+  /**
+   * Storm Crest: the first hit of a frame spends the Static (whole points) for +4% a point, and every other hit landing
+   * with it shares that; from `crestBoltAt` points it also sends a bolt on (see `landed`). A hit with none: −25%.
+   */
+  private crest(t: Hittable): number {
+    if (this.crestFrame === this.frame) return this.crestMult;
+    const points = Math.floor(this.static);
+    if (points < 1) return 1 - U.crestDry;
+    this.static = 0;
+    this.crestFrame = this.frame;
+    this.crestMult = 1 + U.crestPerPoint * points;
+    this.crestBolt = points >= U.crestBoltAt ? t : null;
+    this.k.h.float(tmp.copy(t.pos).setY(t.aimHeight + 1.3), `STATIC ×${this.crestMult.toFixed(1)}`, 'proc');
+    return this.crestMult;
+  }
+
+  /** What Grounding Coil grounds a hit target as: its boss (every part shares one), or a champion (others: nothing). */
+  private groundKey(t: Hittable): object | null {
+    if (isBossPart(t)) return this.k.h.world().boss ?? null;
+    return (t as Enemy).champion ? t : null;
+  }
+
+  /**
+   * A hit landed for `dmg` (killing or not): Storm Crest's bolt jumps on from the hit that spent a full charge, and
+   * Grounding Coil builds Ground on a boss or champion (at 100% it is grounded for a while, then it builds again).
+   */
+  landed(t: Hittable, dmg: number): void {
+    const c = this.c;
+    if (this.crestBolt === t) {
+      this.crestBolt = null;
+      const share = Math.max(1, Math.round(dmg * U.crestJumpShare));
+      let from = tmp.copy(t.pos).setY(1.2);
+      for (const o of this.k.nearestOthers(t.pos, [t], U.crestJumps, U.crestRange)) {
+        const to = o.pos.clone().setY(1.2);
+        this.k.arc(from, to, 0x9ae8ff, 1.2);
+        const killed = this.k.deal(o, share, t.pos.x, t.pos.z, 0, stagger.light);
+        this.k.h.float(tmp.copy(o.pos).setY(o.aimHeight + 0.6), String(share), 'dmg tech');
+        if (killed) this.k.h.onKill(o);
+        from = to;
+      }
+      sfx('tech.zonde', { x: t.pos.x, z: t.pos.z });
+    }
+    if (!c.hasUnique('groundingCoil') || dmg <= 0) return;
+    const key = this.groundKey(t);
+    if (!key) return;
+    const g = this.grounds.get(key) ?? { g: 0, t: 0 };
+    this.grounds.set(key, g);
+    if (g.t > 0) return;
+    g.g += c.uval(U.coilPerHit);
+    if (g.g < 1 - 1e-9) return;
+    g.g = 0;
+    g.t = U.coilTime;
+    this.k.h.float(tmp.copy(t.pos).setY(t.aimHeight + 1.3), 'GROUNDED', 'proc');
+    this.k.ring(t.pos.x, t.pos.z, 0x9ae8ff, Math.max(2, t.radius * 1.6), 0.45);
+    sfx('tech.zonde', { x: t.pos.x, z: t.pos.z, pitch: 0.7 });
+  }
+
+  /** Grounding Coil's Ground on what this hits (0..1) and seconds grounded, for the HUD. */
+  groundOf(t: Hittable): { g: number; t: number } | null {
+    const key = this.groundKey(t);
+    return key ? this.grounds.get(key) ?? { g: 0, t: 0 } : null;
+  }
+
+  /** Grounding Coil's cost: what a boss or champion's hits on you are multiplied by. */
+  coilTakenMult(fromBossOrChampion: boolean): number {
+    return fromBossOrChampion && this.c.hasUnique('groundingCoil') ? 1 + this.c.uval(U.coilTaken) : 1;
   }
 
   /** Can this hit crit? (Ophelie Seize's photon bolts can't.) */

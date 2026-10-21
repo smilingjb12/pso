@@ -38,6 +38,7 @@ export const LEVEL_TARGET: Record<SfxId, number> = {
   'falz.awaken': -13, 'falz.charge': -21, 'falz.swarm': -22, 'falz.dive': -19, 'falz.pulse': -13, 'falz.open': -20, 'falz.morph': -11,
   'falz.scythe': -17, 'falz.grants': -22, 'falz.grantsHit': -14, 'falz.megid': -19, 'falz.orbPop': -21, 'falz.vanish': -21,
   'falz.halves': -18, 'falz.wash': -15, 'falz.feathers': -20, 'falz.lance': -12, 'falz.ascend': -14,
+  'gryphon.screech': -14, 'gryphon.flap': -18, 'gryphon.dive': -16, 'gryphon.thunder': -12, 'gryphon.rod': -17, 'gryphon.ground': -11,
   'gate.close': -22, 'gate.open': -24, 'world.switch': -26, 'world.teleport': -22,
   'lava.warn': -26, 'lava.erupt': -16,
   'pickup.meseta': -29, 'pickup.item': -28, 'loot.rare': -20, 'mag.feed': -28, 'mag.hungry': -30,
