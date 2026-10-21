@@ -272,7 +272,7 @@ describe('Gal Gryphon: the sparks', () => {
       const k = sparkAlong(0, 0, Math.PI / 2);
       let pz = 0;
       let hit = false;
-      for (let t = 0; t < 6 && !hit; t += 1 / 60) {
+      for (let t = 0; t < 12 / cfg.sparkSpeed + 2 && !hit; t += 1 / 60) {
         if (dodge && t > 1) pz = Math.min(1.5, pz + player.moveSpeed / 60);
         driftSpark(k, 1 / 60, 0, 0, 50);
         hit = sparkTouches(k, 12, pz, pr);

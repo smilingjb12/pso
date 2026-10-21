@@ -605,8 +605,9 @@ export const galGryphon = {
   featherAtp: 0.8,
   // ---- the sparks (2026-10-21, the user's idea: bolts that drift through the arena all the time, so you can't stand still)
   /**
-   * Sparks: `sparkRadius` m balls at chest height drifting `sparkSpeed` m/s (its clock: ~3.45 real, under your 4.6 walk),
-   * gone past the rim or after `sparkLife` s. A touch is a light hit: × `sparkAtp` ATP (about a third of a normal hit),
+   * Sparks: `sparkRadius` m balls at chest height drifting `sparkSpeed` m/s (its clock: ~1.7 real, well under your 4.6
+   * walk; 3 until 2026-10-22, the user: 50% slower), gone past the rim or after `sparkLife` s (long enough to cross the
+   * summit). A touch is a light hit: × `sparkAtp` ATP (about a third of a normal hit),
    * no knockback. All fight long, through storms, groundings and every attack, **one at a time** (2026-10-22, the
    * user: the streams of four and the spiral arms stacked up into lines and walls): a spark every `sparkEvery` s
    * (`sparkEvery2` in phase 2, `sparkEvery3` below 1/3) leaves a random point just past the rim, aimed at where you
@@ -614,9 +615,9 @@ export const galGryphon = {
    * out of the Gryphon (the middle of the sky while it is up there) in a random direction instead.
    */
   sparkRadius: 0.5,
-  sparkSpeed: 3,
+  sparkSpeed: 1.5,
   sparkHeight: 1,
-  sparkLife: 14,
+  sparkLife: 24,
   sparkAtp: 0.33,
   sparkEvery: 0.4,
   sparkEvery2: 0.35,

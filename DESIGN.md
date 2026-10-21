@@ -37,9 +37,9 @@ Living spec agreed during the kickoff interview. Gameplay first, graphics later.
     as they reach toward a target past them).
   - **Melee and guns** use the target when an attack reaches it, else soft-aim ahead as before (60° / 4 m melee,
     30° / 18 m guns).
-- **C** snaps the camera behind the player. It sits 7 m behind you (`camera.distance`; 5 until 2026-10-22, the user:
-  the mechanics behind you were hard to see). The tuning panel has it up top as "camera zoom" so the user can find the
-  best value by play.
+- **C** snaps the camera behind the player. It sits 6.2 m behind you (5 until 2026-10-22, the user:
+  the mechanics behind you were hard to see; 7 for a few hours, then 6.2, the user's pick with the "camera zoom" slider
+  up top in the tuning panel). Distance is `camera.distance`.
 - **Attacks** (2026-10-14, see "Arts"): **LMB** is the basic chain; **RMB, Q, E and R** are the four Art slots
   (Menu → Arts). The HUD's hex cluster shows them with their TP cost and a cooldown sweep. The photon blast fires
   by itself once the Mag has taught one and its gauge is full (key 2 until 2026-10-11). Until 2026-10-14 this was
@@ -1860,15 +1860,15 @@ hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**
   lion's haunches behind, a fan tail and a gold collar; about 5 m to the crest and ~17 m across the wings. Cyan
   lightning veins down the wings and crest flare as it charges and go dark when it is grounded. In /viewer.html.
 - **Sparks** (all fight long, from the moment it wakes until it dies, through storms, groundings and every attack):
-  glowing cyan balls (0.5 m) at chest height with a floor glow, drifting 3 m/s of its clock (~3.45 real, under your 4.6
-  walk). A touch is **a light hit** (×0.33 ATP, about a third of a normal hit, ~12% of a geared Hunter's HP at tier 6;
+  glowing cyan balls (0.5 m) at chest height with a floor glow, drifting 1.5 m/s of its clock (~1.7 real, well under
+  your 4.6 walk; 3 until 2026-10-22, the user: 50% slower). A touch is **a light hit** (×0.33 ATP, about a third of a normal hit, ~12% of a geared Hunter's HP at tier 6;
   no knockback; it corrupts, as every Hell hit does) and the spark is gone.
   - **One at a time** (2026-10-22, the user: the streams and spirals stacked up into walls of sparks by phase 3): a
     spark every 0.4 s (0.35 s in phase 2, 0.28 s below 1/3) leaves a random point just past the rim, **aimed at where you
     stand give or take 3 m**, so they cross from every side and never line up; stand still and some hit you, a sidestep
     of a metre and a half lets one by. From phase 2 every third one comes out of the Gryphon (out of the middle of the
-    sky while it is up there) in a random direction instead. About 11 / 22 / 24 drift at once in the game (the old
-    streams and spirals had ~130 up by phase 3).
+    sky while it is up there) in a random direction instead. About 23 / 42 / 46 drift at once in the game at half speed
+    (11 / 22 / 24 at 3 m/s; the old streams and spirals had ~130 up by phase 3).
   - Before (2026-10-21 to 10-22): **streams** of four sparks in a line aimed at you every 1.2 s (0.6 s below 1/3), and
     from phase 2 **spirals** of four arms out of the Gryphon; a Lv 100 Hunter standing still died in 16 s to them. Tests
     still pin standing still taking many times the sparks a player circling the summit does.
