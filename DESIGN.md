@@ -1887,7 +1887,8 @@ hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**
     the third pulse (9.4 m of walking; not always the nearest), and **never the one you stand by** while another is in
     reach, so you always have to move. (Before: 2026-10-21 bolts on you, 27% each unless drawn into a rod, first any
     rod then a relay from rod to rod; 2026-10-22 morning one lit rod drawing three bolts.)
-  - **Feather rain** (it fights from the sky): every 1.2 s of the storm two 2.5 m circles fall, warned 1 s (×0.8 ATP,
+  - **Feather rain** (it fights from the sky): every 1.2 s of the storm two 2.5 m circles fall, warned 1.6 s (~1.4
+    real; 1 s until 2026-10-22, the user: more time to react) (×0.8 ATP,
     a little shove): one with its middle 1.5 m off you away from the lit rod, so stepping toward the rod (1.45 m) gets
     you out inside the reach, and one 3.5-5 m farther out. Hugging the post (within 2.2 m of the rod) the near one
     comes from beside you, so you step round the post.
@@ -1910,14 +1911,17 @@ hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**
   - **Plummet ring**: the plummet with eight 3 m orbs in nine slots 6 m round it, one slot open toward the middle of
     the summit (±60°): **out through the gap** (a walk), and not even a dash finds another way (a test pins it).
 - **Phase 2, "The eye of the storm!"** (below 50%; the battle layer comes in; the bar reads `EYE OF THE STORM`): the
-  pairs become triples, and sparks come off the Gryphon too. Pool: crossing triple ×2, gale ring, cyclones ×2 (when none are up).
+  pairs become triples, sparks come off the Gryphon too, and feathers fall outside storms. Pool: crossing triple ×2, gale
+  ring.
   - **Crossing triple**: swoop + flank orbs, and 0.6 s in a **lightning lash** across the swoop, rim to rim, through
     where you stand (the light blue lane), warned 1.3 s, a walk (3.6 m of 2.95 needed; enraged a dash check). It was
     1.0 s, a dash check, until 2026-10-22 (the user: too fast). A lash, not a second dive: the bird is still flying the
     first lane.
   - **Gale ring**: the gale, then the plummet ring on where it threw you.
-  - **Cyclones**: two tornadoes rise at the rim away from you and wander 10 s, leaning toward you; a touch tosses you
-    (0.6 × ATP, knockback 14, once every 1.5 s each).
+  - **Feather volleys** (2026-10-22, the user's call, in place of the cyclones): outside storms too, a volley of two
+    feathers every 3.5-5.5 s (the storm's feathers: one beside you on a random side, one farther out; warned 1.6 s),
+    overlapping whatever else it does, but never while the cage is warned (so none lands on its one way out). The
+    cyclones (2026-10-21: two tornadoes wandering 10 s that tossed you on a touch) are gone.
   - **Storms with a gale**: from the call until you reach the pillar (or the thunderstorm) a gale pushes you away from
     the middle at 2 m/s, so you walk into it on the way.
 - **Phase 3, "The storm breaks loose!"** (below 1/3; the bar reads `THE STORM BREAKS`): **every second attack is the
@@ -1937,7 +1941,7 @@ hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**
 - **Music:** `gryphon` (synth: a fast storm theme in F# minor at 152 BPM, a soaring brass line over racing string
   arpeggios, brass stabs, a pumping bass and thunder hits; the eye of the storm adds choir, taiko and a lead
   arpeggio). Recorded loops can come later (ElevenLabs credits). Sounds: the **Gal Gryphon** group in the sound lab
-  (screech, wing beat, dive, thunder, a bolt into a rod rising in pitch as the storm fills, the discharge, cyclones).
+  (screech, wing beat, dive, thunder, a bolt into a rod rising in pitch as the storm fills, the discharge).
 - **Checked:** `gryphon.test.ts` (the rods' ring and reach geometry, scorched rods, the lit rod always in walking
   reach and any of the six from the middle, feathers walkable inside the reach, every attack's walk / dash math at the
   rift tempo, one way out of the flank, the ring and the cage, the sparks; a scripted fight against the boss itself:

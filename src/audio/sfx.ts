@@ -1773,15 +1773,6 @@ const DEFS = {
       }),
     ],
   },
-  'gryphon.cyclone': {
-    group: 'Gal Gryphon', label: 'Cyclones rise (phase 2)', gap: 1, ref: 40, len: 3,
-    variants: [
-      v_('Howl', 'Wind howling up', (v) => {
-        noise(v, { color: 'pink', a: 0.5, h: 0.6, d: 1.2, gain: 0.4, filter: { type: 'bandpass', f: 300, f1: 1100, fT: 1.4, q: 2.5 }, wet: 0.5 });
-        tone(v, { type: 'sine', f: 380, f1: 620, a: 0.5, d: 1.4, gain: 0.03, vib: [5, 20], wet: 0.6 });
-      }),
-    ],
-  },
   'falz.ascend': {
     group: 'Dark Falz', label: 'The Angel enrages', gap: 1, ref: 60, len: 4,
     variants: [

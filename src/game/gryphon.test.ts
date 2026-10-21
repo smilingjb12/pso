@@ -297,6 +297,8 @@ interface Fake {
   body: { pos: THREE.Vector3; alive: boolean; radius: number };
   mechanic: number[];
   hits: TelegraphShape[];
+  /** Every telegraph warned, with the boss's state when it was. */
+  warned: { shape: TelegraphShape; state: string }[];
   step(sec: number, each?: () => void): void;
 }
 
@@ -305,12 +307,14 @@ function fakeFight(boss: GalGryphon): Fake {
   const teles: { t: number; dur: number; onFire: () => void; done: boolean; cancel(): void }[] = [];
   const mechanic: number[] = [];
   const hits: TelegraphShape[] = [];
+  const warned: { shape: TelegraphShape; state: string }[] = [];
   const ctx: BossContext = {
     playerX: body.pos.x,
     playerZ: body.pos.z,
     playerAlive: true,
     rng: mulberry32(9),
-    telegraph: (_shape, dur, onFire) => {
+    telegraph: (shape, dur, onFire) => {
+      warned.push({ shape, state: boss.state as string });
       const h = { t: 0, dur, onFire, done: false, cancel() { this.done = true; } };
       teles.push(h);
       return h;
@@ -355,7 +359,7 @@ function fakeFight(boss: GalGryphon): Fake {
       }
     }
   };
-  return { ctx, body, mechanic, hits, step };
+  return { ctx, body, mechanic, hits, warned, step };
 }
 
 type Peek = { rods: { list: (RodState & { top(): THREE.Vector3 })[] }; lit: number; pulsesDone: number };
@@ -461,6 +465,24 @@ describe('Gal Gryphon: the fight', () => {
     // Pushed outward (+x from the middle) by the gale (a spark or a feather may have nudged you; none knock you back far).
     expect(f.body.pos.x - start.x).toBeGreaterThan(1);
     expect(Math.abs(f.body.pos.z - CZ)).toBeLessThan(0.5);
+  });
+
+  it('drops feathers outside storms from phase 2 on, a volley every few seconds, none before', () => {
+    const feathers = (f: Fake) => f.warned.filter((w) => w.shape.kind === 'circle' && w.shape.radius === cfg.featherRadius && w.state !== 'storm').length;
+    const b = gryphon();
+    const f = fakeFight(b);
+    f.body.pos.z -= 4;
+    f.step(30);
+    expect(feathers(f)).toBe(0);
+    b.hp = b.maxHp * 0.45;
+    f.warned.length = 0;
+    const secs = 40;
+    f.step(secs);
+    // Two a volley, every 3.5-5.5 s outside storms (the storms take some of the time).
+    const n = feathers(f);
+    expect(n % 2).toBe(0);
+    expect(n / 2).toBeGreaterThanOrEqual(3);
+    expect(n / 2).toBeLessThanOrEqual(Math.ceil((secs * b.tempo) / cfg.featherVolleyEvery[0]) + 1);
   });
 
   it('keeps its sparks coming all fight: standing still you take many, circling the summit far fewer', () => {

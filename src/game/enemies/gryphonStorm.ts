@@ -384,63 +384,6 @@ export class LightningRods {
   }
 }
 
-/** Phase 2: a tornado that wanders the summit for a while, leaning toward you; a touch tosses you (the boss does the hit). */
-export class Cyclone {
-  readonly group = new THREE.Group();
-  life: number = cfg.cycloneLife;
-  /** Seconds before it can hit again. */
-  hitT = 0;
-  private dir: number;
-  private turn = 0;
-  private rings: THREE.Mesh[] = [];
-  private mat: THREE.MeshBasicMaterial;
-
-  constructor(public x: number, public z: number, dir: number) {
-    this.dir = dir;
-    this.mat = new THREE.MeshBasicMaterial({ color: 0xc8dcf0, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
-    // A funnel of stacked open rings, wider toward the top, spinning at different rates.
-    for (let i = 0; i < 9; i++) {
-      const r = cfg.cycloneRadius * (0.45 + i * 0.16);
-      const ring = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.86, 0.7, 14, 1, true), this.mat);
-      ring.position.y = 0.35 + i * 0.75;
-      this.rings.push(ring);
-      this.group.add(ring);
-    }
-    this.group.add(glowDecal(0x9ab8d8, cfg.cycloneRadius * 3, 0.4));
-    this.group.position.set(x, 0, z);
-  }
-
-  /** Wander, leaning toward (px, pz), kept on the summit (centre and radius). */
-  update(dt: number, time: number, px: number, pz: number, cx: number, cz: number, rim: number): void {
-    this.life -= dt;
-    this.hitT = Math.max(0, this.hitT - dt);
-    this.turn += (Math.sin(time * 0.9 + this.x) * 0.8 - this.turn) * dt;
-    const seek = Math.atan2(px - this.x, pz - this.z);
-    let d = seek - this.dir;
-    d = Math.atan2(Math.sin(d), Math.cos(d));
-    this.dir += (this.turn + d * 0.35) * dt;
-    this.x += Math.sin(this.dir) * cfg.cycloneSpeed * dt;
-    this.z += Math.cos(this.dir) * cfg.cycloneSpeed * dt;
-    const ox = this.x - cx;
-    const oz = this.z - cz;
-    const o = Math.hypot(ox, oz);
-    if (o > rim) {
-      this.x = cx + (ox / o) * rim;
-      this.z = cz + (oz / o) * rim;
-      this.dir = Math.atan2(-ox, -oz);
-    }
-    this.group.position.set(this.x, 0, this.z);
-    const fade = Math.min(1, (cfg.cycloneLife - this.life) / 0.8, Math.max(0, this.life) / 0.8);
-    this.mat.opacity = 0.32 * fade;
-    this.rings.forEach((r, i) => (r.rotation.y = time * (5 + i * 0.7)));
-    this.group.scale.setScalar(0.4 + 0.6 * fade);
-  }
-
-  get done(): boolean {
-    return this.life <= 0;
-  }
-}
-
 /**
  * The sparks drifting over the summit, drawn instanced: a white core in a cyan halo at chest height, and a glow on the
  * floor under each so you can read them at your feet. The boss spawns them and does the hits.

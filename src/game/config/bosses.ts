@@ -507,7 +507,7 @@ export const galGryphon = {
   attackGap: 0.9,
   enrageAt: 0.2,
   enrageSpeed: 0.8,
-  /** Below this HP share: the eye of the storm (triples, cyclones, sparks off the Gryphon too, storms with a gale). */
+  /** Below this HP share: the eye of the storm (triples, feather volleys, sparks off the Gryphon too, storms with a gale). */
   phase2At: 0.5,
   /** Below this HP share every `tripleEvery`-th attack is the cage (a Hell triple), and a spark comes every `sparkEvery3` s. */
   phase3At: 1 / 3,
@@ -544,14 +544,6 @@ export const galGryphon = {
   plummetAtp: 1.3,
   plummetKnockback: 12,
   plummetRest: 1.4,
-  /** Phase 2, Cyclones: `cycloneCount` tornadoes rise at the rim and wander `cycloneLife` s; a touch tosses you (once per `cycloneHitGap` s each). */
-  cycloneCount: 2,
-  cycloneLife: 10,
-  cycloneRadius: 1.6,
-  cycloneSpeed: 2.4,
-  cycloneAtp: 0.6,
-  cycloneKnockback: 14,
-  cycloneHitGap: 1.5,
   /**
    * Phase 2, Crossing Swoop: the first lane as a swoop's; `crossDelay` s in, a lightning lash across it through you,
    * warned `crossWindup` s. 1.0 (a dash check) until 2026-10-22, the user: too fast; 1.3 is the swoop's, a walk (enraged
@@ -595,14 +587,17 @@ export const galGryphon = {
   /**
    * Feather rain (every storm, from the clouds): every `featherEvery` s two `featherRadius` m circles, one with its
    * middle `featherNear` m off you away from the lit rod (step toward the rod), one `featherFar` m away; warned
-   * `featherWindup` s, × `featherAtp` ATP. Walkable inside the reach: 2.5 - 1.5 + 0.45 = 1.45 m to get out.
+   * `featherWindup` s, × `featherAtp` ATP. Walkable inside the reach: 2.5 - 1.5 + 0.45 = 1.45 m to get out. Warned 1.6 s
+   * since 2026-10-22 (the user: more time to react; it was 1.0).
    */
   featherEvery: 1.2,
-  featherWindup: 1.0,
+  featherWindup: 1.6,
   featherRadius: 2.5,
   featherNear: 1.5,
   featherFar: [3.5, 5] as [number, number],
   featherAtp: 0.8,
+  /** Phase 2 on, outside storms: a volley of the two every this many s (2026-10-22, in place of the cyclones). */
+  featherVolleyEvery: [3.5, 5.5] as [number, number],
   // ---- the sparks (2026-10-21, the user's idea: bolts that drift through the arena all the time, so you can't stand still)
   /**
    * Sparks: `sparkRadius` m balls at chest height drifting `sparkSpeed` m/s (its clock: ~1.7 real, well under your 4.6

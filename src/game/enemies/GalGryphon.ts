@@ -10,7 +10,7 @@ import { GryphonModel } from '../models/gryphon';
 import type { BossContext } from './Boss';
 import { BossBase } from './BossBase';
 import {
-  cagePlan, Cyclone, featherSpots, flankOrbs, LightningRods, pulseTimes, ringOrbs, rimSpark, sparkAlong, sparkTouches, SparkField, stormRod,
+  cagePlan, featherSpots, flankOrbs, LightningRods, pulseTimes, ringOrbs, rimSpark, sparkAlong, sparkTouches, SparkField, stormRod,
   stormWalk, type Rod,
 } from './gryphonStorm';
 
@@ -25,10 +25,10 @@ import {
 
 type GryphonState = 'dormant' | 'intro' | 'stalk' | 'attack' | 'recover' | 'storm' | 'stormFall' | 'grounded' | 'stormLand' | 'dead';
 
-type Attack = 'swoopOrbs' | 'galePlummet' | 'plummetRing' | 'crossTriple' | 'galeRing' | 'cyclones' | 'cage';
+type Attack = 'swoopOrbs' | 'galePlummet' | 'plummetRing' | 'crossTriple' | 'galeRing' | 'cage';
 
 /** What its body is doing in an attack (the animation). */
-type Pose = 'idle' | 'swoopWindup' | 'swoop' | 'gale' | 'orbs' | 'rise' | 'hang' | 'rest' | 'call';
+type Pose = 'idle' | 'swoopWindup' | 'swoop' | 'gale' | 'orbs' | 'rise' | 'hang' | 'rest';
 
 type Pt = [number, number];
 
@@ -105,8 +105,6 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   private readonly cz: number;
   private readonly rods: LightningRods;
   private readonly sparks = new SparkField();
-  private readonly cyclones: Cyclone[] = [];
-  private readonly cycloneGroup = new THREE.Group();
 
   /** Its height off the floor (the model's lift). */
   private alt = 0;
@@ -147,6 +145,8 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   private gustT = 0;
   // ---- the sparks
   private sparkT = 1.5;
+  /** Phase 2 on: seconds to the next feather volley outside a storm. */
+  private volleyT = 2;
   private sparkN = 0;
 
   constructor(room: Rect, hard: HardBossScale | null = null) {
@@ -163,7 +163,7 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   // ---------------------------------------------------------------- Boss
 
   get objects(): THREE.Object3D[] {
-    return [this.group, this.rods.group, this.cycloneGroup, this.sparks.group];
+    return [this.group, this.rods.group, this.sparks.group];
   }
   parts(): Hittable[] {
     return [this];
@@ -231,16 +231,6 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
     const on = this.state === 'storm';
     this.rods.update(dt, this.time, on ? this.storms : this.storms + 1, on, on ? this.lit : -1);
     this.rods.seeThrough(dt, ctx.playerX, ctx.playerZ);
-    for (const c of this.cyclones) {
-      c.update(dt, this.time, ctx.playerX, ctx.playerZ, this.cx, this.cz, cfg.arenaRadius - cfg.cycloneRadius);
-      if (!this.alive || c.hitT > 0 || !ctx.playerAlive) continue;
-      const shape: TelegraphShape = { kind: 'circle', x: c.x, z: c.z, radius: cfg.cycloneRadius };
-      if (ctx.hitPlayer(shape, cfg.cycloneAtp, c.x, c.z, cfg.cycloneKnockback)) c.hitT = cfg.cycloneHitGap;
-    }
-    for (const c of this.cyclones.filter((c) => c.done || !this.alive)) {
-      this.cycloneGroup.remove(c.group);
-      this.cyclones.splice(this.cyclones.indexOf(c), 1);
-    }
     this.updateSparks(dt, ctx);
   }
 
@@ -248,7 +238,6 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
     this.sparks.clear();
     this.steps = [];
     this.fly = null;
-    for (const c of this.cyclones) c.life = Math.min(c.life, 0.8);
   }
 
   protected think(dt: number, ctx: BossContext): void {
@@ -272,6 +261,8 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
       ctx.shake(0.6);
       this.sound('gryphon.screech');
     }
+
+    this.updateVolleys(dt, ctx);
 
     switch (this.state) {
       case 'dormant':
@@ -420,7 +411,7 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
     this.tripleDue--;
     const pool: Attack[] = !this.phase2
       ? ['swoopOrbs', 'swoopOrbs', 'galePlummet', 'plummetRing']
-      : ['crossTriple', 'crossTriple', 'galeRing', ...(this.cyclones.length ? [] : (['cyclones', 'cyclones'] as Attack[]))];
+      : ['crossTriple', 'crossTriple', 'galeRing'];
     const pick = this.pickAttack(ctx, pool);
     this.begin();
     switch (pick) {
@@ -434,9 +425,6 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
         break;
       case 'plummetRing':
         this.plummet(ctx, true);
-        break;
-      case 'cyclones':
-        this.startCyclones(ctx);
         break;
       default:
         this.endAttack(0.5);
@@ -602,19 +590,21 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
     });
   }
 
-  /** Phase 2: two tornadoes rise at the rim, well away from you. */
-  private startCyclones(ctx: BossContext): void {
-    this.pose = 'call';
-    this.sound('gryphon.cyclone');
-    const rim = cfg.arenaRadius - cfg.cycloneRadius - 1;
-    const pa = Math.atan2(ctx.playerX - this.cx, ctx.playerZ - this.cz);
-    for (let i = 0; i < cfg.cycloneCount; i++) {
-      const a = pa + Math.PI + (i - (cfg.cycloneCount - 1) / 2) * 1.6 + (ctx.rng() - 0.5) * 0.4;
-      const c = new Cyclone(this.cx + Math.sin(a) * rim, this.cz + Math.cos(a) * rim, a + Math.PI);
-      this.cyclones.push(c);
-      this.cycloneGroup.add(c.group);
-    }
-    this.hold(1.0);
+  /**
+   * Phase 2 on (2026-10-22, the user's call: in place of the cyclones), feathers fall from time to time outside storms
+   * too: a volley of two every `featherVolleyEvery` s, overlapping whatever else it does, but none while the cage is
+   * warned (a feather mustn't land on its one way out) and none in a storm (which rains its own).
+   */
+  private updateVolleys(dt: number, ctx: BossContext): void {
+    const busy = this.state === 'storm' || (this.state === 'attack' && this.lastAttack === 'cage');
+    if (!this.phase2 || !this.alive || !this.engaged || this.state === 'intro' || busy || !ctx.playerAlive) return;
+    this.volleyT -= dt;
+    if (this.volleyT > 0) return;
+    const [lo, hi] = cfg.featherVolleyEvery;
+    this.volleyT = lo + ctx.rng() * (hi - lo);
+    // The near one falls on a random side of you (in a storm it is the side away from the lit rod).
+    const a = ctx.rng() * Math.PI * 2;
+    this.featherRain(ctx, ctx.playerX + Math.sin(a) * 10, ctx.playerZ + Math.cos(a) * 10);
   }
 
   /**
@@ -742,7 +732,7 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
     this.featherT -= dt;
     if (this.featherT <= 0 && ctx.playerAlive) {
       this.featherT += cfg.featherEvery;
-      this.featherRain(ctx, rod);
+      this.featherRain(ctx, rod?.x ?? this.cx, rod?.z ?? this.cz);
     }
     if (this.stormT < this.pulseAt[this.pulsesDone]) return;
     this.pulsesDone++;
@@ -781,9 +771,9 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
     this.enter('stormLand');
   }
 
-  /** Two feathers fall round you: one by you (step toward the lit rod), one farther off. */
-  private featherRain(ctx: BossContext, rod: Rod | null): void {
-    const [a, b] = featherSpots(ctx.playerX, ctx.playerZ, rod?.x ?? this.cx, rod?.z ?? this.cz, ctx.rng);
+  /** Two feathers fall round you: one by you (step toward (refX, refZ): in a storm the lit rod), one farther off. */
+  private featherRain(ctx: BossContext, refX: number, refZ: number): void {
+    const [a, b] = featherSpots(ctx.playerX, ctx.playerZ, refX, refZ, ctx.rng);
     for (const [x, z] of [a, b]) {
       const shape: TelegraphShape = { kind: 'circle', x, z, radius: cfg.featherRadius };
       ctx.effect(new FeatherFall(x, z, cfg.featherWindup / this.tempo));
@@ -927,13 +917,6 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
         flap = -0.3;
         pitch = 0.2;
         neck = 0.5;
-        break;
-      case 'call':
-        spread = 1;
-        flap = Math.sin(t * 12) * 0.8;
-        neck = -0.5;
-        beak = 1;
-        veins = 0.7;
         break;
     }
     if (this.enraged && this.alive) veins = Math.max(veins, 0.6 + 0.3 * Math.sin(t * 6));
