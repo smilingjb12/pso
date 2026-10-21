@@ -10,8 +10,8 @@ import { GryphonModel } from '../models/gryphon';
 import type { BossContext } from './Boss';
 import { BossBase } from './BossBase';
 import {
-  aimedStream, boltSchedule, BoltMark, cagePlan, Cyclone, featherSpots, flankOrbs, LightningRods, nearestRod, relayNext, ringOrbs, rodWalk,
-  sparkTouches, SparkField, spiralBurst, stormLead, type Rod,
+  aimedStream, boltSchedule, BoltMark, cagePlan, Cyclone, featherSpots, flankOrbs, LightningRods, ringOrbs, sparkTouches, SparkField, spiralBurst,
+  stormLead, stormRod, type Rod,
 } from './gryphonStorm';
 
 // Gal Gryphon, the Rift Map's Circle II pinnacle boss (DESIGN.md "Endgame: Falz Rifts" > "Gal Gryphon"; the user's
@@ -19,9 +19,9 @@ import {
 // long (streams aimed at you, spiral arms from it in phase 2), so you can't stand still. Its attacks come in pairs
 // from the start (a swoop with orbs closing one side, a gale shoving you under a plummet, a plummet ringed by orbs),
 // triples in phase 2 (a lash across the swoop, the ring after the gale) and the cage below 1/3 (a Hell triple: three
-// telegraphs at once, one way out). Every ~22 s it rises into the clouds and calls the storm: a relay of rods lights
-// one after another, each drawing one bolt, while feathers rain round you; draw every bolt and the last rod grounds
-// it, weak point open. A bolt you don't draw strikes you.
+// telegraphs at once, one way out). Every ~22 s it rises into the clouds and calls the storm: one rod lights, and
+// standing in its reach draws its bolts while feathers rain round you; draw every bolt and the rod grounds it, weak
+// point open. A bolt you don't draw strikes you.
 
 type GryphonState = 'dormant' | 'intro' | 'stalk' | 'attack' | 'recover' | 'storm' | 'stormFall' | 'grounded' | 'stormLand' | 'dead';
 
@@ -138,11 +138,10 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   private bolts: { mark: number; fall: number }[] = [];
   private boltsDone = 0;
   private marked = -1;
-  /** The relay: the lit rod (its index), the one it jumps to after this bolt (-1 until shown), bolts drawn this storm. */
+  /** The storm's lit rod (its index), the bolts it has drawn, and the beacon's clock. */
   private lit = -1;
-  private nextLit = -1;
   private stormCharge = 0;
-  private arcT = 0;
+  private beaconT = 0;
   private featherT = 0;
   private taught = false;
   private gustT = 0;
@@ -231,7 +230,7 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
 
   protected always(dt: number, ctx: BossContext): void {
     const on = this.state === 'storm';
-    this.rods.update(dt, this.time, on ? this.storms : this.storms + 1, on, on ? this.lit : -1, on ? this.nextLit : -1);
+    this.rods.update(dt, this.time, on ? this.storms : this.storms + 1, on, on ? this.lit : -1);
     this.rods.seeThrough(dt, ctx.playerX, ctx.playerZ);
     for (const c of this.cyclones) {
       c.update(dt, this.time, ctx.playerX, ctx.playerZ, this.cx, this.cz, cfg.arenaRadius - cfg.cycloneRadius);
@@ -574,9 +573,9 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   }
 
   /**
-   * Plummet (a dash check): up into the air, then a circle on you that it drops onto; `ring`: orbs round the circle
-   * with one gap, toward the middle of the summit, to dash out through. The enrage never cuts its windup (at ×0.8 not
-   * even a dash would clear it).
+   * Plummet: up into the air, then a circle on you that it drops onto (a walk since 2026-10-22: smaller and slower);
+   * `ring`: orbs round the circle with one gap, toward the middle of the summit, to get out through. The enrage never
+   * cuts its windup.
    */
   private plummet(ctx: BossContext, ring: boolean): void {
     this.pose = 'rise';
@@ -599,7 +598,7 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
         this.sound('boss.slam');
         this.pose = 'rest';
         this.hold(cfg.plummetRest);
-      }, true);
+      });
       if (ring) this.orbs(ctx, ringOrbs(x, z, this.cx, this.cz, ctx.rng).orbs, cfg.plummetWindup, false);
       this.hold(cfg.plummetWindup + cfg.plummetRest);
     });
@@ -676,14 +675,16 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   // ---------------------------------------------------------- the storm
 
   /**
-   * The storm, when it's due: not sooner than `stormAfterUp` s after the last one ended, and only when a usable rod's
-   * reach is within walking reach of you in the lead (else it waits; a scorched rod can leave the rim behind it far).
+   * The storm, when it's due: not sooner than `stormAfterUp` s after the last one ended. It lights one usable rod
+   * whose reach you can walk to in the lead, at random among them; with none in reach it waits (a scorched rod can
+   * leave the rim behind it far from the rest).
    */
   private startStorm(ctx: BossContext): boolean {
     if (this.fightT < this.nextStorm || this.upT < cfg.stormAfterUp) return false;
     const storm = this.storms + 1;
     const lead = stormLead(this.tempo);
-    if (rodWalk(this.rods.list, ctx.playerX, ctx.playerZ, storm) > playerCfg.moveSpeed * (lead / this.tempo - 0.35)) return false;
+    const lit = stormRod(this.rods.list, ctx.playerX, ctx.playerZ, storm, playerCfg.moveSpeed * (lead / this.tempo - 0.35), ctx.rng);
+    if (lit < 0) return false;
     this.storms = storm;
     this.nextStorm = this.fightT + cfg.stormEvery;
     this.stormT = 0;
@@ -694,9 +695,8 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
     this.featherT = 0.6;
     this.stormCharge = 0;
     for (const r of this.rods.list) r.charge = 0;
-    // The relay starts at the usable rod nearest you.
-    this.lit = nearestRod(this.rods.list, ctx.playerX, ctx.playerZ, storm);
-    this.nextLit = -1;
+    this.lit = lit;
+    this.beaconT = 0;
     this.pose = 'idle';
     this.steps = [];
     this.enter('storm');
@@ -704,7 +704,7 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
     ctx.shake(0.3);
     if (!this.taught) {
       this.taught = true;
-      ctx.announce('Gal Gryphon calls the storm: follow the lit rod!');
+      ctx.announce('Gal Gryphon calls the storm: get to the lit rod!');
     }
     return true;
   }
@@ -737,6 +737,12 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
         ctx.effect(new Ring(this.cx, this.cz, GALE_COLOR, cfg.arenaRadius, 1.1, 0.25));
       }
     }
+    // A beacon of light stands on the lit rod, so you can find it.
+    this.beaconT -= dt;
+    if (rod && next && this.beaconT <= 0) {
+      this.beaconT = 0.9;
+      ctx.effect(new Pillar(rod.x, rod.z, BOLT_COLOR, 0.9, 0.7, 26));
+    }
     // Feathers rain round you all storm.
     this.featherT -= dt;
     if (next && this.featherT <= 0 && ctx.playerAlive) {
@@ -747,30 +753,14 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
       if (this.marked !== this.boltsDone) {
         this.marked = this.boltsDone;
         this.sound('gryphon.rod', px, pz, 0);
-        // The relay shows where its light goes after this bolt.
-        if (this.boltsDone < this.bolts.length - 1 && this.lit >= 0) this.nextLit = relayNext(this.rods.list, this.lit, this.storms, ctx.rng);
-        this.arcT = 0;
       }
       const k = Math.min(1, (this.stormT - next.mark) / (next.fall - next.mark));
       this.mark.show(px, pz, k, !!rod && Math.hypot(rod.x - px, rod.z - pz) <= cfg.rodReach, this.time);
-      // An arc crackles from the lit rod to the next one.
-      this.arcT -= dt;
-      if (this.arcT <= 0 && rod && this.nextLit >= 0 && this.nextLit !== this.lit) {
-        this.arcT = 0.3;
-        ctx.effect(new Lightning(rod.top(), this.rods.list[this.nextLit].top(), BOLT_COLOR, 0.28, 1.2, 1.5));
-      }
     }
     if (next && this.stormT >= next.fall) {
       this.mark.hide();
       this.boltsDone++;
       if (this.fallBolt(ctx)) return;
-      // The light moves on.
-      if (this.nextLit >= 0 && this.lit >= 0) {
-        this.rods.list[this.lit].charge = 0;
-        this.lit = this.nextLit;
-        this.rods.list[this.lit].charge = this.stormCharge;
-      }
-      this.nextLit = -1;
     }
     if (this.boltsDone >= this.bolts.length && this.stormT >= this.bolts[this.bolts.length - 1].fall + 0.3) this.enter('stormLand');
   }
@@ -819,7 +809,7 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   private discharge(rod: Rod, ctx: BossContext): void {
     rod.discharge(this.storms);
     this.mark.hide();
-    this.lit = this.nextLit = -1;
+    this.lit = -1;
     const sky = new THREE.Vector3(this.pos.x, this.alt + 3, this.pos.z);
     ctx.effect(new Lightning(rod.top(), sky, 0xffffff, 0.6, 3.2));
     ctx.effect(new Lightning(rod.top(), sky, BOLT_COLOR, 0.5, 2));

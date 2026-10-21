@@ -533,10 +533,14 @@ export const galGryphon = {
   orbRadius: 3,
   orbSpread: 4.5,
   orbAtp: 1.0,
-  /** Plummet (dash check): it springs up for `plummetRise` s, then a `plummetRadius` m circle on you, warned `plummetWindup` s (the enrage never cuts it). */
+  /**
+   * Plummet: it springs up for `plummetRise` s, then a `plummetRadius` m circle on you, warned `plummetWindup` s (the
+   * enrage never cuts it). 2026-10-22, the user: smaller and slower to dodge (it was a 6 m dash check warned 1.5 s);
+   * now a walk: 4.95 m out of 5.6 walkable at the rift tempo.
+   */
   plummetRise: 0.7,
-  plummetWindup: 1.5,
-  plummetRadius: 6,
+  plummetWindup: 1.8,
+  plummetRadius: 4.5,
   plummetAtp: 1.3,
   plummetKnockback: 12,
   plummetRest: 1.4,
@@ -566,8 +570,8 @@ export const galGryphon = {
   stormLead: 2.5,
   stormLeadFloor: 2.3,
   boltWarn: 1.0,
-  /** 1.4 until the relay (2026-10-21): the run from one rod's reach to the next has to fit between bolts. */
-  boltGap: 1.8,
+  /** 1.8 while the storm was a relay (2026-10-21 to 10-22: the run from one rod to the next had to fit between bolts). */
+  boltGap: 1.4,
   bolts: 3,
   bolts2: 4,
   boltMark: 2,
@@ -576,10 +580,10 @@ export const galGryphon = {
   galePush: 2,
   /**
    * Rods: `rodCount` round the summit `rodRing` m out (30° off north first), each drawing bolts within `rodReach` m.
-   * The relay: a storm lights one rod (the usable one nearest you); after each bolt the light jumps to a neighbour,
-   * shown as each bolt is marked. `rodCharge` bolts drawn in one storm fill it: the rod that drew the last discharges
-   * into the Gryphon, which crashes `rodLand` m inside it, grounded for `groundedTime` s (about 7 real seconds at a
-   * rift's tempo). A rod that fired is scorched for the next storm (the relay skips it).
+   * A storm lights one rod, at random among the usable ones you can walk to in the lead, and only it draws the bolts
+   * (2026-10-22, the user: one rod to get to, not a relay from one to the next). `rodCharge` bolts drawn fill it: it
+   * discharges into the Gryphon, which crashes `rodLand` m inside it, grounded for `groundedTime` s (about 7 real
+   * seconds at a rift's tempo). A rod that fired is scorched for the next storm (never lit).
    */
   rodCount: 6,
   rodRing: 11,
@@ -626,9 +630,9 @@ export const galGryphon = {
   /** Swoop + flank orbs: orbs `flankOffset` m off the lane's middle on one side, at you and `flankSpacing` m either way. */
   flankOffset: 4.5,
   flankSpacing: 5,
-  /** Plummet ring: orbs in `ringSlots` slots `ringR` m round the plummet's circle, one slot left open (toward the middle). */
+  /** Plummet ring: orbs in `ringSlots` slots `ringR` m round the plummet's circle (its edge + 1.5), one slot left open (toward the middle). */
   ringSlots: 9,
-  ringR: 7.5,
+  ringR: 6,
   /** The cage (below 1/3): swoop + lash crossing on you + orbs in three corners `cageOrbDist` m out; warned `cageWindup` s (never cut by the enrage); the pocket `cagePocket` m out in the fourth. */
   cageWindup: 1.6,
   cageOrbDist: 5,

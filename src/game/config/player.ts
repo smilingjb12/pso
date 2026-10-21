@@ -108,7 +108,8 @@ export const lockOn = {
 };
 
 export const camera = {
-  distance: 5,
+  /** Metres behind you (7 since 2026-10-22, the user: 5 hid the mechanics behind you). */
+  distance: 7,
   height: 1.5,
   sensitivity: 0.0025,
   minPitch: -0.25,

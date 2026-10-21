@@ -5,15 +5,14 @@ import { glowDecal, glowSprite, glowTexture } from '../world/glow';
 import type { TreeCollider } from '../world/Level';
 
 // Gal Gryphon's storm and its sparks (see GalGryphon and DESIGN.md "Gal Gryphon"): the six lightning rods round Storm
-// Peak, the relay that lights one rod after another through a storm, when the bolts fall, the ring that marks the next
-// bolt on you, where its feathers fall, the layouts of its paired and triple attacks (each with its way out), and the
+// Peak, the one each storm lights, when the bolts fall, the ring that marks the next bolt on you, where its feathers fall, the layouts of its paired and triple attacks (each with its way out), and the
 // sparks that drift through the arena all fight long. A rod that grounded it is scorched for the storm after. Pure
 // rules first, so they can be tested without the boss.
 
-/** What a rod is doing in the storm on: off (no storm), the lit one, the next one the relay jumps to, or idle. */
-export type RodRole = 'off' | 'lit' | 'next' | 'idle';
+/** What a rod is doing: off (no storm), or in a storm the lit one (it draws the bolts) or idle. */
+export type RodRole = 'off' | 'lit' | 'idle';
 
-/** A rod's spot and state. `charge`: the storm's bolts it shows (the lit rod carries them). `firedIn`: the storm it last discharged in (it sits out the next one). */
+/** A rod's spot and state. `charge`: the bolts it has drawn this storm. `firedIn`: the storm it last discharged in (it sits out the next one). */
 export interface RodState {
   x: number;
   z: number;
@@ -59,7 +58,7 @@ export function boltSchedule(n: number, lead: number, warn = cfg.boltWarn, gap =
   return Array.from({ length: n }, (_, i) => ({ mark: lead - warn + i * gap, fall: lead + i * gap }));
 }
 
-// ------------------------------------------------------------------ the relay
+// ------------------------------------------------------------------ the lit rod
 
 /** The usable rod nearest (x, z) this storm (its index), or -1 if none is usable. */
 export function nearestRod(rods: readonly RodState[], x: number, z: number, storm: number): number {
@@ -76,14 +75,12 @@ export function nearestRod(rods: readonly RodState[], x: number, z: number, stor
 }
 
 /**
- * The relay's next rod after rod `i`: a usable neighbour round the ring, either side at random (the only one if the
- * other is scorched); `i` itself if neither is usable.
+ * The rod a storm lights: at random among the usable ones whose reach (x, z) can walk to (`walk` m), so getting there
+ * is the task (2026-10-22, the user's call: one rod a storm, no relay); -1 if none is in reach (the storm waits).
  */
-export function relayNext(rods: readonly RodState[], i: number, storm: number, rng: () => number): number {
-  const n = rods.length;
-  const sides = [(i + 1) % n, (i + n - 1) % n].filter((k) => rodUsable(rods[k], storm));
-  if (!sides.length) return i;
-  return sides.length === 1 ? sides[0] : sides[rng() < 0.5 ? 0 : 1];
+export function stormRod(rods: readonly RodState[], x: number, z: number, storm: number, walk: number, rng: () => number, reach = cfg.rodReach): number {
+  const ok = rods.map((_, i) => i).filter((i) => rodUsable(rods[i], storm) && Math.max(0, Math.hypot(rods[i].x - x, rods[i].z - z) - reach) <= walk);
+  return ok.length ? ok[Math.floor(rng() * ok.length)] : -1;
 }
 
 // ------------------------------------------------------------------ attack layouts
@@ -207,7 +204,7 @@ export const sparkTouches = (s: Spark, x: number, z: number, r: number): boolean
 
 const STEEL = 0x50586a;
 /** A rod this near you (m) fades to ROD_FADE so it doesn't fill the screen (the camera trails you). */
-const ROD_FADE_REACH = 4.5;
+const ROD_FADE_REACH = 6;
 const ROD_FADE = 0.3;
 const COPPER = 0xd08a4a;
 const LIT = 0x8ae8ff;
@@ -312,15 +309,12 @@ export class Rod implements RodState {
     }
   }
 
-  /**
-   * `storm`: the storm on (or the next one, between storms). `role`: off between storms; in one, the lit rod (it
-   * draws the next bolt), the next one (the relay's light jumps there after it), or idle.
-   */
+  /** `storm`: the storm on (or the next one, between storms). `role`: off between storms; in one, lit (it draws the bolts) or idle. */
   update(dt: number, time: number, storm: number, role: RodRole): void {
     this.flash = Math.max(0, this.flash - dt * 3);
     const usable = rodUsable(this, storm);
-    const on = role === 'lit' || role === 'next';
-    const pulse = role === 'next' ? 0.5 + 0.5 * Math.sin(time * 14) : 0.5 + 0.5 * Math.sin(time * 6 + this.x);
+    const on = role === 'lit';
+    const pulse = 0.5 + 0.5 * Math.sin(time * 6 + this.x);
     this.coils.forEach((m, i) => {
       m.emissive.setHex(usable ? LIT : SCORCHED);
       m.emissiveIntensity = i < this.charge ? 1.6 + pulse * 0.6 : 0.05 + this.flash;
@@ -329,9 +323,9 @@ export class Rod implements RodState {
     this.bulb.emissiveIntensity = (usable ? 0.2 + (this.charge / cfg.rodCharge) * 1.2 : 0.1) + (on && usable ? 0.6 * pulse : 0) + this.flash * 2;
     this.halo.material.opacity = Math.min(1, (on && usable ? 0.35 + 0.25 * pulse : 0) + (this.charge / cfg.rodCharge) * 0.4 + this.flash);
     this.ring.material.color.setHex(usable ? LIT : SCORCHED);
-    this.ring.material.opacity = !usable ? 0.08 : role === 'lit' ? 0.7 + 0.25 * pulse : role === 'next' ? 0.25 + 0.5 * pulse : role === 'idle' ? 0.07 : 0.14;
+    this.ring.material.opacity = !usable ? 0.08 : role === 'lit' ? 0.7 + 0.25 * pulse : role === 'idle' ? 0.07 : 0.14;
     this.fill.material.color.setHex(usable ? LIT : SCORCHED);
-    this.fill.material.opacity = role === 'lit' ? 0.12 + 0.06 * pulse : role === 'next' ? 0.04 * pulse : 0;
+    this.fill.material.opacity = role === 'lit' ? 0.12 + 0.06 * pulse : 0;
     // Scorched: smoke curls off the bulb.
     const scorched = !usable;
     this.smoke.forEach((s, i) => {
@@ -359,9 +353,9 @@ export class LightningRods {
     for (const r of this.list) if (!trees.includes(r.collider)) trees.push(r.collider);
   }
 
-  /** `lit` / `next`: the relay's rods while a storm is on (-1: none; no storm: both -1 and `on` false). */
-  update(dt: number, time: number, storm: number, on: boolean, lit = -1, next = -1): void {
-    this.list.forEach((r, i) => r.update(dt, time, storm, !on ? 'off' : i === lit ? 'lit' : i === next ? 'next' : 'idle'));
+  /** `lit`: the storm's rod while one is on (-1: none). */
+  update(dt: number, time: number, storm: number, on: boolean, lit = -1): void {
+    this.list.forEach((r, i) => r.update(dt, time, storm, !on ? 'off' : i === lit ? 'lit' : 'idle'));
   }
 
   seeThrough(dt: number, px: number, pz: number): void {

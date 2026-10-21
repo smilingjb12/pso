@@ -4,7 +4,7 @@ import { galGryphon as cfg, player } from './config';
 import type { BossContext } from './enemies/Boss';
 import { GalGryphon } from './enemies/GalGryphon';
 import {
-  aimedStream, boltSchedule, cagePlan, driftSpark, featherSpots, flankOrbs, nearestRod, relayNext, ringOrbs, rodAt, rodSpots, rodUsable, rodWalk,
+  aimedStream, boltSchedule, cagePlan, driftSpark, featherSpots, flankOrbs, nearestRod, ringOrbs, rodAt, rodSpots, rodUsable, rodWalk, stormRod,
   sparkTouches, spiralBurst, stormLead, type RodState,
 } from './enemies/gryphonStorm';
 import { riftBossScale } from './rifts';
@@ -107,39 +107,27 @@ describe('Gal Gryphon: the storm', () => {
     expect(rodWalk(list, x, z, 3)).toBeGreaterThan(walk(stormLead(TEMPO) / TEMPO));
   });
 
-  it('relays its light to a neighbour round the ring, never to a scorched rod', () => {
+  it('lights one usable rod a storm, at random among those you can walk to in the lead, never a scorched one', () => {
     const rng = mulberry32(3);
-    const all = rods();
-    const seen = new Set<number>();
-    for (let k = 0; k < 200; k++) {
-      const n = relayNext(all, 2, 1, rng);
-      expect([1, 3]).toContain(n);
-      seen.add(n);
+    const walkable = walk(stormLead(TEMPO) / TEMPO);
+    for (const [x, z] of summit(2)) {
+      const list = rods(3, [Math.floor(rng() * 6)]);
+      const i = stormRod(list, x, z, 3, walkable, rng);
+      if (i < 0) {
+        // Only ever when no usable reach is in walking range (the storm then waits).
+        expect(rodWalk(list, x, z, 3)).toBeGreaterThan(walkable);
+        continue;
+      }
+      expect(rodUsable(list[i], 3)).toBe(true);
+      expect(Math.hypot(list[i].x - x, list[i].z - z) - cfg.rodReach).toBeLessThanOrEqual(walkable);
     }
-    expect(seen.size).toBe(2);
-    // With rod 3 scorched, from 2 it can only go to 1; with both neighbours scorched it stays.
-    for (let k = 0; k < 50; k++) expect(relayNext(rods(2, [3]), 2, 2, rng)).toBe(1);
-    expect(relayNext(rods(2, [1, 3]), 2, 2, rng)).toBe(2);
+    // From the middle every rod is in reach, so any of the six can light.
+    const seen = new Set<number>();
+    for (let k = 0; k < 300; k++) seen.add(stormRod(rods(), CX, CZ, 1, walkable, rng));
+    expect(seen.size).toBe(6);
   });
 
-  it('leaves a walk from one reach to the next between bolts (a dash when the light runs on the way you came)', () => {
-    const [a, b] = rodSpots(CX, CZ);
-    const gap = Math.hypot(a[0] - b[0], a[1] - b[1]) - 2 * cfg.rodReach;
-    expect(gap).toBeCloseTo(4, 1);
-    // From the near edge of the lit reach (you saw where the light goes a second earlier).
-    expect(gap).toBeLessThanOrEqual(walk(real(cfg.boltGap)));
-    // From the middle of the lit reach when the next rod shows: drift toward it while the bolt is marked (still in the
-    // reach when it falls), then walk on.
-    const drift = Math.min(cfg.rodReach - 0.2, player.moveSpeed * real(cfg.boltWarn));
-    expect(cfg.rodRing * 2 * Math.sin(Math.PI / 6) - drift - cfg.rodReach).toBeLessThanOrEqual(walk(real(cfg.boltGap)));
-    // When the light runs on the way you came (P, A, B in a row), you reach A's near side as its bolt falls at best:
-    // walking the 4 m in and on through A for the rest of the gap, then 11 m on to B's reach less what you crossed.
-    const chord = cfg.rodRing * 2 * Math.sin(Math.PI / 6);
-    const crossed = player.moveSpeed * real(cfg.boltGap) - gap;
-    const leg = chord + cfg.rodReach - crossed - cfg.rodReach;
-    expect(leg).toBeGreaterThan(player.moveSpeed * real(cfg.boltGap));
-    expect(leg).toBeLessThanOrEqual(player.moveSpeed * real(cfg.boltGap) + DASH);
-    // Bolts stay one at a time, each marked a second before it falls; three missed are about the usual 80%.
+  it('marks its bolts one at a time on you, a second before each falls; three missed are about the usual 80%', () => {
     for (const n of [cfg.bolts, cfg.bolts2]) {
       const s = boltSchedule(n, stormLead(TEMPO));
       expect(s).toHaveLength(n);
@@ -190,10 +178,8 @@ describe('Gal Gryphon: its attacks at a rift tempo', () => {
     expect(worst).toBeLessThanOrEqual(walk(real(cfg.galeWindup)));
   });
 
-  it('makes the plummet and the crossing lash dash checks: too far to walk, walk and a dash clears them', () => {
-    const plummet = cfg.plummetRadius + pr;
-    expect(plummet).toBeGreaterThan(walk(real(cfg.plummetWindup)));
-    expect(plummet).toBeLessThanOrEqual(walk(real(cfg.plummetWindup)) + DASH);
+  it('keeps the plummet a walk (smaller and slower since 2026-10-22) and makes the crossing lash a dash check', () => {
+    expect(cfg.plummetRadius + pr).toBeLessThanOrEqual(walk(real(cfg.plummetWindup)));
     const lash = cfg.swoopWidth / 2 + pr;
     expect(lash).toBeGreaterThan(walk(real(cfg.crossWindup)));
     expect(lash).toBeLessThanOrEqual(walk(real(cfg.crossWindup)) + DASH);
@@ -224,15 +210,15 @@ describe('Gal Gryphon: its pairs and triples each leave one way out', () => {
     }
   });
 
-  it('plummet ring: a dash out through the one gap, nowhere else', () => {
+  it('plummet ring: out through the one gap (a walk), and not even a dash finds another way', () => {
     const rng = mulberry32(11);
     const step = (Math.PI * 2) / cfg.ringSlots;
     for (const { px, pz } of standings(100, 13)) {
       const { orbs, gap } = ringOrbs(px, pz, CX, CZ, rng);
       expect(orbs).toHaveLength(cfg.ringSlots - 1);
       const shapes = [circle([px, pz], cfg.plummetRadius), ...orbs.map((o) => circle(o, cfg.orbRadius))];
+      expect(safeSpots(px, pz, walk(real(cfg.plummetWindup)), shapes).length).toBeGreaterThan(0);
       const ok = safeSpots(px, pz, walk(real(cfg.plummetWindup)) + DASH, shapes);
-      expect(ok.length).toBeGreaterThan(0);
       for (const [x, z] of ok) {
         const a = Math.atan2(x - px, z - pz);
         const off = Math.abs(Math.atan2(Math.sin(a - gap), Math.cos(a - gap)));
@@ -387,31 +373,23 @@ function until(f: Fake, b: GalGryphon, s: string, sec: number, each?: () => void
 }
 
 describe('Gal Gryphon: the fight', () => {
-  it('wakes as you step in, calls the storm, and following the lit rod grounds it beside the last one', () => {
+  it('wakes as you step in, calls the storm, and standing by the lit rod draws its bolts and grounds it beside the rod', () => {
     const b = gryphon();
     const f = fakeFight(b);
     f.body.pos.z -= 4;
     expect(until(f, b, 'storm', 60)).toBe(true);
     const list = peek(b).rods.list;
-    const first = peek(b).lit;
-    // The relay starts at the usable rod nearest you.
-    expect(first).toBe(nearestRod(list, f.body.pos.x, f.body.pos.z, 1));
-    const visited = new Set<number>();
-    const follow = () => {
-      const lit = peek(b).lit;
-      if (lit >= 0) {
-        visited.add(lit);
-        f.body.pos.copy(footOf(list[lit]));
-      }
-    };
-    f.step(1, follow);
+    const lit = peek(b).lit;
+    expect(lit).toBeGreaterThanOrEqual(0);
+    const spot = footOf(list[lit]);
+    f.step(1, () => f.body.pos.copy(spot));
     expect(b.invulnerable).toBe(true);
-    expect(until(f, b, 'grounded', 12, follow)).toBe(true);
+    // The light stays on its rod all storm.
+    expect(peek(b).lit).toBe(lit);
+    expect(until(f, b, 'grounded', 12, () => f.body.pos.copy(spot))).toBe(true);
     expect(f.mechanic).toEqual([]);
-    // Three rods, one after another, neighbours each time.
-    expect(visited.size).toBe(cfg.rodCharge);
     const fired = list.findIndex((r) => r.firedIn === 1);
-    expect(fired).toBeGreaterThanOrEqual(0);
+    expect(fired).toBe(lit);
     expect(b.weakPointOpen).toBe(true);
     expect(b.damageMult()).toBe(cfg.weakPointMult);
     expect(Math.hypot(b.pos.x - list[fired].x, b.pos.z - list[fired].z)).toBeCloseTo(cfg.rodLand, 1);
@@ -422,14 +400,16 @@ describe('Gal Gryphon: the fight', () => {
     expect(state(b)).not.toBe('grounded');
   });
 
-  it('strikes you with every bolt the lit rod misses: stay at the first rod and the next two hit you', () => {
+  it('strikes you with every bolt the lit rod does not draw: by another rod, all three hit you', () => {
     const b = gryphon();
     const f = fakeFight(b);
     f.body.pos.z -= 4;
     expect(until(f, b, 'storm', 60)).toBe(true);
-    const spot = footOf(peek(b).rods.list[peek(b).lit]);
+    const list = peek(b).rods.list;
+    const other = list.findIndex((_, i) => i !== peek(b).lit);
+    const spot = footOf(list[other]);
     expect(until(f, b, 'stormLand', 12, () => f.body.pos.copy(spot))).toBe(true);
-    expect(f.mechanic).toEqual([cfg.boltShare, cfg.boltShare]);
+    expect(f.mechanic).toEqual([cfg.boltShare, cfg.boltShare, cfg.boltShare]);
     expect(until(f, b, 'stalk', 10)).toBe(true);
     expect(Math.hypot(b.pos.x - CX, b.pos.z - CZ)).toBeLessThan(1);
   });
