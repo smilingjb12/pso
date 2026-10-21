@@ -364,11 +364,11 @@ export class Game implements GameApi {
         for (const q of QUARTERS) save.map!.res[q.boss] = mapCfg.resonanceCap;
         this.hud.toast('Full Resonance for every boss.', 'good');
       },
-      riftPinnacle: () => {
+      riftPinnacle: (node) => {
         this.openRiftsForDebug();
         const map = riftSave(this.char.data).map!;
-        map.nodes.P2NE ??= { s: 'open' };
-        this.openRift(nodeRift(map, 'P2NE'), 'riftBoss');
+        map.nodes[node] ??= { s: 'open' };
+        this.openRift(nodeRift(map, node), 'riftBoss');
       },
       riftOpen: (boss) => {
         // The deepest node reached of that kind (a boss takes no Resonance here).
@@ -658,6 +658,7 @@ export class Game implements GameApi {
         },
         corruptPlayer: (n) => this.combat.applyPlayerStatus('corrupt', n),
         mechanicHit: (share, fx, fz, kb, source) => this.combat.mechanicHurt(share, fx, fz, kb, source),
+        drown: (share, source) => this.combat.drownTick(share, source),
         lightAt: (x, z, r) => this.world?.lightAt(x, z, r) ?? false,
         body: () => this.player,
         spawnAdd: (type, x, z) => this.world!.spawnEnemy(type, x, z, null, { noReward: true }),
@@ -1702,7 +1703,7 @@ export class Game implements GameApi {
       const text = n.kind === 'heart'
         ? 'All four seals of the Heart are broken. What waits there is still to come.'
         : PINNACLE_BOSS[id]
-          ? `Pinnacle ${circleName(n.circle)} stands open between two quarters: ${nodeName(id)} waits on Storm Peak. Its first kill is free.`
+          ? `Pinnacle ${circleName(n.circle)} stands open between two quarters: ${nodeName(id)} waits ${BOSSES[PINNACLE_BOSS[id]!].lair}. Its first kill is free.`
           : `${nodeName(id)} stands open between two quarters. Its boss is still to come.`;
       this.hud.toast(text, 'rare');
     }

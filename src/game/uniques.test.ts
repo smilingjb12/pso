@@ -33,7 +33,7 @@ describe('unique definitions', () => {
     expect(main.sort()).toEqual(['darkFlow', 'frozenShooter', 'reactorRod']);
     for (const id of main) expect(UNIQUES[id].base.type).toBe('weapon');
     const rift = UNIQUE_IDS.filter((u) => UNIQUES[u].pool === 'rift');
-    expect(rift).toHaveLength(26);
+    expect(rift).toHaveLength(28);
     for (const boss of ['dragon', 'derolle', 'warden', 'falz'] as const) {
       for (const c of [1, 2, 3] as const) {
         const two = bossUniques(boss, c, c);
@@ -47,7 +47,13 @@ describe('unique definitions', () => {
     expect(gryphon.every((id) => UNIQUES[id].circle === 2)).toBe(true);
     expect(UNIQUES.stormCrest.base).toEqual({ type: 'armor', slot: 'barrier' });
     expect(isUniqueUnit('groundingCoil')).toBe(true);
-    expect(rift.filter((id) => UNIQUES[id].base.type === 'weapon')).toHaveLength(6);
+    // Barba Ray (the other Circle II pinnacle): a wand and a unit.
+    const barba = bossUniques('barba', 3);
+    expect(barba.sort()).toEqual(['pigRay', 'tidecaller']);
+    expect(barba.every((id) => UNIQUES[id].circle === 2)).toBe(true);
+    expect(UNIQUES.tidecaller.base).toEqual({ type: 'weapon', kind: 'wand' });
+    expect(isUniqueUnit('pigRay')).toBe(true);
+    expect(rift.filter((id) => UNIQUES[id].base.type === 'weapon')).toHaveLength(7);
     for (const id of UNIQUE_IDS) expect(UNIQUES[id].effect.length && UNIQUES[id].cost.length).toBeTruthy();
   });
 

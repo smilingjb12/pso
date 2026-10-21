@@ -276,6 +276,44 @@ describe('Rift Circle uniques in a fight', () => {
     expect(fx.coilTakenMult(false)).toBe(1);
     expect(setup().fx.coilTakenMult(true)).toBe(1);
   });
+
+  it('Tidecaller: Barta Soaks for 6 s, the Soaked take 40% more from Zonde; Foie deals 40% less', () => {
+    const { fx } = setup(['tidecaller']);
+    const a = Object.assign(enemy(1000), { aimHeight: 1 });
+    expect(fx.techMult(a, 'lightning')).toBe(1);
+    expect(fx.techMult(a, 'fire')).toBeCloseTo(1 - U.tidecallerFoie, 6);
+    fx.afterTech(a, 'ice');
+    expect(fx.isSoaked(a)).toBe(true);
+    expect(fx.techMult(a, 'lightning')).toBeCloseTo(1 + U.tidecallerZonde, 6);
+    expect(fx.techMult(a, 'ice')).toBe(1);
+    fx.tick(U.tidecallerSoak - 0.1);
+    expect(fx.isSoaked(a)).toBe(true);
+    fx.tick(0.2);
+    expect(fx.isSoaked(a)).toBe(false);
+    const none = setup().fx;
+    none.afterTech(a, 'ice');
+    expect(none.isSoaked(a)).toBe(false);
+    expect(none.techMult(a, 'fire')).toBe(1);
+  });
+
+  it('Pig Ray: darts at your target every 2 s for 30% of a photon bolt, refilling no TP; with no target it waits', () => {
+    const { fx, k } = setup([], ['pigRay']);
+    const kk = k as unknown as Record<string, unknown>;
+    const t = Object.assign(enemy(1000), { aimHeight: 1 });
+    const darts: { mult?: number; refill?: boolean }[] = [];
+    kk.aimTarget = () => t;
+    kk.boltHit = (_t: Hittable, s: { mult?: number; refill?: boolean }) => (darts.push(s), { dmg: 1, killed: false });
+    fx.tick(1 / 60);
+    expect(darts).toHaveLength(1);
+    expect(darts[0]).toMatchObject({ mult: U.pigPower, refill: false });
+    for (let i = 0; i < 60; i++) fx.tick(1 / 60);
+    expect(darts).toHaveLength(1);
+    for (let i = 0; i < 65; i++) fx.tick(1 / 60);
+    expect(darts).toHaveLength(2);
+    kk.aimTarget = () => null;
+    for (let i = 0; i < 300; i++) fx.tick(1 / 60);
+    expect(darts).toHaveLength(2);
+  });
 });
 
 /** A real Combat around a character wearing `gear`; `rng` decides crits (0.99: none). Floats are kept as "text|class". */

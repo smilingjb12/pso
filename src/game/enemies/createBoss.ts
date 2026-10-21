@@ -2,6 +2,7 @@ import type { HardBossScale } from '../config';
 import type { RiftBossId } from '../data/bosses';
 import type { Level } from '../world/Level';
 import type { Boss } from './Boss';
+import { BarbaRay } from './BarbaRay';
 import { DarkFalz } from './DarkFalz';
 import { DeRolLe } from './DeRolLe';
 import { Dragon } from './Dragon';
@@ -18,6 +19,7 @@ const FACTORIES: Record<RiftBossId, (level: Level, hard: HardBossScale | null) =
   warden: (level, hard) => new Warden(level.rooms[0].rect, hard),
   falz: (level, hard) => new DarkFalz(level.rooms[0].rect, hard),
   gryphon: (level, hard) => new GalGryphon(level.rooms[0].rect, hard),
+  barba: (level, hard) => new BarbaRay(level.rooms[0].rect, hard),
 };
 
 export function createBoss(id: RiftBossId, level: Level, hard: HardBossScale | null): Boss {

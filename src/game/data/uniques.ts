@@ -21,8 +21,10 @@ export type UniqueId =
   | 'overclockCore' | 'limiter' | 'sBeatBlade' | 'v801' | 'motav' | 'yasakani'
   // Dark Falz
   | 'falzHalo' | 'devilBattle' | 'darkBridge' | 'soulEater' | 'dfShield' | 'heartOfFalz'
-  // Gal Gryphon (the Circle II pinnacle)
-  | 'stormCrest' | 'groundingCoil';
+  // Gal Gryphon (a Circle II pinnacle)
+  | 'stormCrest' | 'groundingCoil'
+  // Barba Ray (the other Circle II pinnacle)
+  | 'tidecaller' | 'pigRay';
 
 /** Where a unique drops: main-game bosses, or Falz Rift bosses (each its own). */
 export type UniquePool = 'main' | 'rift';
@@ -264,6 +266,22 @@ export const UNIQUES: Record<UniqueId, UniqueDef> = {
     cost: 'Bosses and champions hit you 20% harder',
     notes: ["Grounding isn't crowd control: bosses can't shrug it off", 'Damage over time and the bolt of a Storm Crest build no Ground'],
     flavour: 'Wound from a rod that took a storm and lived.',
+  },
+
+  // ------------------------------------------------------------- Barba Ray (the other Circle II pinnacle): the tide, the brood
+  tidecaller: {
+    id: 'tidecaller', name: 'Tidecaller', pool: 'rift', boss: 'barba', circle: 2, base: weapon('wand'),
+    effect: 'Your Barta techniques Soak enemies for 6 s: Soaked enemies take 40% more from Zonde techniques',
+    cost: 'Foie techniques deal 40% less',
+    notes: ['Every Barta hit starts the Soak over', "Bosses Soak too: it isn't crowd control"],
+    flavour: "Coral from the floor of Barba Ray's temple; the sea follows it.",
+  },
+  pigRay: {
+    id: 'pigRay', name: 'Pig Ray', pool: 'rift', boss: 'barba', circle: 2, base: UNIT,
+    effect: 'A little Pig Ray circles you and darts at your target every 2 s for 30% of a photon bolt',
+    cost: 'Photon bolts refill 20% less TP',
+    notes: ['It darts at the target your photon bolts would hit, in their reach', 'Its own hits refill no TP'],
+    flavour: 'One of the brood took a liking to you.',
   },
 };
 

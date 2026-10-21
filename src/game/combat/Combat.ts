@@ -542,6 +542,8 @@ export class Combat {
     if ((s.tech === 'foie' || s.tech === 'zonde' || s.tech === 'barta') ) mult *= c.pMult('focusBolt', T.focusBoltMult);
     if (s.finisher) mult *= c.pMult('overload', T.overloadMult);
     if (c.hasUnique('reactorRod')) mult *= Math.min(U.reactorCap, 1 + U.reactorStep * Math.max(0, this.reactorRun - 1));
+    // Tidecaller: Zonde hits the Soaked harder, Foie is weaker.
+    mult *= this.ufx.techMult(target, t.element);
     // Frozen Shooter: a frozen enemy shatters for more; anything else (bosses included) takes less.
     const shooter = c.hasUnique('frozenShooter');
     const shatter = shooter && frozen(target);
@@ -553,6 +555,7 @@ export class Combat {
     const killed = this.deal(target, dmg, p.pos.x, p.pos.z, (s.stagger ?? 1) > 1 ? 1.5 : 1, staggerPts);
     this.ufx.landed(target, dmg);
     if (!killed) this.ufx.afterHit(target, dmg, crit, false);
+    if (!killed) this.ufx.afterTech(target, t.element);
     if (s.tick) target.quietHit?.();
     if (t.element === 'fire') sfx('tech.foie.hit', { x: target.pos.x, z: target.pos.z });
     if (crit) sfx('hit.crit', { x: target.pos.x, z: target.pos.z });
@@ -596,6 +599,7 @@ export class Combat {
     amount *= c.pMult('siphonStaff', T.siphonMult);
     amount *= 1 + c.gearAffix('tpRefill') / 100;
     if (c.hasUnique('v801')) amount *= Math.max(0, 1 - c.uval(U.v801Refill));
+    if (c.hasUnique('pigRay')) amount *= Math.max(0, 1 - c.uval(U.pigRefill));
     const p = this.p;
     p.tp = Math.min(p.maxTp, p.tp + amount);
   }
@@ -1115,6 +1119,17 @@ export class Combat {
     this.hurtPlayer(dmg, fromX, fromZ, knockback, source, true);
     this.hellCorruption();
     return true;
+  }
+
+  /** Drowning (Barba Ray's flood): a share of true max HP straight off, no knockback, no stun, no Corruption. */
+  drownTick(share: number, source: string): void {
+    const p = this.p;
+    if (!p.alive || share <= 0) return;
+    const dmg = debug.invincible ? 0 : this.lastStand(Math.max(1, Math.round(p.trueMaxHp * share)));
+    p.hp = Math.max(0, p.hp - dmg);
+    fightLog.push('dot', { kind: source, dmg, hp: p.hp });
+    this.h.float(tmp.copy(p.pos).setY(2.2), String(dmg), 'burn');
+    if (!p.alive) this.h.onPlayerHurt();
   }
 
   bossTick(shape: TelegraphShape, damage: number, fromX: number, fromZ: number): void {

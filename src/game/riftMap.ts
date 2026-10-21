@@ -14,7 +14,8 @@ import { hashString, mulberry32 } from './world/Level';
 // (and their Vault and Gauntlet variants) roll modifiers and a cache, anew after every clear; each boss stands at the
 // inner edge of every circle in its quarter and replays on Resonance, which rooms cleared in its quarter fill.
 // Pinnacles (both neighbouring bosses of a circle) and the Heart (all four Circle III bosses) hold bosses of their own:
-// Gal Gryphon at P2NE since 2026-10-21 (PINNACLE_BOSS); the rest are landmarks for bosses still to come. The shape is
+// Gal Gryphon at P2NE since 2026-10-21 and Barba Ray at P2SW since 2026-10-22 (PINNACLE_BOSS); the rest are landmarks
+// for bosses still to come. The shape is
 // fixed (the same for everyone); what a node holds rolls from the character's seed.
 
 /** What a node is. Rooms, Vaults and Gauntlets are the room-like ones (they fill Resonance and roll a cache). */
@@ -179,10 +180,10 @@ const GATED = MAP_IDS.filter((id) => MAP_NODES[id].req);
 export const isRoomKind = (k: NodeKind): k is RoomKind => k === 'room' || k === 'vault' || k === 'gauntlet';
 
 /**
- * The pinnacles that hold a boss (2026-10-21: Gal Gryphon on Storm Peak, between the Dragon's and De Rol Le's
- * quarters; the user's pick for P2SW is Barba Ray, not built yet). The others stay landmarks.
+ * The pinnacles that hold a boss: Gal Gryphon on Storm Peak, between the Dragon's and De Rol Le's quarters (2026-10-21),
+ * and Barba Ray on the Temple Court, between the Warden's and Dark Falz's (2026-10-22). The others stay landmarks.
  */
-export const PINNACLE_BOSS: Partial<Record<string, PinnacleBossId>> = { P2NE: 'gryphon' };
+export const PINNACLE_BOSS: Partial<Record<string, PinnacleBossId>> = { P2NE: 'gryphon', P2SW: 'barba' };
 /** The region whose floor music plays after a pinnacle's kill (its first quarter's). */
 const pinnacleRegion = (n: MapNode): RiftBiome => QUARTERS[quarterOf(n.req ? bossOfNode(n.req[0]) : 'dragon')].region;
 const bossOfNode = (id: string): BossId => QUARTERS[MAP_NODES[id].q!].boss;
@@ -429,7 +430,7 @@ export function nodeName(id: string): string {
       return `Rift${n.kind === 'room' ? '' : n.kind === 'vault' ? ' Vault' : ' Gauntlet'} · Tier ${n.tier} · ${REGION_NAME[region!]}`;
   }
 }
-const BOSS_NAME: Record<RiftBossId, string> = { dragon: 'Dragon', derolle: 'De Rol Le', warden: 'Warden', falz: 'Dark Falz', gryphon: 'Gal Gryphon' };
+const BOSS_NAME: Record<RiftBossId, string> = { dragon: 'Dragon', derolle: 'De Rol Le', warden: 'Warden', falz: 'Dark Falz', gryphon: 'Gal Gryphon', barba: 'Barba Ray' };
 const REGION_NAME: Record<RiftBiome, string> = { forest: 'Forest', caves: 'Caves', mines: 'Mines', ruins: 'Ruins' };
 
 /** Every node opened (debug): nothing cleared, every first kill still where it was. */

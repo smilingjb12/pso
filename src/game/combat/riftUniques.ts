@@ -7,6 +7,8 @@ import type { Enemy } from '../enemies/Enemy';
 import { burnRules } from '../enemies/Enemy';
 import { inShape, type TelegraphShape } from '../world/Telegraph';
 import { GroundMark, fieldMark } from '../world/spellFx';
+import type { Effect } from '../world/Effects';
+import { rayMesh } from '../models/barbaRay';
 import type { ArtCtx } from './arts';
 import type { Combat } from './Combat';
 import { isBossPart } from './Combat';
@@ -19,6 +21,38 @@ import type { Hittable } from './types';
 const tmp = new THREE.Vector3();
 
 type Element = 'fire' | 'lightning' | 'ice';
+
+/**
+ * The Pig Ray unit's ray: it circles her shoulder and, on a dart, flies to the target and back. Lives until `done`
+ * (the unit came off, or a new area: the world drops its effects then).
+ */
+class PigRayPet implements Effect {
+  readonly object = rayMesh(0xf08ab4, 0.7);
+  done = false;
+  private t = Math.random() * 6;
+  private dartT = 0;
+  private to = new THREE.Vector3();
+
+  constructor(private follow: THREE.Vector3) {}
+
+  dart(to: THREE.Vector3): void {
+    this.to.copy(to);
+    this.dartT = 0.35;
+  }
+
+  update(dt: number): boolean {
+    this.t += dt;
+    const a = this.t * 2.4;
+    const home = tmp.set(this.follow.x + Math.sin(a) * 1.2, 1.6 + Math.sin(this.t * 3) * 0.15, this.follow.z + Math.cos(a) * 1.2);
+    if (this.dartT > 0) {
+      this.dartT = Math.max(0, this.dartT - dt);
+      const k = Math.sin((1 - this.dartT / 0.35) * Math.PI);
+      this.object.position.lerpVectors(home, this.to, k);
+    } else this.object.position.copy(home);
+    this.object.rotation.set(0, a + Math.PI / 2, Math.sin(this.t * 5) * 0.3);
+    return !this.done;
+  }
+}
 
 export class UniqueFx {
   constructor(private k: Combat) {}
@@ -70,6 +104,11 @@ export class UniqueFx {
   private crestBolt: Hittable | null = null;
   /** Grounding Coil: Ground built (0..1) and seconds grounded, per boss (all its parts) or champion. */
   private grounds = new Map<object, { g: number; t: number }>();
+  /** Tidecaller: seconds of Soak left on each target a Barta hit. */
+  private soaked = new Map<Hittable, number>();
+  /** Pig Ray: its ray, and seconds to its next dart. */
+  private pet: PigRayPet | null = null;
+  private pigT = 0;
 
   /** Back to nothing (a new area, Pioneer 2). */
   reset(): void {
@@ -87,6 +126,9 @@ export class UniqueFx {
     this.lastX = NaN;
     this.crestBolt = null;
     this.grounds.clear();
+    this.soaked.clear();
+    this.pet = null;
+    this.pigT = 0;
   }
 
   // ------------------------------------------------------------ every frame
@@ -102,6 +144,12 @@ export class UniqueFx {
     } else this.static = 0;
     this.lastX = p.pos.x;
     this.lastZ = p.pos.z;
+    // Tidecaller: Soak dries off.
+    for (const [t, s] of this.soaked) {
+      if (s - dt <= 0 || !t.alive) this.soaked.delete(t);
+      else this.soaked.set(t, s - dt);
+    }
+    this.pigRay(dt);
     // Grounding Coil: a grounded target's window runs out.
     for (const [k, g] of this.grounds) {
       if (g.t > 0) g.t = Math.max(0, g.t - dt);
@@ -157,7 +205,53 @@ export class UniqueFx {
     }
   }
 
+  /**
+   * Pig Ray: while worn, the little ray circles her and every `pigEvery` s darts at the target her photon bolts would
+   * hit (in their reach) for a share of a photon bolt, refilling no TP. With no target it waits and darts at the next.
+   */
+  private pigRay(dt: number): void {
+    const c = this.c;
+    const p = this.p;
+    if (!c.hasUnique('pigRay') || !p.alive) {
+      if (this.pet) this.pet.done = true;
+      this.pet = null;
+      return;
+    }
+    if (!this.pet) {
+      this.pet = new PigRayPet(p.pos);
+      this.k.fx(this.pet);
+    }
+    this.pigT -= dt;
+    if (this.pigT > 0) return;
+    const t = this.k.aimTarget(U.pigRange);
+    if (!t) return;
+    this.pigT = U.pigEvery;
+    this.pet.dart(t.pos.clone().setY(t.aimHeight));
+    this.k.boltHit(t, { mult: c.uval(U.pigPower), label: 'Pig Ray', streak: 0, finisher: false, refill: false });
+    sfx('barba.pig', { x: t.pos.x, z: t.pos.z });
+  }
+
   // ------------------------------------------------------------ dealing damage
+
+  /** Tidecaller on a technique hit: Zonde deals the Soaked more, Foie deals less (everything else as it is). */
+  techMult(t: Hittable, element: Element | null | undefined): number {
+    if (!this.c.hasUnique('tidecaller')) return 1;
+    if (element === 'fire') return 1 - U.tidecallerFoie;
+    if (element === 'lightning' && this.soaked.has(t)) return 1 + U.tidecallerZonde;
+    return 1;
+  }
+
+  /** Tidecaller: a Barta hit (that didn't kill) Soaks its target, starting the Soak over. */
+  afterTech(t: Hittable, element: Element | null | undefined): void {
+    if (element !== 'ice' || !this.c.hasUnique('tidecaller') || !t.alive) return;
+    if (!this.soaked.has(t)) this.k.h.float(tmp.copy(t.pos).setY(t.aimHeight + 1.3), 'SOAKED', 'proc');
+    this.soaked.set(t, U.tidecallerSoak);
+  }
+
+  /** Is this target Soaked (Tidecaller)? */
+  isSoaked(t: Hittable): boolean {
+    return this.soaked.has(t);
+  }
 
   /** What the player's hits deal on top right now: Rampage, Devil/Battle, Proof of Sword-Saint, Storm Crest, Grounding Coil. */
   dealtMult(t: Hittable): number {

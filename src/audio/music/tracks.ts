@@ -8,7 +8,7 @@ import {
 // crossfades between them when a room's gates close / open. Boss tracks use
 // the battle layer for their enraged phase.
 
-export type TrackId = 'pioneer2' | 'forest' | 'caves' | 'dragon' | 'derolle' | 'mines' | 'warden' | 'ruins' | 'falz' | 'gryphon';
+export type TrackId = 'pioneer2' | 'forest' | 'caves' | 'dragon' | 'derolle' | 'mines' | 'warden' | 'ruins' | 'falz' | 'gryphon' | 'barba';
 
 export interface Track {
   id: TrackId;
@@ -447,6 +447,45 @@ function gryphon(): Track {
   };
 }
 
+function barba(): Track {
+  const bars = 16;
+  const prog = progression([
+    'Dm', 'Bb', 'F', 'C', 'Dm', 'Gm', 'Bb', 'A7',
+    'Bb', 'C', 'Am', 'Dm', 'Gm', 'Bb', 'Asus4', 'A',
+  ]);
+  const mel = melody(`
+    D5! - - - A5 - F5 - | Bb5 - - - A5 - F5 - | C6 - - - A5 - F5 - | G5 - - - E5 - C5 - |
+    D5! - - - F5 - A5 - | D6 - - - C6 - Bb5 - | Bb5 - - - G5 - D5 - | E5 - - - - - . . |
+    F5! - - - Bb5 - D6 - | C6 - - - G5 - E5 - | E5 - - - A5 - C6 - | D6 - - - A5 - - - |
+    Bb5! - - - G5 - D5 - | F5 - - - Bb5 - D6 - | D6 - - - C6 - A5 - | E5 - - - - - . . |`, 2, 0.85);
+  return {
+    id: 'barba',
+    name: 'Barba Ray',
+    desc: 'Pinnacle boss. Synth (no recording yet): a rolling sea theme in D minor, a brass line over cascading harp and string arpeggios, a flute answer and a surging bass, the drums like breaking waves. The deep stirring (phase 2) adds choir, taiko and a lead arpeggio.',
+    bpm: 140,
+    gain: 0.75,
+    bars,
+    parts: [
+      p('harp', 'base', arpPart(prog, [0, 1, 2, 3, 2, 1], 1, 57, 0.5), 0.8, -0.25),
+      p('strings', 'base', arpPart(prog, [0, 2, 1, 2], 2, 50, 0.45), 0.7, 0.2),
+      p('darkpad', 'base', padPart(prog, 52, 0.38), 0.6),
+      p('pumpbass', 'base', bassPart(prog, 'r--r-o--r--5-r--', 38, 0.8)),
+      p('brass', 'base', mel, 1.05, 0.1),
+      p('flute', 'base', arpPart(prog, [2, 3, 4, 3], 4, 72, 0.4), 0.45, -0.3),
+      p('timpani', 'base', hits('X.......X.......', bars, 38), 0.7),
+      p('kick', 'base', hits('X.....X...X.....', bars), 0.9),
+      p('snare', 'base', hits('....X.......X...', bars, 60, [], { every: 4, pattern: '....X.......X.XX' }), 0.85),
+      p('shaker', 'base', hits('x.xxx.xxx.xxx.xx', bars), 0.6, 0.25),
+      p('crash', 'base', onBars([0, 4, 8, 12]), 0.7),
+      // The deep stirs (phase 2) and the enrage
+      p('choir', 'battle', padPart(prog, 62, 0.55)),
+      p('taiko', 'battle', hits('X..X..X...X..X..', bars, 38), 0.8),
+      p('tom', 'battle', hits('............XXXX', bars, 45), 0.65),
+      p('arp', 'battle', arpPart(prog, [0, 1, 2, 3, 4, 3, 2, 1], 1, 64, 0.45), 0.6, 0.3),
+    ],
+  };
+}
+
 export const TRACKS: Record<TrackId, Track> = {
   pioneer2: pioneer2(),
   forest: forest(),
@@ -458,4 +497,5 @@ export const TRACKS: Record<TrackId, Track> = {
   ruins: ruins(),
   falz: falz(),
   gryphon: gryphon(),
+  barba: barba(),
 };

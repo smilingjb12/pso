@@ -10,6 +10,7 @@ import {
 } from './game/models/mines';
 import { DragonModel, type DragonPoseParams } from './game/models/dragon';
 import { GryphonModel, type GryphonPoseParams } from './game/models/gryphon';
+import { BarbaRayModel, rayMesh, type BarbaPoseParams } from './game/models/barbaRay';
 import { Heroine, PLAYER_LOOK, type CharacterModel } from './game/models/heroine';
 import { Humanoid, humanPoses, STYLES, type Grip } from './game/models/humanoid';
 import { LEAD_FORMS, MAG_STATS, STAGE1, type MagStat } from './game/mag';
@@ -77,6 +78,8 @@ type Entry =
   | { kind: 'derolle' }
   | { kind: 'dragon' }
   | { kind: 'gryphon' }
+  | { kind: 'barba' }
+  | { kind: 'ray'; color: number; span: number }
   | { kind: 'prop'; prop: PropKind }
   | { kind: 'weapon'; weapon: WeaponKind }
   | { kind: 'mag' }
@@ -116,6 +119,9 @@ const CATALOGUE: Record<string, Entry> = {
   Migium: { kind: 'migium' },
   Dragon: { kind: 'dragon' },
   'Gal Gryphon': { kind: 'gryphon' },
+  'Barba Ray': { kind: 'barba' },
+  'Pig Ray': { kind: 'ray', color: 0xf08ab4, span: 1.4 },
+  'Ul Ray': { kind: 'ray', color: 0x2fb8b0, span: 3.4 },
   'De Rol Le': { kind: 'derolle' },
   Gillchic: { kind: 'gunbot' },
   Garanz: { kind: 'garanz' },
@@ -214,9 +220,10 @@ const FALZ_ANIMS = ['idle', 'glide', 'scythe windup', 'scythe', 'cast', 'release
 const ANGEL_ANIMS = ['idle', 'charge', 'cast'];
 const NO_ANIMS = ['\u2014'];
 const GRYPHON_ANIMS = ['idle', 'walk', 'screech', 'fly', 'swoop windup', 'swoop', 'gale', 'orbs', 'storm', 'grounded (weak point)', 'dead'];
+const BARBA_ANIMS = ['idle', 'glide windup', 'glide', 'spout', 'belly crash', 'dive', 'beached (weak point)', 'dead'];
 const ANIMS: Record<Entry['kind'], string[]> = {
   human: HUMAN_ANIMS, booma: BOOMA_ANIMS, brute: BOOMA_ANIMS, lily: LILY_ANIMS, migium: MIGIUM_ANIMS,
-  derolle: DRL_ANIMS, dragon: DRAGON_ANIMS, gryphon: GRYPHON_ANIMS, prop: NO_ANIMS, weapon: NO_ANIMS, mag: NO_ANIMS,
+  derolle: DRL_ANIMS, dragon: DRAGON_ANIMS, gryphon: GRYPHON_ANIMS, barba: BARBA_ANIMS, ray: NO_ANIMS, prop: NO_ANIMS, weapon: NO_ANIMS, mag: NO_ANIMS,
   riftGate: ['idle'],
   gunbot: GUNBOT_ANIMS, garanz: GARANZ_ANIMS, sinow: SINOW_ANIMS, node: NODE_ANIMS, warden: WARDEN_ANIMS,
   dimenian: DIMENIAN_ANIMS, delsaber: DELSABER_ANIMS, sorcerer: SORCERER_ANIMS, belra: BELRA_ANIMS, bringer: BRINGER_ANIMS,
@@ -248,6 +255,7 @@ let migium: MigiumModel | null = null;
 let drl: DeRolLeModel | null = null;
 let dragon: DragonModel | null = null;
 let gryphon: GryphonModel | null = null;
+let barba: BarbaRayModel | null = null;
 let gunbot: GunbotModel | null = null;
 let garanz: GaranzModel | null = null;
 let sinow: SinowModel | null = null;
@@ -293,6 +301,7 @@ function build(): void {
   if (root) scene.remove(root);
   human = booma = dragon = lily = migium = drl = null;
   gryphon = null;
+  barba = null;
   gunbot = null;
   garanz = null;
   sinow = null;
@@ -323,6 +332,14 @@ function build(): void {
     case 'gryphon':
       gryphon = new GryphonModel();
       root = gryphon.group;
+      break;
+    case 'barba':
+      barba = new BarbaRayModel();
+      root = barba.group;
+      break;
+    case 'ray':
+      root = rayMesh(e.color, e.span);
+      root.position.y = 1;
       break;
     case 'brute':
       brute = e.which === 'panarms' ? new PanArmsModel() : new HidoomModel();
@@ -655,6 +672,62 @@ function dragonPose(): DragonPoseParams {
       p.neckPitch = 0.9 * k;
       p.wingFlap = -0.3;
       p.jaw = 0.6;
+      break;
+  }
+  return p;
+}
+
+function barbaPose(): BarbaPoseParams {
+  const p: BarbaPoseParams = {
+    lift: 1.6 + Math.sin(time * 1.2) * 0.2, pitch: 0, roll: 0, flap: 0.45, wave: time * 2.2, mouth: 0, tail: 0, spots: 0.2, weak: 0, flat: 0,
+    flash: false, enraged: false, time,
+  };
+  switch (params.animation) {
+    case 'glide windup':
+      p.flap = 1;
+      p.wave = time * 3.2;
+      p.pitch = -0.15;
+      p.mouth = 0.6;
+      break;
+    case 'glide':
+      p.lift = 1.1;
+      p.flap = 0.25;
+      p.pitch = 0.15;
+      p.spots = 0.9;
+      p.roll = 0.15 * Math.sin(time * 3);
+      break;
+    case 'spout':
+      p.mouth = 1;
+      p.spots = 0.9;
+      p.pitch = -0.1;
+      break;
+    case 'belly crash':
+      p.lift = 9 * Math.max(0, Math.sin(time * 1.2));
+      p.flap = 1;
+      p.wave = time * 4;
+      p.pitch = 0.4;
+      break;
+    case 'dive':
+      p.lift = 1.6 - ((time * 2) % 5);
+      p.flap = 0.9;
+      p.wave = time * 3;
+      p.pitch = 0.6;
+      break;
+    case 'beached (weak point)':
+      p.lift = 0;
+      p.flap = 0.12;
+      p.wave = time * 1.1;
+      p.flat = 1;
+      p.mouth = 0.3 + 0.2 * Math.sin(time * 2);
+      p.spots = 0.1;
+      p.weak = 0.45 + Math.sin(time * 8) * 0.2;
+      p.tail = Math.sin(time * 1.3) * 0.3;
+      break;
+    case 'dead':
+      p.lift = 0;
+      p.flap = 0;
+      p.flat = 1;
+      p.spots = 0;
       break;
   }
   return p;
@@ -1002,6 +1075,7 @@ function tick(dt: number, snap = false): void {
   if (angel) angel.pose({ charge: params.animation === 'charge' ? 1 : 0, cast: params.animation === 'cast' ? 1 : 0, time, flash: false, presence: 1 });
   if (dragon) dragon.pose(dragonPose());
   if (gryphon) gryphon.pose(gryphonPose());
+  if (barba) barba.pose(barbaPose());
   // Owners stand facing the camera (+Z) so each Mag sits at its usual shoulder offset.
   mags.forEach((m, i) => m.update(snap ? 0 : dt, magOwner(i), Math.PI, false));
 }

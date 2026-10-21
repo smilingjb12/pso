@@ -631,3 +631,155 @@ export const galGryphon = {
   cageOrbDist: 5,
   cagePocket: 4.6,
 };
+
+/**
+ * Barba Ray, the Rift Map's second Circle II pinnacle boss (P2SW, between the Warden's Mines and Dark Falz's Ruins;
+ * 2026-10-22, the user's picks from two question rounds, every recommendation taken). A giant manta over a temple court
+ * in the open sea. Every ~34 s it dives and floods the court: stand on the raised platforms, which sink one after
+ * another under a warning, so you keep hopping (the water hurts every second you're in it; a dash crosses a gap dry),
+ * while Ul Rays swim in and lunge at you. When the water drains it is beached, weak point open. Pig Rays dart across
+ * the court all fight long. Phase 3 floods spin a whirlpool in the middle. All numbers are first drafts.
+ */
+export const barbaRay = {
+  /** Only the ratio to the rift's common boss HP is used (riftBossHp). */
+  hp: 10000,
+  atp: 120,
+  armor: 10,
+  techResist: 14,
+  xp: 0,
+  /** Injector doses its whole HP bar is worth (see injectorCfg). */
+  charge: 4,
+  /** What Hell's boss scaling is to the four: the Gryphon's numbers (they share Circle II). */
+  rift: { hp: 1, atp: 115, armor: 0, techResist: 14, flat: 3.5, xp: 6000 },
+  radius: 3,
+  /** The court you can walk on (m from its centre); it hovers this far north of the centre at the start, wakes within `wakeRange` m. */
+  arenaRadius: 16,
+  perch: 8,
+  wakeRange: 20,
+  /** Its height while it glides about the court (m). */
+  hover: 1.6,
+  glideAbout: 3.2,
+  turnSpeed: 1.4,
+  /** It keeps about this far from you between attacks (m). */
+  keepAway: 8,
+  /** Between attacks. */
+  attackGap: 1,
+  enrageAt: 0.2,
+  enrageSpeed: 0.8,
+  /** Below this HP share: "The deep stirs!" (triples, three Ul Rays a flood, Pig Rays come faster). */
+  phase2At: 0.5,
+  /** Below this HP share: "The whirlpool!" (floods spin a whirlpool, Pig Rays come in pairs). */
+  phase3At: 1 / 3,
+  /** Beached it takes this much damage (×1.5: +50%). */
+  weakPointMult: 1.5,
+  // ---- attacks (all walkable; warned in its clock: real seconds are these / the rift's ×1.15 tempo)
+  /** Glide: a lane from it through you to the far rim, `glideWidth` m wide; it flies it at `glideSpeed` m/s. */
+  glideWindup: 1.3,
+  glideWidth: 5.5,
+  glideSpeed: 22,
+  glideAtp: 1.2,
+  glideKnockback: 10,
+  /** Spout line: `spoutCount` geysers `spoutSpacing` m apart from it toward you and past, each `spoutStagger` s after the last. */
+  spoutWindup: 1.2,
+  spoutCount: 5,
+  spoutRadius: 2.2,
+  spoutSpacing: 3,
+  spoutStagger: 0.22,
+  spoutAtp: 0.9,
+  /**
+   * Ripples: a tail slam sends bands of water out from it, `rippleBand` m wide from `rippleInner` m, all warned at once;
+   * the first bursts after `rippleWindup` s, each next one `rippleStep` s later. Walk to the inner edge of your band in
+   * the warning, then step in once the band inside has burst.
+   */
+  rippleWindup: 1.3,
+  rippleInner: 3,
+  rippleBand: 3.5,
+  rippleBands: 4,
+  rippleStep: 0.9,
+  rippleAtp: 0.8,
+  rippleKnockback: 6,
+  /** Belly crash: it rises `crashRise` s, then a `crashRadius` m circle on you, warned `crashWindup` s (a walk; the enrage never cuts it). */
+  crashRise: 0.7,
+  crashWindup: 1.8,
+  crashRadius: 4.5,
+  crashAtp: 1.3,
+  crashKnockback: 12,
+  crashRest: 1.4,
+  /** Pig Ray burst: `burstCount` lanes fanned `burstSpread`° apart from its mouth, the middle one at you: step into a gap. */
+  burstWindup: 1.1,
+  burstCount: 5,
+  burstSpread: 25,
+  /** A burst's Pig Rays fly faster than the ones darting about (m/s). */
+  burstSpeed: 14,
+  // ---- the flood (its signature)
+  /**
+   * The flood: due `floodFirst` s into the fight, then `floodEvery` s after the last began, never sooner than
+   * `floodAfterUp` s after it is back up from the beach. It dives into the sea (can't be hit) and the court is warned
+   * for `floodWarn` s, then flooded for `floodTime` s. In the water (off a standing platform) you lose `waterShare` of
+   * your max HP a second (past armour, in ticks every `waterTick` real s) and move `waterSlow` slower; a dash skims
+   * the water dry. Then it drains over `drainTime` s, the sunk platforms rise again, and it beaches.
+   */
+  floodFirst: 14,
+  floodEvery: 34,
+  floodAfterUp: 8,
+  floodWarn: 3,
+  floodTime: 12,
+  drainTime: 1.2,
+  waterShare: 0.25,
+  waterTick: 0.5,
+  waterSlow: 0.4,
+  /**
+   * The platforms: `platformCount` round the court `platformRing` m out and `innerCount` round the middle `innerRing` m
+   * out, each `platformR` m across the top (dry in a flood). Every `sinkEvery` s of the flood (the first `sinkFirst` s
+   * in) one glows and sinks after `sinkWarn` s: the one you stand on `sinkUnder` of the time, else one near you; never
+   * fewer than `keepPlatforms` standing, and none whose warning would run past the drain.
+   */
+  platformCount: 8,
+  platformRing: 9,
+  innerCount: 3,
+  innerRing: 4,
+  platformR: 1.9,
+  sinkFirst: 1.5,
+  sinkEvery: 3,
+  sinkWarn: 2.4,
+  sinkUnder: 0.7,
+  keepPlatforms: 4,
+  /** Beached after the drain: it lands `beachLand` m from you toward the middle, weak point open for `beachedTime` s. */
+  beachedTime: 8,
+  beachLand: 6,
+  // ---- the Ul Rays (adds in the flood)
+  /**
+   * Ul Rays: `ulCount` rise in each flood (`ulCount2` from phase 2), each with `ulHpShare` of its HP, swimming round
+   * the court `ulSwim` m out. Every `ulEvery` s each lunges along a lane through you, `ulWidth` m wide, warned
+   * `ulWarn` s, at `ulSpeed` m/s (a hit that can knock you off your platform). They sink away when the water drains.
+   */
+  ulCount: 2,
+  ulCount2: 3,
+  ulHpShare: 0.05,
+  ulSwim: 10,
+  ulEvery: [3, 4.5] as [number, number],
+  ulWarn: 1.2,
+  ulWidth: 2.4,
+  ulSpeed: 18,
+  ulAtp: 0.8,
+  ulKnockback: 9,
+  ulRadius: 1.2,
+  // ---- the Pig Rays (all fight long, so you can't stand still)
+  /**
+   * Pig Rays: every `pigEvery` s (`pigEvery2` in phase 2, `pigEvery3` below 1/3, two at once there) one darts from a
+   * random point past the rim across the court along a lane through near you (give or take `pigSpread` m), shown
+   * `pigWarn` s before it sets off, at `pigSpeed` m/s; a touch is a light hit (× `pigAtp` ATP).
+   */
+  pigEvery: 1.6,
+  pigEvery2: 1.3,
+  pigEvery3: 1.5,
+  pigWarn: 0.8,
+  pigSpeed: 7,
+  pigRadius: 0.6,
+  pigWidth: 1.4,
+  pigSpread: 2,
+  pigAtp: 0.33,
+  // ---- phase 3
+  /** The whirlpool (phase 3 floods): pulls you toward the middle at `whirlPull` m/s; the inner platforms sink first. */
+  whirlPull: 1.6,
+};

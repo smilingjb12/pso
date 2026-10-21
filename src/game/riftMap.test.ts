@@ -195,13 +195,14 @@ describe('old saves', () => {
 });
 
 describe('Pinnacle II: Gal Gryphon', () => {
-  it('stands at P2NE only; the other pinnacles and the Heart are still to come', () => {
-    expect(Object.keys(PINNACLE_BOSS)).toEqual(['P2NE']);
+  it('stands at P2NE (Barba Ray at P2SW); the Circle III pinnacles and the Heart are still to come', () => {
+    expect(PINNACLE_BOSS).toEqual({ P2NE: 'gryphon', P2SW: 'barba' });
     const s = save();
-    for (const id of ['P2SW', 'P3SE', 'P3NW', 'HEART']) s.map!.nodes[id] = { s: 'open' };
-    for (const id of ['P2SW', 'P3SE', 'P3NW', 'HEART']) expect(enterBlock(s, id)).toBe('A boss still to come will stand here.');
+    for (const id of ['P3SE', 'P3NW', 'HEART']) s.map!.nodes[id] = { s: 'open' };
+    for (const id of ['P3SE', 'P3NW', 'HEART']) expect(enterBlock(s, id)).toBe('A boss still to come will stand here.');
     expect(nodeName('P2NE')).toBe('Gal Gryphon');
-    expect(nodeName('P2SW')).toBe('Pinnacle II');
+    expect(nodeName('P2SW')).toBe('Barba Ray');
+    expect(nodeName('P3SE')).toBe('Pinnacle III');
   });
 
   it('opens once Dragon II and De Rol Le II are dead, and its first kill is free', () => {
@@ -222,7 +223,7 @@ describe('Pinnacle II: Gal Gryphon', () => {
     expect(r).toMatchObject({ pinnacle: 'gryphon', tier: BOSS_TIER[2], mods: [], boss: true, node: 'P2NE', kind: 'boss', region: 'forest' });
     expect(riftBossId(r)).toBe('gryphon');
     expect(riftBossHp(r)).toBeCloseTo(riftBossHp(nodeRift(map, 'NB2')), 6);
-    expect(() => nodeRift(map, 'P2SW')).toThrow();
+    expect(() => nodeRift(map, 'P3SE')).toThrow();
   });
 
   it('after its first kill takes 2 Resonance from each of its quarters, and needs both', () => {
@@ -257,5 +258,45 @@ describe('Pinnacle II: Gal Gryphon', () => {
     expect(riftUniqueOdds(s, 'gryphon')).toBeCloseTo(2 * riftUniqueOdds(s, 'dragon'), 6);
     s.dry = { gryphon: 3, dragon: 3 };
     expect(riftUniqueOdds(s, 'gryphon')).toBeCloseTo(2 * riftUniqueOdds(s, 'dragon'), 6);
+  });
+});
+
+describe('Pinnacle II: Barba Ray', () => {
+  it('opens once Warden II and Dark Falz II are dead, and its first kill is free', () => {
+    const s = save();
+    expect(enterBlock(s, 'P2SW')).toBe('Opens once Warden II and Dark Falz II are dead.');
+    clearNode(s, 'SB2');
+    expect(nodeStatus(s.map!, 'P2SW')).toBe('locked');
+    clearNode(s, 'WB2');
+    expect(nodeStatus(s.map!, 'P2SW')).toBe('open');
+    expect(enterBlock(s, 'P2SW')).toBe('');
+    expect(nodeCost(s, 'P2SW')).toBe(0);
+  });
+
+  it("runs as Barba Ray in the Temple Court at tier 6, with a tier 6 boss's HP and no modifiers", () => {
+    const map = newMap(5);
+    const r = nodeRift(map, 'P2SW');
+    expect(r).toMatchObject({ pinnacle: 'barba', tier: BOSS_TIER[2], mods: [], boss: true, node: 'P2SW', kind: 'boss', region: 'mines' });
+    expect(riftBossId(r)).toBe('barba');
+    expect(riftBossHp(r)).toBeCloseTo(riftBossHp(nodeRift(map, 'SB2')), 6);
+  });
+
+  it('after its first kill takes 2 Resonance from the Warden and from Dark Falz', () => {
+    const s = save();
+    clearNode(s, 'SB2');
+    clearNode(s, 'WB2');
+    clearNode(s, 'P2SW');
+    expect(nodeCost(s, 'P2SW')).toBe(0);
+    (s.firsts ??= []).push('barba2');
+    expect(nodeCosts(s, 'P2SW')).toEqual({ warden: mapCfg.pinnacleCost, falz: mapCfg.pinnacleCost });
+  });
+
+  it("drops one of its two uniques on the first kill, then twice a boss's odds", () => {
+    const ch = Character.create('T');
+    const s = riftSave(ch.data);
+    const u = rollBossUnique('barba', BOSS_TIER[2], 112, s, ch.data, mulberry32(7));
+    expect(['unique_tidecaller_15', 'uunit_pigRay']).toContain(u!.id);
+    expect(s.firsts).toContain('barba2');
+    expect(riftUniqueOdds(s, 'barba')).toBeCloseTo(2 * riftUniqueOdds(s, 'warden'), 6);
   });
 });

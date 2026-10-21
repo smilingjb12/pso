@@ -6,7 +6,7 @@ import { fm, group, later, noise, pitched, tone, type V } from './synth';
 // audition in /soundlab.html; the game plays the variant chosen in picks.ts.
 // `x` is an optional per-call argument (duration of a breath / beam, ...).
 
-export type SfxGroup = 'Combat' | 'Techniques' | 'Player' | 'Enemies' | 'Dragon' | 'De Rol Le' | 'Mines' | 'Warden' | 'Ruins' | 'Dark Falz' | 'Gal Gryphon' | 'World' | 'Loot' | 'UI' | 'Jingles';
+export type SfxGroup = 'Combat' | 'Techniques' | 'Player' | 'Enemies' | 'Dragon' | 'De Rol Le' | 'Mines' | 'Warden' | 'Ruins' | 'Dark Falz' | 'Gal Gryphon' | 'Barba Ray' | 'World' | 'Loot' | 'UI' | 'Jingles';
 
 export interface Variant {
   name: string;
@@ -1773,6 +1773,89 @@ const DEFS = {
       }),
     ],
   },
+  // ---- Barba Ray (the Rift Map's other Circle II pinnacle)
+  'barba.call': {
+    group: 'Barba Ray', label: 'Call (intro, a phase, attacks)', gap: 0.6, ref: 40,
+    variants: [
+      v_('Whale song', 'A long, gliding moan with a bright overtone', (v) => {
+        tone(v, { type: 'sine', f: 220, f1: 330, fT: 0.5, a: 0.15, d: 1.4, gain: 0.12, vib: [5, 10], wet: 0.7 });
+        tone(v, { type: 'triangle', f: 660, f1: 880, fT: 0.6, a: 0.2, d: 1.2, gain: 0.05, vib: [6, 18], wet: 0.7 });
+        noise(v, { color: 'pink', a: 0.2, d: 1, gain: 0.08, filter: { type: 'bandpass', f: 500, q: 1.5 }, wet: 0.5 });
+      }),
+      v_('Low cry', 'Deeper, with a growl under it', (v) => {
+        tone(v, { type: 'sawtooth', f: 160, f1: 240, fT: 0.6, a: 0.1, d: 1.2, gain: 0.05, filter: { type: 'lowpass', f: 900 }, wet: 0.6 });
+        growl(v, 90, 1, 0.14, 15);
+      }),
+    ],
+  },
+  'barba.glide': {
+    group: 'Barba Ray', label: 'Glide (it sweeps a lane; an Ul Ray lunges)', gap: 0.3, ref: 35,
+    variants: [
+      v_('Sweep', 'A low rush of air and spray', (v) => {
+        noise(v, { color: 'pink', a: 0.25, d: 0.6, gain: 0.45, filter: { type: 'bandpass', f: 250, f1: 1400, fT: 0.7, q: 0.9 } });
+        swoosh(v, 90, 420, 0.5, 0.35);
+      }),
+    ],
+  },
+  'barba.spout': {
+    group: 'Barba Ray', label: 'A spout erupts', gap: 0.08, max: 5, ref: 30,
+    variants: [
+      v_('Geyser', 'A hiss of water bursting up', (v) => {
+        noise(v, { a: 0.01, d: 0.5, gain: 0.4, filter: { type: 'bandpass', f: 1800, f1: 600, q: 0.8 }, wet: 0.3 });
+        noise(v, { color: 'brown', d: 0.3, gain: 0.25, filter: { type: 'lowpass', f: 500 } });
+        bubbles(v, 5, 0.4, 0.04, 500, 1100);
+      }),
+    ],
+  },
+  'barba.splash': {
+    group: 'Barba Ray', label: 'Splash (the tail slam, the ripples, surfacing)', gap: 0.15, ref: 35,
+    variants: [
+      v_('Slap', 'A heavy slap on water with drips', (v) => {
+        noise(v, { d: 0.6, gain: 0.45, filter: { type: 'lowpass', f: 4200, f1: 700 }, wet: 0.4 });
+        thump(v, 80, 0.3, 0.3);
+        for (let i = 0; i < 5; i++) tone(v, { f: 1100 + Math.random() * 900, f1: 2400, d: 0.04, gain: 0.035, at: 0.25 + Math.random() * 0.5 });
+      }),
+    ],
+  },
+  'barba.flood': {
+    group: 'Barba Ray', label: 'The tide rises (and drains)', gap: 1, ref: 60, len: 3,
+    variants: [
+      v_('Surge', 'A rising roar of water', (v) => {
+        noise(v, { color: 'pink', a: 0.8, d: 1.8, gain: 0.45, filter: { type: 'bandpass', f: 300, f1: 1600, fT: 0.8, q: 0.6 }, wet: 0.5 });
+        rumble(v, 2.2, 0.35, 260, 0.6);
+        bubbles(v, 12, 1.8, 0.04, 200, 600);
+      }),
+    ],
+  },
+  'barba.sink': {
+    group: 'Barba Ray', label: 'A platform sinks', gap: 0.2, ref: 35,
+    variants: [
+      v_('Grind', 'Stone grinding down into the water', (v) => {
+        noise(v, { color: 'brown', a: 0.05, d: 0.9, gain: 0.35, filter: { type: 'lowpass', f: 700, f1: 250 } });
+        noise(v, { d: 0.5, gain: 0.25, filter: { type: 'lowpass', f: 3500, f1: 500 }, wet: 0.4, at: 0.3 });
+        bubbles(v, 8, 0.8, 0.05, 250, 700);
+      }),
+    ],
+  },
+  'barba.beach': {
+    group: 'Barba Ray', label: 'It crashes down (the belly crash, beaching)', gap: 0.5, ref: 50, len: 2,
+    variants: [
+      v_('Wet crash', 'A huge wet slam and spray', (v) => {
+        slam(v, 0.7);
+        noise(v, { d: 0.9, gain: 0.4, filter: { type: 'lowpass', f: 3800, f1: 600 }, wet: 0.5 });
+        rumble(v, 1.2, 0.35, 300, 0.02);
+      }),
+    ],
+  },
+  'barba.pig': {
+    group: 'Barba Ray', label: 'A Pig Ray darts off', gap: 0.1, max: 4, ref: 25,
+    variants: [
+      v_('Chirp', 'A quick squeak and a whoosh', (v) => {
+        tone(v, { type: 'triangle', f: 900, f1: 1500, fT: 0.4, a: 0.01, d: 0.18, gain: 0.06, vib: [30, 30] });
+        swoosh(v, 600, 2400, 0.3, 0.18, 0.05);
+      }),
+    ],
+  },
   'falz.ascend': {
     group: 'Dark Falz', label: 'The Angel enrages', gap: 1, ref: 60, len: 4,
     variants: [
@@ -2090,4 +2173,4 @@ const DEFS = {
 export type SfxId = keyof typeof DEFS;
 export const SFX: Record<SfxId, SfxDef> = DEFS;
 
-export const SFX_GROUPS: SfxGroup[] = ['Combat', 'Techniques', 'Player', 'Enemies', 'Dragon', 'De Rol Le', 'Mines', 'Warden', 'Ruins', 'Dark Falz', 'Gal Gryphon', 'World', 'Loot', 'UI', 'Jingles'];
+export const SFX_GROUPS: SfxGroup[] = ['Combat', 'Techniques', 'Player', 'Enemies', 'Dragon', 'De Rol Le', 'Mines', 'Warden', 'Ruins', 'Dark Falz', 'Gal Gryphon', 'Barba Ray', 'World', 'Loot', 'UI', 'Jingles'];

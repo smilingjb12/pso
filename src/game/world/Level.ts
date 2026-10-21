@@ -3,7 +3,7 @@ import { resolveCircleBoxes, type Box2 } from '../collision';
 import type { AreaDef, FeatureDef, RoomDef } from '../data/areas';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { neutralPropGeometry, propGeometry, propMaterial, type PropKind } from '../models/props';
-import { darkFalz as falzCfg, galGryphon as gryphonCfg, pylonCfg, warden as wardenCfg } from '../config';
+import { barbaRay as barbaCfg, darkFalz as falzCfg, galGryphon as gryphonCfg, pylonCfg, warden as wardenCfg } from '../config';
 import { glowMaterial, glowSprite, glowTexture } from './glow';
 import { buildCityScenery } from './CityScenery';
 
@@ -380,7 +380,9 @@ export class Level {
     // round platform.
     const altar = t.scenery === 'altar';
     const peak = t.scenery === 'peak';
-    const floating = altar || peak;
+    // Barba Ray's Temple Court stands out on the open sea.
+    const court = t.scenery === 'court';
+    const floating = altar || peak || court;
     // Forest, cave and lair edges are uneven rock/earth; the city gets flat walls.
     const rugged = t.trees || lair || cave;
     const floorRng = mulberry32(hashString(`${this.def.id}:floor`));
@@ -451,6 +453,7 @@ export class Level {
     if (temple) this.buildTempleScenery(t.scenery === 'sanctum');
     if (altar) this.buildAltarScenery();
     if (peak) this.buildPeakScenery();
+    if (court) this.buildCourtScenery();
     if (t.scenery === 'city') {
       buildCityScenery({
         theme: t, group: this.group, rooms: this.rooms, features: this.features, colliders: this.trees,
@@ -1728,6 +1731,104 @@ export class Level {
     });
   }
 
+  /**
+   * Barba Ray's Temple Court: PSO's VR Temple out on the open sea. A round court of white marble with gold inlay (rings
+   * and a sunburst) and channels of glowing water cut into it, a stepped base going down into the sea, a ring of white
+   * columns with gold capitals round the rim (some broken), temple ruins on islets far off, and the sea swelling all
+   * round under a bright sky. The platforms, the flood and the rays are the boss's.
+   */
+  private buildCourtScenery(): void {
+    const rng = mulberry32(hashString(`${this.def.id}:court`));
+    const t = this.def.theme;
+    const gold = t.accent2 ?? 0xd9b24a;
+    const glow = t.accent ?? 0x6ae8ff;
+    const q = this.rooms[0].rect;
+    const cx = (q.minX + q.maxX) / 2;
+    const cz = (q.minZ + q.maxZ) / 2;
+    const R = barbaCfg.arenaRadius + 0.4;
+    const marble = new THREE.MeshStandardMaterial({ color: t.floor, roughness: 0.45, metalness: 0.05, flatShading: true });
+    const stone = new THREE.MeshStandardMaterial({ color: t.wall, roughness: 0.6, flatShading: true });
+    const goldMat = new THREE.MeshStandardMaterial({ color: gold, roughness: 0.3, metalness: 0.6, flatShading: true });
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 1.2, 72), [stone, marble, stone]);
+    disc.position.set(cx, -0.6, cz);
+    disc.receiveShadow = true;
+    this.group.add(disc);
+    // The stepped base down into the sea.
+    for (let i = 1; i <= 3; i++) {
+      const step = new THREE.Mesh(new THREE.CylinderGeometry(R + i * 1.1, R + i * 1.1 + 0.2, 0.7, 72), stone);
+      step.position.set(cx, -0.9 - i * 0.7, cz);
+      this.group.add(step);
+    }
+    // Gold inlay: rings, a sunburst of spokes, a star in the middle; glowing water channels between.
+    const lines: THREE.BufferGeometry[] = [];
+    for (const r of [2.6, 6.5, 11.5, R - 0.5]) lines.push(new THREE.RingGeometry(r - 0.07, r + 0.07, 80).rotateX(-Math.PI / 2).translate(cx, 0.012, cz));
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      const len = i % 3 === 0 ? R - 1 : 6;
+      lines.push(new THREE.PlaneGeometry(i % 3 === 0 ? 0.12 : 0.07, len - 2.6).rotateX(-Math.PI / 2).translate(0, 0, 2.6 + (len - 2.6) / 2).rotateY(a).translate(cx, 0.013, cz));
+    }
+    this.group.add(new THREE.Mesh(mergeGeometries(lines)!, new THREE.MeshBasicMaterial({ color: gold })));
+    const channels: THREE.BufferGeometry[] = [];
+    for (const r of [4.5, 13.6]) channels.push(new THREE.RingGeometry(r - 0.25, r + 0.25, 80).rotateX(-Math.PI / 2).translate(cx, 0.011, cz));
+    const channelMat = new THREE.MeshBasicMaterial({ color: glow, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending });
+    this.group.add(new THREE.Mesh(mergeGeometries(channels)!, channelMat));
+    const star: THREE.BufferGeometry[] = [];
+    for (let i = 0; i < 8; i++) {
+      const shape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(-0.35, 0.9), new THREE.Vector2(0, i % 2 ? 1.6 : 2.3), new THREE.Vector2(0.35, 0.9)]);
+      star.push(tinted(new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2).rotateY((i * Math.PI) / 4).translate(cx, 0.02, cz), gold));
+    }
+    this.group.add(new THREE.Mesh(mergeGeometries(star)!, new THREE.MeshBasicMaterial({ vertexColors: true })));
+    // Columns round the rim: white shafts on square plinths, gold capitals; a few broken off.
+    const shafts: THREE.BufferGeometry[] = [];
+    const caps: THREE.BufferGeometry[] = [];
+    const n = 16;
+    for (let i = 0; i < n; i++) {
+      const a = ((i + 0.5) / n) * Math.PI * 2;
+      const x = cx + Math.sin(a) * (R + 1.6);
+      const z = cz + Math.cos(a) * (R + 1.6);
+      const broken = i % 5 === 2;
+      const h = broken ? 2 + rng() * 2 : 7.5;
+      shafts.push(new THREE.BoxGeometry(1.4, 0.5, 1.4).translate(x, 0.25 - 0.6, z));
+      shafts.push(new THREE.CylinderGeometry(0.5, 0.58, h, 12).translate(x, h / 2 - 0.35, z));
+      if (!broken) caps.push(new THREE.CylinderGeometry(0.85, 0.55, 0.5, 12).translate(x, h - 0.1, z), new THREE.BoxGeometry(1.8, 0.25, 1.8).translate(x, h + 0.25, z));
+    }
+    const colMesh = new THREE.Mesh(mergeGeometries(shafts)!, marble);
+    colMesh.castShadow = true;
+    this.group.add(colMesh, new THREE.Mesh(mergeGeometries(caps)!, goldMat));
+    // The sea all round: a wide sheet with swells rolling across it.
+    const seaGeo = new THREE.PlaneGeometry(520, 520, 64, 64).rotateX(-Math.PI / 2);
+    const sea = new THREE.Mesh(seaGeo, new THREE.MeshStandardMaterial({ color: 0x1f78c0, emissive: 0x0a3a70, emissiveIntensity: 0.35, roughness: 0.2, metalness: 0.1, flatShading: true }));
+    sea.position.set(cx, -2.6, cz);
+    this.group.add(sea);
+    const base = Float32Array.from(seaGeo.attributes.position.array as Float32Array);
+    // Temple ruins on islets far off.
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2 + rng() * 0.4;
+      const d = 70 + rng() * 60;
+      const ix = cx + Math.sin(a) * d;
+      const iz = cz + Math.cos(a) * d;
+      const islet = new THREE.Mesh(new THREE.CylinderGeometry(6 + rng() * 6, 9 + rng() * 6, 3, 9), stone);
+      islet.position.set(ix, -2, iz);
+      this.group.add(islet);
+      for (let k = 0; k < 4; k++) {
+        const h = 4 + rng() * 9;
+        const c = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.8, h, 8), marble);
+        c.position.set(ix + (rng() - 0.5) * 8, -0.5 + h / 2, iz + (rng() - 0.5) * 8);
+        this.group.add(c);
+      }
+    }
+    this.animators.push((_dt, time) => {
+      const pos = seaGeo.attributes.position.array as Float32Array;
+      for (let i = 0; i < pos.length; i += 3) {
+        const x = base[i];
+        const z = base[i + 2];
+        pos[i + 1] = Math.sin(x * 0.05 + time * 0.8) * 0.45 + Math.cos(z * 0.06 + time * 0.6) * 0.35;
+      }
+      seaGeo.attributes.position.needsUpdate = true;
+      channelMat.opacity = 0.45 + Math.sin(time * 1.2) * 0.12;
+    });
+  }
+
   /** Slow motes drifting up through these rects (temple dust, altar sparks). */
   private addDust(rects: Rect[], color: number, top: number, size: number): void {
     const rng = mulberry32(hashString(`${this.def.id}:dust`));
@@ -1960,7 +2061,7 @@ export class Level {
       const tx = Math.floor(x / TILE);
       const tz = Math.floor(z / TILE);
       const sc = this.def.theme.scenery;
-      if (this.isFloor(tx, tz) || sc === 'river' || sc === 'altar' || sc === 'peak') continue;
+      if (this.isFloor(tx, tz) || sc === 'river' || sc === 'altar' || sc === 'peak' || sc === 'court') continue;
       const inside = tx >= 0 && tz >= 0 && tx < this.width && tz < this.height;
       const h = inside ? this.wallH[tz * this.width + tx] + 0.6 : this.def.theme.wallHeight; // + leafy crest
       if (y < h) return d;

@@ -1789,11 +1789,11 @@ tuning panel **Rifts**).
   rooms per boss, and you choose when to spend it. The Gate shows each boss's pips.
 - **Pinnacles** (four, on the spokes between quarters: Circle II's past the N-E and S-W bosses II, Circle III's past
   the E-S and W-N bosses III) open when **both neighbouring bosses of their circle are dead**; the **Heart** opens when
-  **all four Circle III bosses are**. **Gal Gryphon** stands at `P2NE` since 2026-10-21 (see "Gal Gryphon" below); the
-  other three pinnacles and the Heart are still landmarks for bosses to come (nothing to enter yet). The user's
-  picks from the mockup's candidates: **Gal Gryphon** (lightning rods: draw the storm into a rod, a full rod grounds
-  it for a damage window) and **Barba Ray** (the arena floods, raised platforms sink one at a time, not built yet) for
-  the first two pinnacles; Gol Dragon (soak the gold meteors) and Saint-Milion (break the sandstorm gland in time) were the other
+  **all four Circle III bosses are**. **Gal Gryphon** stands at `P2NE` since 2026-10-21 and **Barba Ray** at `P2SW` since
+  2026-10-22 (see "Gal Gryphon" and "Barba Ray" below); the Circle III pinnacles and the Heart are still landmarks for
+  bosses to come (nothing to enter yet). The user's picks from the mockup's candidates: **Gal Gryphon** (lightning
+  rods: draw the storm into a rod, a full rod grounds it for a damage window) and **Barba Ray** (the arena floods,
+  raised platforms sink one at a time) for the first two pinnacles; Gol Dragon (soak the gold meteors) and Saint-Milion (break the sandstorm gland in time) were the other
   pinnacle pitches; the Heart's boss is not picked (Olga Flow, casting your last Art back at you, or the Convergence,
   the four bosses' mechanics in turn and then two at once).
 - **Chaining:** a rift's teleporters (the start room's, the Guardian room's, the boss arena's after the kill) offer
@@ -1954,6 +1954,107 @@ hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**
   the **Gal Gryphon** folder has the storm's clock, lead and bolts, the bolt's share, grounding, the gale, the attacks'
   warnings, the attack gap, the cage, feathers and the sparks; Rifts has its speed, HP multiplier and the pinnacle's
   Resonance cost.
+
+### Barba Ray (Pinnacle II, 2026-10-22; `enemies/BarbaRay.ts`, `enemies/barbaTide.ts`, `models/barbaRay.ts`)
+The second Circle II pinnacle boss, at `P2SW` (tier 6, between the Warden's Mines and Dark Falz's Ruins quarters).
+Designed in two question rounds with the user, every recommendation taken: the flood makes you hop between **sinking
+platforms**, **Pig Ray runs** keep you moving all fight, **Ul Rays** come with each flood, it is **beached** (weak point
+open) when the water drains, the **Temple Court** arena, a **whirlpool** in phase 3, and the **Tidecaller** and **Pig
+Ray** uniques; replays and odds as the Gryphon's (2 Resonance from each of its quarters, the Warden's and Dark Falz's;
+twice a boss's unique odds), a new synth track. The pitch it grew from (the Rift Map mockup): the arena floods in
+surges, only raised platforms stay dry and they sink one at a time. Reaching one safe spot was already the Gryphon's
+storm and the Dragon's rocks, so the flood is about moving from spot to spot under a clock. Numbers in `barbaRay`
+(config/bosses.ts, tuning panel **Barba Ray**); all first drafts, untested by the user.
+- **Rift-only**, like the Gryphon (`PinnacleBossId` 'barba', `BOSSES.barba.pinnacle`): its `rift` block is the
+  Gryphon's numbers (ATP 235 in all, armour 10, technique resistance 14, XP 6000), **a tier 6 boss's HP (2.3M)**, the
+  rifts' ×1.15 tempo. `PINNACLE_CFG` / `PINNACLE_AREA` in rifts.ts hold each pinnacle boss's numbers and arena.
+- **The Temple Court** (area `templeCourt`, scenery `court`): PSO's VR Temple out on the open sea, a round court of
+  white marble about 33 m across (walkable radius 16 m, kept on it like Storm Peak) with gold inlay (rings, a
+  sunburst, a star in the middle) and two rings of glowing water channels, a stepped base going down into the sea, 16
+  white columns with gold capitals round the rim (every fifth broken), temple ruins on islets far off, and the sea
+  swelling all round under a bright blue sky and a pale sun. You arrive in the south; it hovers 8 m north of the middle
+  and wakes when you come within 20 m.
+- **The look:** a giant manta, about 14 m across the wings and nose to barb: a deep violet-blue back with gold along
+  the wings' leading edges, a pale lilac belly, two horns (cephalic fins) curling forward either side of the mouth,
+  glowing yellow eyes, cyan spots down the back and wings that brighten as it charges (and in later phases), three
+  pairs of spiracles behind the head that glow pink while it is beached (the weak point), and a six-segment whip tail
+  with a gold barb. Its wings beat in a wave from root to tip; beached they slump onto the floor. The brood: rose **Pig
+  Rays** and teal **Ul Rays** (`rayMesh`). All three in /viewer.html.
+- **The platforms** (11): eight round the court 9 m out (the first 22.5° east of north) and three round the middle
+  4 m out, each a low marble dais 3.8 m across with a gold rim and sunburst. Every one is within a dash (3.5 m) of the
+  next (3.1 m between the outer ones, 1.2 m to an inner one), and any spot on the court is within a walk of one in the
+  flood's warning (tests pin both).
+- **The flood** (its signature): first ~14 s into the fight, then 34 s after the last began, never sooner than 8 s
+  after it is back up from the beach. It glides out over the nearest rim and dives into the sea (can't be hit), the
+  whole court is warned for 3 s (a blue telegraph; "Barba Ray floods the court: stand on the platforms!" the first
+  time; the bar reads `THE TIDE RISES`), then the water comes up for **12 s** (`FLOOD · 8 s`).
+  - **In the water** (off a standing platform) you lose **25% of your max HP a second** (past armour and damage
+    taken, like a failed mechanic, but no knockback, stun or Corruption: `BossContext.drown`, `Combat.drownTick`,
+    shown in chunks every half second) and move **40% slower**. A **dash skims the water**: no damage, no slow (so does
+    being shoved).
+  - **Sinking**: 1.5 s in and every 3 s after, a platform glows red and sinks **2.4 s** later (a red telegraph on it;
+    ~2.1 real seconds): **the one you stand on 70% of the time**, else one of the two standing nearest you. Never
+    fewer than 4 standing, never one whose warning would outlast the flood (three sinks a flood). Walk to the edge and
+    dash across. They all rise again when the water drains.
+  - **Ul Rays**: two rise with each flood (three from phase 2), with 5% of its HP each, swimming round the court 10 m
+    out. Every 3-4.5 s each lunges at you along a 2.4 m lane warned 1.2 s (a walk, even from the middle of a
+    platform), ×0.8 ATP and a shove of 9 that can knock you into the water. They can be targeted and killed (hits on
+    them don't touch its bar) and sink away when the water drains.
+- **Beached**: as the water drains (1.2 s) it leaps out of the sea and crashes down 6 m from you toward the middle (a
+  warned circle, ×0.8 ATP), **beached for 8 s of its clock (~7 real seconds)**, weak point open, taking **+50% damage**
+  ("Beached! Weak point exposed!"; the bar reads `BEACHED`). Then it rises and the fight goes on.
+- **Pig Rays** (all fight long, from the moment it wakes, through floods and beaching): every 1.6 s (1.3 s in phase 2,
+  a pair every 1.5 s below 1/3) a lane lights from a random point past the rim through near you (within 2 m), 1.4 m
+  wide, and 0.8 s later a Pig Ray darts down it at 7 m/s of its clock. A touch is **a light hit** (×0.33 ATP, a nudge)
+  and the ray is gone. A sidestep clears a lane.
+- **Phase 1** (100-50%): **every attack is a pair**, 1 s apart (pool: glide + spouts, crash + ripples, burst + glide):
+  - **Glide + spouts**: a 5.5 m lane from it through you to the far rim (1.3 s, a walk; it flies it at 22 m/s, ×1.2
+    ATP), and as it reaches the end a **spout line** from there toward you: five 2.2 m geysers 3 m apart, the first
+    warned 1.2 s, each 0.22 s after the last (×0.9 ATP): step off the line.
+  - **Crash + ripples**: it rises and drops on you (a 4.5 m circle warned 1.8 s, the enrage never cuts it, ×1.3 ATP),
+    then a tail slam sends **ripples** out from where it landed: four 3.5 m bands from 3 m out, all warned at once,
+    the first bursting 1.3 s after the slam and each next one 0.9 s later (×0.8 ATP, a shove of 6). Walk to the inner
+    edge of your band in the warning, then step into the band inside once it has burst.
+  - **Burst + glide**: a fan of five Pig Ray lanes from its mouth, 25° apart with the middle one straight at you, warned
+    1.1 s; the burst's rays fly 14 m/s (6 m out the gaps are 1.3 m: step into one; nearer, step round it); 0.6 s in
+    comes the glide.
+- **Phase 2, "The deep stirs!"** (below 50%; the battle layer comes in; `THE DEEP STIRS`): the pairs become **triples**
+  (glide + spouts + a burst, crash + ripples + a burst), three Ul Rays a flood, Pig Rays every 1.3 s.
+- **Phase 3, "The whirlpool!"** (below 1/3; `THE WHIRLPOOL`): its floods spin **a whirlpool** in the middle that drags
+  you toward it at 1.6 m/s (walk against it: you're nearly three times as fast) and **the platforms nearest the
+  middle sink first**; Pig Rays come in pairs.
+- **Enraged** (below 20%): windups ×0.8 (the crash, the flood and the sinking never cut); the glide then gets the dash
+  check's cyan rim.
+- **Its node** (`PINNACLE_BOSS`, riftMap.ts): `P2SW` opens once **Warden II and Dark Falz II** are dead. The first
+  kill is free and always drops one of its two uniques (one you lack first; `RiftSave.firsts` "barba2"); after that a
+  fight takes **2 Resonance from the Warden's quarter and 2 from Dark Falz's**, and a kill rolls twice a boss's odds.
+  Loot lands round the court's middle (off the body it could land in the sea).
+- **Its uniques:**
+
+  | Unique | Slot | Effect | Cost |
+  |---|---|---|---|
+  | Tidecaller | Wand | Your Barta techniques Soak enemies for 6 s: Soaked enemies take 40% more from Zonde techniques | Foie techniques deal 40% less |
+  | Pig Ray | Unit | A little Pig Ray circles you and darts at your target every 2 s for 30% of a photon bolt | Photon bolts refill 20% less TP |
+
+  Rules settled while building (my calls): every Barta hit starts the Soak over, bosses Soak too (it isn't crowd
+  control), a killing Barta hit soaks nothing; the Pig Ray darts at the target your photon bolts would hit (in 14 m)
+  and waits for one when there is none, and its hits refill no TP. Numbers in `uniqueCfg` (`tidecaller*`, `pig*`).
+- **Music:** `barba` (synth: a rolling sea theme in D minor at 140 BPM, a brass line over cascading harp and string
+  arpeggios, a flute answer, a surging bass and wave-like drums; the deep stirring adds choir, taiko and a lead
+  arpeggio). Sounds: the **Barba Ray** group in the sound lab (its call, the glide, a spout, a splash, the tide, a
+  platform sinking, the crash, a Pig Ray).
+- **Checked:** `barba.test.ts` (the platforms' layout, reach and hops, which one sinks, every attack's walk at the rift
+  tempo, the ripples' bands, the burst's gaps, the Pig Ray lanes; a scripted fight against the boss itself: it floods
+  ~14 s in, the water takes ~25% a second off the platforms and nothing on one, platforms sink and rise, it beaches
+  with its weak point open, an Ul Ray dies without touching its bar, the phase 3 whirlpool drags you in),
+  `riftMap.test.ts` (the node, its opening and costs, the doubled odds), `riftUniques.test.ts` (both uniques). In the
+  game (Lv 100 test character, invincible, the debug warp): the Gate's panel, the court, a flood with its sinking
+  platforms, Ul Rays and Pig Rays, the beaching, every attack and phase in a long run with no errors, and a kill with
+  its first-kill unique. Not done: a balance pass (the bot can't hop platforms or dodge lanes), a recorded track.
+- **Debug** (tuning panel): Rifts > "enter Barba Ray (Pinnacle II)" goes straight in (its first kill stays owed); the
+  **Barba Ray** folder has the phases, the flood's clock and warning, the water's bite and slow, the sinking, the
+  beaching, the Ul Rays, the whirlpool, the Pig Rays and every attack's warning; Rifts has its speed and HP
+  multiplier.
 
 ### Layout (riftGen.ts)
 - `generateRift(options)` is pure: everything comes from the seed (mixed with the region, so one seed differs per
@@ -2263,7 +2364,7 @@ not the player").
 - Debug panel: "give 5 of each photon"; the Lv 64 test characters carry some. Every number is a first draft.
 
 ## Deferred / Later Milestones
-- More uniques (six so far), the Rift Map's bosses still to come (Gal Gryphon and Barba Ray for the first two pinnacles, two more pinnacles, the Heart's final boss), new base tiers, Section IDs, bank, tekker, guild quests, more enemy types (Rappy, Wolves,
+- More uniques (six so far), the Rift Map's bosses still to come (the two Circle III pinnacles and the Heart's final boss), new base tiers, Section IDs, bank, tekker, guild quests, more enemy types (Rappy, Wolves,
   Mothmant/Monest, Hildebear, Shark family, Nano Dragon, Canadine drones, cloaking Sinows), gamepad support,
   ElevenLabs recordings for the Mines, Warden, Ruins and Dark Falz themes, a tier 7 injector and the new injector
   mods for Nightmare.

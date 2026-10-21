@@ -1,5 +1,5 @@
 import { forgeMult, type Character } from '../game/character';
-import { BOSSES } from '../game/data/bosses';
+import { BOSSES, type PinnacleBossId } from '../game/data/bosses';
 import { maxAffixTier } from '../game/data/itemAffixes';
 import { areas } from '../game/data/areas';
 import { UNIQUES } from '../game/data/uniques';
@@ -38,6 +38,17 @@ const HAZARDS: Record<RiftBiome, string> = {
   ruins: 'light pylons',
 };
 const PIN_COL = '#ffe08a';
+/** Each pinnacle boss's arena and its fight in a few lines (the Gate's panel). */
+const PINNACLE_FIGHT: Record<PinnacleBossId, { arena: string; fight: string }> = {
+  gryphon: {
+    arena: 'Storm Peak',
+    fight: 'A storm griffin on a summit ringed by six lightning rods, sparks drifting through all fight. When it calls the storm one rod lights under a pillar of light: step into it before the third pulse and the rod grounds the Gryphon, weak point open.',
+  },
+  barba: {
+    arena: 'Temple Court',
+    fight: 'A giant manta over a marble court out at sea, Pig Rays darting across it all fight. When it floods the court, stand on the platforms and keep hopping as they sink, while Ul Rays lunge at you; when the water drains it is beached, weak point open.',
+  },
+};
 const HEART_COL = '#d27bff';
 const ROMAN = ['', 'I', 'II', 'III'];
 /** Node sizes on the map (its radius). */
@@ -293,7 +304,7 @@ export class RiftMapMenu implements Menu {
       ${this.enterBtn(n, hasOpen)}`;
   }
 
-  /** A pinnacle with its boss (Gal Gryphon at P2NE): the fight, its uniques, what it needs to open and to replay. */
+  /** A pinnacle with its boss (Gal Gryphon at P2NE, Barba Ray at P2SW): the fight, its uniques, what it needs to open and to replay. */
   private pinnacleDetail(n: MapNode, hasOpen: boolean): string {
     const ch = this.api.char;
     const save = riftSave(ch.data);
@@ -313,9 +324,9 @@ export class RiftMapMenu implements Menu {
     const region = (b: typeof quarters[number]) => QUARTERS.find((q) => q.boss === b)!.region;
     return `<div class="rm-eyebrow">Pinnacle · Tier ${n.tier} · Circle ${circleName(n.circle)}</div>
       <div class="rm-title">${esc(BOSSES[boss].name)}</div>
-      <div class="rm-chips">${this.stateChip(n)}<span class="rm-chip" style="color:${PIN_COL}">Storm Peak</span></div>
+      <div class="rm-chips">${this.stateChip(n)}<span class="rm-chip" style="color:${PIN_COL}">${esc(PINNACLE_FIGHT[boss].arena)}</span></div>
       <dl class="rm-facts">
-        <dt>Fight</dt><dd>A storm griffin on a summit ringed by six lightning rods. When it calls the storm, stand by a rod: the bolts bend into it, and a full rod grounds the Gryphon, weak point open. Bolts that miss the rods strike you.</dd>
+        <dt>Fight</dt><dd>${esc(PINNACLE_FIGHT[boss].fight)}</dd>
         <dt>HP</dt><dd>${hp(riftBossHp({ bossRegion: 'forest', pinnacle: boss, tier: n.tier, mods: [] }))}</dd>
         <dt>Between</dt><dd>${quarters.map((b) => `<span style="color:${REGION_COL[region(b)]}">${esc(BOSSES[b].name)}'s ${REGION_NAME[region(b)]}</span>`).join(' and ')} quarters</dd>
       </dl>

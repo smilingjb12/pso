@@ -1,5 +1,5 @@
 import type { TrackId } from '../../audio';
-import { darkFalz, deRolLe, dragon, galGryphon, warden } from '../config';
+import { barbaRay, darkFalz, deRolLe, dragon, galGryphon, warden } from '../config';
 
 // One entry per area boss: everything the rest of the game needs to know about it besides its fight
 // (the class in enemies/, built by enemies/createBoss.ts) and its loot (loot.ts BOSS_DROPS / HARD_BOSS_LOOT).
@@ -8,7 +8,7 @@ import { darkFalz, deRolLe, dragon, galGryphon, warden } from '../config';
 /** The main game's bosses (one per expedition). */
 export type BossId = 'dragon' | 'derolle' | 'warden' | 'falz';
 /** The Rift Map's pinnacle bosses (rift-only: no expedition, no difficulty of their own). */
-export type PinnacleBossId = 'gryphon';
+export type PinnacleBossId = 'gryphon' | 'barba';
 /** Any boss that can stand in a rift: the four, and the pinnacles'. */
 export type RiftBossId = BossId | PinnacleBossId;
 
@@ -40,6 +40,8 @@ export interface BossDef {
   dropStretch?: number;
   /** A Rift Map pinnacle's boss: rift-only (no shops, no expedition). */
   pinnacle?: boolean;
+  /** A pinnacle boss's arena as a phrase ("on Storm Peak"), for the map's toasts. */
+  lair?: string;
 }
 
 export const BOSSES: Record<RiftBossId, BossDef> = {
@@ -85,12 +87,23 @@ export const BOSSES: Record<RiftBossId, BossDef> = {
     // The summit is round with cloud all round it: loot by the body could land off the edge.
     dropsAt: 'center', dropRing: 3,
     pinnacle: true,
+    lair: 'on Storm Peak',
+  },
+  // The Rift Map's other Circle II pinnacle (2026-10-22): the Temple Court, between the Warden's and Dark Falz's quarters.
+  barba: {
+    id: 'barba', name: 'Barba Ray', title: 'Barba Ray', music: 'barba',
+    xp: () => barbaRay.xp,
+    shop: [], hardShop: [], hellShop: [],
+    // The court is round with the sea all round it: loot by the body could land in the water.
+    dropsAt: 'center', dropRing: 3,
+    pinnacle: true,
+    lair: 'in the Temple Court',
   },
 };
 
 /** The main game's four, in expedition order (the pinnacle bosses are rift-only). */
 export const BOSS_IDS: BossId[] = ['dragon', 'derolle', 'warden', 'falz'];
 /** Every boss a rift can hold. */
-export const RIFT_BOSS_IDS: RiftBossId[] = [...BOSS_IDS, 'gryphon'];
+export const RIFT_BOSS_IDS: RiftBossId[] = [...BOSS_IDS, 'gryphon', 'barba'];
 
 export const isMainBoss = (id: RiftBossId): id is BossId => !BOSSES[id].pinnacle;

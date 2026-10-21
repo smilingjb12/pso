@@ -33,6 +33,7 @@ import {
   warden,
   darkFalz,
   galGryphon,
+  barbaRay,
   pylonCfg,
   ruinsCfg,
 } from '../game/config';
@@ -64,7 +65,7 @@ export interface DebugActions {
   riftResonance(): void;
   riftOpen(boss: boolean): void;
   /** Straight into Gal Gryphon's pinnacle (P2NE), open or not; its first kill stays owed. */
-  riftPinnacle(): void;
+  riftPinnacle(node: 'P2NE' | 'P2SW'): void;
   /** Skip to the open node's end (its boss, or its Guardian room / Vault / Gauntlet); with none open, the deepest boss node. */
   riftBoss(): void;
   /** The fight log as a JSON file (what hit you, where you stood, the boss's telegraphs), and wiping it. */
@@ -144,7 +145,8 @@ export function createDebugPanel(actions: DebugActions): GUI {
   rf.add({ o: () => actions.riftOpen(false) }, 'o').name('enter the deepest room node');
   rf.add({ o: () => actions.riftOpen(true) }, 'o').name('enter the deepest boss node');
   rf.add({ b: () => actions.riftBoss() }, 'b').name('warp: node end / boss');
-  rf.add({ p: () => actions.riftPinnacle() }, 'p').name('enter Gal Gryphon (Pinnacle II)');
+  rf.add({ p: () => actions.riftPinnacle('P2NE') }, 'p').name('enter Gal Gryphon (Pinnacle II)');
+  rf.add({ p: () => actions.riftPinnacle('P2SW') }, 'p').name('enter Barba Ray (Pinnacle II)');
   rf.add(riftCfg, 'fieldHpPerTier', 1, 1.5, 0.005).name('field HP x per tier (next rift)');
   rf.add(riftCfg, 'bossHpPerTier', 1, 1.7, 0.005).name('boss HP x per tier (next fight)');
   rf.add(riftCfg, 'heavyPerTier', 1, 1.4, 0.005).name('heavy hits x per tier (next rift)');
@@ -152,9 +154,9 @@ export function createDebugPanel(actions: DebugActions): GUI {
   rf.add(riftCfg, 'heavyBase', 1, 20, 0.5).name('heavy hits x at tier 1 (next rift)');
   rf.add(riftCfg, 'chipBase', 1, 20, 0.5).name('chip damage x at tier 1 (next rift)');
   rf.add(riftCfg, 'capTier', 1, 10, 1).name('CC resist stops at tier');
-  for (const id of ['dragon', 'derolle', 'warden', 'falz', 'gryphon'] as const) rf.add(riftCfg.bossTempo, id, 1, 1.5, 0.01).name(`${id} speed x (next fight)`);
+  for (const id of ['dragon', 'derolle', 'warden', 'falz', 'gryphon', 'barba'] as const) rf.add(riftCfg.bossTempo, id, 1, 1.5, 0.01).name(`${id} speed x (next fight)`);
   rf.add(riftCfg, 'bossHp', 50000, 2000000, 10000).name('boss HP at tier 1 (next fight)');
-  for (const id of ['dragon', 'derolle', 'warden', 'falz', 'gryphon'] as const) rf.add(riftCfg.bossHpMult, id, 0.5, 1.5, 0.01).name(`${id} HP x (next fight)`);
+  for (const id of ['dragon', 'derolle', 'warden', 'falz', 'gryphon', 'barba'] as const) rf.add(riftCfg.bossHpMult, id, 0.5, 1.5, 0.01).name(`${id} HP x (next fight)`);
   rf.add(mapCfg, 'pinnacleCost', 0, 6, 1).name('Resonance a pinnacle replay takes (each quarter)');
   rf.add(riftCfg, 'elite', 0, 1, 0.01).name('elite share');
   rf.add(mapCfg, 'resonanceCap', 2, 12, 1).name('Resonance cap');
@@ -507,6 +509,43 @@ export function createDebugPanel(actions: DebugActions): GUI {
   gg.add(galGryphon, 'sparkAtp', 0, 2, 0.01).name('spark hit x ATP');
   gg.add(galGryphon, 'sparkFromBoss', 1, 10, 1).name('phase 2: every Nth spark off the boss');
   gg.close();
+
+  const br = gui.addFolder('Barba Ray');
+  br.add(barbaRay, 'phase2At', 0, 1, 0.05).name('the deep stirs at HP %');
+  br.add(barbaRay, 'phase3At', 0, 1, 0.05).name('the whirlpool from HP %');
+  br.add(barbaRay, 'floodFirst', 0, 60, 1).name('first flood (s)');
+  br.add(barbaRay, 'floodEvery', 10, 90, 1).name('flood every (s)');
+  br.add(barbaRay, 'floodAfterUp', 0, 30, 1).name('flood after it is up (s)');
+  br.add(barbaRay, 'floodWarn', 0.5, 6, 0.1).name('flood warning (s)');
+  br.add(barbaRay, 'floodTime', 3, 30, 0.5).name('flood lasts (s)');
+  br.add(barbaRay, 'waterShare', 0, 1, 0.01).name('water: max HP a second');
+  br.add(barbaRay, 'waterSlow', 0, 0.9, 0.05).name('water: slower by');
+  br.add(barbaRay, 'sinkFirst', 0, 6, 0.1).name('first sink (s into the flood)');
+  br.add(barbaRay, 'sinkEvery', 0.5, 8, 0.1).name('a platform sinks every (s)');
+  br.add(barbaRay, 'sinkWarn', 0.5, 5, 0.1).name('sink warning (s)');
+  br.add(barbaRay, 'sinkUnder', 0, 1, 0.05).name('sinks the one you stand on');
+  br.add(barbaRay, 'keepPlatforms', 1, 11, 1).name('platforms always standing');
+  br.add(barbaRay, 'beachedTime', 1, 15, 0.5).name('beached (s)');
+  br.add(barbaRay, 'weakPointMult', 1, 3, 0.05).name('beached damage x');
+  br.add(barbaRay, 'ulCount', 0, 6, 1).name('Ul Rays a flood');
+  br.add(barbaRay, 'ulCount2', 0, 6, 1).name('Ul Rays a flood, phase 2');
+  br.add(barbaRay, 'ulHpShare', 0.005, 0.2, 0.005).name('Ul Ray HP (share of its)');
+  br.add(barbaRay, 'ulWarn', 0.3, 3, 0.05).name('Ul Ray lunge warning (s)');
+  br.add(barbaRay, 'whirlPull', 0, 5, 0.1).name('whirlpool pull (m/s)');
+  br.add(barbaRay, 'pigEvery', 0.2, 5, 0.05).name('a Pig Ray every (s)');
+  br.add(barbaRay, 'pigEvery2', 0.2, 5, 0.05).name('a Pig Ray every, phase 2 (s)');
+  br.add(barbaRay, 'pigEvery3', 0.2, 5, 0.05).name('two Pig Rays every, below 1/3 (s)');
+  br.add(barbaRay, 'pigWarn', 0.2, 3, 0.05).name('Pig Ray lane warning (s)');
+  br.add(barbaRay, 'pigSpeed', 1, 20, 0.5).name('Pig Ray speed (m/s)');
+  br.add(barbaRay, 'pigAtp', 0, 2, 0.01).name('Pig Ray hit x ATP');
+  br.add(barbaRay, 'glideWindup', 0.3, 3, 0.05).name('glide warning (s)');
+  br.add(barbaRay, 'spoutWindup', 0.3, 3, 0.05).name('spouts warning (s)');
+  br.add(barbaRay, 'rippleWindup', 0.3, 3, 0.05).name('ripples warning (s)');
+  br.add(barbaRay, 'rippleStep', 0.2, 2, 0.05).name('ripples: each next band after (s)');
+  br.add(barbaRay, 'crashWindup', 0.3, 3, 0.05).name('belly crash warning (s)');
+  br.add(barbaRay, 'burstWindup', 0.3, 3, 0.05).name('Pig Ray burst warning (s)');
+  br.add(barbaRay, 'attackGap', 0, 4, 0.05).name('between attacks (s)');
+  br.close();
 
   const dr = gui.addFolder('Drops');
   dr.add(drops, 'rateMult', 0, 5, 0.1).name('drop rate x');

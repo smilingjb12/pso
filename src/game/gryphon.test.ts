@@ -334,6 +334,7 @@ function fakeFight(boss: GalGryphon): Fake {
       mechanic.push(share);
       return true;
     },
+    drown: () => {},
     lightAt: () => false,
     body: () => body as never,
     spawnAdd: () => { throw new Error('no adds'); },

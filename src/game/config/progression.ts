@@ -320,4 +320,14 @@ export const uniqueCfg = {
   coilTime: 5,
   coilMult: 0.5,
   coilTaken: 0.2,
+  // Barba Ray (2026-10-22, the other Circle II pinnacle's; picked in a question round).
+  /** Tidecaller: seconds a Barta hit Soaks for, what Zonde deals the Soaked on top, what Foie deals less. */
+  tidecallerSoak: 6,
+  tidecallerZonde: 0.4,
+  tidecallerFoie: 0.4,
+  /** Pig Ray: seconds between darts, a dart's share of a photon bolt, its reach (m), and the photon bolts' TP refill cut. */
+  pigEvery: 2,
+  pigPower: 0.3,
+  pigRange: 14,
+  pigRefill: 0.2,
 };

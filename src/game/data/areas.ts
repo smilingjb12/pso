@@ -13,7 +13,7 @@ export type AreaId = 'city' | 'forest1' | 'dragon' | 'cave1' | 'cave2' | 'deroll
   /** Falz Rifts (DESIGN.md "Endgame: Falz Rifts"): generated at runtime, see `rifts.ts` (placeholders below). */
   | 'rift' | 'riftBoss'
   /** Rift Map pinnacle arenas (a boss node copies one into `riftBoss`). */
-  | 'stormPeak';
+  | 'stormPeak' | 'templeCourt';
 
 export type FeatureKind =
   | 'start' | 'switch' | 'toBoss' | 'toNext' | 'toCity'
@@ -104,7 +104,7 @@ export interface AreaTheme {
   fogFar: number;
   trees: boolean;
   /** Set dressing beyond the defaults (forest = trees, boss = Dragon's lair). */
-  scenery?: 'volcanic' | 'marsh' | 'river' | 'foundry' | 'control' | 'warden' | 'temple' | 'sanctum' | 'altar' | 'peak' | 'city';
+  scenery?: 'volcanic' | 'marsh' | 'river' | 'foundry' | 'control' | 'warden' | 'temple' | 'sanctum' | 'altar' | 'peak' | 'court' | 'city';
   /** Ambient/sun override; defaults to neutral daylight. */
   light?: AreaLight;
   // ---- Look extras (data/looks.ts fills these for the Caves and Mines; others keep the flat sky). ----
@@ -211,7 +211,7 @@ export function expeditionOf(area: AreaId): ExpeditionId | null {
 /** The boss at the end of an expedition. */
 export function bossOf(exp: ExpeditionId): BossId {
   const boss = areas[expeditions[exp].floors[expeditions[exp].floors.length - 1]].boss;
-  if (!boss || boss === 'gryphon') throw new Error(`expedition ${exp} has no boss arena`);
+  if (!boss || boss === 'gryphon' || boss === 'barba') throw new Error(`expedition ${exp} has no boss arena`);
   return boss;
 }
 
@@ -727,6 +727,37 @@ export const areas: Record<AreaId, AreaDef> = {
       fogColor: 0x9eb0c3,
       bloom: { strength: 0.32, radius: 0.35, threshold: 0.8 },
       accent: 0x8ae8ff, accent2: 0xd9b24a, accent3: 0xeaf6ff, motes: 0xc8dcf0,
+    },
+    rooms: [
+      { id: 'arena', x: 0, z: 0, w: 17, h: 17, features: [{ kind: 'start', tx: 8.5, tz: 15.5 }] },
+    ],
+    links: [],
+  },
+
+  // Barba Ray (the Rift Map's other Circle II pinnacle, 2026-10-22): the Temple Court, a round court of white marble and
+  // gold out on the open sea, PSO's VR Temple under a bright sky; the platforms, the water and the rays are the boss's.
+  // Rift-only.
+  templeCourt: {
+    id: 'templeCourt',
+    name: 'Temple Court',
+    kind: 'boss',
+    audio: { track: null, after: 'ruins', space: 'open', step: 'step.stone' },
+    boss: 'barba',
+    theme: {
+      floor: 0xe8e2d4, floorAlt: 0xddd6c6, wall: 0xc9c0ae, wallHeight: 1,
+      sky: 0x8fc8f0, fogNear: 60, fogFar: 190, trees: false, scenery: 'court',
+      light: { hemiSky: 0xeaf6ff, hemiGround: 0x5a7a9a, hemi: 1.25, sunColor: 0xfff4e0, sun: 1.45 },
+      skybox: {
+        top: 0x3f8ad8, horizon: 0xb8e2f8, bottom: 0x2a6aa8,
+        nebulae: [
+          { color: 0xffffff, dir: [0.5, 0.25, -1], size: 220, opacity: 0.3 },
+          { color: 0xe8f4ff, dir: [-0.8, 0.2, 0.3], size: 200, opacity: 0.3 },
+        ],
+        planet: { color: 0xfffbe8, glow: 0xfff0c0, glowOpacity: 0.5, dir: [-0.3, 0.55, -1], size: 22, light: [0.3, -0.55, 1] },
+      },
+      fogColor: 0xa8d4f0,
+      bloom: { strength: 0.3, radius: 0.35, threshold: 0.82 },
+      accent: 0x6ae8ff, accent2: 0xd9b24a, accent3: 0xf0fbff, motes: 0xd8f0ff,
     },
     rooms: [
       { id: 'arena', x: 0, z: 0, w: 17, h: 17, features: [{ kind: 'start', tx: 8.5, tz: 15.5 }] },

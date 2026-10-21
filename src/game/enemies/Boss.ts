@@ -35,6 +35,11 @@ export interface BossContext {
    * taken (see `hell.mechanicHit`). No shape: the caller has decided it lands. True if it did (not dead or invulnerable).
    */
   mechanicHit(share: number, fromX: number, fromZ: number, knockback: number, source: string): boolean;
+  /**
+   * Drowning (Barba Ray's flood): `share` of the player's max HP straight off (past armour and damage taken, like a
+   * failed mechanic), with no knockback, no hit stun and no Corruption: the water does it a little at a time.
+   */
+  drown(share: number, source: string): void;
   /** Is this spot lit (a pylon's light, or light the boss left, like Dark Falz's Grants)? */
   lightAt(x: number, z: number, r?: number): boolean;
   /** The player's body (for arena machinery, and pulling her around). */

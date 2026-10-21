@@ -1,7 +1,7 @@
 import type { CharacterData } from './character';
 import { CC_AFFIXES, type CcKind } from './ccResist';
 import {
-  crowdControl as ccCfg, darkFalz as darkFalzCfg, deRolLe as deRolLeCfg, dragon as dragonCfg, drops, enemies, formulas, galGryphon as gryphonCfg,
+  barbaRay as barbaCfg, crowdControl as ccCfg, darkFalz as darkFalzCfg, deRolLe as deRolLeCfg, dragon as dragonCfg, drops, enemies, formulas, galGryphon as gryphonCfg,
   hard as hardCfg, hell, warden as wardenCfg, type EnemyArchetype, type EnemyId, type HardBossScale, type HardScale,
 } from './config';
 import { cutMult } from './formulas';
@@ -60,7 +60,7 @@ export const riftCfg = {
    * bosses' damage and HP (the mechanics become a must, and harder to keep flawless), not speed. ×1.15 is the middle
    * of the old ladder (+2% a tier, ×1.0 at tier 1 to ×1.3 from tier 16; 2026-10-12 to 10-17).
    */
-  bossTempo: { dragon: 1.15, derolle: 1.15, warden: 1.15, falz: 1.15, gryphon: 1.15 } as Record<RiftBossId, number>,
+  bossTempo: { dragon: 1.15, derolle: 1.15, warden: 1.15, falz: 1.15, gryphon: 1.15, barba: 1.15 } as Record<RiftBossId, number>,
   /**
    * Every rift boss has the same HP at a tier (2026-10-17, the user's call: De Rol Le felt tankier than Dark Falz):
    * `bossHp` at tier 1, grown per tier (`bossHpPerTier`) and by Tough. 420k is about the four's average before, when
@@ -69,7 +69,7 @@ export const riftCfg = {
    * the one that was, soaks nothing since the same day).
    */
   bossHp: 420000,
-  bossHpMult: { dragon: 1, derolle: 1, warden: 1, falz: 1, gryphon: 1 } as Record<RiftBossId, number>,
+  bossHpMult: { dragon: 1, derolle: 1, warden: 1, falz: 1, gryphon: 1, barba: 1 } as Record<RiftBossId, number>,
   /**
    * Crowd-control resistance stops growing at this tier (the old tier 16). Armour and technique resistance no longer
    * grow with the tier at all (2026-10-17: they only made rooms slower).
@@ -285,6 +285,7 @@ const RIFT_BOSS_LIFT: Record<RiftBossId, { atp: number; armor: number; techResis
   warden: { atp: -32, armor: -1, techResist: -2 },
   falz: { atp: 11, armor: 0, techResist: 0 },
   gryphon: { atp: 0, armor: 0, techResist: 0 },
+  barba: { atp: 0, armor: 0, techResist: 0 },
 };
 
 /** Each enemy's home expedition: rift enemies scale from their own region's Hell numbers. */
@@ -387,11 +388,13 @@ export const riftBossOf = (b: RiftBiome): BossId => BIOME_BOSS[b];
 export const riftBossId = (r: Pick<RiftInfo, 'bossRegion' | 'pinnacle'>): RiftBossId => r.pinnacle ?? BIOME_BOSS[r.bossRegion];
 
 /** Each boss's own (Normal) stats block: a rift boss's HP multiplier is worked out against its base HP. */
-const BOSS_STATS: Record<RiftBossId, { hp: number }> = { dragon: dragonCfg, derolle: deRolLeCfg, warden: wardenCfg, falz: darkFalzCfg, gryphon: gryphonCfg };
+const BOSS_STATS: Record<RiftBossId, { hp: number }> = { dragon: dragonCfg, derolle: deRolLeCfg, warden: wardenCfg, falz: darkFalzCfg, gryphon: gryphonCfg, barba: barbaCfg };
+/** Each pinnacle boss's own numbers (their `rift` block stands in for Hell's boss scaling). */
+const PINNACLE_CFG: Record<PinnacleBossId, { rift: Omit<HardBossScale, 'hell'> }> = { gryphon: gryphonCfg, barba: barbaCfg };
 
 /** What the rift lifts a boss from: Hell's boss scaling for the four, a pinnacle boss's own `rift` block. */
 function riftBase(id: RiftBossId): HardBossScale {
-  return isMainBoss(id) ? hell.bosses[id] : { ...gryphonCfg.rift, hell: true };
+  return isMainBoss(id) ? hell.bosses[id] : { ...PINNACLE_CFG[id].rift, hell: true };
 }
 
 /** The XP a rift boss's kill gives (its Hell XP; a pinnacle boss's own). */
@@ -432,7 +435,7 @@ export function riftBossScale(r: Pick<RiftInfo, 'bossRegion' | 'tier' | 'mods' |
 
 const BOSS_AREA: Record<RiftBiome, AreaId> = { forest: 'dragon', caves: 'derolle', mines: 'warden', ruins: 'falz' };
 /** Each pinnacle boss's arena. */
-const PINNACLE_AREA: Record<PinnacleBossId, AreaId> = { gryphon: 'stormPeak' };
+const PINNACLE_AREA: Record<PinnacleBossId, AreaId> = { gryphon: 'stormPeak', barba: 'templeCourt' };
 
 /**
  * Build the rift's floor: generated rooms in its region's own look (one of the region's floors, untinted), music and
