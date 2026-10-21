@@ -1,12 +1,11 @@
 import * as THREE from 'three';
 import { itemName, rarityOf, type DropVerdict, type ItemInstance } from '../character';
 import { getDef, type CraftId } from '../data/items';
-import { riftTitle, type RiftShard } from '../rifts';
 import { glowDecal, glowSprite, markerTexture } from './glow';
 
-// Items, meseta and Rift Shards lying on the ground.
+// Items and meseta lying on the ground.
 
-export type PickupContent = { kind: 'item'; item: ItemInstance } | { kind: 'meseta'; amount: number } | { kind: 'shard'; shard: RiftShard };
+export type PickupContent = { kind: 'item'; item: ItemInstance } | { kind: 'meseta'; amount: number };
 
 const COLORS = {
   weapon: 0xff8a30,
@@ -19,8 +18,6 @@ const COLORS = {
   rare: 0xb050ff,
   meseta: 0xffd040,
   upgrade: 0x30f060,
-  /** Rift Shards (Falz Rifts): a violet crystal with a pillar, taken by walking over it. */
-  shard: 0xb070ff,
 };
 /** Magic (blue) and rare (yellow) gear: the halo and floor glow take the rarity's colour; rares get a pillar too. */
 const RARITY_TINT = { magic: 0x6a9cff, rare: 0xffd84a };
@@ -125,17 +122,10 @@ export class Pickup {
     }
     const rare = this.rare;
     this.color = new THREE.Color(color);
-    if (content.kind === 'shard') {
-      color = COLORS.shard;
-      grinder = true; // a pillar
-      if (content.shard.mods.length >= 3) tint = RARITY_TINT.rare;
-    }
     const geo =
       content.kind === 'meseta'
         ? new THREE.CylinderGeometry(0.25, 0.25, 0.08, 16).rotateX(Math.PI / 2)
-        : content.kind === 'shard'
-          ? new THREE.OctahedronGeometry(0.24).scale(0.75, 1.7, 0.75)
-          : rare
+        : rare
           ? new THREE.BoxGeometry(0.55, 0.55, 0.55)
           : new THREE.OctahedronGeometry(0.3);
     this.gem = photon ? photonGem(photon) : new THREE.Mesh(geo, glowMat(color));
@@ -193,7 +183,6 @@ export class Pickup {
 
   get label(): string {
     if (this.content.kind === 'meseta') return `${this.content.amount} Meseta`;
-    if (this.content.kind === 'shard') return riftTitle(this.content.shard);
     return itemName(this.content.item);
   }
 

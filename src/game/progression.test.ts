@@ -394,12 +394,11 @@ describe('affixes', () => {
     expect(ch.maxHp).toBe(s.hp);
   });
 
-  it('units carry one affix, are learned on pickup, and the frame\'s slots decide how many are active', () => {
+  it('units carry one affix, are learned on pickup, and every one in the Mag is active (four at most)', () => {
     const rng = mulberry32(34);
     for (let i = 0; i < 200; i++) expect(rollUnit(6, rng).affixes).toHaveLength(1);
     const ch = Character.create('T', 'hunter');
     const frame = ch.equippedItem('frame')!;
-    frame.slots = 1;
     const a = makeItem('unit_3', { affixes: [{ id: 'hp', v: 20 }] });
     const b = makeItem('unit_3', { affixes: [{ id: 'strike', v: 3 }] });
     const bagBefore = ch.data.inventory.length;
@@ -410,25 +409,25 @@ describe('affixes', () => {
     expect(ch.insertUnit('hp')).toBeNull();
     expect(ch.insertUnit('strike')).toBeNull();
     expect(ch.insertUnit('lck')).not.toBeNull();
-    // One slot: only the first unit counts; reordering swaps which one.
-    expect(ch.activeUnits()).toEqual([a]);
-    expect(ch.inactiveUnits).toBe(1);
-    ch.moveUnit(0, 1);
-    expect(ch.activeUnits()).toEqual([b]);
+    // Both work, whatever frame is worn (or none).
+    expect(ch.activeUnits()).toEqual([a, b]);
     expect(ch.wornAffixes()).toContainEqual(b.affixes![0]);
-    // No frame (or one without slots): all inactive, but still slotted.
     ch.unequip(frame.uid);
-    expect(ch.activeUnits()).toEqual([]);
-    expect(ch.data.magUnits).toEqual(['strike', 'hp']);
+    expect(ch.activeUnits()).toEqual([a, b]);
+    // The Mag holds four.
+    for (const id of ['lck', 'atpFlat', 'critDmg'] as const) ch.take(makeItem('unit_3', { affixes: [{ id, v: 5 }] }));
+    expect(ch.insertUnit('lck')).toBeNull();
+    expect(ch.insertUnit('atpFlat')).toBeNull();
+    expect(ch.insertUnit('critDmg')).not.toBeNull();
+    expect(ch.activeUnits()).toHaveLength(4);
     // Taking one out of the Mag keeps it learned.
     expect(ch.removeUnit(0)).toBeNull();
-    expect(ch.data.magUnits).toEqual(['hp']);
-    expect(ch.learnedUnit('strike')).toBe(b);
+    expect(ch.data.magUnits).toEqual(['strike', 'lck', 'atpFlat']);
+    expect(ch.learnedUnit('hp')).toBe(a);
   });
 
   it('keeps the best roll of each unit: a better one replaces it, a worse one is junk for the bag', () => {
     const ch = Character.create('T', 'hunter');
-    ch.equippedItem('frame')!.slots = 1;
     const weak = makeItem('unit_3', { affixes: [{ id: 'hp', v: 20 }] });
     const strong = makeItem('unit_6', { affixes: [{ id: 'hp', v: 45 }] });
     const worse = makeItem('unit_4', { affixes: [{ id: 'hp', v: 30 }] });
@@ -487,7 +486,6 @@ describe('affixes', () => {
   it('caps status resistance at 75%', () => {
     const ch = Character.create('T', 'hunter');
     ch.equippedItem('frame')!.affixes = [{ id: 'resPoison', v: 40 }];
-    ch.equippedItem('frame')!.slots = 1;
     ch.data.units = [{ uid: 'u', id: 'unit_5', affixes: [{ id: 'resPoison', v: 40 }] }];
     ch.data.magUnits = ['resPoison'];
     expect(ch.resist('resPoison')).toBe(75);

@@ -13,11 +13,11 @@ import { UniqueFx } from './combat/riftUniques';
 import type { Combat } from './combat/Combat';
 import type { Hittable } from './combat/types';
 
-/** A Lv 100 hunter wearing these gear uniques and running these unique units (a 4-slot frame). */
+/** A Lv 100 hunter wearing these gear uniques and running these unique units. */
 function setup(gear: UniqueId[] = [], units: UniqueId[] = []) {
   const ch = Character.create('t', 'hunter');
   ch.data.level = 100;
-  const frame = makeItem('frame_guard_15', { slots: 4 });
+  const frame = makeItem('frame_guard_15');
   ch.data.inventory.push(frame);
   ch.data.equipped.frame = frame.uid;
   for (const id of gear) {

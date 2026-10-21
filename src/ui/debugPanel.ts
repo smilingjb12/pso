@@ -39,6 +39,8 @@ import {
 import { areas, expeditions, type AreaId, type ExpeditionId } from '../game/data/areas';
 import { weaponKinds } from '../game/data/items';
 import type { TestClass } from '../game/testCharacters';
+import { RIFT_GEN } from '../game/riftGen';
+import { mapCfg } from '../game/riftMap';
 import { riftCfg } from '../game/rifts';
 
 export interface DebugActions {
@@ -58,11 +60,11 @@ export interface DebugActions {
   unlockHell(): void;
   /** Save a premade Lv 64 character (Hell open) into the first empty slot. */
   testCharacter(cls: TestClass): void;
-  /** Falz Rifts: put shards in the stash, open more tiers, or go straight into a rift (Hell rules, any session). */
-  riftShards(n: number): void;
-  riftMoreTiers(n: number): void;
+  /** Falz Rifts: open the whole Rift Map, fill every boss's Resonance, or go straight into the deepest node reached (Hell rules, any session). */
+  riftMapAll(): void;
+  riftResonance(): void;
   riftOpen(boss: boolean): void;
-  /** Skip to the open rift's end (its boss arena, or the Guardian room); with none open, open a boss rift. */
+  /** Skip to the open node's end (its boss, or its Guardian room / Vault / Gauntlet); with none open, the deepest boss node. */
   riftBoss(): void;
   /** The fight log as a JSON file (what hit you, where you stood, the boss's telegraphs), and wiping it. */
   fightLog(): { name: string; text: string };
@@ -136,11 +138,11 @@ export function createDebugPanel(actions: DebugActions): GUI {
   }
 
   const rf = gui.addFolder('Rifts').close();
-  rf.add({ s: () => actions.riftShards(5) }, 's').name('give 5 Rift Shards');
-  rf.add({ t: () => actions.riftMoreTiers(10) }, 't').name('open every rift tier');
-  rf.add({ o: () => actions.riftOpen(false) }, 'o').name('enter a rift (Guardian)');
-  rf.add({ o: () => actions.riftOpen(true) }, 'o').name('enter a rift (boss)');
-  rf.add({ b: () => actions.riftBoss() }, 'b').name('warp: rift boss / Guardian');
+  rf.add({ t: () => actions.riftMapAll() }, 't').name('open the whole Rift Map');
+  rf.add({ r: () => actions.riftResonance() }, 'r').name('fill every Resonance');
+  rf.add({ o: () => actions.riftOpen(false) }, 'o').name('enter the deepest room node');
+  rf.add({ o: () => actions.riftOpen(true) }, 'o').name('enter the deepest boss node');
+  rf.add({ b: () => actions.riftBoss() }, 'b').name('warp: node end / boss');
   rf.add(riftCfg, 'fieldHpPerTier', 1, 1.5, 0.005).name('field HP x per tier (next rift)');
   rf.add(riftCfg, 'bossHpPerTier', 1, 1.7, 0.005).name('boss HP x per tier (next fight)');
   rf.add(riftCfg, 'heavyPerTier', 1, 1.4, 0.005).name('heavy hits x per tier (next rift)');
@@ -152,10 +154,14 @@ export function createDebugPanel(actions: DebugActions): GUI {
   rf.add(riftCfg, 'bossHp', 50000, 2000000, 10000).name('boss HP at tier 1 (next fight)');
   for (const id of ['dragon', 'derolle', 'warden', 'falz'] as const) rf.add(riftCfg.bossHpMult, id, 0.5, 1.5, 0.01).name(`${id} HP x (next fight)`);
   rf.add(riftCfg, 'elite', 0, 1, 0.01).name('elite share');
-  rf.add(riftCfg, 'bossChance', 0, 1, 0.01).name('boss chance');
-  rf.add(riftCfg, 'guardianShard', 0, 2, 0.05).name('Guardian shard odds');
-  rf.add(riftCfg, 'championShard', 0, 0.5, 0.01).name('champion shard odds');
-  rf.add(riftCfg, 'yellow', 0, 1, 0.05).name('yellow shard share');
+  rf.add(mapCfg, 'resonanceCap', 2, 12, 1).name('Resonance cap');
+  rf.add(mapCfg, 'resonanceCost', 0, 6, 1).name('Resonance a boss replay takes');
+  rf.add(mapCfg, 'cache', 0, 8, 1).name('cache pieces (Weapons/Armour/Units)');
+  rf.add(mapCfg, 'spheres', 0, 6, 1).name('cache Spheres (Photons)');
+  rf.add(mapCfg, 'crystal', 0, 1, 0.05).name('cache Crystal chance');
+  rf.add(mapCfg, 'vaultMult', 1, 4, 0.5).name('Vault cache x');
+  rf.add(mapCfg, 'killsPerPiece', 2, 30, 1).name('Gauntlet kills per cache piece');
+  rf.add(RIFT_GEN.hold, 'time', 30, 180, 5).name('Gauntlet hold s (next node)');
 
   const c = gui.addFolder('Combo timing');
   c.add(combo, 'windowOpen', 0.2, 1, 0.01).name('window opens at (swing %)');

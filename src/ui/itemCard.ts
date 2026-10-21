@@ -1,11 +1,11 @@
 import {
   bestCrafted, compareEquip, craftRecipe, decidingRow, describeItem, rowPct, gearSlot, grindBonus, grindLevels, itemName, itemSpecial, ownAffixes, rarityLine, rarityOf,
-  simulateEquip, statDef, unitSlots, type Character, type CompareRow, type ItemInstance,
+  simulateEquip, statDef, type Character, type CompareRow, type ItemInstance,
 } from '../game/character';
 import { PHOTON_RARITY } from '../game/crafting';
 import { estimateDamage, type Foe } from '../game/dps';
 import { affixText, ITEM_AFFIXES, penaltyText, type AffixRoll, type ItemAffixId } from '../game/data/itemAffixes';
-import { getDef, specials, type ArmorItemDef } from '../game/data/items';
+import { getDef, specials } from '../game/data/items';
 import { UNIQUES, type UniqueId } from '../game/data/uniques';
 import { STAT_LABEL, statValue, type StatKey } from '../game/data/stats';
 import { techniques } from '../game/data/techniques';
@@ -16,7 +16,7 @@ import { isGear, itemRequirement } from '../game/itemTypes';
 // carries its change against the equipped piece, and what only the equipped piece gives is listed as "You'd lose".
 // Layout: header (name, type line, requirement chip), the verdict line, stat tiles (flat affixes folded in, shown as
 // a blue +N), the remaining affixes (a dot per role: offence, defence, utility, downside), a rare's dormant ones
-// (greyed), chips (special, unit slots), a weapon's damage table, then a one-line flavour text.
+// (greyed), chips (the special), a weapon's damage table, then a one-line flavour text.
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const signed = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '±0');
@@ -249,20 +249,10 @@ export function itemCardHtml(ch: Character, inst: ItemInstance, foe: Foe): strin
     if (lost.length || lostSpecial || lostUnique) html += `<div class="ic-sec">You'd lose</div>${lostUnique}${lostSpecial}${lost.map((r) => affixLineHtml(r, '', 'lost')).join('')}`;
   }
 
-  // Chips: special, unit slots.
+  // Chips: the special.
   const chips: string[] = [];
   const sp = itemSpecial(inst);
   if (sp) chips.push(`<span class="ic-chip special">${specials[sp].name}</span>`);
-  if (def.type === 'armor' && (def as ArmorItemDef).slot === 'frame') {
-    const n = unitSlots(inst);
-    const pips = Array.from({ length: Math.max(n, 1) }, (_, i) => `<i class="ic-pip${i < n ? ' on' : ''}"></i>`).join('');
-    let d = '';
-    if (other) {
-      const delta = n - unitSlots(other);
-      d = delta ? ` <i class="ic-d ${delta > 0 ? 'up' : 'down'}">${signed(delta)}</i>` : ' <i class="ic-d same">same</i>';
-    }
-    chips.push(`<span class="ic-chip" title="How many of your Mag's units this frame activates">Unit slots ${n ? pips : 'none'}${d}</span>`);
-  }
   if (chips.length) html += `<div class="ic-chips">${chips.join('')}</div>`;
 
   // Everything else (injectors, consumables, photons, units): their own lines.

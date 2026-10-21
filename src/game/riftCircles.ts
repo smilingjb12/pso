@@ -44,6 +44,25 @@ export function firstKillOwed(save: RiftSave, boss: BossId, c: RiftCircle): bool
   return !save.firsts?.includes(firstKey(boss, c));
 }
 
+/** A later kill's pick in circle `c`: the boss's uniques so far, this circle's two counting double against the earlier circles'. */
+function circleWeights(boss: BossId, c: RiftCircle): [UniqueId, number][] {
+  return bossUniques(boss, c).map((id) => [id, UNIQUES[id].circle === c ? 2 : 1]);
+}
+
+/** The share of its boss's unique drops (after the first kill) that are `id`, fought in circle `c` (0 before its own circle). */
+export function bossUniqueShare(id: UniqueId, c: RiftCircle): number {
+  const u = UNIQUES[id];
+  if (!u.boss) return 0;
+  const entries = circleWeights(u.boss, c);
+  const total = entries.reduce((a, [, w]) => a + w, 0);
+  return (entries.find(([x]) => x === id)?.[1] ?? 0) / Math.max(1, total);
+}
+
+/** The chance this boss's next kill (once its circle's first is claimed) drops one of its uniques; `rar`: item rarity, percent. */
+export function riftUniqueOdds(save: RiftSave, boss: BossId, rar = 0): number {
+  return (drops.riftUnique + drops.riftUniqueDry * (save.dry?.[boss] ?? 0)) * (1 + rar / 100) * drops.rareMult;
+}
+
 /**
  * A rift boss just fell at `tier`: the unique it drops, if any (and the save's first-kill and dry-streak marks move
  * on). `rar`: the shard's item rarity, percent, which raises the odds. Gear drops at gear tier 15 and the rift's
@@ -63,10 +82,8 @@ export function rollBossUnique(
     pick = pool[Math.floor(rng() * pool.length)] ?? null;
     (save.firsts ??= []).push(firstKey(boss, c));
   } else {
-    const odds = (drops.riftUnique + drops.riftUniqueDry * (dry[boss] ?? 0)) * (1 + rar / 100) * drops.rareMult;
-    if (rng() < odds) {
-      // This circle's two count double against the earlier circles'.
-      const entries = bossUniques(boss, c).map((id): [UniqueId, number] => [id, UNIQUES[id].circle === c ? 2 : 1]);
+    if (rng() < riftUniqueOdds(save, boss, rar)) {
+      const entries = circleWeights(boss, c);
       const total = entries.reduce((a, [, w]) => a + w, 0);
       let r = rng() * total;
       for (const [id, w] of entries) {

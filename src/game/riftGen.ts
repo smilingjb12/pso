@@ -13,9 +13,11 @@ import { hashString, mulberry32 } from './world/Level';
 // Placements that crowd another room or corridor are rejected; a stuck layout restarts from a derived seed.
 // Contents follow the hand-authored floors in data/areas.ts: waves filled to a threat budget that grows with the
 // room's area, pinned Lilies / control nodes, the region's hazards, boxes and trees.
+// Rift Map nodes (2026-10-21, `o.kind`) are shorter: a room node is three fight rooms (a bonus room now and then) and
+// the Guardian room; a Vault or a Gauntlet is the start room and one big room (RIFT_GEN.vault / RIFT_GEN.hold).
 
 type Side = 'n' | 'e' | 's' | 'w';
-type Role = 'start' | 'fight' | 'switch' | 'bonus' | 'guardian' | 'boss';
+type Role = 'start' | 'fight' | 'switch' | 'bonus' | 'guardian' | 'boss' | 'vault' | 'hold';
 
 export interface Rect {
   x: number;
@@ -70,6 +72,16 @@ export const RIFT_GEN = {
   /** Features stay this far from walls and corridor mouths. */
   wallMargin: 1.5,
   mouthClear: 3,
+  /** Rift Map room nodes: fight rooms on the path, the Guardian room included, and the chance of a bonus side room. */
+  node: { mainRooms: 4, bonusChance: 0.35 },
+  /** Vaults: champion packs (one champion a wave), each wave the Guardian's budget. */
+  vault: { waves: 3 },
+  /**
+   * Gauntlets: hold the room `time` seconds. Waves (Swarming always on) keep coming: the next one when a third of the
+   * last is left, or after `gap` seconds while fewer than `maxAlive` are up; `waves` are generated (they loop if the
+   * fight outlasts them), each at `budget` x a fight room's.
+   */
+  hold: { time: 90, gap: 9, maxAlive: 16, waves: 14, budget: 0.85 },
 };
 
 // ------------------------------------------------------------------ rosters
@@ -304,17 +316,33 @@ function grow(rng: Rng, lay: Layout, parent: Node, role: Role, w: number, h: num
   return node;
 }
 
-function layout(rng: Rng, boss: boolean): Layout {
+function layout(rng: Rng, o: RiftGenOptions): Layout {
   const G = RIFT_GEN;
-  const n = rng.int(G.mainRooms[0], G.mainRooms[1]);
-  // 8-10 rooms before the boss teleporter: two side rooms when the main path is short.
-  const branches = n <= 6 ? 2 : rng.chance(0.5) ? 2 : 1;
-  // The switch room hangs off main fight room `branchAt` (1-based); the gate after it is locked.
-  const branchAt = rng.int(2, n - 2);
-  const bonusAt = branches === 2 ? rng.pick(Array.from({ length: n - 1 }, (_, i) => i + 1).filter((i) => i !== branchAt)) : -1;
-
+  const kind = o.kind ?? 'floor';
   const start: Node = { id: 'k0', rect: { x: 0, z: 0, w: G.start[0], h: G.start[1] }, role: 'start', used: new Set() };
   const lay: Layout = { nodes: [start], links: [], corridors: [] };
+  if (kind === 'vault' || kind === 'gauntlet') {
+    // The start room and one big room.
+    const big = grow(rng, lay, start, kind === 'vault' ? 'vault' : 'hold', rng.even(G.guardianW[0], G.guardianW[1]), rng.even(G.guardianH[0], G.guardianH[1]));
+    if (!big) throw new Retry();
+    return lay;
+  }
+  let n: number;
+  let branchAt = -1;
+  let bonusAt = -1;
+  if (kind === 'room') {
+    // A room node: three fight rooms and the Guardian room, no switch room, a bonus room now and then.
+    n = G.node.mainRooms;
+    if (rng.chance(G.node.bonusChance)) bonusAt = rng.int(1, n - 1);
+  } else {
+    n = rng.int(G.mainRooms[0], G.mainRooms[1]);
+    // 8-10 rooms before the boss teleporter: two side rooms when the main path is short.
+    const branches = n <= 6 ? 2 : rng.chance(0.5) ? 2 : 1;
+    // The switch room hangs off main fight room `branchAt` (1-based); the gate after it is locked.
+    branchAt = rng.int(2, n - 2);
+    bonusAt = branches === 2 ? rng.pick(Array.from({ length: n - 1 }, (_, i) => i + 1).filter((i) => i !== branchAt)) : -1;
+  }
+
   let prev = start;
   for (let m = 1; m <= n; m++) {
     const guardian = m === n;
@@ -326,7 +354,7 @@ function layout(rng: Rng, boss: boolean): Layout {
     if (m === bonusAt && !grow(rng, lay, node, 'bonus', rng.even(G.bonusW[0], G.bonusW[1]), rng.even(G.bonusH[0], G.bonusH[1]))) throw new Retry();
     prev = node;
   }
-  if (boss && !grow(rng, lay, prev, 'boss', G.bossRoom[0], G.bossRoom[1])) throw new Retry();
+  if (o.boss && kind === 'floor' && !grow(rng, lay, prev, 'boss', G.bossRoom[0], G.bossRoom[1])) throw new Retry();
   return lay;
 }
 
@@ -618,9 +646,12 @@ function addWaves(f: Fill, role: Role, o: RiftGenOptions): void {
   const { rng, room, space } = f;
   const G = RIFT_GEN;
   const area = room.w * room.h;
-  const nWaves = role === 'guardian' ? 3 : role === 'bonus' ? 1 : role === 'fight' && area >= G.bigArea ? 3 : 2;
+  const nWaves =
+    role === 'guardian' ? 3 : role === 'vault' ? G.vault.waves : role === 'hold' ? G.hold.waves : role === 'bonus' ? 1 : role === 'fight' && area >= G.bigArea ? 3 : 2;
   const budgets = Array.from({ length: nWaves }, () =>
-    role === 'guardian' ? G.wave.guardian + (rng.f() - 0.5) * 0.8 : waveBudget(rng, area) * (role === 'switch' ? 0.9 : 1),
+    role === 'guardian' || role === 'vault'
+      ? G.wave.guardian + (rng.f() - 0.5) * 0.8
+      : waveBudget(rng, area) * (role === 'switch' ? 0.9 : role === 'hold' ? G.hold.budget : 1),
   );
   const pinned: SpawnDef[][] = budgets.map(() => []);
   // Each wave's region: the rift's own, or (mixAll) a random one per wave.
@@ -628,7 +659,7 @@ function addWaves(f: Fill, role: Role, o: RiftGenOptions): void {
 
   // Mines: a control node rooted in a far corner, its gunbots in the same (first) wave.
   let node = false;
-  if (region[0] === 'mines' && rng.chance(role === 'guardian' ? 0.7 : area >= 220 ? 0.5 : 0.3)) {
+  if (region[0] === 'mines' && role !== 'hold' && rng.chance(role === 'guardian' || role === 'vault' ? 0.7 : area >= 220 ? 0.5 : 0.3)) {
     const at = space.spot(rng, 1.2, 1.8, { maxWall: 3, mouthExtra: 4 });
     if (at) {
       space.take(at);
@@ -639,9 +670,12 @@ function addWaves(f: Fill, role: Role, o: RiftGenOptions): void {
   // Caves: Poison Lilies rooted round the edges, spread over the Caves waves.
   const caveWaves = region.map((r, i) => (r === 'caves' ? i : -1)).filter((i) => i >= 0);
   if (caveWaves.length) {
-    const lilies = o.mixAll
-      ? caveWaves.length + (rng.chance(0.5) ? 1 : 0)
-      : (role === 'guardian' ? 3 : 1) + (rng.chance(0.5) ? 1 : 0) + (area >= 260 ? 1 : 0);
+    // (A Gauntlet's many waves would root a garden: at most three there.)
+    const lilies = role === 'hold'
+      ? Math.min(3, caveWaves.length)
+      : o.mixAll
+        ? caveWaves.length + (rng.chance(0.5) ? 1 : 0)
+        : (role === 'guardian' ? 3 : 1) + (rng.chance(0.5) ? 1 : 0) + (area >= 260 ? 1 : 0);
     for (let i = 0; i < lilies; i++) {
       const at = space.spot(rng, 1.4, 2, { maxWall: 4, mouthExtra: 2 });
       if (!at) continue;
@@ -680,6 +714,12 @@ function addWaves(f: Fill, role: Role, o: RiftGenOptions): void {
   if (role === 'guardian') {
     room.overlap = true;
     room.ambush = [rng.int(1, 2)];
+    return;
+  }
+  // A Vault's packs come one after the other; a Gauntlet's overlap (and run on its own clock, World.updateRooms).
+  if (role === 'vault') return;
+  if (role === 'hold') {
+    room.overlap = true;
     return;
   }
   if (nWaves >= 2) {
@@ -726,13 +766,17 @@ function fillRoom(node: Node, room: RoomDef, mouths: { tx: number; tz: number }[
   }
 
   // Fight rooms: features first (they must fit), then pinned enemies, then hazards around them.
-  room.boxes = node.role === 'bonus' ? 4 : area >= 250 || node.role === 'guardian' ? 3 : rng.int(2, 3);
-  if (node.role === 'guardian') room.guardian = true;
+  const last = node.role === 'guardian' || node.role === 'vault' || node.role === 'hold';
+  room.boxes = node.role === 'bonus' || node.role === 'vault' ? 4 : area >= 250 || last ? 3 : rng.int(2, 3);
+  // The last room ends the rift (clearing it completes a node); a Vault's packs each bring a champion, a Gauntlet runs on a clock.
+  if (last) room.guardian = true;
+  if (node.role === 'vault') room.vault = true;
+  if (node.role === 'hold') room.hold = { time: G.hold.time, gap: G.hold.gap, maxAlive: G.hold.maxAlive };
   if (node.role === 'switch') {
     const at = need(f.space.spot(rng, 0.8, G.wallMargin, { maxWall: 2.5, mouthExtra: 1 }) ?? f.space.spot(rng, 0.6, G.wallMargin));
     addFeature(f, { kind: 'switch', tx: at.x, tz: at.z, lock: 'L1', label: 'Gate switch' }, at);
   }
-  if (node.role === 'guardian' && !o.boss) {
+  if (last && !o.boss) {
     const at = need(f.space.spot(rng, 0.8, G.wallMargin, { maxWall: 2.5, mouthExtra: 1 }) ?? f.space.spot(rng, 0.6, G.wallMargin));
     addFeature(f, { kind: 'toCity', tx: at.x, tz: at.z, label: 'Teleporter to Pioneer 2' }, at);
   }
@@ -747,7 +791,7 @@ export function generateRift(o: RiftGenOptions): { rooms: RoomDef[]; links: Link
   for (let attempt = 0; attempt < 200; attempt++) {
     const rng = new Rng(hashString(attempt === 0 ? `rift:${o.biome}:${o.seed}` : `rift:${o.biome}:${o.seed}:${attempt}`));
     try {
-      const lay = layout(rng, o.boss);
+      const lay = layout(rng, o);
       const minX = Math.min(...lay.nodes.map((n) => n.rect.x));
       const minZ = Math.min(...lay.nodes.map((n) => n.rect.z));
       const rooms: RoomDef[] = lay.nodes.map((n) => ({ id: n.id, x: n.rect.x - minX, z: n.rect.z - minZ, w: n.rect.w, h: n.rect.h }));

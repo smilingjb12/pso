@@ -7,10 +7,10 @@ import { getDef, itemDefs, type ArmorItemDef, type WeaponItemDef } from './data/
 import { isUniqueUnit, UNIQUE_IDS, UNIQUES, uniqueItemId, uniqueUnitId } from './data/uniques';
 import { injectorStats } from './injectors';
 import { itemSlot } from './itemTypes';
-import { bossUniqueTier, rollBossDrops, rollBoxDrop, rollEliteBonus, rollEnemyDrop, rollRiftEndDrops, rollUnique } from './loot';
+import { bossUniqueTier, rollBossDrops, rollBoxDrop, rollEliteBonus, rollEnemyDrop, rollRiftEndDrops, rollUnique, uniqueShare } from './loot';
 import { enemies } from './config';
-import { bossUniques, circleOf, rollBossUnique } from './riftCircles';
-import { riftCfg, riftIlvl, riftSave } from './rifts';
+import { bossUniques, bossUniqueShare, CIRCLES, circleOf, rollBossUnique } from './riftCircles';
+import { riftIlvl, riftSave } from './rifts';
 import { mulberry32 } from './world/Level';
 
 /** A Lv 100 character of `cls` wearing `ids` (requirements ignored). */
@@ -124,7 +124,6 @@ describe('unique drops', () => {
     for (let i = 0; i < 300; i++) {
       for (const d of rollRiftEndDrops(true, 8, riftIlvl(8), rng)) if (d.kind === 'item') expect(getDef(d.item.id).unique).toBeUndefined();
     }
-    expect(riftCfg.bossChance).toBe(1);
     const halo = rollUnique('rift', 15, () => 0, undefined, riftIlvl(7));
     expect((statDef(halo) as ArmorItemDef).dr).toBeGreaterThan((getDef(halo.id) as ArmorItemDef).dr);
   });
@@ -211,9 +210,8 @@ describe('unique effects (character side)', () => {
     expect(wearing('hunter', uniqueItemId('darkFlow', 9)).hasUnique('darkFlow')).toBe(true);
   });
 
-  it('unique units: learned on pickup, active while the frame has a slot for them, never learned twice', () => {
+  it('unique units: learned on pickup, active once slotted in the Mag, never learned twice', () => {
     const ch = wearing('hunter', 'frame_guard_15');
-    ch.equippedItem('frame')!.slots = 2;
     const limiter = makeItem(uniqueUnitId('limiter'));
     expect(ch.take(limiter)).toEqual({ to: 'learned', before: null });
     expect(ch.unitStatus(makeItem(uniqueUnitId('limiter')))).toBe('known');
@@ -224,14 +222,13 @@ describe('unique effects (character side)', () => {
     const plain = wearing('hunter', 'frame_guard_15');
     expect(ch.artCooldown('leap')).toBeCloseTo(plain.artCooldown('leap') * (1 - uniqueCfg.limiterCd));
     expect(ch.artCost('leap') / plain.artCost('leap')).toBeCloseTo(1 + uniqueCfg.limiterTp, 1);
-    // A frame without slots switches it off.
-    ch.equippedItem('frame')!.slots = 0;
+    // Taking it out of the Mag switches it off.
+    expect(ch.removeUnit(0)).toBeNull();
     expect(ch.hasUnique('limiter')).toBe(false);
   });
 
   it('Heart of Falz: the other unique units hit 50% harder, costs too', () => {
     const ch = wearing('hunter', 'frame_guard_15');
-    ch.equippedItem('frame')!.slots = 3;
     for (const id of ['venomSac', 'heartOfFalz'] as const) {
       ch.take(makeItem(uniqueUnitId(id)));
       ch.insertUnit(id);
@@ -250,5 +247,24 @@ describe('unique effects (character side)', () => {
     const mate = makeItem('mate_6');
     const carapace = wearing('hunter', uniqueItemId('rolCarapace', 15));
     expect(injectorStats(mate, carapace).potency).toBeCloseTo(injectorStats(mate, wearing('hunter')).potency * (1 - uniqueCfg.carapaceInjector));
+  });
+});
+
+describe('unique drop shares (the Uniques tab)', () => {
+  it("add up to every drop of a pool, and a boss's in each circle", () => {
+    for (const bias of [undefined, 'melee', 'ranged', 'caster'] as const) {
+      const main = UNIQUE_IDS.filter((id) => UNIQUES[id].pool === 'main').reduce((a, id) => a + uniqueShare(id, bias), 0);
+      expect(main).toBeCloseTo(1);
+    }
+    // The class's own weapon counts double.
+    expect(uniqueShare('darkFlow', 'melee')).toBeCloseTo(2 * uniqueShare('frozenShooter', 'melee'));
+    for (const boss of ['dragon', 'derolle', 'warden', 'falz'] as const) {
+      for (const c of CIRCLES) expect(bossUniques(boss, c).reduce((a, id) => a + bossUniqueShare(id, c), 0)).toBeCloseTo(1);
+    }
+    // This circle's two count double; a deeper circle's aren't in an earlier one at all.
+    expect(bossUniqueShare('redRing', 1)).toBeCloseTo(0.5);
+    expect(bossUniqueShare('redRing', 2)).toBeCloseTo(1 / 6);
+    expect(bossUniqueShare('flameVisit', 2)).toBeCloseTo(1 / 3);
+    expect(bossUniqueShare('swordSaint', 2)).toBe(0);
   });
 });

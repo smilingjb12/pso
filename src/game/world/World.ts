@@ -110,6 +110,9 @@ interface ActiveRoom {
   champion: { wave: number; index: number }[];
   /** Hell: a Splitting enemy has spawned here (only one per room). */
   splitting?: boolean;
+  /** A Gauntlet (RoomDef.hold): seconds held so far, and since the last wave. */
+  holdT?: number;
+  gapT?: number;
 }
 
 /** A Shielding elite's tether to an ally it protects. */
@@ -781,7 +784,24 @@ export class World {
       const up = (e: Enemy) => e.alive || (!e.vanished && e.hasAffix('splitting') && !this.splitDone.has(e));
       const alive = (wave?: number) =>
         this.enemies.filter((e) => e.room === id && up(e) && (wave === undefined || e.wave === wave)).length;
-      if (a.wave + 1 < waves.length) {
+      const hold = a.room.def.hold;
+      if (hold && (a.holdT = (a.holdT ?? 0) + dt) < hold.time) {
+        // A Gauntlet: waves keep coming until the clock runs out, the next once a third of the last is left or
+        // `gap` seconds have passed (unless the room is already full), looping the room's waves.
+        a.gapT = (a.gapT ?? 0) + dt;
+        const last = waves[a.wave % waves.length];
+        const thin = alive(a.wave) + a.pending.length <= Math.floor(last.length / 3);
+        if (!thin && (a.gapT < hold.gap || alive() >= hold.maxAlive)) return;
+        a.delay -= dt;
+        if (a.delay <= 0) {
+          a.wave++;
+          a.delay = ai.waveDelay;
+          a.gapT = 0;
+          this.spawnWave(a, waves[a.wave % waves.length], player);
+        }
+        return;
+      }
+      if (!hold && a.wave + 1 < waves.length) {
         // Overlapping rooms send the next wave once a third (or less) of this one is left.
         const threshold = a.room.def.overlap ? Math.floor(waves[a.wave].length / 3) : 0;
         if (alive(a.wave) + a.pending.length > threshold) return;
@@ -819,6 +839,14 @@ export class World {
   private pickChampion(room: RoomRuntime): ActiveRoom['champion'] {
     if (!this.run.hard) return [];
     if (!this.run.hell && this.hooks.rng() >= hardCfg.championChance) return [];
+    if (room.def.vault) {
+      // A Vault: every pack brings a champion.
+      return (room.def.waves ?? []).flatMap((w, wave) => {
+        const ok = w.map((entry, index) => ({ wave, index, e: typeof entry === 'string' ? entry : entry.e })).filter((s) => s.e !== 'ControlNode');
+        const s = ok[Math.floor(this.hooks.rng() * ok.length)];
+        return s ? [{ wave: s.wave, index: s.index }] : [];
+      });
+    }
     const slots: { wave: number; index: number }[] = [];
     (room.def.waves ?? []).forEach((w, wi) =>
       w.forEach((entry, i) => {
@@ -835,7 +863,9 @@ export class World {
 
   private spawnWave(a: ActiveRoom, wave: SpawnDef[], player: Player): void {
     const room = a.room;
-    const ambush = room.def.ambush?.includes(a.wave) ?? false;
+    // The wave as authored (a Gauntlet loops its waves; `a.wave` keeps counting).
+    const di = a.wave % Math.max(1, room.def.waves?.length ?? 1);
+    const ambush = room.def.ambush?.includes(di) ?? false;
     const waveIndex = a.wave;
     const rng = this.hooks.rng;
     const hard = this.run.hard;
@@ -845,13 +875,13 @@ export class World {
       let type = typeof entry === 'string' ? entry : entry.e;
       // Rare red Lily.
       if (elites && type === 'PoisonLily' && rng() < 1 / 15) type = 'NarLily';
-      const champion = hard && type !== 'ControlNode' && a.champion.some((c) => c.wave === waveIndex && c.index === i);
+      const champion = hard && type !== 'ControlNode' && a.champion.some((c) => c.wave === di && c.index === i);
       const hellElite = this.run.rift ? riftElite(this.run.rift) : hardScale(expeditionOf(this.areaId) ?? 'forest', true).elite;
       const chance = this.run.hell ? (hellElite ?? hardCfg.eliteChance) : hard ? hardCfg.eliteChance : eliteCfg.chance;
       // Hell: at most one Splitting enemy per room.
       const pool = this.run.hell && a.splitting ? HARD_AFFIXES.filter((x) => x !== 'splitting') : undefined;
       // Swarming's fodder never comes in elite.
-      const fodder = i >= (room.def.fodder?.[waveIndex] ?? Infinity);
+      const fodder = i >= (room.def.fodder?.[di] ?? Infinity);
       const opts: EnemyOptions = { elite: elites && !fodder && type !== 'NarLily' && type !== 'ControlNode' && rng() < chance };
       const arch = this.archFor(type);
       if (this.run.hell && type !== 'ControlNode') {
@@ -924,6 +954,12 @@ export class World {
   }
 
   /** Abandon an in-progress room (player died / left): enemies vanish, gates reopen. */
+  /** A Gauntlet being held: seconds left on its clock (0 once it ran out and the rest must be cleared); null otherwise. */
+  holdLeft(): number | null {
+    const hold = this.active?.room.def.hold;
+    return hold ? Math.max(0, hold.time - (this.active!.holdT ?? 0)) : null;
+  }
+
   resetActiveRoom(): void {
     if (!this.active) return;
     const id = this.active.room.def.id;

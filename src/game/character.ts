@@ -76,10 +76,10 @@ export interface ItemInstance {
   affixes?: AffixRoll[];
   /** A rare's rolled name ("Doom Edge"). */
   name?: string;
-  /** Frames: how many of the Mag's units this frame activates. */
-  slots?: number;
   /** Old saves only: units that sat in this frame (moved to the Mag on load). */
   units?: ItemInstance[];
+  /** Old saves only: a frame's unit slots (dropped on load since 2026-10-21). */
+  slots?: number;
   /** Injectors: the rolled mod, and doses ready (undefined = full). */
   mod?: InjectorMod;
   charge?: number;
@@ -130,7 +130,7 @@ export interface CharacterData {
    * replaces it.
    */
   units: ItemInstance[];
-  /** Kinds slotted in the Mag, in priority order: the equipped frame's unit slots decide how many are active. */
+  /** Kinds slotted in the Mag (up to MAG_UNIT_SLOTS, all of them active). */
   magUnits: UnitKind[];
   stats: {
     kills: number;
@@ -324,12 +324,17 @@ function affixSum(rolls: AffixRoll[], id: ItemAffixId): number {
   return t;
 }
 
-/** What a unit is called: its affix's unit name ("Heart Unit"). */
-function unitName(inst: ItemInstance): string {
+/** A unit's own name, as the Mag tab lists it: its affix's unit word ("Heart"), or a unique unit's name. */
+export function unitTitle(inst: ItemInstance): string {
   const def = getDef(inst.id);
   if (def.unique) return def.name;
   const a = inst.affixes?.[0];
-  return a ? `${ITEM_AFFIXES[a.id].unit ?? ITEM_AFFIXES[a.id].word} Unit` : 'Unit';
+  return a ? (ITEM_AFFIXES[a.id].unit ?? ITEM_AFFIXES[a.id].word) : 'Unit';
+}
+
+/** What a unit is called as an item: "Heart Unit" (a unique unit its own name). */
+function unitName(inst: ItemInstance): string {
+  return getDef(inst.id).unique || !inst.affixes?.[0] ? unitTitle(inst) : `${unitTitle(inst)} Unit`;
 }
 
 /**
@@ -465,6 +470,8 @@ export class Character {
       // Grind levels and Bane went on 2026-10-11: every weapon, frame and barrier counts as fully ground now.
       delete it.grind;
       delete it.bane;
+      // Frames' unit slots went on 2026-10-21: the Mag always runs four.
+      delete it.slots;
     }
     readAffixData(data);
     if (!data.magUnits) {
@@ -820,12 +827,6 @@ export class Character {
     return out;
   }
 
-  /** Unit slots the equipped frame opens. */
-  get unitSlotsOpen(): number {
-    const f = this.equippedItem('frame');
-    return f ? unitSlots(f) : 0;
-  }
-
   /** The learned unit of this kind, if any. */
   learnedUnit(kind: UnitKind): ItemInstance | undefined {
     return this.data.units.find((u) => unitKind(u) === kind);
@@ -836,19 +837,14 @@ export class Character {
     return this.data.magUnits.map((k) => this.learnedUnit(k)).filter((u): u is ItemInstance => !!u);
   }
 
-  /** The Mag's units that the frame's slots activate: the first ones in its order. */
+  /** The Mag's units at work: every one slotted (2026-10-21; frames' unit slots used to switch some off). */
   activeUnits(): ItemInstance[] {
-    return this.slottedUnits().slice(0, this.unitSlotsOpen);
+    return this.slottedUnits().slice(0, MAG_UNIT_SLOTS);
   }
 
-  /** Units slotted in the Mag but not active (the frame has fewer slots). */
-  get inactiveUnits(): number {
-    return Math.max(0, this.data.magUnits.length - this.unitSlotsOpen);
-  }
-
-  /** The frame has a free slot and a learned unit isn't slotted: worth a look at the Mag tab. */
+  /** The Mag has a free slot and a learned unit isn't slotted: worth a look at the Mag tab. */
   get unitSlotIdle(): boolean {
-    return this.data.magUnits.length < Math.min(MAG_UNIT_SLOTS, this.unitSlotsOpen) && this.data.units.length > this.data.magUnits.length;
+    return this.data.magUnits.length < MAG_UNIT_SLOTS && this.data.units.length > this.data.magUnits.length;
   }
 
   /** What a unit means to this character: a kind not learned yet, a better roll than the learned one, or no use. */
@@ -1199,23 +1195,10 @@ export class Character {
     return null;
   }
 
-  /**
-   * Switch exactly these learned units on: they go first in the Mag's order. Units it held besides stay slotted
-   * only when these fill every slot the frame opens (behind them, inactive), so none of them switches on too.
-   */
+  /** Slot exactly these learned units in the Mag (the Damage tab's picks). */
   setActiveUnits(kinds: UnitKind[]): string | null {
     if (kinds.some((k) => !this.learnedUnit(k))) return 'You have not learned that unit';
-    const rest = kinds.length >= this.unitSlotsOpen ? this.data.magUnits.filter((k) => !kinds.includes(k)) : [];
-    this.data.magUnits = [...kinds, ...rest].slice(0, MAG_UNIT_SLOTS);
-    return null;
-  }
-
-  /** Move a unit up (-1) or down (+1) the Mag's order: the first ones are the active ones. */
-  moveUnit(index: number, dir: number): string | null {
-    const u = this.data.magUnits;
-    const to = index + Math.sign(dir);
-    if (!u[index] || to < 0 || to >= u.length) return null;
-    [u[index], u[to]] = [u[to], u[index]];
+    this.data.magUnits = kinds.slice(0, MAG_UNIT_SLOTS);
     return null;
   }
 
@@ -1278,15 +1261,8 @@ function unitBetter(a: ItemInstance, b: ItemInstance): boolean {
   return x.v > y.v || (x.v === y.v && (x.p ?? 0) < (y.p ?? 0));
 }
 
-/** Most units the Mag holds (the most unit slots a frame can have). */
+/** Units the Mag holds, every one of them active (2026-10-21, the user's call: frames no longer have unit slots). */
 export const MAG_UNIT_SLOTS = 4;
-
-/** Unit slots on a frame (0 for anything else). */
-export function unitSlots(inst: ItemInstance): number {
-  const def = getDef(inst.id);
-  if (def.type !== 'armor' || def.slot !== 'frame') return 0;
-  return def.slots ?? inst.slots ?? 0;
-}
 
 // ------------------------------------------------------------ comparison
 
@@ -1645,14 +1621,6 @@ interface ItemText<D extends ItemDef> {
   describe(def: D, inst: ItemInstance, ch?: Character): string[];
 }
 
-/** "Unit slots: 3 (activates 3 of your Mag's units)". */
-function unitsLine(inst: ItemInstance): string {
-  const def = getDef(inst.id);
-  if (def.type !== 'armor' || def.slot !== 'frame') return '';
-  const n = unitSlots(inst);
-  return `Unit slots: ${n || 'none'}`;
-}
-
 const ITEM_TEXT: { [T in ItemType]: ItemText<ItemDefOf<T>> } = {
   weapon: {
     headline: (def, inst) => {
@@ -1672,8 +1640,6 @@ const ITEM_TEXT: { [T in ItemType]: ItemText<ItemDefOf<T>> } = {
     headline: (def) => armorStatText(def),
     describe: (def, inst) => {
       const lines = [rarityLine(inst), armorStatText(def), ...affixLines(inst)];
-      const units = unitsLine(inst);
-      if (units) lines.push(units);
       if (def.line !== 'basic') lines.push(armorLines[def.line].desc);
       return lines;
     },

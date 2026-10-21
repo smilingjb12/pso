@@ -33,7 +33,7 @@ function rangerKit(): Kit {
     rare(id, name, [a('atpPct', 26), a('atpFlat', 45), a('perfectPct', 17), a('lck', 32), a('haste', 4)]);
   return {
     weapons: [gun('rifle_11', 'Star Gaze'), gun('handgun_11', 'Doom Bolt'), gun('shot_11', 'Nova Flare')],
-    frame: rare('frame_combat_11', 'Night Mantle', [a('hp', 110), a('strike', 6), a('atpFlat', 45), a('regen', 4), a('injCharge', 22)], { slots: 3 }),
+    frame: rare('frame_combat_11', 'Night Mantle', [a('hp', 110), a('strike', 6), a('atpFlat', 45), a('regen', 4), a('injCharge', 22)]),
     barrier: rare('barrier_combat_11', 'Dawn Aegis', [a('hp', 110), a('strike', 6), a('areaDr', 6), a('resCorrupt', 32), a('haste', 4)]),
     units: [unit('lck', 32), unit('atpFlat', 45), unit('hp', 110), unit('strike', 6)],
   };
@@ -45,7 +45,7 @@ function hunterKit(): Kit {
     rare(id, name, [a('atpPct', 26), a('atpFlat', 45), a('finisherPct', 18), a('staggerPct', 25), a('haste', 4)]);
   return {
     weapons: [blade('saber_11', 'Doom Edge'), blade('sword_11', 'Grim Cleaver'), blade('dagger_11', 'Night Fang')],
-    frame: rare('frame_guard_11', 'Iron Carapace', [a('hp', 110), a('strike', 6), a('atpFlat', 45), a('regen', 4), a('injCharge', 22)], { slots: 3 }),
+    frame: rare('frame_guard_11', 'Iron Carapace', [a('hp', 110), a('strike', 6), a('atpFlat', 45), a('regen', 4), a('injCharge', 22)]),
     barrier: rare('barrier_guard_11', 'Iron Bulwark', [a('hp', 110), a('strike', 6), a('areaDr', 6), a('stability', 42), a('haste', 4)]),
     units: [unit('atpFlat', 45), unit('hp', 110), unit('strike', 6), unit('lck', 32)],
   };

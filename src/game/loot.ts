@@ -10,7 +10,7 @@ import {
 } from './data/itemAffixes';
 import type { WeaponFamily } from './data/stats';
 import { isUniqueUnit, UNIQUE_IDS, UNIQUES, uniqueDropId, type UniqueId, type UniquePool } from './data/uniques';
-import type { RiftShard } from './rifts';
+import type { CacheKind } from './riftMap';
 import { hardScale } from './hard';
 import { asDifficulty, type Difficulty } from './difficulty';
 
@@ -19,8 +19,8 @@ export type Rng = () => number;
 /** What drops and shops lean toward: the class's weapon family (and its armour line). */
 export type LootBias = WeaponFamily;
 
-/** What drops: an item, Meseta, or a Rift Shard (charge orbs went on 2026-10-11, the user's call). */
-export type Drop = { kind: 'item'; item: ItemInstance } | { kind: 'meseta'; amount: number } | { kind: 'shard'; shard: RiftShard };
+/** What drops: an item or Meseta (charge orbs went on 2026-10-11, Rift Shards on 2026-10-21). */
+export type Drop = { kind: 'item'; item: ItemInstance } | { kind: 'meseta'; amount: number };
 
 const pick = <T>(arr: readonly T[], rng: Rng): T => arr[Math.floor(rng() * arr.length)];
 
@@ -170,17 +170,12 @@ export function rareName(def: ItemDef, rng: Rng): string {
   return `${pick(RARE_FIRST, rng)} ${pick(RARE_SECOND[group], rng)}`;
 }
 
-/** Give a fresh item its rarity, affixes (active and dormant), name and (frames) unit slots. */
+/** Give a fresh item its rarity, affixes (active and dormant) and name. */
 export function decorate(inst: ItemInstance, rarity: Exclude<Rarity, 'unique'>, rng: Rng): ItemInstance {
   const def = itemDefs[inst.id];
   if (rarity !== 'normal') inst.rarity = rarity;
   rollAffixes(inst, def, rarity, rng);
   if (rarity === 'rare') inst.name = rareName(def, rng);
-  if (def.type === 'armor' && def.slot === 'frame') {
-    const [lo, hi] = rarity === 'rare' ? [2, 3] : rarity === 'magic' ? [1, 2] : [0, 1];
-    const n = lo + Math.floor(rng() * (hi - lo + 1));
-    if (n) inst.slots = n;
-  }
   return inst;
 }
 
@@ -226,13 +221,22 @@ function uniqueFamily(id: UniqueId): WeaponFamily | null {
  * Rift-forged). In the main pool the class's own weapon (the bias family) counts `drops.uniqueClassWeight` times.
  */
 export function rollUnique(pool: UniquePool, tier: number, rng: Rng, bias?: LootBias, ilvl?: number): ItemInstance {
-  const entries = UNIQUE_IDS.filter((id) => UNIQUES[id].pool === pool).map(
-    (id): [UniqueId, number] => [id, bias && uniqueFamily(id) === bias ? drops.uniqueClassWeight : 1],
-  );
-  const id = weighted(entries, rng);
+  const id = weighted(poolWeights(pool, bias), rng);
   const inst = makeItem(uniqueDropId(id, tier));
   if (ilvl && !isUniqueUnit(id)) inst.ilvl = ilvl;
   return inst;
+}
+
+/** A pool's uniques and their weights in a drop. */
+function poolWeights(pool: UniquePool, bias?: LootBias): [UniqueId, number][] {
+  return UNIQUE_IDS.filter((id) => UNIQUES[id].pool === pool).map((id) => [id, bias && uniqueFamily(id) === bias ? drops.uniqueClassWeight : 1]);
+}
+
+/** The share of a pool's unique drops that are `id`, for a character whose loot leans to `bias`. */
+export function uniqueShare(id: UniqueId, bias?: LootBias): number {
+  const entries = poolWeights(UNIQUES[id].pool, bias);
+  const total = entries.reduce((a, [, w]) => a + w, 0);
+  return (entries.find(([x]) => x === id)?.[1] ?? 0) / Math.max(1, total);
 }
 
 /** The gear tier a main-game boss's unique drops at: its Normal top tier, or its expedition's on Nightmare / Hell. */
@@ -447,10 +451,10 @@ export function rollHellBossDrops(boss: BossId, rng: Rng, bias?: LootBias): Drop
 }
 
 /**
- * Falz Rifts: the end of a rift. A boss drops like its Hell self at the top gear tiers; the Guardian room (rifts
- * without a boss) a little less. Everything rolls at the rift's item level, so affix tiers 7-8 can show up.
- * `qty`: the rift's item quantity (tier and shard, percent), extra rare gear on top of the fixed pieces (+50% on a
- * Guardian's three: one or two more). The boss's own unique rolls apart (riftCircles.ts).
+ * Falz Rifts: the end of a Rift Map node. A boss drops like its Hell self at the top gear tiers; a room node's Guardian
+ * room (or Vault, or Gauntlet) a little less, plus its cache (rollRiftCache). Everything rolls at the rift's item level,
+ * so affix tiers 7-8 can show up. `qty`: the rift's item quantity (tier and modifiers, percent), extra rare gear on top
+ * of the fixed pieces (+50% on a Guardian's three: one or two more). The boss's own unique rolls apart (riftCircles.ts).
  */
 export function rollRiftEndDrops(boss: boolean, tier: number, ilvl: number, rng: Rng, bias?: LootBias, qty = 0): Drop[] {
   const base = (boss ? 70000 : 40000) * (1 + 0.1 * tier);
@@ -477,6 +481,25 @@ export function rollRiftEndDrops(boss: boolean, tier: number, ilvl: number, rng:
     const r = rng();
     out.push({ kind: 'item', item: r < 0.4 ? rollWeapon(t(), rng, bias, 'rare', ilvl) : r < 0.8 ? rollArmor(t(), rng, bias, 'rare', ilvl) : rollUnit(top, rng, ilvl) });
   }
+  return out;
+}
+
+/**
+ * A Rift Map room node's cache (2026-10-21): `n` more pieces of its kind at the rift's item level, rare gear at gear
+ * tiers 14-15 (Weapons, Armour) or units; Photons are Spheres, and `crystal` the chance of a Crystal on top.
+ */
+export function rollRiftCache(cache: CacheKind, n: number, ilvl: number, rng: Rng, bias?: LootBias, crystal = 0): Drop[] {
+  const out: Drop[] = [];
+  const t = () => (rng() < 0.5 ? 15 : 14);
+  for (let i = 0; i < n; i++) {
+    const item =
+      cache === 'weapons' ? rollWeapon(t(), rng, bias, 'rare', ilvl)
+        : cache === 'armour' ? rollArmor(t(), rng, bias, 'rare', ilvl)
+          : cache === 'units' ? rollUnit(15, rng, ilvl)
+            : makeItem('photon_sphere');
+    out.push({ kind: 'item', item });
+  }
+  if (cache === 'photons' && rng() < crystal) out.push({ kind: 'item', item: makeItem('photon_crystal') });
   return out;
 }
 

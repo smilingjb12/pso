@@ -7,7 +7,7 @@ import { Level } from './world/Level';
 
 const SEEDS = 200;
 
-/** Every option mix the tests sweep: plain, boss, Hazards x2, Bleed and Convergence. */
+/** Every option mix the tests sweep: plain, boss, Hazards x2, Bleed and Convergence; and the Rift Map's room, Vault and Gauntlet nodes. */
 function variants(biome: RiftBiome, seed: number): RiftGenOptions[] {
   const other = RIFT_BIOMES[(RIFT_BIOMES.indexOf(biome) + 1 + (seed % 3)) % 4];
   return [
@@ -16,6 +16,9 @@ function variants(biome: RiftBiome, seed: number): RiftGenOptions[] {
     { biome, seed, boss: seed % 2 === 0, hazardMult: 2 },
     { biome, seed, boss: seed % 2 === 1, hazardBiome: other, mixBiome: RIFT_BIOMES[seed % 4] },
     { biome, seed, boss: seed % 3 === 0, hazardBiome: other, mixAll: true },
+    { biome, seed, boss: false, kind: 'room', mixAll: true, ...(seed % 2 ? { hazardBiome: other } : {}), swarm: seed % 5 === 0 },
+    { biome, seed, boss: false, kind: 'vault', mixAll: true },
+    { biome, seed, boss: false, kind: 'gauntlet', mixAll: true, swarm: true },
   ];
 }
 
@@ -45,8 +48,11 @@ function problems(o: RiftGenOptions, rooms: RoomDef[], links: LinkDef[]): string
   const out: string[] = [];
   const fail = (s: string) => out.push(s);
   const byId = new Map(rooms.map((r) => [r.id, r]));
+  const kind = o.kind ?? 'floor';
+  const floor = kind === 'floor';
   const n = rooms.length - (o.boss ? 1 : 0);
-  if (n < 8 || n > 11) fail(`room count ${rooms.length}`);
+  const [lo, hi] = floor ? [8, 11] : kind === 'room' ? [5, 6] : [2, 2];
+  if (n < lo || n > hi) fail(`room count ${rooms.length}`);
   rooms.forEach((r, i) => r.id !== `k${i}` && fail(`room id ${r.id} at ${i}`));
   if (Math.min(...rooms.map((r) => r.x)) !== 0 || Math.min(...rooms.map((r) => r.z)) !== 0) fail('not translated to 0');
 
@@ -83,16 +89,24 @@ function problems(o: RiftGenOptions, rooms: RoomDef[], links: LinkDef[]): string
   if (kinds('start').length !== 1 || kinds('start')[0].r.id !== 'k0') fail('start');
   if (rooms.filter((r) => r.guardian).length !== 1) fail('guardian count');
   const g = rooms.find((r) => r.guardian);
-  if (g && (g.waves?.length !== 3 || !g.overlap || !g.ambush?.length)) fail('guardian waves');
-  if (kinds('toBoss').length !== (o.boss ? 1 : 0)) fail('toBoss');
-  if (o.boss && kinds('toBoss')[0].f.to !== 'riftBoss') fail('toBoss dest');
-  if (kinds('toCity').length !== (o.boss ? 1 : 2)) fail('toCity');
-  if (!o.boss && !kinds('toCity').some((x) => x.r.guardian)) fail('toCity not in guardian room');
+  if (g && g !== rooms[rooms.length - (o.boss && floor ? 2 : 1)]) fail('last room not the guardian');
+  if (g && (kind === 'floor' || kind === 'room') && (g.waves?.length !== 3 || !g.overlap || !g.ambush?.length)) fail('guardian waves');
+  if (g && kind === 'vault' && (!g.vault || g.waves?.length !== RIFT_GEN.vault.waves || g.hold)) fail('vault room');
+  if (g && kind === 'gauntlet' && (!g.hold || g.hold.time !== RIFT_GEN.hold.time || g.waves?.length !== RIFT_GEN.hold.waves || !g.overlap || g.vault)) fail('gauntlet room');
+  if (g && kind !== 'vault' && g.vault) fail('vault flag');
+  if (g && kind !== 'gauntlet' && g.hold) fail('hold flag');
+  const boss = o.boss && floor;
+  if (kinds('toBoss').length !== (boss ? 1 : 0)) fail('toBoss');
+  if (boss && kinds('toBoss')[0].f.to !== 'riftBoss') fail('toBoss dest');
+  if (kinds('toCity').length !== (boss ? 1 : 2)) fail('toCity');
+  if (!boss && !kinds('toCity').some((x) => x.r.guardian)) fail('toCity not in guardian room');
   const locked = links.filter((l) => l.lock);
-  if (locked.length !== 1 || locked[0].lock !== 'L1') fail('locked links');
   const sw = kinds('switch');
-  if (sw.length !== 1 || sw[0].f.lock !== 'L1') fail('switch');
-  else if (!reachable(rooms, links, 'L1').has(sw[0].r.id)) fail('switch behind its own gate');
+  if (floor) {
+    if (locked.length !== 1 || locked[0].lock !== 'L1') fail('locked links');
+    if (sw.length !== 1 || sw[0].f.lock !== 'L1') fail('switch');
+    else if (!reachable(rooms, links, 'L1').has(sw[0].r.id)) fail('switch behind its own gate');
+  } else if (locked.length || sw.length) fail('a node with a gate switch');
 
   // Contents.
   const mouths = roomMouths(rooms, links);
@@ -174,7 +188,7 @@ function problems(o: RiftGenOptions, rooms: RoomDef[], links: LinkDef[]): string
 
 describe('generateRift', () => {
   for (const biome of RIFT_BIOMES) {
-    it(`builds valid ${biome} rifts for ${SEEDS} seeds x 4 option sets`, () => {
+    it(`builds valid ${biome} rifts for ${SEEDS} seeds x 8 option sets`, () => {
       const errors: string[] = [];
       for (let seed = 1; seed <= SEEDS; seed++) {
         for (const o of variants(biome, seed)) {

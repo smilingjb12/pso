@@ -4,9 +4,10 @@ import { areaDef } from './data/looks';
 import { Character, forgeMult, makeItem, rarityLine, statDef } from './character';
 import { AFFIX_IDS, AFFIX_TIERS, ITEM_AFFIXES, maxAffixTier, tierRange } from './data/itemAffixes';
 import { rollArmor, rollEnemyDrops, rollRiftEndDrops, rollWeapon } from './loot';
+import { MAP_IDS, MAP_NODES, newMap, nodeRift, QUARTERS } from './riftMap';
 import {
-  BIOME_NAME, buildRiftArea, buildRiftBossArea, enemyHome, plainRift, regionFloors, RIFT_BIOMES, shardRift, RIFT_MODS, riftArch, riftBossOf, riftBossScale, riftCfg, riftElite, riftFoe, riftGrowth, riftIlvl,
-  riftSave, riftScale, riftThreat, rollShard, type RiftInfo,
+  BIOME_NAME, buildRiftArea, buildRiftBossArea, enemyHome, regionFloors, RIFT_BIOMES, riftArch, riftBossOf, riftBossScale, riftCfg, riftElite, riftFoe, riftGrowth, riftIlvl,
+  riftScale, riftThreat, type RiftInfo,
 } from './rifts';
 
 function mulberry(seed: number): () => number {
@@ -20,7 +21,7 @@ function mulberry(seed: number): () => number {
   };
 }
 
-const rift = (over: Partial<RiftInfo> = {}): RiftInfo => ({ region: 'forest', look: 'forest1', bossRegion: 'mines', tier: 1, mods: [], seed: 7, boss: false, shard: false, complete: false, ...over });
+const rift = (over: Partial<RiftInfo> = {}): RiftInfo => ({ region: 'forest', look: 'forest1', bossRegion: 'mines', tier: 1, mods: [], seed: 7, boss: false, node: 'N1', kind: 'room', complete: false, ...over });
 
 describe('affix tiers 7-8 (rift item levels)', () => {
   it('opens tier 7 at rift tier 4 and tier 8 at tier 7 (where circles II and III start), never on Hell drops', () => {
@@ -176,7 +177,7 @@ describe('rift scaling', () => {
       expect(a.dropRate).toBeGreaterThan(base.dropRate * 0.999);
       expect(a.lootRare).toBeGreaterThan(base.lootRare!);
       expect(base.lootRare).toBeGreaterThan(1);
-      // The tier's own quantity and rarity: tier 8 over tier 1, with no shard.
+      // The tier's own quantity and rarity: tier 8 over tier 1, with no modifiers.
       expect(base.dropRate).toBeGreaterThan(riftArch(id, rift({ tier: 1 })).dropRate);
       expect(base.lootRare).toBeGreaterThan(riftArch(id, rift({ tier: 1 })).lootRare!);
       if (base.windup >= hardCfg.telegraphFloor) expect(a.windup).toBeGreaterThanOrEqual(hardCfg.telegraphFloor);
@@ -226,103 +227,38 @@ describe('rift scaling', () => {
   });
 });
 
-describe('Rift Shards', () => {
-  it('roll near their tier with 1-4 different modifiers, at most one forced affix', () => {
-    const rng = mulberry(11);
-    let bosses = 0;
-    for (let i = 0; i < 2000; i++) {
-      const tier = 1 + (i % 14);
-      const s = rollShard(tier, rng);
-      expect(Math.abs(s.tier - Math.min(tier, riftCfg.maxTier))).toBeLessThanOrEqual(1);
-      expect(s.tier).toBeGreaterThanOrEqual(1);
-      expect(s.tier).toBeLessThanOrEqual(riftCfg.maxTier);
-      if (s.boss) bosses++;
-      expect(s.mods.length).toBeGreaterThanOrEqual(1);
-      expect(s.mods.length).toBeLessThanOrEqual(4);
-      expect(new Set(s.mods).size).toBe(s.mods.length);
-      expect(s.mods.filter((m) => RIFT_MODS[m].affix).length).toBeLessThanOrEqual(1);
-      const needs = s.mods.some((m) => RIFT_MODS[m].second);
-      expect(!!s.second).toBe(needs);
-      if (s.second) expect(s.second).not.toBe('forest');
-    }
-    // About a third name their boss.
-    expect(bosses / 2000).toBeCloseTo(riftCfg.bossShard, 1);
-  });
-
-  it('end at the boss a shard names', () => {
-    const rng = mulberry(17);
-    for (const [boss, region] of [['dragon', 'forest'], ['derolle', 'caves'], ['warden', 'mines'], ['falz', 'ruins']] as const) {
-      for (let i = 0; i < 20; i++) expect(shardRift({ uid: 'x', tier: 3, mods: ['tough'], boss }, rng).bossRegion).toBe(region);
-    }
-  });
-
-  it('cleans shards from before the region change out of old saves', () => {
-    const ch = Character.create('T', 'hunter');
-    ch.data.rift = {
-      tier: 3, clears: 2, best: 2,
-      shards: [
-        { uid: 'a', biome: 'mines', tier: 3, mods: ['hazards', 'convergence'], second: 'ruins' },
-        { uid: 'b', biome: 'caves', tier: 2, mods: ['tough', 'hazards', 'bleed'], second: 'forest' },
-      ] as never,
-    };
-    const save = riftSave(ch.data);
-    // (A save that old has its tiers squished too.)
-    expect(save.shards).toEqual([{ uid: 'b', tier: 1, mods: ['tough', 'bleed'], second: 'mines' }]);
-  });
-
-  it('squishes an old save onto the ten tiers once', () => {
-    const ch = Character.create('T', 'hunter');
-    ch.data.rift = { tier: 23, clears: 40, best: 22, shards: [{ uid: 's', tier: 13, mods: ['tough'] }, { uid: 't', tier: 1, mods: ['brutal'] }] };
-    const save = riftSave(ch.data);
-    expect(save.tier).toBe(riftCfg.maxTier);
-    expect(save.best).toBe(riftCfg.maxTier);
-    expect(save.shards.map((x) => x.tier)).toEqual([7, 1]);
-    expect(save.clears).toBe(40);
-    save.tier = 6;
-    expect(riftSave(ch.data).tier).toBe(6);
-    // A new character starts on the new ladder.
-    const fresh = Character.create('F', 'force');
-    expect(riftSave(fresh.data).ladder).toBe(2);
-  });
-});
-
 describe('rift areas', () => {
-  it('take a random region\'s look with every expedition in the waves, and any boss', () => {
-    const rng = mulberry(9);
+  it("build a room node's floor in its quarter's region, with every expedition in the waves, and a boss node's arena", () => {
+    const map = newMap(9);
     const homes = new Set<string>();
-    for (const bossRegion of RIFT_BIOMES) {
-      for (const boss of [false, true]) {
-        const r = { ...plainRift(4, rng), bossRegion, boss, mods: ['bleed'] as RiftInfo['mods'], second: 'mines' as const };
-        const def = buildRiftArea(r);
-        expect(def.id).toBe('rift');
-        expect(regionFloors(r.region)).toContain(r.look);
-        expect(def.theme).toEqual(areaDef(r.look).theme);
-        expect(def.theme.trees).toBe(r.region === 'forest');
-        expect(def.name).toContain(BIOME_NAME[r.region]);
-        expect(def.rooms.some((room) => room.guardian)).toBe(true);
-        expect(def.rooms.some((room) => room.features?.some((f) => f.kind === 'toBoss'))).toBe(boss);
-        for (const room of def.rooms) for (const w of room.waves ?? []) for (const e of w) homes.add(enemyHome(typeof e === 'string' ? e : e.e));
+    for (const id of MAP_IDS) {
+      const n = MAP_NODES[id];
+      if (n.kind === 'pinnacle' || n.kind === 'heart' || (n.kind === 'room' && n.tier % 3 !== 1)) continue;
+      const r = nodeRift(map, id);
+      const q = QUARTERS[n.q!];
+      expect(r.region).toBe(q.region);
+      if (r.boss) {
         const arena = buildRiftBossArea(r);
         expect(arena.id).toBe('riftBoss');
         expect(arena.kind).toBe('boss');
-        expect(arena.theme).toEqual(areaDef(({ forest: 'dragon', caves: 'derolle', mines: 'warden', ruins: 'falz' } as const)[bossRegion]).theme);
+        expect(arena.theme).toEqual(areaDef(({ forest: 'dragon', caves: 'derolle', mines: 'warden', ruins: 'falz' } as const)[q.region]).theme);
+        expect(riftBossOf(r.bossRegion)).toBe(q.boss);
+        continue;
       }
+      const def = buildRiftArea(r);
+      expect(def.id).toBe('rift');
+      expect(regionFloors(r.region)).toContain(r.look);
+      expect(def.theme).toEqual(areaDef(r.look).theme);
+      expect(def.theme.trees).toBe(r.region === 'forest');
+      expect(def.name).toContain(BIOME_NAME[r.region]);
+      expect(def.rooms.filter((room) => room.guardian)).toHaveLength(1);
+      expect(def.rooms.some((room) => room.features?.some((f) => f.kind === 'toBoss'))).toBe(false);
+      expect(def.rooms.some((room) => room.vault)).toBe(r.kind === 'vault');
+      expect(def.rooms.some((room) => room.hold)).toBe(r.kind === 'gauntlet');
+      if (r.kind === 'vault' || r.kind === 'gauntlet') expect(def.name).toContain(r.kind === 'vault' ? 'Vault' : 'Gauntlet');
+      for (const room of def.rooms) for (const w of room.waves ?? []) for (const e of w) homes.add(enemyHome(typeof e === 'string' ? e : e.e));
     }
     expect([...homes].sort()).toEqual([...RIFT_BIOMES].sort());
-  });
-  it('roll every region and floor look at random, and never the region a Bleeding shard brings', () => {
-    const rng = mulberry(21);
-    const seen = new Set<string>();
-    for (let i = 0; i < 400; i++) {
-      const r = plainRift(3, rng);
-      expect(regionFloors(r.region)).toContain(r.look);
-      seen.add(`${r.region}:${r.look}`);
-    }
-    expect([...seen].sort()).toEqual(RIFT_BIOMES.flatMap((b) => regionFloors(b).map((f) => `${b}:${f}`)).sort());
-    for (let i = 0; i < 200; i++) {
-      const s = { uid: 'x', tier: 5, mods: ['bleed'] as RiftInfo['mods'], second: (['caves', 'mines', 'ruins'] as const)[i % 3] };
-      expect(shardRift(s, rng).region).not.toBe(s.second);
-    }
   });
 });
 

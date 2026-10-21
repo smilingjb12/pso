@@ -1,4 +1,4 @@
-import { newUid, type CharacterData } from './character';
+import type { CharacterData } from './character';
 import { CC_AFFIXES, type CcKind } from './ccResist';
 import {
   crowdControl as ccCfg, darkFalz as darkFalzCfg, deRolLe as deRolLeCfg, dragon as dragonCfg, drops, enemies, formulas, hard as hardCfg, hell,
@@ -11,24 +11,24 @@ import { areaDef } from './data/looks';
 import type { Foe } from './dps';
 import { hardArch } from './hard';
 import { generateRift, RIFT_ROSTERS } from './riftGen';
+import { mapBest, mapDepth, mapFromLadder, type CacheKind, type RiftMapSave, type RoomKind } from './riftMap';
 import { RIFT_BIOMES, type RiftBiome } from './riftTypes';
 
-// Falz Rifts (DESIGN.md "Endgame: Falz Rifts"): after the Hell Dark Falz, generated rifts. Every rift rolls a random
-// region (since 2026-10-14; always the Forest from 2026-10-11) whose look, music and hazards its floor takes, untinted,
-// filled with enemies from every expedition, one expedition a wave; every one ends at a random one of the four bosses in
-// its own arena (riftCfg.bossChance; a third until 2026-10-12). No region to pick (2026-10-11, the user's call: the
-// Forest was always the easy pick). Plain rifts of any unlocked tier are free from the Rift Gate in Pioneer 2; Rift Shards
-// (dropped in rifts) add modifiers that raise item quantity and rarity. A rift's item level is 100 + 2 x its tier
-// (120 at tier 10), which opens affix tiers 7 and 8 (data/itemAffixes.ts). Ten tiers (2026-10-17: the old 1-20,
-// squished; endless from 2026-10-14 until then), grouped into three Rift Circles whose bosses drop their own uniques
-// (riftCircles.ts). Numbers are first drafts; `riftCfg` is live in the tuning panel.
+// Falz Rifts (DESIGN.md "Endgame: Falz Rifts"): after the Hell Dark Falz, generated rifts. Since 2026-10-21 the Rift
+// Gate opens a map (riftMap.ts) instead of a tier ladder and a stash of Rift Shards: each node is a run of its own. A
+// room node is a short generated floor (three fight rooms and the Guardian room, or a Vault or a Gauntlet) in its
+// quarter's region (look, music and hazards, untinted) with enemies from every expedition, one expedition a wave, and
+// the modifiers it rolled; a boss node is one of the four bosses in its own arena. A rift's item level is 100 + 2 x its
+// tier (120 at tier 10), which opens affix tiers 7 and 8 (data/itemAffixes.ts). Ten tiers (2026-10-17: the old 1-20,
+// squished), grouped into three Rift Circles whose bosses drop their own uniques (riftCircles.ts). Numbers are first
+// drafts; `riftCfg` is live in the tuning panel.
 
 export { RIFT_BIOMES, type RiftBiome };
 
 export const riftCfg = {
   /**
-   * The deepest tier (2026-10-17, the user's call: the ladder ends at 10, and a final node with its own boss comes
-   * later as the end of the game). The old tiers 1-20 were squished into these ten, so every step is a real one.
+   * The deepest tier (2026-10-17, the user's call: the ladder ends at 10, and the Heart, a final node with its own
+   * boss, comes later as the end of the game). The old tiers 1-20 were squished into these ten, so every step is a real one.
    */
   maxTier: 10,
   /**
@@ -76,23 +76,6 @@ export const riftCfg = {
   capTier: 8,
   /** Share of spawns that come in as elites (the Hell Ruins'), and what the Elites modifier adds. */
   elite: 0.65,
-  /**
-   * Chance a rift ends at a boss (a random one of the four; otherwise the Guardian room finishes it). Every rift
-   * since 2026-10-12 (the user's call, when uniques became boss drops; it was a third).
-   */
-  bossChance: 1,
-  /**
-   * Rift Shards at a rift's end (Guardian or boss), times 1 + item quantity: 1 = always one, and the quantity is
-   * the chance of a second (2026-10-10, the user's pick after two empty rifts; was 0.6). Champions sometimes.
-   */
-  guardianShard: 1,
-  championShard: 0.03,
-  /** Shards the Rift Gate holds. */
-  stash: 30,
-  /** Chance a shard is yellow (3-4 modifiers) rather than blue (1-2). */
-  yellow: 0.4,
-  /** Chance a shard names the boss its rift ends at (Rift Circles, 2026-10-17). */
-  bossShard: 0.3,
 };
 
 // ------------------------------------------------------------------ modifiers
@@ -105,7 +88,7 @@ export type RiftModId =
 export interface RiftModDef {
   id: RiftModId;
   name: string;
-  /** One line, shown on the shard and on entry ("{second}" is the second region's name). */
+  /** One line, shown on the map and on entry ("{second}" is the second region's name). */
   desc: string;
   /** Item quantity / rarity it adds, percent. */
   qty: number;
@@ -153,47 +136,37 @@ export const RIFT_MODS: Record<RiftModId, RiftModDef> = {
 export const RIFT_MOD_IDS = Object.keys(RIFT_MODS) as RiftModId[];
 const AFFIX_MOD_IDS = RIFT_MOD_IDS.filter((m) => RIFT_MODS[m].affix);
 
-// ------------------------------------------------------------------ rifts and shards
+// ------------------------------------------------------------------ rifts
 
-/** A dropped Rift Shard, kept in the Rift Gate's stash (never in the bag). */
-export interface RiftShard {
-  uid: string;
-  tier: number;
-  mods: RiftModId[];
-  /** Bleed: the region whose hazards come through (Caves, Mines or Ruins). */
-  second?: RiftBiome;
-  /**
-   * The boss its rift ends at (2026-10-17, Rift Circles: so a hunt for one boss's uniques can be aimed); unset, a
-   * random one. It comes on top of the modifiers and counts as none of them.
-   */
-  boss?: BossId;
-}
-
-/** One open rift (on its run state). */
+/** One open rift (on its run state): a Rift Map node's run. */
 export interface RiftInfo {
-  /** The region the floor is drawn from (its look, music and hazards), rolled at random; waves mix every expedition. */
+  /** The region the floor is drawn from (its look, music and hazards): the node's quarter's. Waves mix every expedition. */
   region: RiftBiome;
   /** Which of the region's floors lends the look (the Caves and Mines have two each, the Ruins two). */
   look: AreaId;
-  /** Whose boss a boss rift ends at (picked at random, apart from the region). */
+  /** Whose boss a boss node fights (its quarter's). */
   bossRegion: RiftBiome;
   tier: number;
   mods: RiftModId[];
   second?: RiftBiome;
   seed: number;
-  /** Ends at a boss (`bossRegion`'s) instead of the Guardian room. */
+  /** A boss node: the fight in the boss's own arena (no floor). */
   boss: boolean;
-  /** Opened from a shard (shown on the Gate, nothing else). */
-  shard: boolean;
+  /** The Rift Map node this run is (riftMap.ts). */
+  node: string;
+  /** A room node (three fight rooms and the Guardian room), a Vault, a Gauntlet, or a boss. */
+  kind: RoomKind | 'boss';
+  /** A room node's cache: what its end drops more of. */
+  cache?: CacheKind;
   complete: boolean;
 }
 
-/** What a character keeps: the highest tier open, the shard stash, and a count of rifts closed. */
+/** What a character keeps: the Rift Map, counts, and the Rift Circles' first kills and dry streaks. */
 export interface RiftSave {
+  /** The deepest tier reached on the map (kept in step with it; the Uniques tab and the damage estimates read it). */
   tier: number;
-  shards: RiftShard[];
   clears: number;
-  /** Highest tier closed. */
+  /** Deepest tier with a node cleared. */
   best: number;
   /** 2: tiers squished into 1-10 (2026-10-17). Saves without it have their tiers halved once. */
   ladder?: number;
@@ -201,8 +174,8 @@ export interface RiftSave {
   firsts?: string[];
   /** Rift boss kills in a row without a unique, per boss (raises the next one's odds). */
   dry?: Partial<Record<BossId, number>>;
-  /** The tier last picked at the Rift Gate (unset: the top one open). */
-  picked?: number;
+  /** The Rift Map (2026-10-21): which nodes are open or cleared, their rolls, and Resonance. */
+  map?: RiftMapSave;
 }
 
 /** A tier on the ladder: 1 to riftCfg.maxTier. */
@@ -213,29 +186,28 @@ const squish = (tier: number) => clampTier(Math.ceil(tier / 2));
 
 /** The character's rift progress (created on first use). */
 export function riftSave(data: CharacterData): RiftSave {
-  const save = (data.rift ??= { tier: 1, shards: [], clears: 0, best: 0, ladder: 2 });
+  const save = (data.rift ??= { tier: 1, clears: 0, best: 0, ladder: 2 });
   if (save.ladder !== 2) {
     // 2026-10-17: the ladder went from endless to ten tiers, two old tiers to each.
     save.tier = squish(save.tier);
     save.best = save.best ? squish(save.best) : 0;
-    for (const s of save.shards) s.tier = squish(s.tier);
     save.ladder = 2;
   }
-  // Shards from before 2026-10-11 named a region and could carry Ruinous / Convergent: drop what no longer exists.
-  if (save.shards.some((s) => 'biome' in s || s.mods.some((m) => !RIFT_MODS[m]))) {
-    save.shards = save.shards
-      .map(({ uid, tier, mods, second }) => {
-        const kept = mods.filter((m) => RIFT_MODS[m]);
-        return { uid, tier, mods: kept, ...(kept.some((m) => RIFT_MODS[m].second) ? { second: second && second !== 'forest' ? second : 'mines' } : {}) };
-      })
-      .filter((s) => s.mods.length);
+  if (!save.map) {
+    // 2026-10-21: the Rift Map replaced the tier ladder and Rift Shards. An old ladder carries over (everything below
+    // its highest open tier cleared); the shard stash and the picked tier go.
+    save.map = mapFromLadder(save.tier, save.best, Math.floor(Math.random() * 2 ** 31));
+    const old = save as RiftSave & { shards?: unknown; picked?: unknown };
+    delete old.shards;
+    delete old.picked;
   }
   return save;
 }
 
-/** The tier picked at the Rift Gate, within the open ones (the gate opens on it; the debug panel's rift warps use it). */
-export function pickedTier(save: RiftSave): number {
-  return Math.max(1, Math.min(save.tier, save.picked ?? save.tier));
+/** Keep the save's tier and best in step with the map after a clear. */
+export function syncRiftDepth(save: RiftSave): void {
+  save.tier = mapDepth(save.map!);
+  save.best = Math.max(save.best, mapBest(save.map!));
 }
 
 /** Rifts open once Dark Falz has fallen on Hell. */
@@ -245,18 +217,18 @@ export function riftsOpen(data: CharacterData): boolean {
 
 export const BIOME_NAME: Record<RiftBiome, string> = { forest: 'Forest', caves: 'Caves', mines: 'Mines', ruins: 'Ruins' };
 
-/** Each region's boss (a rift's `bossRegion` names whose arena it ends in), and back. */
+/** Each region's boss (a boss node's `bossRegion` names whose arena it fights in). */
 const BIOME_BOSS: Record<RiftBiome, BossId> = { forest: 'dragon', caves: 'derolle', mines: 'warden', ruins: 'falz' };
-const BOSS_BIOME: Record<BossId, RiftBiome> = { dragon: 'forest', derolle: 'caves', warden: 'mines', falz: 'ruins' };
 
 /** "Rift · Tier 7". */
 export function riftTitle(r: { tier: number }): string {
   return `Rift · Tier ${r.tier}`;
 }
 
-/** An open rift with its region: "Rift · Tier 7 · Caves". */
-export function riftName(r: Pick<RiftInfo, 'tier' | 'region'>): string {
-  return `${riftTitle(r)} · ${BIOME_NAME[r.region]}`;
+/** An open rift with its region: "Rift · Tier 7 · Caves", "Rift Vault · Tier 7 · Caves". */
+export function riftName(r: Pick<RiftInfo, 'tier' | 'region'> & { kind?: RiftInfo['kind'] }): string {
+  const kind = r.kind === 'vault' ? ' Vault' : r.kind === 'gauntlet' ? ' Gauntlet' : '';
+  return `Rift${kind} · Tier ${r.tier} · ${BIOME_NAME[r.region]}`;
 }
 
 export function modText(m: RiftModId, second?: RiftBiome): string {
@@ -273,7 +245,7 @@ export function riftTierBonus(tier: number): { qty: number; rar: number } {
   return { qty: Math.round(100 * drops.riftQtyPerTier * tier), rar: Math.round(100 * drops.riftRarePerTier * tier) };
 }
 
-/** A rift's whole item quantity and rarity, percent: its tier's, plus its shard's modifiers on top. */
+/** A rift's whole item quantity and rarity, percent: its tier's, plus its node's modifiers on top. */
 export function riftLoot(r: Pick<RiftInfo, 'tier' | 'mods'>): { qty: number; rar: number } {
   const t = riftTierBonus(r.tier);
   const m = riftBonus(r.mods);
@@ -283,68 +255,8 @@ export function riftLoot(r: Pick<RiftInfo, 'tier' | 'mods'>): { qty: number; rar
 /** Item level of a rift's drops: 102 at tier 1, 120 at the top (two a tier, so the squished ladder kept its loot). */
 export const riftIlvl = (tier: number) => 100 + 2 * clampTier(tier);
 
-const pick = <T>(arr: readonly T[], rng: () => number): T => arr[Math.floor(rng() * arr.length)];
-
 /** A region's field floors: a rift in that region wears one of their looks. */
 export const regionFloors = (b: RiftBiome): AreaId[] => expeditions[b].floors.filter((f) => areas[f].kind === 'field');
-
-/**
- * A rift's region, at random (2026-10-14, the user's call: always the Forest got samey, and a random roll can't be
- * gamed the way picking one could). Never the region a Bleeding shard brings in, so Bleeding always adds something.
- */
-function rollRegion(rng: () => number, not?: RiftBiome): Pick<RiftInfo, 'region' | 'look'> {
-  const region = pick(RIFT_BIOMES.filter((b) => b !== not), rng);
-  return { region, look: pick(regionFloors(region), rng) };
-}
-
-/** A plain rift from the Gate: no modifiers. */
-export function plainRift(tier: number, rng: () => number): RiftInfo {
-  return {
-    ...rollRegion(rng), bossRegion: pick(RIFT_BIOMES, rng), tier, mods: [],
-    seed: Math.floor(rng() * 2 ** 31), boss: rng() < riftCfg.bossChance, shard: false, complete: false,
-  };
-}
-
-/** A rift opened from a shard (its boss, if it names one). */
-export function shardRift(s: RiftShard, rng: () => number): RiftInfo {
-  const region = rollRegion(rng, s.mods.includes('bleed') ? s.second : undefined);
-  const bossRegion = pick(RIFT_BIOMES, rng);
-  return {
-    ...region, bossRegion: s.boss ? BOSS_BIOME[s.boss] : bossRegion,
-    tier: s.tier, mods: [...s.mods], second: s.second,
-    seed: Math.floor(rng() * 2 ** 31), boss: rng() < riftCfg.bossChance, shard: true, complete: false,
-  };
-}
-
-/** Regions whose hazards can bleed into a rift (the Forest's are only trees); a rift never rolls its shard's. */
-const BLEED_REGIONS: RiftBiome[] = ['caves', 'mines', 'ruins'];
-
-/** A shard dropped in a rift of `tier`: mostly the same tier, now and then one up or down; 1-2 or 3-4 modifiers. */
-export function rollShard(tier: number, rng: () => number): RiftShard {
-  const r = rng();
-  const t = clampTier(tier + (r < 0.2 ? 1 : r < 0.3 ? -1 : 0));
-  const yellow = rng() < riftCfg.yellow;
-  const n = yellow ? 3 + (rng() < 0.5 ? 1 : 0) : 1 + (rng() < 0.5 ? 1 : 0);
-  const mods: RiftModId[] = [];
-  while (mods.length < n) {
-    // At most one elite-affix modifier and one crowd-control modifier a shard.
-    const options = RIFT_MOD_IDS.filter((m) => !mods.includes(m)
-      && !(RIFT_MODS[m].affix && mods.some((x) => RIFT_MODS[x].affix))
-      && !(RIFT_MODS[m].cc && mods.some((x) => RIFT_MODS[x].cc)));
-    mods.push(pick(options, rng));
-  }
-  const shard: RiftShard = { uid: newUid(), tier: t, mods };
-  if (mods.some((m) => RIFT_MODS[m].second)) shard.second = pick(BLEED_REGIONS, rng);
-  if (rng() < riftCfg.bossShard) shard.boss = BIOME_BOSS[pick(RIFT_BIOMES, rng)];
-  return shard;
-}
-
-/** "Ends at the Dragon". */
-export const shardBossText = (boss: BossId) => `The rift ends at ${BOSS_NAMES[boss]}`;
-const BOSS_NAMES: Record<BossId, string> = { dragon: 'the Dragon', derolle: 'De Rol Le', warden: 'the Warden', falz: 'Dark Falz' };
-
-/** Yellow shards have 3+ modifiers. */
-export const shardRarity = (s: { mods: RiftModId[] }) => (s.mods.length >= 3 ? 'rare' : s.mods.length ? 'magic' : 'normal');
 
 // ------------------------------------------------------------------ scaling
 
@@ -457,7 +369,7 @@ export function riftArch(type: EnemyId, r: Pick<RiftInfo, 'tier' | 'mods'>): Ene
     a.windup = cut(a.windup);
     if (a.shotWindup !== undefined) a.shotWindup = cut(a.shotWindup);
   }
-  // More and rarer finds as the tiers climb, a shard's modifiers on top. The drop rate can pass 1: the rest is the
+  // More and rarer finds as the tiers climb, a node's modifiers on top. The drop rate can pass 1: the rest is the
   // chance of a second drop (rollEnemyDrops).
   a.dropRate *= 1 + qty / 100;
   a.ilvl = riftIlvl(r.tier);
@@ -514,7 +426,8 @@ export function buildRiftArea(r: RiftInfo): AreaDef {
   const { rooms, links } = generateRift({
     biome: r.region,
     seed: r.seed,
-    boss: r.boss,
+    boss: false,
+    kind: r.kind === 'boss' ? 'room' : r.kind,
     mixAll: true,
     hazardBiome: r.mods.includes('bleed') ? r.second : undefined,
     swarm: r.mods.includes('swarming'),
@@ -528,10 +441,10 @@ export function buildRiftBossArea(r: RiftInfo): AreaDef {
   return { ...src, id: 'riftBoss', name: `Rift Core · Tier ${r.tier} · ${src.name}`, audio: { ...src.audio, after: areas[r.look].audio.track ?? src.audio.after } };
 }
 
-/** Put a rift's two areas in place (the `rift` and `riftBoss` slots of `areas`) before it loads. */
+/** Put a node's area in place before it loads: a room node's floor in `rift`, a boss node's arena in `riftBoss`. */
 export function setRiftAreas(r: RiftInfo): void {
-  areas.rift = buildRiftArea(r);
-  areas.riftBoss = buildRiftBossArea(r);
+  if (r.boss) areas.riftBoss = buildRiftBossArea(r);
+  else areas.rift = buildRiftArea(r);
 }
 
 /** The enemy the damage estimates (and the ▲ verdicts) measure against in a rift: the average of every roster. */
@@ -555,15 +468,10 @@ export function riftThreat(tier: number, maxHp: number, strikeCut: number, areaC
   return { heavy: avg(heavy), hardest: Math.max(...heavy), chip: avg(chip) };
 }
 
-/** Shards in a stash, highest tier first, then the most modifiers. */
-export function sortedShards(shards: RiftShard[]): RiftShard[] {
-  return [...shards].sort((a, b) => b.tier - a.tier || b.mods.length - a.mods.length);
-}
-
 /** Every enemy's forced affix in this rift, if a modifier sets one. */
 export function riftForcedAffix(r: RiftInfo | undefined): Affix | undefined {
   return r?.mods.map((m) => RIFT_MODS[m].affix).find((a) => a);
 }
 
-/** The modifiers that force an affix (a shard rolls at most one). */
+/** The modifiers that force an affix (a room node rolls at most one). */
 export const RIFT_AFFIX_MODS = AFFIX_MOD_IDS;

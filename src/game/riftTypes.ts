@@ -26,4 +26,10 @@ export interface RiftGenOptions {
   mixAll?: boolean;
   /** Swarming modifier: more enemies a wave, the extra ones fodder (RIFT_GEN.swarm). */
   swarm?: boolean;
+  /**
+   * What to build (Rift Map nodes, 2026-10-21): a whole floor (the default: 5-7 fight rooms, side rooms, the Guardian
+   * room; Map Lab), a room node (three fight rooms, maybe a bonus room, the Guardian room), a Vault (one big room,
+   * three champion packs) or a Gauntlet (one big room to hold for RIFT_GEN.hold.time seconds).
+   */
+  kind?: 'floor' | 'room' | 'vault' | 'gauntlet';
 }

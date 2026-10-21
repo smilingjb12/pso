@@ -75,6 +75,14 @@ export interface RoomDef {
   window?: 'n' | 's' | 'e' | 'w';
   /** Rifts: the Guardian room (its champions are stronger; clearing it completes the rift). */
   guardian?: boolean;
+  /** Rift Map Vaults: every wave brings a champion. */
+  vault?: boolean;
+  /**
+   * Rift Map Gauntlets: hold the room `time` seconds; until then the next wave comes when a third of the last is left
+   * or `gap` seconds have passed (looping the waves, never the timed one past `maxAlive` enemies up), then the rest
+   * must be cleared.
+   */
+  hold?: { time: number; gap: number; maxAlive: number };
 }
 
 export interface LinkDef {

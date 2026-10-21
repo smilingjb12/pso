@@ -65,7 +65,7 @@ describe('gear stat bonuses', () => {
 
   it('keeps the item text', () => {
     expect(describeItem(makeItem('frame_psy_2'))).toEqual([
-      'Normal Psy Frame · iLvl 5', 'Damage taken −4%  Tech damage +15  TP +13', 'Unit slots: none', 'A light weave: tech damage and TP, more damage taken.', 'Req: Lv 3',
+      'Normal Psy Frame · iLvl 5', 'Damage taken −4%  Tech damage +15  TP +13', 'A light weave: tech damage and TP, more damage taken.', 'Req: Lv 3',
     ]);
     expect(describeItem(makeItem('barrier_combat_2'))[1]).toBe('Damage taken −4%  Weapon damage +4  Crit chance +0.4%');
     const rod = makeItem('unique_reactorRod_4');
