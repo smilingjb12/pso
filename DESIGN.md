@@ -38,7 +38,8 @@ Living spec agreed during the kickoff interview. Gameplay first, graphics later.
   - **Melee and guns** use the target when an attack reaches it, else soft-aim ahead as before (60° / 4 m melee,
     30° / 18 m guns).
 - **C** snaps the camera behind the player. It sits 7 m behind you (`camera.distance`; 5 until 2026-10-22, the user:
-  the mechanics behind you were hard to see).
+  the mechanics behind you were hard to see). The tuning panel has it up top as "camera zoom" so the user can find the
+  best value by play.
 - **Attacks** (2026-10-14, see "Arts"): **LMB** is the basic chain; **RMB, Q, E and R** are the four Art slots
   (Menu → Arts). The HUD's hex cluster shows them with their TP cost and a cooldown sweep. The photon blast fires
   by itself once the Mag has taught one and its gauge is full (key 2 until 2026-10-11). Until 2026-10-14 this was
@@ -245,7 +246,6 @@ then walk or dash straight out):
 | Warden | **Phase 2 hand slams** (3.5 m circle on you, 1.0 s; both of the pair) | fails from the middle (walks ~3 m of the ~3.9 needed) | not measured yet |
 | Dark Falz | **Teleport slam** (form 2: 4.2 m circle on you as it vanishes, 1.3 s) | fails at a 0.35 s reaction (a very quick 0.25 s one just makes it) | ~1.0 s (from standing still: ~0.8 s) |
 | Dark Falz | **Lance** (form 3: a 7 m lane across the altar through you, 1.0 s) | fails from its middle (~3 m of 3.95) | not measured yet |
-| Gal Gryphon | **Crossing lash** (phase 2: a lane across its swoop through you, 1.0 s) | fails (2.4 m of 2.95) | not measured yet |
 
 Phase 1 of De Rol Le and the Warden stays walkable (wider lane, longer windups) so the shapes can be
 learned first. Pairs (De Rol Le's double slam, the Warden's double hand slam) fit the 2 charges; spending
@@ -1838,7 +1838,9 @@ hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**
   attack gap (1.6 → 0.9 s, part of "busier") and the bolt gap (1.4 → 1.8 s, so the relay's run fits) changed.
 - **Tuned after the user's first play (2026-10-22):** the plummet is smaller and slower to dodge (6 m warned 1.5 s, a
   dash check, became 4.5 m warned 1.8 s, a walk), the camera sits farther back (7 m, was 5), and the storm lights **one
-  rod** to get to instead of a relay from one rod to the next (the bolt gap back to 1.4 s).
+  rod** to get to instead of a relay from one rod to the next. Then the same day the storm became **three pulses**
+  (the user's design): step into the lit pillar any time before the third and you pass; no bolts on you any more.
+  The crossing lash's warning went 1.0 → 1.3 s (the user: too fast), a walk now.
   Not taken: Overcharge stacks on a miss, Static wisps draining rods, a shorter grounded window with a thunderclap,
   attacks that knock rods down, and the tighter numbers.
 - **Rift-only.** It guards no expedition and has no Normal / Nightmare / Hell of its own: `BossId` stays the main
@@ -1868,30 +1870,33 @@ hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**
     from each every 0.35 s, turning 30° a second; the gaps widen away from it.
   - In the game a Lv 100 Hunter (tier 15 gear) standing still died in 16 s to five sparks and one swoop (each hit
     corrupting: max HP 1506 → 753). Tests: standing still takes many times the sparks a player circling the summit does.
-- **The storm** (its signature): first ~10 s into the fight, then 22 s after the last was called, never sooner than
-  9 s after it is back on its feet. It rises into the clouds over the middle (can't be hit). The first bolt falls 2.5 s
-  after the call (never under **2.3 real seconds**), then one every 1.4 s; each is marked on you 1 s before it
-  falls by a ring that **follows you** (cyan when you stand in the lit rod's reach, amber when it will strike you).
-  "Gal Gryphon calls the storm: get to the lit rod!" (the first time). The bar reads `STORM 1/3 · BOLT 2/3`.
-  - **The lit rod**: the storm lights one usable rod, **at random among those whose reach you can walk to in the lead**
-    (not always the nearest), its reach bright and a beacon of light on it; **only it draws the bolts**, and the light
-    stays put all storm. **Every bolt of a storm drawn** (3; phase 2 has 4 with one to spare) and it arcs into the
-    Gryphon. (2026-10-21 to 10-22 it was a relay, the light jumping to a neighbouring rod after each bolt; the user
-    found running rod to rod too much and asked for one rod to get to.)
-  - **A bolt the lit rod doesn't draw strikes you for 27% of your max HP**, past armour (a failed mechanic,
-    `mechanicHit`); dashing doesn't help, only being in the lit reach.
+- **The storm** (its signature; 2026-10-22, the user's design): first ~10 s into the fight, then 22 s after the last
+  was called, never sooner than 9 s after it is back on its feet. It rises into the clouds over the middle (can't be
+  hit), the whole summit is warned (a violet-blue telegraph that runs out at the last pulse), and **one rod lights
+  under a pillar of light** as wide as its reach. "Gal Gryphon calls the storm: step into the pillar of light!" (the
+  first time). The bar reads `STORM · PULSE 1/3`.
+  - **Three pulses**, 1.3 s of its clock apart (~1.13 real seconds; never under 1 s): the first two do nothing (a
+    thunderclap over the summit, a bolt into the lit rod and one more of its coils lit); **the third is the
+    thunderstorm**, lightning over the whole summit for **80% of your max HP** (`hell.mechanicHit`, past armour: a
+    failed mechanic), unless you have reached the pillar.
+  - **Step into the pillar at any point** (before the first pulse, after one, after two) and the pulses stop at once:
+    you pass, the rod discharges into the Gryphon.
+  - **The lit rod** is one usable rod at random among those whose pillar you can walk to with a second to spare before
+    the third pulse (9.4 m of walking; not always the nearest), and **never the one you stand by** while another is in
+    reach, so you always have to move. (Before: 2026-10-21 bolts on you, 27% each unless drawn into a rod, first any
+    rod then a relay from rod to rod; 2026-10-22 morning one lit rod drawing three bolts.)
   - **Feather rain** (it fights from the sky): every 1.2 s of the storm two 2.5 m circles fall, warned 1 s (×0.8 ATP,
     a little shove): one with its middle 1.5 m off you away from the lit rod, so stepping toward the rod (1.45 m) gets
     you out inside the reach, and one 3.5-5 m farther out. Hugging the post (within 2.2 m of the rod) the near one
     comes from beside you, so you step round the post.
-  - **A full storm** grounds it: it crashes 5.5 m inside the rod, toward the middle, **grounded for 8 s of its clock
-    (~7 real seconds)**, weak point open, taking **+50% damage** ("Grounded! Weak point exposed!"; the bar reads
-    `GROUNDED`). The sparks keep coming. A storm with a bolt missed lands it back in the middle after the last bolt.
+  - **Passing** grounds it: it crashes 5.5 m inside the rod, toward the middle, **grounded for 8 s of its clock (~7
+    real seconds)**, weak point open, taking **+50% damage** ("Grounded! Weak point exposed!"; the bar reads
+    `GROUNDED`). The sparks keep coming. After the thunderstorm it lands back in the middle instead.
   - **Spent rods**: the rod that grounded it is **scorched for the next storm** (dark, smoking; never lit).
-  - **Getting there:** the lit rod is always one whose reach you can walk to in the lead (walking covers 8.97 m; with
-    every rod up the worst walk to the nearest reach is from the middle, 7.5 m). A scorched rod can leave the rim behind
-    it 10.7 m from the next reach, so the storm **waits** while no usable reach is in walking range (like the Dragon's
-    rampage waits for a shadow).
+  - **Getting there:** with every rod up the worst walk to the nearest pillar is from the middle, 7.5 m. A scorched rod
+    can leave the rim behind it 10.7 m from the next pillar, so the storm **waits** while no usable pillar is in walking
+    range (like the Dragon's rampage waits for a shadow); in the rare spot where the only one in range is the rod you
+    stand by, that one lights (a pass at once).
 - **Phase 1** (100-50%): **every attack is a pair**, 0.9 s apart (pool: swoop + flank orbs ×2, gale + plummet,
   plummet ring):
   - **Swoop + flank orbs**: a 5 m swoop lane from it through you to the far rim (1.3 s; it flies it at 24 m/s) and three
@@ -1905,13 +1910,14 @@ hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**
 - **Phase 2, "The eye of the storm!"** (below 50%; the battle layer comes in; the bar reads `EYE OF THE STORM`): the
   pairs become triples, and the spirals start. Pool: crossing triple ×2, gale ring, cyclones ×2 (when none are up).
   - **Crossing triple**: swoop + flank orbs, and 0.6 s in a **lightning lash** across the swoop, rim to rim, through
-    where you stand (1.0 s, a dash check: having stepped out of the lane sideways you are in the lash's; walking clears
-    2.4 of the 2.95 m). A lash, not a second dive: the bird is still flying the first lane.
+    where you stand (the light blue lane), warned 1.3 s, a walk (3.6 m of 2.95 needed; enraged a dash check). It was
+    1.0 s, a dash check, until 2026-10-22 (the user: too fast). A lash, not a second dive: the bird is still flying the
+    first lane.
   - **Gale ring**: the gale, then the plummet ring on where it threw you.
   - **Cyclones**: two tornadoes rise at the rim away from you and wander 10 s, leaning toward you; a touch tosses you
     (0.6 × ATP, knockback 14, once every 1.5 s each).
-  - **Four-bolt storms with a gale**: one bolt to spare, but from the first mark to the last bolt a gale pushes you
-    away from the middle at 2 m/s, so you walk into it to stay in the lit reach.
+  - **Storms with a gale**: from the call until you reach the pillar (or the thunderstorm) a gale pushes you away from
+    the middle at 2 m/s, so you walk into it on the way.
 - **Phase 3, "The storm breaks loose!"** (below 1/3; the bar reads `THE STORM BREAKS`): **every second attack is the
   cage** (a Hell triple: three telegraphs at once, exactly one way out, warned 1.6 s and never cut by the enrage): the
   swoop's lane through you, the lash across it through you, and orbs in three of the four corners they leave (5 m out
@@ -1933,8 +1939,8 @@ hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**
 - **Checked:** `gryphon.test.ts` (the rods' ring and reach geometry, scorched rods, the lit rod always in walking
   reach and any of the six from the middle, feathers walkable inside the reach, every attack's walk / dash math at the
   rift tempo, one way out of the flank, the ring and the cage, the sparks; a scripted fight against the boss itself:
-  standing by the lit rod grounds it beside that rod, standing by another takes all three bolts, phase 2's four bolts
-  and gale, and the sparks hitting a still player far more than a moving one), `riftMap.test.ts` (the node, its opening, its 2 + 2 cost,
+  stepping into the pillar grounds it at once (before or after a pulse or two), staying out takes the thunderstorm on
+  the third pulse and nothing before it, phase 2's gale, and the sparks hitting a still player far more than a moving one), `riftMap.test.ts` (the node, its opening, its 2 + 2 cost,
   the doubled odds), `riftUniques.test.ts` (both uniques). In the game (Lv 100 Hunter, tier 15 gear, the debug warp):
   the first build's storm, grounding, kill and drop (Storm Crest), then the rework's sparks, relay (a walker grounding
   it), the pairs, the phase 2 triples and the cage. Not done: a balance pass (the bot can't use rods or dodge sparks),

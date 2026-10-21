@@ -702,7 +702,9 @@ export const areas: Record<AreaId, AreaDef> = {
     links: [],
   },
   // Gal Gryphon (the Rift Map's Circle II pinnacle, 2026-10-21): Storm Peak, a round stone summit above a sea of
-  // cloud under a storm sky, six lightning rods round it (placed by the boss, galGryphon.rodRing). Rift-only.
+  // cloud, six lightning rods round it (placed by the boss, galGryphon.rodRing). Rift-only. The sky is a bright
+  // silver-blue overcast with a pale sun showing through and the rain still falling (2026-10-22, the user: the dark
+  // storm sky looked too depressing).
   stormPeak: {
     id: 'stormPeak',
     name: 'Storm Peak',
@@ -710,17 +712,19 @@ export const areas: Record<AreaId, AreaDef> = {
     audio: { track: null, after: 'forest', space: 'open', step: 'step.stone' },
     boss: 'gryphon',
     theme: {
-      floor: 0x6c7079, floorAlt: 0x626670, wall: 0x3c414b, wallHeight: 1,
-      sky: 0x3a4658, fogNear: 45, fogFar: 150, trees: false, scenery: 'peak',
-      light: { hemiSky: 0xbccbe2, hemiGround: 0x18202c, hemi: 1.05, sunColor: 0xd6e2ff, sun: 1.0 },
+      floor: 0x767b85, floorAlt: 0x6c717b, wall: 0x515866, wallHeight: 1,
+      sky: 0xa9bed3, fogNear: 50, fogFar: 170, trees: false, scenery: 'peak',
+      light: { hemiSky: 0xe2ecf7, hemiGround: 0x46566a, hemi: 1.3, sunColor: 0xfff2dc, sun: 1.35 },
       skybox: {
-        top: 0x0c111a, horizon: 0x3c4859, bottom: 0x1c2533,
+        top: 0x5d7fa6, horizon: 0xb4c6d8, bottom: 0x8a9db2,
         nebulae: [
-          { color: 0x2a3446, dir: [0.4, 0.3, -1], size: 260, opacity: 0.6 },
-          { color: 0x222a38, dir: [-0.7, 0.25, 0.4], size: 240, opacity: 0.55 },
+          { color: 0xdbe5ef, dir: [0.4, 0.3, -1], size: 260, opacity: 0.35 },
+          { color: 0x9fb1c4, dir: [-0.7, 0.25, 0.4], size: 240, opacity: 0.35 },
         ],
+        // A pale sun through the overcast: lit from the front, so the face you see is bright.
+        planet: { color: 0xfff7e6, glow: 0xffefc8, glowOpacity: 0.45, dir: [0.35, 0.45, -1], size: 26, light: [-0.35, -0.45, 1] },
       },
-      fogColor: 0x2c3646,
+      fogColor: 0x9eb0c3,
       bloom: { strength: 0.32, radius: 0.35, threshold: 0.8 },
       accent: 0x8ae8ff, accent2: 0xd9b24a, accent3: 0xeaf6ff, motes: 0xc8dcf0,
     },

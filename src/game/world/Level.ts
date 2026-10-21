@@ -1653,10 +1653,10 @@ export class Level {
     const starMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7, depthWrite: false });
     this.group.add(new THREE.Mesh(mergeGeometries(star)!, starMat));
     // The sea of cloud below, with puffs drifting round the mountain.
-    const sea = new THREE.Mesh(new THREE.CircleGeometry(260, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x5a6676, transparent: true, opacity: 0.92, depthWrite: false }));
+    const sea = new THREE.Mesh(new THREE.CircleGeometry(260, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xc3cfdc, transparent: true, opacity: 0.92, depthWrite: false }));
     sea.position.set(cx, -14, cz);
     this.group.add(sea);
-    const puffMat = new THREE.MeshStandardMaterial({ color: 0x8a96a6, roughness: 1, transparent: true, opacity: 0.55, depthWrite: false, flatShading: true });
+    const puffMat = new THREE.MeshStandardMaterial({ color: 0xe4ebf2, roughness: 1, transparent: true, opacity: 0.6, depthWrite: false, flatShading: true });
     const puffs: { m: THREE.Mesh; a: number; r: number; y: number; speed: number }[] = [];
     for (let i = 0; i < 46; i++) {
       const m = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), puffMat);

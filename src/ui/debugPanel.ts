@@ -86,6 +86,8 @@ function download(name: string, text: string): void {
 
 export function createDebugPanel(actions: DebugActions): GUI {
   const gui = new GUI({ title: 'Tuning  ( ` to toggle )', width: 310 });
+  // Up top so it's easy to find while playing (the same setting as Camera / Lock-on > distance).
+  gui.add(camera, 'distance', 2, 15, 0.1).name('camera zoom (m behind you)').listen();
 
   const au = gui.addFolder('Audio').close();
   au.add(mix, 'master', 0, 1, 0.05).onChange(applyMix);
@@ -314,7 +316,7 @@ export function createDebugPanel(actions: DebugActions): GUI {
   f.close();
 
   const cam = gui.addFolder('Camera / Lock-on');
-  cam.add(camera, 'distance', 2, 15, 0.1);
+  cam.add(camera, 'distance', 2, 15, 0.1).listen();
   cam.add(camera, 'height', 0, 4, 0.1);
   cam.add(camera, 'sensitivity', 0.0005, 0.01, 0.0001);
   cam.add(lockOn, 'aimDeg', 2, 45, 1).name('target cone (deg)');
@@ -510,11 +512,10 @@ export function createDebugPanel(actions: DebugActions): GUI {
   gg.add(galGryphon, 'stormFirst', 0, 40, 1).name('first storm (s)');
   gg.add(galGryphon, 'stormEvery', 8, 60, 1).name('storm every (s)');
   gg.add(galGryphon, 'stormAfterUp', 0, 30, 1).name('storm after it is up (s)');
-  gg.add(galGryphon, 'stormLead', 1, 5, 0.1).name('first bolt after the call (s)');
-  gg.add(galGryphon, 'stormLeadFloor', 1, 5, 0.1).name('first bolt never under (real s)');
-  gg.add(galGryphon, 'boltGap', 0.6, 3, 0.05).name('bolt every (s)');
-  gg.add(galGryphon, 'boltWarn', 0.3, 2, 0.05).name('bolt marked (s)');
-  gg.add(galGryphon, 'boltShare', 0, 1, 0.01).name('bolt off the rods: share of max HP');
+  gg.add(galGryphon, 'pulses', 1, 6, 1).name('storm pulses (the last strikes)');
+  gg.add(galGryphon, 'pulseGap', 0.4, 3, 0.05).name('pulse every (s)');
+  gg.add(galGryphon, 'pulseFloor', 0.3, 3, 0.05).name('pulse never under (real s)');
+  gg.add(galGryphon, 'stormSpare', 0, 3, 0.1).name('lit rod: real s to spare on the walk');
   gg.add(galGryphon, 'groundedTime', 1, 15, 0.5).name('grounded (s)');
   gg.add(galGryphon, 'weakPointMult', 1, 3, 0.05).name('grounded damage x');
   gg.add(galGryphon, 'galePush', 0, 5, 0.1).name('phase 2 storm gale (m/s)');

@@ -1,17 +1,17 @@
 import * as THREE from 'three';
-import { galGryphon as cfg, player as playerCfg, type HardBossScale } from '../config';
+import { galGryphon as cfg, hell, player as playerCfg, type HardBossScale } from '../config';
 import { separateCircles, turnToward, yawTo } from '../collision';
 import type { Hittable } from '../combat/types';
 import type { Level, Rect } from '../world/Level';
 import { Lob, Pillar, Ring, type Effect } from '../world/Effects';
 import { Lightning } from '../world/spellFx';
-import type { TelegraphShape } from '../world/Telegraph';
+import type { Cancellable, TelegraphShape } from '../world/Telegraph';
 import { GryphonModel } from '../models/gryphon';
 import type { BossContext } from './Boss';
 import { BossBase } from './BossBase';
 import {
-  aimedStream, boltSchedule, BoltMark, cagePlan, Cyclone, featherSpots, flankOrbs, LightningRods, ringOrbs, sparkTouches, SparkField, spiralBurst,
-  stormLead, stormRod, type Rod,
+  aimedStream, cagePlan, Cyclone, featherSpots, flankOrbs, LightningRods, pulseTimes, ringOrbs, sparkTouches, SparkField, spiralBurst, stormRod,
+  stormWalk, type Rod,
 } from './gryphonStorm';
 
 // Gal Gryphon, the Rift Map's Circle II pinnacle boss (DESIGN.md "Endgame: Falz Rifts" > "Gal Gryphon"; the user's
@@ -19,9 +19,9 @@ import {
 // long (streams aimed at you, spiral arms from it in phase 2), so you can't stand still. Its attacks come in pairs
 // from the start (a swoop with orbs closing one side, a gale shoving you under a plummet, a plummet ringed by orbs),
 // triples in phase 2 (a lash across the swoop, the ring after the gale) and the cage below 1/3 (a Hell triple: three
-// telegraphs at once, one way out). Every ~22 s it rises into the clouds and calls the storm: one rod lights, and
-// standing in its reach draws its bolts while feathers rain round you; draw every bolt and the rod grounds it, weak
-// point open. A bolt you don't draw strikes you.
+// telegraphs at once, one way out). Every ~22 s it rises into the clouds and calls the storm: one rod lights under a
+// pillar of light and the storm pulses, three times, while feathers rain round you. Step into the pillar at any point
+// and the rod grounds it, weak point open; still out of it at the third pulse, the whole summit is struck.
 
 type GryphonState = 'dormant' | 'intro' | 'stalk' | 'attack' | 'recover' | 'storm' | 'stormFall' | 'grounded' | 'stormLand' | 'dead';
 
@@ -38,6 +38,8 @@ const BOLT_COLOR = 0x9ae8ff;
 const LASH_COLOR = 0xb8f0ff;
 const GALE_COLOR = 0xd8ecff;
 const FEATHER_COLOR = 0xeaf4ff;
+/** The storm's warning over the whole summit. */
+const STORM_COLOR = 0x7a8cff;
 
 /** A wing beat's gust: the cone flashes pale and fades. */
 class GustFlash implements Effect {
@@ -102,7 +104,6 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   private readonly cx: number;
   private readonly cz: number;
   private readonly rods: LightningRods;
-  private readonly mark = new BoltMark();
   private readonly sparks = new SparkField();
   private readonly cyclones: Cyclone[] = [];
   private readonly cycloneGroup = new THREE.Group();
@@ -135,13 +136,12 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   /** Seconds since it was last back on its feet after a storm. */
   private upT = Infinity;
   private stormT = 0;
-  private bolts: { mark: number; fall: number }[] = [];
-  private boltsDone = 0;
-  private marked = -1;
-  /** The storm's lit rod (its index), the bolts it has drawn, and the beacon's clock. */
+  /** Its pulses (boss seconds from the call; the last is the thunderstorm), how many have come, and the summit's warning. */
+  private pulseAt: number[] = [];
+  private pulsesDone = 0;
+  private stormTele: Cancellable | null = null;
+  /** The storm's lit rod (its index). */
   private lit = -1;
-  private stormCharge = 0;
-  private beaconT = 0;
   private featherT = 0;
   private taught = false;
   private gustT = 0;
@@ -164,7 +164,7 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   // ---------------------------------------------------------------- Boss
 
   get objects(): THREE.Object3D[] {
-    return [this.group, this.rods.group, this.mark.group, this.cycloneGroup, this.sparks.group];
+    return [this.group, this.rods.group, this.cycloneGroup, this.sparks.group];
   }
   parts(): Hittable[] {
     return [this];
@@ -192,7 +192,7 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
 
   /** Shown after the name on the boss bar. */
   get hudNote(): string {
-    if (this.state === 'storm') return `  — STORM ${this.stormCharge}/${cfg.rodCharge} · BOLT ${Math.min(this.boltsDone + 1, this.bolts.length)}/${this.bolts.length}`;
+    if (this.state === 'storm') return `  — STORM · PULSE ${this.pulsesDone}/${this.pulseAt.length}`;
     if (this.state === 'grounded' || this.state === 'stormFall') return '  — GROUNDED';
     return this.phase3 ? '  — THE STORM BREAKS' : this.phase2 ? '  — EYE OF THE STORM' : '';
   }
@@ -246,7 +246,6 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
   }
 
   protected onDeath(): void {
-    this.mark.hide();
     this.sparks.clear();
     this.steps = [];
     this.fly = null;
@@ -676,35 +675,34 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
 
   /**
    * The storm, when it's due: not sooner than `stormAfterUp` s after the last one ended. It lights one usable rod
-   * whose reach you can walk to in the lead, at random among them; with none in reach it waits (a scorched rod can
-   * leave the rim behind it far from the rest).
+   * whose pillar you can walk to before the last pulse, at random among them (never the one you stand by while another
+   * is in reach); with none in reach it waits (a scorched rod can leave the rim behind it far from the rest).
    */
   private startStorm(ctx: BossContext): boolean {
     if (this.fightT < this.nextStorm || this.upT < cfg.stormAfterUp) return false;
     const storm = this.storms + 1;
-    const lead = stormLead(this.tempo);
-    const lit = stormRod(this.rods.list, ctx.playerX, ctx.playerZ, storm, playerCfg.moveSpeed * (lead / this.tempo - 0.35), ctx.rng);
+    const lit = stormRod(this.rods.list, ctx.playerX, ctx.playerZ, storm, stormWalk(this.tempo), ctx.rng);
     if (lit < 0) return false;
     this.storms = storm;
     this.nextStorm = this.fightT + cfg.stormEvery;
     this.stormT = 0;
-    this.bolts = boltSchedule(this.phase2 ? cfg.bolts2 : cfg.bolts, lead);
-    this.boltsDone = 0;
-    this.marked = -1;
+    this.pulseAt = pulseTimes(this.tempo);
+    this.pulsesDone = 0;
     this.gustT = 0;
     this.featherT = 0.6;
-    this.stormCharge = 0;
     for (const r of this.rods.list) r.charge = 0;
     this.lit = lit;
-    this.beaconT = 0;
     this.pose = 'idle';
     this.steps = [];
+    // The whole summit, warned until the last pulse (the lit pillar is the way out).
+    const shape: TelegraphShape = { kind: 'circle', x: this.cx, z: this.cz, radius: cfg.arenaRadius + 0.5 };
+    this.stormTele = this.tele.add(ctx.telegraph(shape, this.pulseAt[this.pulseAt.length - 1], () => {}, STORM_COLOR));
     this.enter('storm');
     this.sound('gryphon.screech');
     ctx.shake(0.3);
     if (!this.taught) {
       this.taught = true;
-      ctx.announce('Gal Gryphon calls the storm: get to the lit rod!');
+      ctx.announce('Gal Gryphon calls the storm: step into the pillar of light!');
     }
     return true;
   }
@@ -713,18 +711,26 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
     return this.lit >= 0 ? this.rods.list[this.lit] : null;
   }
 
+  /** You stand in the lit rod's pillar. */
+  private inPillar(ctx: BossContext): boolean {
+    const rod = this.litRod;
+    return !!rod && ctx.playerAlive && Math.hypot(rod.x - ctx.playerX, rod.z - ctx.playerZ) <= cfg.rodReach;
+  }
+
   private updateStorm(dt: number, ctx: BossContext): void {
     this.stormT += dt;
     // Up into the clouds over the middle.
     this.alt = Math.min(STORM_ALT, this.alt + dt * 14);
     this.pos.x += (this.cx - this.pos.x) * Math.min(1, dt * 1.5);
     this.pos.z += (this.cz - this.pos.z) * Math.min(1, dt * 1.5);
-    const px = ctx.playerX;
-    const pz = ctx.playerZ;
-    const next = this.bolts[this.boltsDone];
     const rod = this.litRod;
-    // Phase 2: a gale off the middle from the first mark to the last bolt (walk into it to stay in a reach).
-    if (this.phase2 && next && this.stormT >= this.bolts[0].mark && ctx.playerAlive) {
+    // Into the pillar at any point: the pulses stop and the rod discharges into it.
+    if (rod && this.inPillar(ctx)) {
+      this.discharge(rod, ctx);
+      return;
+    }
+    // Phase 2: a gale off the middle (walk into it to reach the pillar).
+    if (this.phase2 && ctx.playerAlive) {
       const body = ctx.body();
       const dx = body.pos.x - this.cx;
       const dz = body.pos.z - this.cz;
@@ -737,32 +743,47 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
         ctx.effect(new Ring(this.cx, this.cz, GALE_COLOR, cfg.arenaRadius, 1.1, 0.25));
       }
     }
-    // A beacon of light stands on the lit rod, so you can find it.
-    this.beaconT -= dt;
-    if (rod && next && this.beaconT <= 0) {
-      this.beaconT = 0.9;
-      ctx.effect(new Pillar(rod.x, rod.z, BOLT_COLOR, 0.9, 0.7, 26));
-    }
     // Feathers rain round you all storm.
     this.featherT -= dt;
-    if (next && this.featherT <= 0 && ctx.playerAlive) {
+    if (this.featherT <= 0 && ctx.playerAlive) {
       this.featherT += cfg.featherEvery;
       this.featherRain(ctx, rod);
     }
-    if (next && this.stormT >= next.mark) {
-      if (this.marked !== this.boltsDone) {
-        this.marked = this.boltsDone;
-        this.sound('gryphon.rod', px, pz, 0);
-      }
-      const k = Math.min(1, (this.stormT - next.mark) / (next.fall - next.mark));
-      this.mark.show(px, pz, k, !!rod && Math.hypot(rod.x - px, rod.z - pz) <= cfg.rodReach, this.time);
+    if (this.stormT < this.pulseAt[this.pulsesDone]) return;
+    this.pulsesDone++;
+    if (this.pulsesDone < this.pulseAt.length) this.pulse(ctx, rod);
+    else this.thunderstorm(ctx);
+  }
+
+  /** A pulse that does nothing yet: a thunderclap over the summit, a bolt into the lit rod and one more coil lit. */
+  private pulse(ctx: BossContext, rod: Rod | null): void {
+    ctx.effect(new Ring(this.cx, this.cz, STORM_COLOR, cfg.arenaRadius, 0.6, 0.45));
+    ctx.shake(0.3);
+    this.sound('gryphon.thunder', this.cx, this.cz);
+    if (!rod) return;
+    ctx.effect(new Lightning(new THREE.Vector3(rod.x + 3, 24, rod.z - 2), rod.top(), BOLT_COLOR, 0.35, 2.4));
+    rod.struck(this.pulsesDone);
+    this.sound('gryphon.rod', rod.x, rod.z, this.pulsesDone);
+  }
+
+  /** The last pulse with you out of the pillar: lightning strikes the whole summit (a failed mechanic). */
+  private thunderstorm(ctx: BossContext): void {
+    const rng = ctx.rng;
+    for (let i = 0; i < 14; i++) {
+      const a = rng() * Math.PI * 2;
+      const r = Math.sqrt(rng()) * cfg.arenaRadius;
+      const x = this.cx + Math.sin(a) * r;
+      const z = this.cz + Math.cos(a) * r;
+      ctx.effect(new Lightning(new THREE.Vector3(x + (rng() - 0.5) * 6, 24, z + (rng() - 0.5) * 6), new THREE.Vector3(x, 0.2, z), BOLT_COLOR, 0.4, 2.2));
     }
-    if (next && this.stormT >= next.fall) {
-      this.mark.hide();
-      this.boltsDone++;
-      if (this.fallBolt(ctx)) return;
-    }
-    if (this.boltsDone >= this.bolts.length && this.stormT >= this.bolts[this.bolts.length - 1].fall + 0.3) this.enter('stormLand');
+    ctx.effect(new Lightning(new THREE.Vector3(ctx.playerX + 2, 24, ctx.playerZ - 1), new THREE.Vector3(ctx.playerX, 0.2, ctx.playerZ), 0xffffff, 0.45, 3));
+    ctx.effect(new Ring(this.cx, this.cz, 0xffffff, cfg.arenaRadius * 1.1, 0.5, 0.7));
+    ctx.shake(0.9);
+    this.sound('gryphon.ground');
+    this.sound('gryphon.thunder', ctx.playerX, ctx.playerZ);
+    if (ctx.playerAlive) ctx.mechanicHit(hell.mechanicHit, this.cx, this.cz, 6, 'Thunderstorm');
+    this.lit = -1;
+    this.enter('stormLand');
   }
 
   /** Two feathers fall round you: one by you (step toward the lit rod), one farther off. */
@@ -779,40 +800,16 @@ export class GalGryphon extends BossBase<GryphonState, Attack> implements Hittab
     }
   }
 
-  /** A bolt falls: into the lit rod if you stand in its reach (true if that grounds it), else onto you. */
-  private fallBolt(ctx: BossContext): boolean {
-    const px = ctx.playerX;
-    const pz = ctx.playerZ;
-    const rod = this.litRod;
-    const drawn = !!rod && ctx.playerAlive && Math.hypot(rod.x - px, rod.z - pz) <= cfg.rodReach;
-    const sky = (x: number, z: number) => new THREE.Vector3(x + (ctx.rng() - 0.5) * 6, 24, z + (ctx.rng() - 0.5) * 6);
-    if (!drawn || !rod) {
-      ctx.effect(new Lightning(sky(px, pz), new THREE.Vector3(px, 0.2, pz), BOLT_COLOR, 0.35, 2.4));
-      ctx.effect(new Pillar(px, pz, BOLT_COLOR, 0.3, 0.6, 12));
-      ctx.shake(0.45);
-      this.sound('gryphon.thunder', px, pz);
-      if (ctx.playerAlive) ctx.mechanicHit(cfg.boltShare, px, pz, 4, 'Storm bolt');
-      return false;
-    }
-    ctx.effect(new Lightning(sky(rod.x, rod.z), rod.top(), BOLT_COLOR, 0.35, 2.4));
-    ctx.effect(new Ring(rod.x, rod.z, BOLT_COLOR, 3.6, 0.4));
-    this.stormCharge++;
-    rod.struck(this.stormCharge);
-    ctx.shake(0.3);
-    this.sound('gryphon.rod', rod.x, rod.z, this.stormCharge);
-    if (this.stormCharge < cfg.rodCharge) return false;
-    this.discharge(rod, ctx);
-    return true;
-  }
-
-  /** The storm's last bolt drawn: the rod arcs into the Gryphon, which crashes beside it, grounded, weak point open. */
+  /** You reached the pillar: the rod arcs into the Gryphon, which crashes beside it, grounded, weak point open. */
   private discharge(rod: Rod, ctx: BossContext): void {
+    this.stormTele?.cancel();
+    this.stormTele = null;
     rod.discharge(this.storms);
-    this.mark.hide();
     this.lit = -1;
     const sky = new THREE.Vector3(this.pos.x, this.alt + 3, this.pos.z);
     ctx.effect(new Lightning(rod.top(), sky, 0xffffff, 0.6, 3.2));
     ctx.effect(new Lightning(rod.top(), sky, BOLT_COLOR, 0.5, 2));
+    ctx.effect(new Ring(rod.x, rod.z, BOLT_COLOR, cfg.rodReach * 1.2, 0.45));
     // Down beside the rod, on its spoke toward the middle.
     const dx = this.cx - rod.x;
     const dz = this.cz - rod.z;

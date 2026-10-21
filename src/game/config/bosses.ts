@@ -552,44 +552,42 @@ export const galGryphon = {
   cycloneAtp: 0.6,
   cycloneKnockback: 14,
   cycloneHitGap: 1.5,
-  /** Phase 2, Crossing Swoop: the first lane as a swoop's; `crossDelay` s in, a second lane across it through you, warned `crossWindup` s (dash check). */
+  /**
+   * Phase 2, Crossing Swoop: the first lane as a swoop's; `crossDelay` s in, a lightning lash across it through you,
+   * warned `crossWindup` s. 1.0 (a dash check) until 2026-10-22, the user: too fast; 1.3 is the swoop's, a walk (enraged
+   * a dash check again).
+   */
   crossDelay: 0.6,
-  crossWindup: 1.0,
+  crossWindup: 1.3,
   // ---- the storm (its signature)
   /**
    * The storm: due `stormFirst` s into the fight, then `stormEvery` s after the last was called, never sooner than
-   * `stormAfterUp` s after it is back on its feet. It rises into the clouds (can't be hit) and every rod's reach
-   * lights; the first bolt lands `stormLead` s after the call (never under `stormLeadFloor` real seconds), then one every
-   * `boltGap` s, each marked on you `boltWarn` s before (a `boltMark` m ring that follows you). In a usable rod's reach
-   * the bolt bends into the rod (+1); anywhere else it strikes you for `boltShare` of your max HP (a failed mechanic,
-   * past armour: three is about the usual 80%).
+   * `stormAfterUp` s after it is back on its feet. It rises into the clouds (can't be hit) and lights one rod (a pillar
+   * of light its reach wide). It pulses `pulses` times, every `pulseGap` s (never under `pulseFloor` real seconds apart):
+   * the first ones do nothing, the last is the thunderstorm, the whole summit struck for `hell.mechanicHit` of your max
+   * HP (a failed mechanic, past armour). Step into the lit rod's pillar at any point and the pulses stop: it discharges
+   * into the Gryphon. The lit rod is one whose reach you can walk to with `stormSpare` real seconds left before the last
+   * pulse. (2026-10-22, the user's design: the pulses replaced the bolts on you, 27% each unless drawn into a rod.)
    */
   stormFirst: 10,
   stormEvery: 22,
   stormAfterUp: 9,
-  stormLead: 2.5,
-  stormLeadFloor: 2.3,
-  boltWarn: 1.0,
-  /** 1.8 while the storm was a relay (2026-10-21 to 10-22: the run from one rod to the next had to fit between bolts). */
-  boltGap: 1.4,
-  bolts: 3,
-  bolts2: 4,
-  boltMark: 2,
-  boltShare: 0.27,
-  /** Phase 2 storms: a gale pushes you away from the middle (m/s) from the call to the last bolt. */
+  pulses: 3,
+  pulseGap: 1.3,
+  pulseFloor: 1.0,
+  stormSpare: 1.0,
+  /** Phase 2 storms: a gale pushes you away from the middle (m/s) from the call until you reach the pillar (or the thunderstorm). */
   galePush: 2,
   /**
-   * Rods: `rodCount` round the summit `rodRing` m out (30° off north first), each drawing bolts within `rodReach` m.
-   * A storm lights one rod, at random among the usable ones you can walk to in the lead, and only it draws the bolts
-   * (2026-10-22, the user: one rod to get to, not a relay from one to the next). `rodCharge` bolts drawn fill it: it
-   * discharges into the Gryphon, which crashes `rodLand` m inside it, grounded for `groundedTime` s (about 7 real
-   * seconds at a rift's tempo). A rod that fired is scorched for the next storm (never lit).
+   * Rods: `rodCount` round the summit `rodRing` m out (30° off north first), its pillar `rodReach` m wide. A storm
+   * lights one, at random among the usable ones you can walk to (never the one you stand by, while another is in
+   * reach); step into its pillar and it discharges into the Gryphon, which crashes `rodLand` m inside it, grounded for
+   * `groundedTime` s (about 7 real seconds at a rift's tempo). A rod that fired is scorched for the next storm (never lit).
    */
   rodCount: 6,
   rodRing: 11,
   rodReach: 3.5,
   rodR: 0.9,
-  rodCharge: 3,
   rodLand: 5.5,
   groundedTime: 8,
   /** With no rod filled, it comes back down in the middle this long after the last bolt. */

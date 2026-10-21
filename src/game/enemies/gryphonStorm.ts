@@ -1,11 +1,12 @@
 import * as THREE from 'three';
-import { galGryphon as cfg } from '../config';
+import { galGryphon as cfg, player as playerCfg } from '../config';
 import { mat, part } from '../models/Rig';
 import { glowDecal, glowSprite, glowTexture } from '../world/glow';
 import type { TreeCollider } from '../world/Level';
 
 // Gal Gryphon's storm and its sparks (see GalGryphon and DESIGN.md "Gal Gryphon"): the six lightning rods round Storm
-// Peak, the one each storm lights, when the bolts fall, the ring that marks the next bolt on you, where its feathers fall, the layouts of its paired and triple attacks (each with its way out), and the
+// Peak, the one each storm lights (step into its pillar of light before the third pulse), when the pulses come, where its
+// feathers fall, the layouts of its paired and triple attacks (each with its way out), and the
 // sparks that drift through the arena all fight long. A rod that grounded it is scorched for the storm after. Pure
 // rules first, so they can be tested without the boss.
 
@@ -48,14 +49,19 @@ export function rodWalk(rods: readonly RodState[], x: number, z: number, storm: 
   return best;
 }
 
-/** Boss seconds from the call to the first bolt: `lead`, but never under `floor` real seconds at a rift's tempo. */
-export function stormLead(tempo: number, lead = cfg.stormLead, floor = cfg.stormLeadFloor): number {
-  return Math.max(lead, floor * tempo);
+/**
+ * A storm's pulses, in boss seconds from the call: every `gap` s (never under `floor` real seconds apart at a rift's
+ * tempo), the last one the thunderstorm.
+ */
+export function pulseTimes(tempo: number, n = cfg.pulses, gap = cfg.pulseGap, floor = cfg.pulseFloor): number[] {
+  const g = Math.max(gap, floor * tempo);
+  return Array.from({ length: n }, (_, i) => g * (i + 1));
 }
 
-/** A storm's bolts, in boss seconds from the call: when each is marked on you and when it falls. */
-export function boltSchedule(n: number, lead: number, warn = cfg.boltWarn, gap = cfg.boltGap): { mark: number; fall: number }[] {
-  return Array.from({ length: n }, (_, i) => ({ mark: lead - warn + i * gap, fall: lead + i * gap }));
+/** How far (m) the lit rod's reach can be from you: a walk to it with `cfg.stormSpare` s left before the last pulse. */
+export function stormWalk(tempo: number): number {
+  const times = pulseTimes(tempo);
+  return playerCfg.moveSpeed * Math.max(0, times[times.length - 1] / tempo - 0.35 - cfg.stormSpare);
 }
 
 // ------------------------------------------------------------------ the lit rod
@@ -75,12 +81,15 @@ export function nearestRod(rods: readonly RodState[], x: number, z: number, stor
 }
 
 /**
- * The rod a storm lights: at random among the usable ones whose reach (x, z) can walk to (`walk` m), so getting there
- * is the task (2026-10-22, the user's call: one rod a storm, no relay); -1 if none is in reach (the storm waits).
+ * The rod a storm lights: at random among the usable ones whose reach (x, z) can walk to (`walk` m), never the one you
+ * stand by while another is in reach, so getting there is the task (2026-10-22, the user's call: one rod a storm, no
+ * relay); -1 if none is in reach (the storm waits).
  */
 export function stormRod(rods: readonly RodState[], x: number, z: number, storm: number, walk: number, rng: () => number, reach = cfg.rodReach): number {
   const ok = rods.map((_, i) => i).filter((i) => rodUsable(rods[i], storm) && Math.max(0, Math.hypot(rods[i].x - x, rods[i].z - z) - reach) <= walk);
-  return ok.length ? ok[Math.floor(rng() * ok.length)] : -1;
+  const away = ok.filter((i) => Math.hypot(rods[i].x - x, rods[i].z - z) > reach);
+  const pool = away.length ? away : ok;
+  return pool.length ? pool[Math.floor(rng() * pool.length)] : -1;
 }
 
 // ------------------------------------------------------------------ attack layouts
@@ -226,6 +235,8 @@ export class Rod implements RodState {
   private flash = 0;
   /** Its own materials, so it alone can turn see-through while you stand by it (`seeThrough`). */
   private solid: THREE.Material[] = [];
+  /** The pillar of light that stands on it while it is the storm's lit rod: step into it. */
+  private column: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial>;
 
   constructor(readonly x: number, readonly z: number) {
     this.collider = { x, z, r: cfg.rodR };
@@ -264,7 +275,13 @@ export class Rod implements RodState {
       new THREE.MeshBasicMaterial({ color: LIT, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }),
     );
     this.fill.position.y = 0.035;
-    this.group.add(this.ring, this.fill);
+    this.column = new THREE.Mesh(
+      new THREE.CylinderGeometry(cfg.rodReach, cfg.rodReach, 22, 40, 1, true),
+      new THREE.MeshBasicMaterial({ color: LIT, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
+    );
+    this.column.position.y = 11;
+    this.column.visible = false;
+    this.group.add(this.ring, this.fill, this.column);
     // Smoke puffs while it is scorched.
     const smokeMat = new THREE.MeshBasicMaterial({ color: 0x3a3a40, transparent: true, opacity: 0.5, depthWrite: false });
     for (let i = 0; i < 4; i++) {
@@ -281,9 +298,9 @@ export class Rod implements RodState {
     return out.set(this.x, 6.6, this.z);
   }
 
-  /** A bolt bent into it; the storm's charge now stands at `charge`. */
+  /** A pulse of the storm into it: `charge` of its coils now lit (one a pulse). */
   struck(charge: number): void {
-    this.charge = Math.min(cfg.rodCharge, charge);
+    this.charge = Math.min(cfg.pulses, charge);
     this.flash = 1;
   }
 
@@ -320,8 +337,10 @@ export class Rod implements RodState {
       m.emissiveIntensity = i < this.charge ? 1.6 + pulse * 0.6 : 0.05 + this.flash;
     });
     this.bulb.emissive.setHex(usable ? LIT : SCORCHED);
-    this.bulb.emissiveIntensity = (usable ? 0.2 + (this.charge / cfg.rodCharge) * 1.2 : 0.1) + (on && usable ? 0.6 * pulse : 0) + this.flash * 2;
-    this.halo.material.opacity = Math.min(1, (on && usable ? 0.35 + 0.25 * pulse : 0) + (this.charge / cfg.rodCharge) * 0.4 + this.flash);
+    this.bulb.emissiveIntensity = (usable ? 0.2 + (this.charge / cfg.pulses) * 1.2 : 0.1) + (on && usable ? 0.6 * pulse : 0) + this.flash * 2;
+    this.halo.material.opacity = Math.min(1, (on && usable ? 0.35 + 0.25 * pulse : 0) + (this.charge / cfg.pulses) * 0.4 + this.flash);
+    this.column.visible = on;
+    this.column.material.opacity = on ? 0.16 + 0.08 * pulse + this.flash * 0.25 : 0;
     this.ring.material.color.setHex(usable ? LIT : SCORCHED);
     this.ring.material.opacity = !usable ? 0.08 : role === 'lit' ? 0.7 + 0.25 * pulse : role === 'idle' ? 0.07 : 0.14;
     this.fill.material.color.setHex(usable ? LIT : SCORCHED);
@@ -360,43 +379,6 @@ export class LightningRods {
 
   seeThrough(dt: number, px: number, pz: number): void {
     for (const r of this.list) r.seeThrough(dt, px, pz);
-  }
-}
-
-/** The ring that marks the next bolt on you: it follows you and fills as the bolt comes (cyan; amber when it will strike you). */
-export class BoltMark {
-  readonly group = new THREE.Group();
-  private ring: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
-  private disc: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
-
-  constructor() {
-    this.ring = new THREE.Mesh(
-      new THREE.RingGeometry(cfg.boltMark - 0.14, cfg.boltMark, 40).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: LIT, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }),
-    );
-    this.disc = new THREE.Mesh(
-      new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: LIT, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending }),
-    );
-    this.ring.position.y = 0.07;
-    this.disc.position.y = 0.065;
-    this.group.add(this.ring, this.disc);
-    this.group.visible = false;
-  }
-
-  /** `k`: 0..1 of its warning; `safe`: you stand in a usable reach (it will bend into the rod). */
-  show(x: number, z: number, k: number, safe: boolean, time: number): void {
-    this.group.visible = true;
-    this.group.position.set(x, 0, z);
-    const col = safe ? LIT : 0xffc040;
-    this.ring.material.color.setHex(col);
-    this.disc.material.color.setHex(col);
-    this.ring.material.opacity = 0.65 + 0.3 * Math.sin(time * 20);
-    this.disc.scale.setScalar(Math.max(0.01, cfg.boltMark * k));
-  }
-
-  hide(): void {
-    this.group.visible = false;
   }
 }
 
