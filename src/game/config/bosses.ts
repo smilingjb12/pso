@@ -831,11 +831,11 @@ export const barbaRay = {
   ulRadius: 1.2,
   // ---- phase 3: the Deep
   /**
-   * Air (real seconds): `airMax` from full; in a vent's bubbles it refills `airRefill` s' worth a second; out of air you
-   * lose `airShare` of your max HP a second (in ticks, like the water).
+   * Air (real seconds; 2026-10-22, the user: a buff over your head with its timer): `airMax` from full, running down;
+   * stepping into a flowing vent's bubbles fills it again at once. Run out and it turns into Drowning: you lose
+   * `airShare` of your max HP a second (in ticks, like the water) until you reach a vent.
    */
   airMax: 10,
-  airRefill: 5,
   airShare: 0.2,
   /**
    * Vents: four `ventInner` m out (between the axes) and four `ventOuter` m out (on them), `ventRadius` m across;
@@ -874,13 +874,16 @@ export const barbaRay = {
   /**
    * Ink mark (2026-10-22, the user's idea): `inkFirst` s into the Deep, then every `inkEvery` s, it marks you for
    * `inkMark` s (shown over your head, the pool's size round your feet); as the mark runs out an ink pool `inkRadius` m
-   * round spreads where you stand and stays `inkLife` s. In one you lose `inkShare` of your max HP a second (in ticks,
-   * like the water), and a vent under one gives no air: carry the mark away from the vents.
+   * round (about a third of the court, the user's ask) spreads where you stand, settling over `inkSettle` s: harmless
+   * till then, so a dash and a walk get you out of it. Up to `inkMax` stay down, the next one taking the oldest away
+   * (the user's ask). In one you lose `inkShare` of your max HP a second (in ticks, like the water), and a vent under one
+   * gives no air: carry the mark to a part of the court you can spare.
    */
   inkFirst: 5,
   inkEvery: 15,
   inkMark: 6,
-  inkRadius: 3,
-  inkLife: 20,
+  inkRadius: 9.2,
+  inkSettle: 2,
+  inkMax: 3,
   inkShare: 0.08,
 };

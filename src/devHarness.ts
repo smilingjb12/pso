@@ -12,7 +12,7 @@ import { ARTS } from './game/data/arts';
 import { fightLog } from './game/fightLog';
 
 export function installHarness(game: any): void {
-  // Pointer lock can't be granted to scripted input; failed requests would re-show the pause overlay.
+  // Pointer lock can't be granted to scripted input; don't keep asking for it.
   // Only stub it once a script starts driving the game, so normal play keeps working.
   let scripted = false;
   const takeOver = () => {

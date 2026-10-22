@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type GUI from 'lil-gui';
-import { initAudio, music, setListener, setMuffled, setSpace, sfx, type SfxId } from '../audio';
+import { initAudio, music, setListener, setSpace, sfx, type SfxId } from '../audio';
 import { Input } from '../engine/Input';
 import { Hud, type DebuffView, type HudState, type PaletteSlotView } from '../ui/Hud';
 import { techIcon, weaponIcon } from '../ui/icons';
@@ -84,8 +84,8 @@ const noTelegraph = { cancel: () => {} };
 /** Each weapon kind's bolt sound. */
 const ATTACK_SFX: Record<WeaponKind, SfxId> = { rod: 'swing.blunt', wand: 'swing.blunt' };
 
-/** The bar colour of each boss mark over the player's head (Barba Ray's ink). */
-const MARK_COLOR: Record<string, string> = { ink: '#8f9bff' };
+/** The bar colour of each boss mark over the player's head (Barba Ray's air, Drowning and ink). */
+const MARK_COLOR: Record<string, string> = { air: '#9fe8ff', drown: '#ff5a40', ink: '#8f9bff' };
 
 /** Barba Ray's Deep: what the fog and light blend to (see applyDepth). */
 const DEPTH_FOG = new THREE.Color(DEEP_COLOR);
@@ -122,9 +122,8 @@ export class Game implements GameApi {
   private savePending = false;
   private saveClock = 0;
   private saveFailed = false;
-  /** When Esc (losing the mouse) last opened the inventory, and the "Click to resume" prompt's grace timer. */
+  /** When Esc (or losing the mouse) last opened the inventory. */
   private invOpenedAt = -Infinity;
-  private resumeTimer = 0;
   private player: Player;
   private world: World | null = null;
   /** The run of the expedition you're in (or were last in). */
@@ -182,7 +181,6 @@ export class Game implements GameApi {
   private enemyCtx: EnemyContext;
   private cues = new AudioCues();
   private wasInWindow = false;
-  private muffled = false;
   private bossMusic = false;
   /** Counts down after a boss kill, then the area's music comes back. */
   private victoryT = -1;
@@ -232,14 +230,10 @@ export class Game implements GameApi {
     this.hud.visible = false;
     this.menus = new MenuLayer(container);
 
-    // Esc (the browser takes the mouse back) opens the inventory in place of a pause screen (2026-10-22, the user); Esc
-    // again closes it and puts you back in the game. So does losing the mouse any other way (another window).
+    // The inventory is the only pause screen (2026-10-22, the user). Esc (the browser takes the mouse back) opens it, and
+    // Esc again closes it and puts you back in the game; so does losing the mouse any other way (another window).
     this.input.onLockChange = (locked) => {
-      if (!locked && this.playing && !this.menus.isOpen && this.player.alive) {
-        this.invOpenedAt = performance.now();
-        this.openMenu(new InventoryMenu(this));
-      }
-      this.updateOverlay();
+      if (!locked) this.pauseToInventory();
     };
     container.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
@@ -454,6 +448,9 @@ export class Game implements GameApi {
       } else if (e.code === 'Escape' && this.menus.isOpen && this.menus.menu?.closable) {
         // The Esc that just opened the inventory (if the browser passes it on too) doesn't close it again.
         if (performance.now() - this.invOpenedAt > 250) this.closeMenu();
+      } else if (e.code === 'Escape') {
+        // Playing without the mouse (the browser wouldn't give it back as the inventory closed): Esc still opens it.
+        this.pauseToInventory();
       } else if (e.code === 'KeyI' && this.playing) {
         if (this.menus.menu instanceof InventoryMenu) this.closeMenu();
         else if (!this.menus.isOpen && this.player.alive) this.openMenu(new InventoryMenu(this));
@@ -473,8 +470,19 @@ export class Game implements GameApi {
 
   // ================================================================ flow
 
+  /**
+   * A menu is up (the inventory is the pause screen). Without the mouse the game goes on (the browser can refuse it
+   * right after an Esc): mouse buttons wait for it, and a click takes it back.
+   */
   private get paused(): boolean {
-    return !this.playing || this.menus.isOpen || !this.input.locked;
+    return !this.playing || this.menus.isOpen;
+  }
+
+  /** Pause: the inventory, unless a menu is already up or she is down. */
+  private pauseToInventory(): void {
+    if (!this.playing || this.menus.isOpen || !this.player.alive) return;
+    this.invOpenedAt = performance.now();
+    this.openMenu(new InventoryMenu(this));
   }
 
   get inField(): boolean {
@@ -525,7 +533,6 @@ export class Game implements GameApi {
   private openMenu(menu: Menu): void {
     this.menus.open(menu);
     if (document.pointerLockElement) document.exitPointerLock();
-    this.updateOverlay();
   }
 
   closeMenu(): void {
@@ -537,22 +544,8 @@ export class Game implements GameApi {
     this.player.tp = Math.min(this.player.tp, this.player.maxTp);
     if (this.player.alive) this.autosave();
     if (this.playing) this.input.requestLock();
-    this.updateOverlay();
   }
 
-  /**
-   * Out of the game with no menu up: the browser refused to take the mouse back as a menu closed (it can, right after
-   * an Esc), or the player is down. Just a prompt to click back in (the old pause panel's controls and tips are gone,
-   * 2026-10-22, the user), after a moment's grace, since closing a menu takes the mouse back by itself.
-   */
-  private updateOverlay(): void {
-    clearTimeout(this.resumeTimer);
-    this.hud.showOverlay(null);
-    if (!this.playing || this.menus.isOpen || this.input.locked) return;
-    this.resumeTimer = window.setTimeout(() => {
-      if (this.playing && !this.menus.isOpen && !this.input.locked) this.hud.showOverlay('<div class="panel win"><p class="resume">Click to resume</p></div>');
-    }, 300);
-  }
 
   quitToTitle(): void {
     this.save();
@@ -888,9 +881,6 @@ export class Game implements GameApi {
       this.renderer.setClearColor(0x0b1020);
       this.renderer.clear();
     }
-    // The pause screen muffles the music (menus don't: PSO kept playing under them).
-    const muffle = this.playing && !this.menus.isOpen && !this.input.locked;
-    if (muffle !== this.muffled) setMuffled((this.muffled = muffle));
     this.input.endFrame();
   }
 
@@ -1796,7 +1786,6 @@ export class Game implements GameApi {
     this.menus.close();
     go();
     this.input.requestLock();
-    this.updateOverlay();
   }
 
   /** A Gauntlet being held: its clock, then what's left to clear. */
@@ -2347,7 +2336,7 @@ export class Game implements GameApi {
     if (p.corruption > 0) statuses.push({ label: `CORRUPT ×${p.corruption} · ${p.inLight ? 'LIGHT' : p.corruptTimer > 0 ? `${Math.ceil(p.corruptTimer)}s` : 'FADING'}`, cls: 'corrupt' });
     // Over her head (2026-10-22): the boss's own marks only (Barba Ray's ink), an icon and a bar of what is left each.
     const debuffs: DebuffView[] = [];
-    for (const m of boss?.alive ? (boss.marks ?? []) : []) debuffs.push({ key: m.key, k: m.left / m.total, text: `${Math.ceil(m.left)}s`, color: MARK_COLOR[m.key] ?? '#ffffff' });
+    for (const m of boss?.alive ? (boss.marks ?? []) : []) debuffs.push({ key: m.key, k: m.left / m.total, text: m.text ?? `${Math.ceil(m.left)}s`, color: MARK_COLOR[m.key] ?? '#ffffff' });
     if (p.burnStacks > 0) statuses.push({ label: `BURN ×${p.burnStacks}${p.moving ? '' : ' · MOVE'}`, cls: 'burn' });
     if (p.poison > 0) statuses.push({ label: `POISON ${Math.ceil(p.poison)}s`, cls: 'poison' });
     if (p.paralysis > 0) statuses.push({ label: `PARALYSIS ${p.paralysis.toFixed(1)}s`, cls: 'para' });
@@ -2423,7 +2412,6 @@ export class Game implements GameApi {
       injector,
       dash: { charges: p.dashCharges, max: p.maxDashCharges, refill: p.dashRefill },
       photonBlast: this.photonBlastName() ? { name: this.photonBlastName()!, charge: p.pb } : null,
-      air: boss?.alive ? (boss.air ?? null) : null,
       debuffs,
       head: this.tmpHead.copy(p.pos).setY(2.5),
     };

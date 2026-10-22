@@ -50,7 +50,7 @@ export class Input {
   }
 
   requestLock(): void {
-    // Can reject (e.g. Chrome's cooldown right after Esc); the pause overlay handles retrying.
+    // Can reject (e.g. Chrome's cooldown right after Esc); the game goes on and the next click takes the mouse back.
     const p = this.canvas.requestPointerLock() as unknown as Promise<void> | undefined;
     p?.catch?.(() => {});
   }

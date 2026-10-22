@@ -843,40 +843,51 @@ export interface InkPool {
   t: number;
 }
 
-/** It spreads to its full size over this long (its clock). */
-const INK_SPREAD = 0.5;
+/** A pool's radius now: spreading out while it settles, then full. */
+export const inkRadiusOf = (p: InkPool): number => cfg.inkRadius * Math.min(1, p.t / cfg.inkSettle);
 
-/** A pool's radius now: spreading out, then full. */
-export const inkRadiusOf = (p: InkPool): number => cfg.inkRadius * Math.min(1, p.t / INK_SPREAD);
+/** Is (x, z) in a settled pool (a body `r` m round counts if it overlaps)? Spreading ones don't hurt yet. */
+export const inInk = (ps: readonly InkPool[], x: number, z: number, r = 0): boolean =>
+  ps.some((p) => p.t >= cfg.inkSettle && Math.hypot(p.x - x, p.z - z) <= cfg.inkRadius + r);
 
-/** Is (x, z) in a pool (a body `r` m round counts if it overlaps)? */
-export const inInk = (ps: readonly InkPool[], x: number, z: number, r = 0): boolean => ps.some((p) => Math.hypot(p.x - x, p.z - z) <= inkRadiusOf(p) + r);
+/** How long a pool pushed out by a new one takes to fade away (s). */
+const INK_FADE = 0.6;
 
 /**
- * The Deep's ink: the pools a run-out ink mark leaves, glossy black with a violet rim, and while you are marked a ring
- * round your feet as big as the pool will be (steady, brighter as the mark runs out).
+ * The Deep's ink: the pools run-out ink marks leave, glossy black with an indigo rim (paler while they spread and
+ * settle), up to `inkMax` of them, the next taking the oldest away; and while you are marked a ring round your feet as
+ * big as the pool will be (steady, brighter as the mark runs out).
  */
 export class InkPools {
   readonly group = new THREE.Group();
+  /** The pools down (oldest first). */
   readonly list: InkPool[] = [];
+  /** Pools pushed out, fading away: where, and for how long. */
+  private fading: { p: InkPool; t: number }[] = [];
   private meshes: { disc: THREE.Mesh<THREE.CircleGeometry, THREE.MeshStandardMaterial>; rim: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> }[] = [];
   private markRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
 
   constructor() {
     this.markRing = new THREE.Mesh(
-      new THREE.RingGeometry(cfg.inkRadius - 0.15, cfg.inkRadius, 56).rotateX(-Math.PI / 2),
+      new THREE.RingGeometry(cfg.inkRadius - 0.2, cfg.inkRadius, 72).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({ color: 0x8f9bff, transparent: true, opacity: 0, depthWrite: false }),
     );
     this.markRing.visible = false;
     this.group.add(this.markRing);
   }
 
-  add(x: number, z: number): void {
+  /** A new pool; past `inkMax` the oldest goes (returned, to mark its going). */
+  add(x: number, z: number): InkPool | null {
     this.list.push({ x, z, t: 0 });
+    if (this.list.length <= cfg.inkMax) return null;
+    const old = this.list.shift()!;
+    this.fading.push({ p: old, t: 0 });
+    return old;
   }
 
   clear(): void {
     this.list.length = 0;
+    this.fading.length = 0;
   }
 
   /** The marked one's feet (null: no mark), and how much of the mark has run (0..1). */
@@ -887,36 +898,41 @@ export class InkPools {
     this.markRing.material.opacity = 0.35 + 0.5 * Math.min(1, k);
   }
 
-  /** Age them (its clock), drop the dried ones, and draw the rest. */
+  /** Age them (its clock) and draw them, the fading ones too. */
   update(dt: number): void {
-    for (let i = this.list.length - 1; i >= 0; i--) {
-      this.list[i].t += dt;
-      if (this.list[i].t >= cfg.inkLife) this.list.splice(i, 1);
+    for (const p of this.list) p.t += dt;
+    for (let i = this.fading.length - 1; i >= 0; i--) {
+      this.fading[i].t += dt;
+      if (this.fading[i].t >= INK_FADE) this.fading.splice(i, 1);
     }
-    while (this.meshes.length < this.list.length) {
+    // The fading ones going out, the settling ones paler (they don't hurt yet), the rest full.
+    const shown: { p: InkPool; k: number; rim: number }[] = [
+      ...this.fading.map((f) => ({ p: f.p, k: 1 - f.t / INK_FADE, rim: 1 - f.t / INK_FADE })),
+      ...this.list.map((p) => ({ p, k: p.t >= cfg.inkSettle ? 1 : 0.55, rim: 1 })),
+    ];
+    while (this.meshes.length < shown.length) {
       const disc = new THREE.Mesh(
-        new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2),
+        new THREE.CircleGeometry(1, 64).rotateX(-Math.PI / 2),
         new THREE.MeshStandardMaterial({ color: 0x140c28, emissive: 0x2a1a5a, emissiveIntensity: 0.4, roughness: 0.15, metalness: 0.3, transparent: true, opacity: 0.92, depthWrite: false }),
       );
       const rim = new THREE.Mesh(
-        new THREE.RingGeometry(0.94, 1, 48).rotateX(-Math.PI / 2),
+        new THREE.RingGeometry(0.97, 1, 72).rotateX(-Math.PI / 2),
         new THREE.MeshBasicMaterial({ color: 0x8f9bff, transparent: true, opacity: 0.6, depthWrite: false }),
       );
       this.meshes.push({ disc, rim });
       this.group.add(disc, rim);
     }
     this.meshes.forEach((m, i) => {
-      const p = this.list[i];
-      m.disc.visible = m.rim.visible = !!p;
-      if (!p) return;
-      const r = Math.max(0.01, inkRadiusOf(p));
-      const fade = Math.min(1, (cfg.inkLife - p.t) / 1.5);
-      m.disc.position.set(p.x, 0.03 + i * 0.002, p.z);
+      const s = shown[i];
+      m.disc.visible = m.rim.visible = !!s;
+      if (!s) return;
+      const r = Math.max(0.01, inkRadiusOf(s.p));
+      m.disc.position.set(s.p.x, 0.03 + i * 0.002, s.p.z);
       m.disc.scale.setScalar(r);
-      m.disc.material.opacity = 0.92 * fade;
-      m.rim.position.set(p.x, 0.035 + i * 0.002, p.z);
+      m.disc.material.opacity = 0.92 * s.k;
+      m.rim.position.set(s.p.x, 0.035 + i * 0.002, s.p.z);
       m.rim.scale.setScalar(r);
-      m.rim.material.opacity = 0.6 * fade;
+      m.rim.material.opacity = 0.6 * s.rim;
     });
   }
 }

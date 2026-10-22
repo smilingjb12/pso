@@ -878,11 +878,13 @@ Agreed 2026-10-05: everything **synthesized in code with the Web Audio API**, wi
 - **SFX: about 90 sounds in four groups** (combat, enemies & bosses, world & loot, UI), plus jingles (level up,
   room clear, victory, death, Mag evolution). World sounds are panned and attenuated relative to the player and
   camera. Footsteps follow the run cycle and the area surface (metal deck, grass, stone, wooden raft). Caves
-  have a bigger reverb. The "Click to resume" prompt muffles the music; menus don't (PSO kept playing under them).
-- **Esc opens the inventory** (2026-10-22, the user): losing the mouse (Esc, or another window) while playing opens
-  the inventory in place of the old pause panel (its controls table and tips are gone); Esc again closes it and takes
-  the mouse back. If the browser refuses (it can, right after an Esc), a small "Click to resume" shows after a moment.
-  The inventory's Close button reads `Esc` (I still toggles it too).
+  have a bigger reverb. Menus don't muffle the music (PSO kept playing under them); there is no other pause screen.
+- **Esc opens the inventory** (2026-10-22, the user): **the inventory is the only pause screen.** Losing the mouse
+  (Esc, or another window) while playing opens it in place of the old pause panel (its controls table and tips are
+  gone); Esc again closes it and takes the mouse back. If the browser refuses the mouse (it can, right after an Esc),
+  the game simply goes on: keys work, mouse buttons wait, and a click takes the mouse back; Esc opens the inventory
+  again. (A "Click to resume" prompt for that case lasted an hour: the user wants no other pause screen.) The
+  inventory's Close button reads `Esc` (I still toggles it too).
 - **No volume or mute UI** (by request). The lil-gui tuning panel has master / music / sfx sliders for development.
 - **Sound Lab:** `/soundlab.html` lists every sound with 2-3 labelled variants to audition, and every track with
   a calm / battle toggle. Picks are saved in the browser and the game uses them live; "Copy SOUND_PICKS" gives
@@ -2051,10 +2053,11 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
   round the court (hiding the sky and the islets), the surface shimmering overhead, shafts of light, motes drifting up,
   and the world's fog and light blended to deep water (`Boss.depth`, `Game.applyDepth`: fog closing in to 4-44 m, the
   sun dimmed, the sky light blue). When it dies the court comes back up.
-  - **Air** (the signature; "Under the sea: breathe in the bubbles!"): an **AIR gauge** under TP (`Boss.air`,
-    `HudState.air`; amber below 30%, steady): **10 s** of air from full, draining a second a second; standing in a
-    **flowing vent's bubbles** refills 5 s' worth a second. Out of air you lose **20% of your max HP a second** (like the
-    water). **Vents**: eight spots (four 6 m out between the axes, four 12 m out on them), **two flowing at a time**,
+  - **Air** (the signature; "Under the sea: breathe in the bubbles!"): **a buff over your head with its timer**
+    (2026-10-22, the user; it was an AIR gauge under TP): bubbles and a pale aqua bar, **10 s** of air from full,
+    running down; **step into a flowing vent's bubbles and it is full again at once**. Run out and it turns into
+    **Drowning** (a bubble struck through in red, a red bar): you lose **20% of your max HP a second** (like the water)
+    until you reach a vent, where it turns back into your air, full ("Drowning! Get to the bubbles!" the first time). **Vents**: eight spots (four 6 m out between the axes, four 12 m out on them), **two flowing at a time**,
     each for 8 s; 1.6 s before one stops, the next (a random one) stirs up (a few bubbles, no air yet) and flows the
     moment it stops.
   - It swims 3.5 m over the floor (you walk under it) and attacks, one at a time:
@@ -2067,10 +2070,12 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
       a vent you were breathing in is suddenly behind you.
   - **Ink mark** (2026-10-22, the user's idea): 5 s into the Deep, then every 15 s, it marks you for 6 s (~5 real
     seconds): over your head an ink drop and an indigo bar running down, and round your feet a ring as big as the pool
-    will be. As it runs out **an ink pool 3 m round spreads where you stand** and stays 20 s: in it you lose **8% of
-    your max HP a second** (ticks, like the water), and **a vent under a pool gives no air** (its bubbles nearly stop):
-    carry the mark away from the vents ("Ink mark! Carry it away from the vents!" the first time). Glossy black with an
-    indigo rim, so they read on the pale floor.
+    will be. As it runs out **an ink pool 9.2 m round, about a third of the court** (the user's ask; it was 3 m), spreads
+    where you stand and settles over 2 s (paler, harmless till then: a dash and a walk get you out of it). **Pools stay
+    down, up to three: the fourth takes the first away** (the user's ask; they used to dry up in 20 s). In one you lose
+    **8% of your max HP a second** (ticks, like the water), and **a vent under a pool gives no air** (its bubbles nearly
+    stop): carry the mark to a part of the court you can spare ("Ink mark! Carry it away from the vents!" the first
+    time). Glossy black with an indigo rim, so they read on the pale floor.
   - **Enraged** (below 15%, the Deep only): windups ×0.8 (the dive never cut).
 - **Readability** (the user's first look, 2026-10-22: the pale pink and teal lanes were hard to see, the platforms'
   pulsing rings distracting). The court's telegraphs keep the usual style, ×1.25 as opaque (the bright floor washes
@@ -2109,7 +2114,7 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
   dead Ul Ray is replaced, the Deep's air drains and refills and drowns you when out, a dive leaves it stuck, and the
   court comes back up when it dies), `riftMap.test.ts`, `riftUniques.test.ts`. In the game (test character,
   invincible, the debug warp): a clutch landing and its stun, the tide coming in, a surge with Ul Rays and sinking
-  platforms, the change into the Deep and the Deep's look, the AIR gauge, a dive's warning, and a scripted run from
+  platforms, the change into the Deep and the Deep's look, the air over your head, a dive's warning, and a scripted run from
   waking to the kill through all three phases with no errors (at a steady 0.5% of its HP a second: the Brood ~86 s,
   High Tide ~80 s, the Deep ~64 s). Since then (2026-10-22): the broods (one for each egg broken but the last, the
   last calling them off; three stacked from a hatched clutch), the ink pools and smothered vents in

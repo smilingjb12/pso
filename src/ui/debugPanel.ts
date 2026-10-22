@@ -553,7 +553,6 @@ export function createDebugPanel(actions: DebugActions): GUI {
   br.add(barbaRay, 'ulDive', 0.1, 1.5, 0.05).name('Ul Ray dive (last s of the warning)');
   // The Deep
   br.add(barbaRay, 'airMax', 2, 30, 0.5).name('air (s)');
-  br.add(barbaRay, 'airRefill', 0.5, 20, 0.5).name('air refill (s of air a second)');
   br.add(barbaRay, 'airShare', 0, 1, 0.01).name('out of air: max HP a second');
   br.add(barbaRay, 'ventLife', 2, 20, 0.5).name('a vent flows for (s)');
   br.add(barbaRay, 'ventStir', 0.2, 5, 0.1).name('a vent stirs first (s)');
@@ -565,8 +564,9 @@ export function createDebugPanel(actions: DebugActions): GUI {
   br.add(barbaRay, 'inkFirst', 0, 30, 1).name('first ink mark (s into the Deep)');
   br.add(barbaRay, 'inkEvery', 3, 60, 1).name('ink mark every (s)');
   br.add(barbaRay, 'inkMark', 1, 15, 0.5).name('ink mark lasts (s)');
-  br.add(barbaRay, 'inkRadius', 1, 8, 0.25).name('ink pool radius (m)');
-  br.add(barbaRay, 'inkLife', 2, 60, 1).name('ink pool lasts (s)');
+  br.add(barbaRay, 'inkRadius', 1, 14, 0.25).name('ink pool radius (m)');
+  br.add(barbaRay, 'inkSettle', 0, 5, 0.1).name('ink pool settles in (s)');
+  br.add(barbaRay, 'inkMax', 1, 6, 1).name('ink pools at once');
   br.add(barbaRay, 'inkShare', 0, 0.5, 0.01).name('ink: max HP a second');
   br.close();
 

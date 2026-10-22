@@ -147,6 +147,19 @@ export function statusIcon(kind: string): string {
       );
     case 'burn':
       return svg(`<path d="M24 3 C30 13 38 18 36 30 C35 40 28 45 24 45 C18 45 11 40 12 30 C13 22 19 20 20 12 C23 17 25 18 24 3 Z" fill="#ff7a20"/><path d="M24 22 C27 28 31 31 29 37 C27 42 21 42 19 37 C18 32 22 30 24 22 Z" fill="#ffd040"/>`);
+    case 'air':
+      // Bubbles rising.
+      return svg(
+        `<circle cx="20" cy="32" r="10" fill="#9fe8ff" fill-opacity=".35" stroke="#dff8ff" stroke-width="3"/>` +
+          `<circle cx="32" cy="16" r="6.5" fill="#9fe8ff" fill-opacity=".35" stroke="#dff8ff" stroke-width="3"/>` +
+          `<circle cx="14" cy="11" r="4" fill="none" stroke="#dff8ff" stroke-width="2.5"/>`,
+      );
+    case 'drown':
+      // A bubble, struck through in red.
+      return svg(
+        `<circle cx="24" cy="24" r="15" fill="#ff5a40" fill-opacity=".25" stroke="#ffb0a0" stroke-width="3"/>` +
+          `<path d="M12 36 L36 12" stroke="#ff3a20" stroke-width="5" stroke-linecap="round"/>`,
+      );
     case 'ink':
       // A drop of ink with a pale sheen.
       return svg(

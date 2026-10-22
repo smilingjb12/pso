@@ -4,7 +4,7 @@ import { barbaRay as cfg, dash, player } from './config';
 import type { BossContext } from './enemies/Boss';
 import { BarbaRay } from './enemies/BarbaRay';
 import {
-  clutchSpots, dryWalk, inInk, scatter, nearestGap, platformAt, platformSpots, rippleBands, sinkPick, spoutLine, startVents, surgeAlong,
+  clutchSpots, dryWalk, inInk, InkPools, scatter, nearestGap, platformAt, platformSpots, rippleBands, sinkPick, spoutLine, startVents, surgeAlong,
   tickVents, ventAt, ventSpots, walkIn, type PlatformState, type VentState,
 } from './enemies/barbaTide';
 import { riftBossScale } from './rifts';
@@ -138,7 +138,7 @@ describe('Barba Ray: the Deep', () => {
   it('spreads an ink pool to its full size, and gives no air from a vent under one', () => {
     const pools = [{ x: CX, z: CZ, t: 0.1 }];
     expect(inInk(pools, CX + cfg.inkRadius - 0.1, CZ)).toBe(false);
-    pools[0].t = 2;
+    pools[0].t = cfg.inkSettle + 1;
     expect(inInk(pools, CX + cfg.inkRadius - 0.1, CZ)).toBe(true);
     expect(inInk(pools, CX + cfg.inkRadius + 0.3, CZ, pr)).toBe(true);
     const vs = vents();
@@ -146,6 +146,24 @@ describe('Barba Ray: the Deep', () => {
     expect(ventAt(vs, vs[0].x, vs[0].z)).toBe(0);
     vs[0].smothered = true;
     expect(ventAt(vs, vs[0].x, vs[0].z)).toBe(-1);
+  });
+
+  it('makes an ink pool about a third of the court, harmless till it settles: a dash and a walk get you out of it', () => {
+    const share = (Math.PI * cfg.inkRadius ** 2) / (Math.PI * cfg.arenaRadius ** 2);
+    expect(share).toBeGreaterThan(0.28);
+    expect(share).toBeLessThan(0.4);
+    const out = dash.distance + player.moveSpeed * (cfg.inkSettle / TEMPO - dash.duration);
+    expect(out).toBeGreaterThanOrEqual(cfg.inkRadius + pr);
+  });
+
+  it('keeps up to three ink pools down, the fourth taking the first away', () => {
+    const ink = new InkPools();
+    for (let i = 0; i < cfg.inkMax; i++) expect(ink.add(i, 0)).toBeNull();
+    expect(ink.list).toHaveLength(cfg.inkMax);
+    const gone = ink.add(99, 0);
+    expect(gone?.x).toBe(0);
+    expect(ink.list).toHaveLength(cfg.inkMax);
+    expect(ink.list.map((p) => p.x)).toEqual([...Array.from({ length: cfg.inkMax - 1 }, (_, i) => i + 1), 99]);
   });
 
   it('keeps two vents flowing, moving on from one to the next, each stirring first', () => {
@@ -506,7 +524,7 @@ describe('Barba Ray: the fight', () => {
     expect(f.hits.some((s) => s.kind === 'circle' && s.radius === cfg.ulRadius + 0.3)).toBe(false);
   });
 
-  it('drags the court into the Deep: your air runs down, a vent refills it, and out of air you drown', () => {
+  it('drags the court into the Deep: your air runs down over your head, a vent fills it at once, and out of it you drown', () => {
     const b = ray();
     const f = fakeFight(b);
     toDeep(f, b);
@@ -522,44 +540,49 @@ describe('Barba Ray: the fight', () => {
     f.step(3, offVent);
     expect(b.depth).toBeGreaterThan(0.9);
     expect(b.airLeft).toBeCloseTo(cfg.airMax - 3, 0);
-    // In a flowing vent: back up.
+    expect(b.marks.find((m) => m.key === 'air')?.left).toBeCloseTo(cfg.airMax - 3, 0);
     const inVent = () => {
       const v = b.vents.list.find((x) => x.phase === 'flow')!;
       f.body.pos.set(v.x, 0, v.z);
     };
-    f.step(1, inVent);
-    expect(b.airLeft).toBeGreaterThan(Math.min(cfg.airMax, cfg.airMax - 3 + cfg.airRefill * 0.8) - 0.1);
-    // Out of air.
+    // Out of air: Drowning, hurting.
     b.airLeft = 0.01;
     const before = sum(f.drowned);
     f.step(2, offVent);
+    expect(b.marks.some((m) => m.key === 'drown')).toBe(true);
+    expect(b.marks.some((m) => m.key === 'air')).toBe(false);
     expect(sum(f.drowned) - before).toBeGreaterThan(cfg.airShare * (2 - cfg.waterTick) - 1e-9);
+    // Into the bubbles: air again, full at once.
+    f.step(1 / 60, inVent);
+    expect(b.airLeft).toBe(cfg.airMax);
+    expect(b.marks.some((m) => m.key === 'air')).toBe(true);
+    expect(b.marks.some((m) => m.key === 'drown')).toBe(false);
   });
 
   it('marks you with ink in the Deep: a pool where you stand when it runs out, hurting, smothering a vent under it', () => {
     const b = ray();
     const f = fakeFight(b);
     toDeep(f, b);
-    const spot = court(1).find(([x, z]) => b.vents.list.every((v) => Math.hypot(v.x - x, v.z - z) > cfg.ventRadius + cfg.inkRadius + 1))!;
+    const spot = court(1).find(([x, z]) => b.vents.list.every((v) => Math.hypot(v.x - x, v.z - z) > cfg.ventRadius + 1))!;
     const keep = () => {
       b.airLeft = cfg.airMax;
       f.body.pos.set(spot[0], 0, spot[1]);
     };
-    for (let i = 0; i < 200 && !b.marks.length; i++) f.step(0.1, keep);
-    expect(b.marks).toHaveLength(1);
-    expect(b.marks[0].key).toBe('ink');
-    for (let i = 0; i < 200 && b.marks.length; i++) f.step(0.1, keep);
+    const inked = () => b.marks.some((m) => m.key === 'ink');
+    for (let i = 0; i < 200 && !inked(); i++) f.step(0.1, keep);
+    expect(inked()).toBe(true);
+    for (let i = 0; i < 200 && inked(); i++) f.step(0.1, keep);
     expect(b.inkPools.list).toHaveLength(1);
     expect(Math.hypot(b.inkPools.list[0].x - spot[0], b.inkPools.list[0].z - spot[1])).toBeLessThan(0.5);
-    // Standing in it.
-    f.step(0.6, keep);
+    // Standing in it, once it has settled.
+    f.step(cfg.inkSettle / TEMPO + 0.2, keep);
     const before = f.drowned.reduce((a, x) => a + x, 0);
     f.step(2, keep);
     expect(f.drowned.reduce((a, x) => a + x, 0) - before).toBeGreaterThan(cfg.inkShare * (2 - cfg.waterTick) - 1e-9);
     // A pool over a flowing vent: no air there.
     const v = b.vents.list.find((x) => x.phase === 'flow')!;
     b.inkPools.add(v.x, v.z);
-    f.step(0.6);
+    f.step(cfg.inkSettle / TEMPO + 0.2);
     b.airLeft = 2;
     const onVent = () => f.body.pos.set(v.x, 0, v.z);
     f.step(0.5, onVent);

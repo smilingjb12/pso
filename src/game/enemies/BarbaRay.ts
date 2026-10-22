@@ -207,7 +207,7 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
     return this.phase === 2 ? '  — HIGH TIDE' : '  — THE DEEP';
   }
 
-  /** Your air (0..1) in the Deep (the HUD's AIR gauge), else null. */
+  /** Your air (0..1) in the Deep, else null. */
   get air(): number | null {
     return this.alive && this.phase === 3 ? this.airLeft / cfg.airMax : null;
   }
@@ -215,9 +215,16 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
   get depth(): number {
     return this.deepK;
   }
-  /** The ink mark on you (shown over your head), in real seconds. */
-  get marks(): { key: string; left: number; total: number }[] {
-    return this.alive && this.inkT > 0 ? [{ key: 'ink', left: this.inkT / this.tempo, total: cfg.inkMark / this.tempo }] : [];
+  /**
+   * What it has on you, over your head (real seconds): in the Deep your air (2026-10-22, the user: a buff with its
+   * timer), turned to Drowning once it runs out; and the ink mark.
+   */
+  get marks(): { key: string; left: number; total: number; text?: string }[] {
+    const out: { key: string; left: number; total: number; text?: string }[] = [];
+    if (!this.alive) return out;
+    if (this.phase === 3) out.push(this.airLeft > 0 ? { key: 'air', left: this.airLeft, total: cfg.airMax } : { key: 'drown', left: 1, total: 1, text: '' });
+    if (this.inkT > 0) out.push({ key: 'ink', left: this.inkT / this.tempo, total: cfg.inkMark / this.tempo });
+    return out;
   }
 
   // ------------------------------------------------------------ Hittable
@@ -1245,25 +1252,32 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
       if (c.t <= 0) this.current = null;
     }
     if (!ctx.playerAlive) return;
+    // In the bubbles your air is full again at once (Drowning turns back into it).
     if (ventAt(this.vents.list, body.pos.x, body.pos.z) >= 0) {
-      this.airLeft = Math.min(cfg.airMax, this.airLeft + cfg.airRefill * real);
-      this.flushDrown(ctx, 'No air');
+      this.airLeft = cfg.airMax;
+      this.flushDrown(ctx, 'Drowning');
       return;
     }
+    const had = this.airLeft > 0;
     this.airLeft = Math.max(0, this.airLeft - real);
+    if (had && this.airLeft <= 0) this.teach(ctx, 'drown', 'Drowning! Get to the bubbles!');
     if (this.airLeft > 0) return;
     this.drowned += cfg.airShare * real;
-    if (this.drowned >= cfg.airShare * cfg.waterTick) this.flushDrown(ctx, 'No air');
+    if (this.drowned >= cfg.airShare * cfg.waterTick) this.flushDrown(ctx, 'Drowning');
   }
 
-  /** The ink mark: on you a while, then a pool where you stand; in a pool you hurt; a vent under one is smothered. */
+  /**
+   * The ink mark: on you a while, then a pool where you stand (the fourth taking the first away); once it has settled
+   * you hurt in it, and a vent under it is smothered.
+   */
   private inkTick(dt: number, ctx: BossContext, x: number, z: number): void {
     if (this.inkT > 0) {
       this.inkT -= dt;
       if (this.inkT <= 0) {
         this.inkT = 0;
-        this.inkPools.add(x, z);
-        ctx.effect(new Ring(x, z, 0x8f9bff, cfg.inkRadius, 0.5));
+        const gone = this.inkPools.add(x, z);
+        if (gone) ctx.effect(new Ring(gone.x, gone.z, 0x8f9bff, cfg.inkRadius, 0.5, 0.4));
+        ctx.effect(new Ring(x, z, 0x8f9bff, cfg.inkRadius, 0.6));
         this.sound('barba.splash', x, z);
       }
     } else if (ctx.playerAlive && this.phaseT >= this.nextInk) {
