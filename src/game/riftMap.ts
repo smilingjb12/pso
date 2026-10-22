@@ -21,10 +21,10 @@ import { hashString, mulberry32 } from './world/Level';
 /** What a node is. Rooms, Vaults and Gauntlets are the room-like ones (they fill Resonance and roll a cache). */
 export type NodeKind = 'room' | 'vault' | 'gauntlet' | 'boss' | 'pinnacle' | 'heart';
 export type RoomKind = 'room' | 'vault' | 'gauntlet';
-/** What a room node's end drops more of. */
-export type CacheKind = 'weapons' | 'armour' | 'units' | 'photons';
-export const CACHE_KINDS: CacheKind[] = ['weapons', 'armour', 'units', 'photons'];
-export const CACHE_NAME: Record<CacheKind, string> = { weapons: 'Weapons', armour: 'Armour', units: 'Units', photons: 'Photons' };
+/** What a room node's end drops more of (a Photons cache went with crafting, 2026-10-22). */
+export type CacheKind = 'weapons' | 'armour' | 'units';
+export const CACHE_KINDS: CacheKind[] = ['weapons', 'armour', 'units'];
+export const CACHE_NAME: Record<CacheKind, string> = { weapons: 'Weapons', armour: 'Armour', units: 'Units' };
 
 export const mapCfg = {
   /** Modifiers a room node rolls, by circle: fewest and most (a Gauntlet's Swarming comes on top). */
@@ -35,11 +35,9 @@ export const mapCfg = {
   resonanceCost: 2,
   /** A pinnacle fight past its first kill takes this much from each of its two quarters (2026-10-21, the user's pick: 2 + 2). */
   pinnacleCost: 2,
-  /** A cache's extra pieces of its kind (Photons: Spheres, and a chance of a Crystal on top). */
+  /** A cache's extra pieces of its kind. */
   cache: 3,
-  spheres: 2,
-  crystal: 0.25,
-  /** A Vault's cache is this many times a room's (pieces and the Crystal chance). */
+  /** A Vault's cache is this many times a room's. */
   vaultMult: 2,
   /** A Gauntlet's cache gets one more piece for every this many kills. */
   killsPerPiece: 8,

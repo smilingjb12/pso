@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Character, compareEquip, describeItem, itemHeadline, makeItem } from './character';
-import { getDef, itemDefs, MAX_STACK, PHOTON_STACK } from './data/items';
+import { getDef, itemDefs, MAX_STACK } from './data/items';
 import { isGear, isStackable, itemRequirement, itemSlot, ITEM_TYPES, stackCap } from './itemTypes';
 
 /** A fresh character wearing `ids` (added to the inventory and equipped, requirements ignored). */
@@ -25,11 +25,11 @@ describe('item type table', () => {
     expect(itemSlot(getDef('frame_psy_2'))).toBe('frame');
     expect(itemSlot(getDef('barrier_psy_2'))).toBe('barrier');
     expect(itemSlot(getDef('mate_3'))).toBe('injector');
-    expect(itemSlot(getDef('photon_drop'))).toBeNull();
+    expect(itemDefs.photon_drop).toBeUndefined();
     expect(itemDefs.telepipe).toBeUndefined();
     for (const def of Object.values(itemDefs)) {
       expect(isStackable(def)).toBe(!isGear(def) && def.type !== 'unit');
-      expect(stackCap(def)).toBe(def.type === 'consumable' ? (def.maxStack ?? MAX_STACK) : def.type === 'photon' ? PHOTON_STACK : MAX_STACK);
+      expect(stackCap(def)).toBe(def.type === 'consumable' ? (def.maxStack ?? MAX_STACK) : MAX_STACK);
     }
   });
 
@@ -40,7 +40,6 @@ describe('item type table', () => {
     expect(itemRequirement(getDef('barrier_psy_2'))).toEqual({ level: 3 });
     expect(itemRequirement(getDef('mate_3'))).toEqual({ level: 7 });
     expect(itemRequirement(getDef('frame_1'))).toBeNull();
-    expect(itemRequirement(getDef('photon_drop'))).toBeNull();
     expect(itemDefs.monogrinder).toBeUndefined();
   });
 });

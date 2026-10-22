@@ -30,15 +30,12 @@ export const drops = {
   riftUniqueDry: 0.04,
   /** A pinnacle boss's odds (both) are this many times a boss's: its replay takes Resonance from two quarters (2026-10-21). */
   pinnacleUniqueMult: 2,
-};
-
-/**
- * Crafting (see DESIGN.md "Crafting: Photons"; redesigned 2026-10-13): three photons work on an item's active affixes
- * as often as you have them (no Potential budget any more), so their drop rates (loot.ts rollPhoton) are the limit.
- */
-export const craftCfg = {
-  /** Salvaging junk: Photon Drops from a rare (always one) and the chance of one from a magic item. */
-  salvageMagic: 0.35,
+  /**
+   * Affix rolls (2026-10-22, the user's call when crafting went): each affix lands at the top value of the best
+   * strength tier its item level allows, or of one or two tiers below, by these weights; Haste at the item tier's
+   * cap, or 1 or 2 under it. A downside's penalty is its tier's smallest.
+   */
+  affixSteps: [50, 30, 20] as [number, number, number],
 };
 
 /**

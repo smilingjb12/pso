@@ -40,7 +40,7 @@ export function rollRarity(rng: Rng, rareMult = 1, min: Exclude<Rarity, 'unique'
 }
 
 /**
- * How many affixes a rare has active, by item level (2026-10-13, the user's redesign: fixed counts, no empty slots):
+ * How many affixes a rare has, by item level (2026-10-13, the user's redesign: fixed counts, no empty slots):
  * 4 on Normal gear, 5 on Nightmare (gear tier 8's item level and up), 6 on Hell and in the rifts (tier 12's and up).
  * Magic items always have 2 (a prefix and a suffix).
  */
@@ -48,25 +48,20 @@ export function rareCount(ilvl: number): number {
   return ilvl >= tierIlvl(12) ? 6 : ilvl >= tierIlvl(8) ? 5 : 4;
 }
 
-/** Dormant affixes a rare holds besides its active ones (a Photon Crystal swaps one in): 1, 2 or 3. */
-export const dormantCount = (ilvl: number) => rareCount(ilvl) - 3;
-
 // ------------------------------------------------------------------ affixes
 
 /**
- * A value for `def` on an item of `tier`: the best strength tier its item level allows (its tier's, or a rift
- * drop's own), often one or two below.
+ * A roll for `def` on an item of `tier` (2026-10-22, the user's call when crafting went: what drops is what you get):
+ * the top value of the best strength tier its item level allows (its tier's, or a rift drop's own), or of one or two
+ * tiers below (`drops.affixSteps`); a downside's penalty is that tier's smallest. Haste: the item tier's cap, or 1 or
+ * 2 under it.
  */
 export function rollAffixValue(def: ItemAffixDef, tier: number, rng: Rng, ilvl = tierIlvl(tier)): AffixRoll {
-  if (def.id === 'haste') return { id: def.id, v: 1 + Math.floor(rng() * (hasteCfg.capByTier[tier] ?? 1)) };
-  const top = maxAffixTier(ilvl);
-  const t = Math.max(1, top - weighted<number>([[0, 50], [1, 30], [2, 20]], rng));
-  const [lo, hi] = tierRange(def.tiers, t);
-  const roll: AffixRoll = { id: def.id, v: lo + Math.floor(rng() * (hi - lo + 1)), t };
-  if (def.penalty) {
-    const [plo, phi] = tierRange(def.penalty.tiers, t);
-    roll.p = plo + Math.floor(rng() * (phi - plo + 1));
-  }
+  const down = weighted<number>(drops.affixSteps.map((w, k): [number, number] => [k, w]), rng);
+  if (def.id === 'haste') return { id: def.id, v: Math.max(1, (hasteCfg.capByTier[tier] ?? 1) - down) };
+  const t = Math.max(1, maxAffixTier(ilvl) - down);
+  const roll: AffixRoll = { id: def.id, v: tierRange(def.tiers, t)[1], t };
+  if (def.penalty) roll.p = tierRange(def.penalty.tiers, t)[0];
   return roll;
 }
 
@@ -75,12 +70,11 @@ const affixWeight = (a: ItemAffixDef) => (a.penalty ? 0.5 : 1);
 
 /**
  * Roll `inst`'s affixes for its rarity (2026-10-13, the user's redesign): a magic item one prefix and one suffix; a
- * rare `rareCount` active (up to 3 of each) and `dormantCount` dormant
- * ones of any kind, which a Photon Crystal swaps with an active one of the same kind. No affix twice. A Hell or rift rare holds at least one downside, active or dormant, and an active
- * downside always has a dormant prefix to be swapped for.
+ * rare `rareCount` (up to 3 of each). No affix twice. A Hell or rift rare holds at least one downside (the user's
+ * call, kept when crafting went on 2026-10-22: the hope is for a better drop, since nothing can swap it out).
  *
  * Tops up what the item already has, so it also fills older items to the new counts (on load, seeded by the uid):
- * only rolls it draws itself can be replaced by those two guarantees.
+ * only rolls it draws itself can be replaced by the downside.
  */
 export function rollAffixes(inst: ItemInstance, def: ItemDef, rarity: Rarity, rng: Rng): void {
   if (rarity === 'normal' || rarity === 'unique') return;
@@ -89,10 +83,9 @@ export function rollAffixes(inst: ItemInstance, def: ItemDef, rarity: Rarity, rn
   const ilvl = inst.ilvl ?? tierIlvl(tier);
   const pool = AFFIX_IDS.map((id) => ITEM_AFFIXES[id]).filter((a) => (rarity === 'rare' || !a.rareOnly) && affixFits(a, slot, tier));
   const active = [...(inst.affixes ?? [])];
-  const dormant = rarity === 'rare' ? [...(inst.dormant ?? [])] : [];
   const fresh = new Set<AffixRoll>();
   const kindOf = (r: AffixRoll) => ITEM_AFFIXES[r.id].kind;
-  const taken = (id: ItemAffixId) => active.some((r) => r.id === id) || dormant.some((r) => r.id === id);
+  const taken = (id: ItemAffixId) => active.some((r) => r.id === id);
   const roll = (a: ItemAffixDef) => {
     const r = rollAffixValue(a, tier, rng, ilvl);
     fresh.add(r);
@@ -113,34 +106,13 @@ export function rollAffixes(inst: ItemInstance, def: ItemDef, rarity: Rarity, rn
     }
   }
 
-  if (rarity === 'rare') {
-    // Dormant: any kind, from what is left.
-    while (dormant.length < dormantCount(ilvl)) {
-      const entries = pool.filter((a) => !taken(a.id)).map((a): [ItemAffixDef, number] => [a, affixWeight(a)]);
-      if (!entries.length) break;
-      dormant.push(roll(weighted(entries, rng)));
-    }
-    const downsides = () => pool.filter((a) => a.penalty && !taken(a.id));
-    // Hell and rift rares hold a downside: one of the prefixes it drew becomes one, active or dormant alike.
-    if (rareCount(ilvl) === 6 && ![...active, ...dormant].some((r) => ITEM_AFFIXES[r.id].penalty)) {
-      const spots = [...active, ...dormant].filter((r) => fresh.has(r) && kindOf(r) === 'prefix');
-      const options = downsides();
-      if (spots.length && options.length) {
-        const spot = pick(spots, rng);
-        const list = active.includes(spot) ? active : dormant;
-        list[list.indexOf(spot)] = roll(pick(options, rng));
-      }
-    }
-    // An active downside can always be swapped out: one dormant affix is a plain prefix.
-    const plainPrefix = (r: AffixRoll) => kindOf(r) === 'prefix' && !ITEM_AFFIXES[r.id].penalty;
-    if (active.some((r) => ITEM_AFFIXES[r.id].penalty) && !dormant.some(plainPrefix)) {
-      const spots = dormant.filter((r) => fresh.has(r));
-      const options = pool.filter((a) => a.kind === 'prefix' && !a.penalty && !taken(a.id));
-      if (spots.length && options.length) dormant[dormant.indexOf(pick(spots, rng))] = roll(weighted(options.map((a): [ItemAffixDef, number] => [a, affixWeight(a)]), rng));
-    }
+  // Hell and rift rares hold a downside (all of them are prefixes): one of the prefixes it drew becomes one.
+  if (rarity === 'rare' && rareCount(ilvl) === 6 && !active.some((r) => ITEM_AFFIXES[r.id].penalty)) {
+    const spots = active.filter((r) => fresh.has(r) && kindOf(r) === 'prefix');
+    const options = pool.filter((a) => a.penalty && !taken(a.id));
+    if (spots.length && options.length) active[active.indexOf(pick(spots, rng))] = roll(pick(options, rng));
   }
   if (active.length) inst.affixes = active;
-  if (dormant.length) inst.dormant = dormant;
 }
 
 /** A rare's two-word name, by what it is. */
@@ -149,7 +121,7 @@ export function rareName(def: ItemDef, rng: Rng): string {
   return `${pick(RARE_FIRST, rng)} ${pick(RARE_SECOND[group], rng)}`;
 }
 
-/** Give a fresh item its rarity, affixes (active and dormant) and name. */
+/** Give a fresh item its rarity, affixes and name. */
 export function decorate(inst: ItemInstance, rarity: Exclude<Rarity, 'unique'>, rng: Rng): ItemInstance {
   const def = itemDefs[inst.id];
   if (rarity !== 'normal') inst.rarity = rarity;
@@ -232,22 +204,6 @@ export function rollInjector(tier: number, rng: Rng, modChance = 0.5, maxTier = 
 }
 
 /**
- * A photon (crafting) by where it drops (DESIGN.md "Crafting: Photons"): Photon Drops (common) everywhere; Spheres
- * (rare) from Nightmare (tier 8); Crystals (very rare) now and then from Nightmare, most in Falz Rifts.
- */
-export function rollPhoton(tier: number, rng: Rng, ilvl?: number): ItemInstance {
-  const table: [string, number][] =
-    ilvl && ilvl > 100
-      ? [['photon_drop', 60], ['photon_sphere', 30], ['photon_crystal', 10]]
-      : tier >= 12
-        ? [['photon_drop', 65], ['photon_sphere', 28], ['photon_crystal', 7]]
-        : tier >= 8
-          ? [['photon_drop', 72], ['photon_sphere', 25], ['photon_crystal', 3]]
-          : [['photon_drop', 1]];
-  return makeItem(weighted(table, rng));
-}
-
-/**
  * Generic drop roll used by enemies and boxes. `rareMult` raises the odds of a rare (yellow) item. Uniques never
  * come from here: bosses drop them (rollBossDrops, rollRiftEndDrops).
  */
@@ -257,15 +213,15 @@ export function rollDrop(
   ilvl?: number,
 ): Drop {
   // Fewer, better drops (Diablo 3's Loot 2.0 rather than Diablo 2's volume): gear rolls rarity and affixes.
-  // Photons (crafting) came in at 4 (2026-10-11) and took the grinders' 8 when grinding went the same day (12).
-  const cat = weighted<'meseta' | 'injector' | 'weapon' | 'armor' | 'unit' | 'photon'>(
+  // Photons (crafting) had 12 (the grinders' 8 and 4 of their own) until crafting went on 2026-10-22: Meseta took it,
+  // so gear drops as often as before.
+  const cat = weighted<'meseta' | 'injector' | 'weapon' | 'armor' | 'unit'>(
     [
-      ['meseta', 54],
+      ['meseta', 66],
       ['injector', 5],
       ['weapon', 13],
       ['armor', 9],
       ['unit', 4],
-      ['photon', 12],
     ],
     rng,
   );
@@ -283,8 +239,6 @@ export function rollDrop(
       return { kind: 'item', item: rollArmor(t, rng, rollRarity(rng, rareMult), ilvl) };
     case 'unit':
       return { kind: 'item', item: rollUnit(t, rng, ilvl) };
-    case 'photon':
-      return { kind: 'item', item: rollPhoton(tier, rng, ilvl) };
   }
 }
 
@@ -334,7 +288,6 @@ export function rollDragonDrops(rng: Rng): Drop[] {
   out.push({ kind: 'item', item: rollWeapon(2 + (rng() < 0.4 ? 1 : 0), rng, bossRarity(rng)) });
   out.push({ kind: 'item', item: rollArmor(2, rng, bossRarity(rng)) });
   out.push({ kind: 'item', item: rollUnit(2, rng) });
-  out.push({ kind: 'item', item: rollPhoton(2, rng) }, { kind: 'item', item: rollPhoton(2, rng) });
   return out;
 }
 
@@ -344,7 +297,6 @@ export function rollDeRolLeDrops(rng: Rng): Drop[] {
   out.push({ kind: 'item', item: rollArmor(4 + (rng() < 0.3 ? 1 : 0), rng, bossRarity(rng)) });
   out.push({ kind: 'item', item: rollUnit(5, rng) });
   out.push({ kind: 'item', item: rollInjector(4 + (rng() < 0.3 ? 1 : 0), rng, 1) });
-  out.push({ kind: 'item', item: rollPhoton(5, rng) }, { kind: 'item', item: rollPhoton(5, rng) });
   return out;
 }
 
@@ -355,7 +307,6 @@ export function rollWardenDrops(rng: Rng): Drop[] {
   out.push({ kind: 'item', item: rng() < 0.3 ? decorate(makeItem('barrier_6'), bossRarity(rng), rng) : rollArmor(rng() < 0.5 ? 6 : 5, rng, bossRarity(rng)) });
   out.push({ kind: 'item', item: rollUnit(6, rng) });
   out.push({ kind: 'item', item: rollInjector(5, rng, 1) });
-  out.push({ kind: 'item', item: rollPhoton(6, rng) }, { kind: 'item', item: rollPhoton(6, rng) });
   return out;
 }
 
@@ -366,7 +317,6 @@ export function rollFalzDrops(rng: Rng): Drop[] {
   out.push({ kind: 'item', item: rollArmor(rng() < 0.5 ? 7 : 6, rng, bossRarity(rng)) });
   out.push({ kind: 'item', item: rollUnit(7, rng) });
   out.push({ kind: 'item', item: rollInjector(5, rng, 1) });
-  out.push({ kind: 'item', item: rollPhoton(7, rng) }, { kind: 'item', item: rollPhoton(7, rng) });
   return out;
 }
 
@@ -391,8 +341,6 @@ export function rollHardBossDrops(boss: BossId, rng: Rng): Drop[] {
   out.push({ kind: 'item', item: rollArmor(rng() < 0.5 ? top : top - 1, rng, bossRarity(rng)) });
   out.push({ kind: 'item', item: rollUnit(top, rng) });
   out.push({ kind: 'item', item: rollInjector(6, rng, 1, 6) });
-  out.push({ kind: 'item', item: rollPhoton(top, rng) }, { kind: 'item', item: rollPhoton(top, rng) });
-  out.push({ kind: 'item', item: rollPhoton(top, rng) });
   return out;
 }
 
@@ -410,8 +358,6 @@ export function rollHellBossDrops(boss: BossId, rng: Rng): Drop[] {
   out.push({ kind: 'item', item: rollArmor(rng() < 0.5 ? top : top - 1, rng, 'rare') });
   out.push({ kind: 'item', item: rollUnit(top, rng) }, { kind: 'item', item: rollUnit(top, rng) });
   out.push({ kind: 'item', item: rollInjector(6, rng, 1, 6) });
-  out.push({ kind: 'item', item: rollPhoton(top, rng) }, { kind: 'item', item: rollPhoton(top, rng) }, { kind: 'item', item: rollPhoton(top, rng) });
-  out.push({ kind: 'item', item: rollPhoton(top, rng) }, { kind: 'item', item: rollPhoton(top, rng) });
   return out;
 }
 
@@ -434,11 +380,7 @@ export function rollRiftEndDrops(boss: boolean, tier: number, ilvl: number, rng:
     out.push({ kind: 'item', item: rollArmor(top, rng, 'rare', ilvl) });
     out.push({ kind: 'item', item: rollUnit(top, rng, ilvl) });
     out.push({ kind: 'item', item: rollInjector(6, rng, 1, 6) });
-    out.push({ kind: 'item', item: rollPhoton(top, rng, ilvl) });
-    out.push({ kind: 'item', item: rollPhoton(top, rng, ilvl) });
   }
-  out.push({ kind: 'item', item: rollPhoton(top, rng, ilvl) }, { kind: 'item', item: rollPhoton(top, rng, ilvl) });
-  out.push({ kind: 'item', item: rollPhoton(top, rng, ilvl) }, { kind: 'item', item: rollPhoton(top, rng, ilvl) });
   // (A rift boss's own unique rolls apart, with the save's first kills: riftCircles.ts rollBossUnique.)
   // Item quantity: more rare gear, a weapon, armour or unit each.
   for (let odds = ((boss ? 6 : 3) * qty) / 100; odds > 0; odds--) {
@@ -451,20 +393,15 @@ export function rollRiftEndDrops(boss: boolean, tier: number, ilvl: number, rng:
 
 /**
  * A Rift Map room node's cache (2026-10-21): `n` more pieces of its kind at the rift's item level, rare gear at gear
- * tiers 14-15 (Weapons, Armour) or units; Photons are Spheres, and `crystal` the chance of a Crystal on top.
+ * tiers 14-15 (Weapons, Armour) or units.
  */
-export function rollRiftCache(cache: CacheKind, n: number, ilvl: number, rng: Rng, crystal = 0): Drop[] {
+export function rollRiftCache(cache: CacheKind, n: number, ilvl: number, rng: Rng): Drop[] {
   const out: Drop[] = [];
   const t = () => (rng() < 0.5 ? 15 : 14);
   for (let i = 0; i < n; i++) {
-    const item =
-      cache === 'weapons' ? rollWeapon(t(), rng, 'rare', ilvl)
-        : cache === 'armour' ? rollArmor(t(), rng, 'rare', ilvl)
-          : cache === 'units' ? rollUnit(15, rng, ilvl)
-            : makeItem('photon_sphere');
+    const item = cache === 'weapons' ? rollWeapon(t(), rng, 'rare', ilvl) : cache === 'armour' ? rollArmor(t(), rng, 'rare', ilvl) : rollUnit(15, rng, ilvl);
     out.push({ kind: 'item', item });
   }
-  if (cache === 'photons' && rng() < crystal) out.push({ kind: 'item', item: makeItem('photon_crystal') });
   return out;
 }
 

@@ -1488,88 +1488,6 @@ table.stats.techs td:last-child {
   color: var(--text-dim);
   cursor: help;
 }
-/* Grind picker: one row per track (Edge, then each race) with what it adds and the damage change. */
-.grind-head {
-  margin-bottom: 8px;
-  font-size: 14.5px;
-  line-height: 1.4;
-}
-.grind-picks .row {
-  display: grid;
-  grid-template-columns: 10em 1fr auto;
-  column-gap: 10px;
-  row-gap: 1px;
-  font-variant-numeric: tabular-nums;
-}
-.grind-picks .row.dimmed {
-  cursor: default;
-}
-.gp-name {
-  font: 700 15.5px var(--font-head);
-  white-space: nowrap;
-}
-.gp-here {
-  margin-left: 5px;
-  padding: 0 4px;
-  font: 600 11px var(--font-head);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent);
-  border: 1px solid currentColor;
-  border-radius: 3px;
-  vertical-align: 2px;
-}
-.gp-what {
-  font-size: 15.5px;
-}
-.gp-gain {
-  font: 700 14.5px var(--font-head);
-  color: var(--good);
-  text-align: right;
-}
-.gp-note {
-  grid-column: 2 / -1;
-  font-size: 13px;
-  color: var(--text-dim);
-}
-.gp-note.warn {
-  color: var(--accent);
-}
-/* Craft picker (photons): one row per affix (or, for a Crystal, per swap) with what the craft makes of it. */
-.craft-picks {
-  margin-bottom: 8px;
-}
-.craft-picks .row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  column-gap: 10px;
-  row-gap: 1px;
-  font-variant-numeric: tabular-nums;
-}
-.craft-picks .row.dimmed {
-  cursor: default;
-}
-.craft-picks .row.downside .cp-name {
-  color: var(--bad);
-}
-.cp-name {
-  font-size: 15.5px;
-}
-.cp-tier {
-  margin-left: 6px;
-  padding: 0 4px;
-  font: 600 12px var(--font-head);
-  color: #8ff6ff;
-  border: 1px solid currentColor;
-  border-radius: 3px;
-  vertical-align: 1px;
-}
-.cp-after {
-  font: 700 14.5px var(--font-head);
-  color: var(--good);
-  text-align: right;
-  white-space: nowrap;
-}
 .cmp {
   margin-top: 10px;
   padding: 8px 10px;
@@ -2416,9 +2334,6 @@ table.stats.techs td:last-child {
   padding: 1px 0;
 }
 .ic-txt { flex: 1; }
-/* Dormant affixes (rares): greyed until a Photon Crystal swaps one in. */
-.ic-aff.dormant { opacity: 0.55; }
-.ic-aff.dormant .ic-txt { font-style: italic; }
 .ic-aff.lost .ic-txt {
   color: var(--text-dim);
   text-decoration: line-through;

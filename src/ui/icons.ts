@@ -1,4 +1,4 @@
-import type { CraftId, ItemDef, WeaponKind } from '../game/data/items';
+import type { ItemDef, WeaponKind } from '../game/data/items';
 import type { ItemDefOf, ItemType } from '../game/itemTypes';
 
 // Small flat SVG icons for the action palette, in the spirit of PSO's palette
@@ -100,20 +100,7 @@ const ITEM_GLYPH: { [T in ItemType]: (def: ItemDefOf<T>) => string } = {
   consumable: (d) => itemIcon(d.id),
   unit: () =>
     svg(`<rect x="10" y="10" width="28" height="28" rx="5" fill="#4a6a9a" stroke="#9ad0ff" stroke-width="3"/><circle cx="24" cy="24" r="6" fill="#9ad0ff"/><path d="M24 4 V10 M24 38 V44 M4 24 H10 M38 24 H44" stroke="#9ad0ff" stroke-width="3"/>`),
-  photon: (d) => photonIcon(d.craft),
 };
-
-/** Photon crafting items: a glowing shape and colour per craft. */
-function photonIcon(craft: CraftId): string {
-  switch (craft) {
-    case 'drop':
-      return svg(`<path d="M24 5 C31 16 37 23 37 31 A13 13 0 0 1 11 31 C11 23 17 16 24 5 Z" fill="#5ae8ff" stroke="#dffcff" stroke-width="2.5"/><circle cx="19" cy="30" r="3.5" fill="#dffcff" opacity=".8"/>`);
-    case 'sphere':
-      return svg(`<circle cx="24" cy="24" r="14" fill="#6a8cff" stroke="#e0e8ff" stroke-width="2.5"/><ellipse cx="24" cy="24" rx="20" ry="7" fill="none" stroke="#bfe0ff" stroke-width="2.5"/><circle cx="19" cy="19" r="4" fill="#e0e8ff" opacity=".8"/>`);
-    case 'crystal':
-      return svg(`<polygon points="24,3 38,18 24,45 10,18" fill="#fff4c0" stroke="#ffd75a" stroke-width="2.5"/><path d="M10 18 H38 M24 3 L18 18 L24 45 L30 18 Z" fill="none" stroke="#ffd75a" stroke-width="1.8"/>`);
-  }
-}
 
 /** Glyph for an item row in menus. */
 export function itemGlyph(def: ItemDef): string {

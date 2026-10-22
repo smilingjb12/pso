@@ -135,24 +135,8 @@ export interface ConsumableItemDef extends BaseDef {
   maxStack?: number;
 }
 
-/**
- * Photon crafting items (2026-10-11, replacing grinding's race picks; three since 2026-10-13, the user's redesign):
- * each works on one active affix of a weapon or armour piece, as often as you have photons. Drop (common): reroll
- * its value in its strength tier. Sphere (rare): a strength tier up. Crystal (very rare): swap it for one of the
- * item's dormant affixes of the same kind. Null Photons and Augment Cores went (old ones turn into Spheres and Crystals).
- */
-export type CraftId = 'drop' | 'sphere' | 'crystal';
-
-export interface PhotonItemDef extends BaseDef {
-  type: 'photon';
-  craft: CraftId;
-}
-
-/**
- * Most photons of one kind you carry (they come in from salvage too). Photons are a crafting currency
- * (2026-10-12, the user's call): picked up by walking over them, a stack of each kind that takes no bag space.
- */
-export const PHOTON_STACK = 100;
+// Photons (crafting items, 2026-10-11 to 10-22) went at the user's call: gear drops as it is (savedItems.ts pays old
+// ones out in Meseta).
 
 // ---------------------------------------------------------------- injectors
 
@@ -191,7 +175,7 @@ export interface UnitItemDef extends BaseDef {
   tier: number;
 }
 
-export type ItemDef = WeaponItemDef | ArmorItemDef | ConsumableItemDef | PhotonItemDef | InjectorItemDef | UnitItemDef;
+export type ItemDef = WeaponItemDef | ArmorItemDef | ConsumableItemDef | InjectorItemDef | UnitItemDef;
 
 export const MAX_STACK = 10;
 export const INVENTORY_SIZE = 30;
@@ -351,15 +335,6 @@ for (const kind of ['mate', 'fluid'] as const) {
     add({ id: `${kind}_${i + 1}`, type: 'injector', kind, tier: i + 1, name: INJECTOR_NAMES[kind][i], doses: INJECTOR_DOSES, potency, req: INJECTOR_REQ[kind][i], price: INJECTOR_PRICE[i] }),
   );
 }
-
-
-// Photons: crafting on weapons and armour (not uniques), one active affix at a time.
-add({ id: 'photon_drop', type: 'photon', craft: 'drop', name: 'Photon Drop', price: 1200,
-  desc: 'Rerolls the value of one affix, within its strength tier.' });
-add({ id: 'photon_sphere', type: 'photon', craft: 'sphere', name: 'Photon Sphere', price: 6000,
-  desc: "Raises one affix a strength tier, up to the best its item level allows." });
-add({ id: 'photon_crystal', type: 'photon', craft: 'crystal', name: 'Photon Crystal', price: 20000,
-  desc: "Swaps one active affix for one of the item's dormant ones (a prefix for a prefix, a suffix for a suffix). The one swapped out goes dormant, roll and all." });
 
 // Units: one def per tier (the affix inside is rolled per drop).
 const UNIT_PRICE = [400, 900, 1800, 3200, 5200, 8000, 12000, 17000, 23000, 30000, 38000, 47000, 57000, 68000, 80000];

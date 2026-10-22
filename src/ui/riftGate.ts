@@ -244,10 +244,7 @@ export class RiftMapMenu implements Menu {
     const loot = riftLoot({ tier: n.tier, mods: roll.mods });
     const ilvl = riftIlvl(n.tier);
     const mult = n.kind === 'vault' ? mapCfg.vaultMult : 1;
-    const cache =
-      roll.cache === 'photons'
-        ? `+${mapCfg.spheres * mult} Photon Spheres and a ${pctOf(100 * Math.min(1, mapCfg.crystal * mult))} chance of a Crystal`
-        : `+${mapCfg.cache * mult} ${roll.cache === 'weapons' ? 'rare weapons' : roll.cache === 'armour' ? 'rare frames or barriers' : 'units'}`;
+    const cache = `+${mapCfg.cache * mult} ${roll.cache === 'weapons' ? 'rare weapons' : roll.cache === 'armour' ? 'rare frames or barriers' : 'units'}`;
     const length = n.kind === 'vault'
       ? 'One big room: three champion packs, one after another, guard the vault. About 2 min.'
       : n.kind === 'gauntlet'

@@ -67,12 +67,13 @@ describe('affix tiers 7-8 (rift item levels)', () => {
     expect(over).toBeGreaterThan(0);
   });
 
-  it('gives every rift rare 6 affixes and 3 dormant', () => {
+  it('gives every rift rare 6 affixes, a downside among them, and nothing dormant', () => {
     const rng = mulberry(5);
     for (let i = 0; i < 200; i++) {
       const it = rollArmor(15, rng, 'rare', riftIlvl(1 + (i % 10)));
       expect(it.affixes).toHaveLength(6);
-      expect(it.dormant).toHaveLength(3);
+      expect(it.affixes!.some((r) => ITEM_AFFIXES[r.id].penalty)).toBe(true);
+      expect(it.dormant).toBeUndefined();
     }
   });
 

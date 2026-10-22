@@ -20,8 +20,8 @@ import { hellOpen, nightmareOpen, TitleMenu } from '../ui/title';
 import { DIFFICULTY_NAME, difficultyTag, runDifficulty, type Difficulty } from './difficulty';
 import { AudioCues } from './audioCues';
 import { CameraRig } from './CameraRig';
-import { Character, dropVerdict, itemName, makeItem, rarityOf, readAffixData, sellPrice, type DropVerdict, type ItemInstance, type UnitKind } from './character';
-import { craftWith, salvageYield, upgradeCrafting } from './crafting';
+import { Character, dropVerdict, itemName, rarityOf, readAffixData, sellPrice, type DropVerdict, type ItemInstance, type UnitKind } from './character';
+import { upgradeSavedItems } from './savedItems';
 import { angleDelta, yawTo } from './collision';
 import { Combat } from './combat/Combat';
 import { CC_KINDS, type CcKind } from './ccResist';
@@ -36,7 +36,7 @@ import { BOSS_IDS, BOSSES, isMainBoss, type BossDef, type BossId } from './data/
 import { areaDef } from './data/looks';
 import { STAT_KEYS, statDelta, type MagStat } from './data/stats';
 import { ART_IDS, ARTS, type ArtId } from './data/arts';
-import { getDef, INJECTOR_MODS, PHOTON_STACK, type WeaponKind } from './data/items';
+import { getDef, INJECTOR_MODS, type WeaponKind } from './data/items';
 import { affixText, tierIlvl, type AffixRoll } from './data/itemAffixes';
 import { UNIQUES } from './data/uniques';
 import { CORRUPT_COLOR, Enemy, type EnemyContext } from './enemies/Enemy';
@@ -134,8 +134,6 @@ export class Game implements GameApi {
   private riftRun: RunState | null = null;
   /** Kills in the open Rift Map node (a Gauntlet's cache grows with them). */
   private nodeKills = 0;
-  /** Photon kinds whose stack was full when one was walked over (told once per area). */
-  private photonFullTold = new Set<string>();
   /** Session difficulty, picked at login: Nightmare (the run state's `hard` flag) for every expedition. */
   private hard = false;
   /** Hell (also sets `hard`): picked at login once Dark Falz falls on Nightmare. */
@@ -333,9 +331,6 @@ export class Game implements GameApi {
         this.giveItem(this.rng() < 1 / 3 ? rollWeapon(tier, this.rng, 'rare') : rollArmor(tier, this.rng, 'rare'));
       },
       giveUnit: () => this.giveItem(rollUnit(Math.max(1, Math.min(15, Math.ceil(this.char.level / 7))), this.rng)),
-      givePhotons: () => {
-        for (const id of ['photon_drop', 'photon_sphere', 'photon_crystal']) this.giveItem(makeItem(id, { qty: 5 }));
-      },
       heal: () => {
         this.player.fullRestore();
         this.refillInjectors();
@@ -501,7 +496,7 @@ export class Game implements GameApi {
         slots: () => listSlots(),
         load: (slot, difficulty) => {
           const data = listSlots()[slot];
-          if (data) this.startCharacter(slot, new Character(upgradeCrafting(readAffixData(data))), difficulty);
+          if (data) this.startCharacter(slot, new Character(upgradeSavedItems(readAffixData(data))), difficulty);
         },
         create: (slot, name, appearance) => {
           const ch = Character.create(name, appearance);
@@ -602,7 +597,6 @@ export class Game implements GameApi {
   // ============================================================== areas
 
   private enterArea(id: AreaId, spawn: SpawnAt): void {
-    this.photonFullTold.clear();
     this.combat.ufx.reset();
     if (this.world) {
       this.world.resetActiveRoom();
@@ -1045,12 +1039,12 @@ export class Game implements GameApi {
     }
 
     this.refreshDropVerdicts();
-    // Walk-over pickups: meseta, photons (crafting currency) and units worth learning (no bag slot;
-    // one learned at least as well stays put, to pick up by hand).
+    // Walk-over pickups: meseta and units worth learning (no bag slot; one learned at least as well stays put, to
+    // pick up by hand).
     for (const pk of [...world.pickups]) {
       const c = pk.content;
       const type = c.kind === 'item' ? getDef(c.item.id).type : null;
-      const walkOver = c.kind !== 'item' || type === 'photon' || (type === 'unit' && this.char.unitStatus(c.item) !== 'known');
+      const walkOver = c.kind !== 'item' || (type === 'unit' && this.char.unitStatus(c.item) !== 'known');
       if (!walkOver) continue;
       if (p.alive && Math.hypot(pk.pos.x - p.pos.x, pk.pos.z - p.pos.z) < 1.2) this.takePickup(pk);
     }
@@ -1358,7 +1352,7 @@ export class Game implements GameApi {
     this.spawnDrop(rollBoxDrop(this.rng), b.pos.x, b.pos.z);
   }
 
-  /** Junk / upgrade looks of the drops: re-read after a level-up, attribute or Mag point, equip, grind or craft. */
+  /** Junk / upgrade looks of the drops: re-read after a level-up, attribute or Mag point, or equip. */
   private refreshDropVerdicts(): void {
     const d = this.char.data;
     // Injectors stay out of the key: their charge changes every hit, and their verdict only needs the stats.
@@ -1420,19 +1414,6 @@ export class Game implements GameApi {
     const item = pk.content.item;
     const def = getDef(item.id);
     const took = this.char.take(item);
-    if (def.type === 'photon') {
-      // A currency: walked over, no bag space; a full stack leaves it lying there (said once per area).
-      if (took.to === 'full') {
-        if (!this.photonFullTold.has(item.id)) this.hud.toast(`You carry the most <b>${def.name}s</b> you can (${PHOTON_STACK}): spend some first.`, 'warn');
-        this.photonFullTold.add(item.id);
-        return;
-      }
-      world.removePickup(pk);
-      sfx('pickup.item', { pitch: 1.25 });
-      const n = item.qty ?? 1;
-      this.hud.float(this.tmpA.copy(pk.pos).setY(1.4), `+${n} ${def.name}${n > 1 ? 's' : ''}`, 'photon');
-      return;
-    }
     if (took.to === 'full') {
       this.hud.toast('Inventory full!', 'warn');
       sfx('ui.error');
@@ -1715,9 +1696,8 @@ export class Game implements GameApi {
     } else if (r.cache) {
       // The node's cache: more of its kind (a Vault's twice over, a Gauntlet's grows with the kills).
       const mult = r.kind === 'vault' ? mapCfg.vaultMult : 1;
-      const base = r.cache === 'photons' ? mapCfg.spheres : mapCfg.cache;
       const extra = r.kind === 'gauntlet' ? Math.floor(this.nodeKills / mapCfg.killsPerPiece) : 0;
-      drops.push(...rollRiftCache(r.cache, base * mult + extra, ilvl, this.rng, mapCfg.crystal * mult));
+      drops.push(...rollRiftCache(r.cache, mapCfg.cache * mult + extra, ilvl, this.rng));
     }
     drops.forEach((d, i) => {
       const a = (i / drops.length) * Math.PI * 2;
@@ -2160,35 +2140,6 @@ export class Game implements GameApi {
     return null;
   }
 
-  /**
-   * Salvage the bag's junk magic and rare gear (worse than what is worn; uniques stay) into Photon Drops: a rare
-   * always gives one, a magic item sometimes. Normal items are left to sell. Stops when the Photon Drop stack is full.
-   */
-  salvageJunk(): string | null {
-    const ch = this.char;
-    const foe = this.damageFoe();
-    const junk = ch.data.inventory.filter((it) => {
-      const r = rarityOf(it);
-      return (r === 'magic' || r === 'rare') && !ch.isEquipped(it.uid) && dropVerdict(ch, it, foe).look === 'junk';
-    });
-    if (!junk.length) return 'Nothing to salvage: no magic or rare gear in the bag is worse than what you wear';
-    let items = 0;
-    let got = 0;
-    for (const it of junk) {
-      const n = salvageYield(it, this.rng);
-      if (n && !ch.canAdd(makeItem('photon_drop', { qty: n }))) break;
-      ch.removeItem(it.uid, Infinity);
-      if (n) ch.addItem(makeItem('photon_drop', { qty: n }));
-      items++;
-      got += n;
-    }
-    if (!items) return 'Your Photon Drop stack is full';
-    sfx('ui.sell');
-    this.autosave();
-    this.notify(`Salvaged ${items} item${items > 1 ? 's' : ''}: ${got ? `${got} Photon Drop${got > 1 ? 's' : ''}` : 'nothing came of it'}.${items < junk.length ? ' (The Photon Drop stack is full.)' : ''}`, got ? 'good' : '');
-    return null;
-  }
-
   equipItem(uid: string): string | null {
     const r = this.char.equip(uid);
     this.player.refreshLook();
@@ -2211,18 +2162,6 @@ export class Game implements GameApi {
       const p = this.player.pos;
       this.judgeDrop(this.world!.addPickup({ kind: 'item', item: inst }, p.x + Math.sin(this.player.yaw) * 1.2, p.z + Math.cos(this.player.yaw) * 1.2));
     }
-  }
-
-  /** Use a photon on a weapon or armour piece; `key` is its pick (an affix or an offer). */
-  craftItem(targetUid: string, toolUid: string, key: string): string | null {
-    const tool = this.char.find(toolUid);
-    if (!tool) return 'Missing item';
-    const r = craftWith(this.char, targetUid, toolUid, key, this.rng);
-    if (!r.ok) return r.reason;
-    sfx('ui.equip', { pitch: 1.35 });
-    this.notify(`${itemName(this.char.find(targetUid)!)}: ${r.text}`, 'good');
-    this.autosave();
-    return null;
   }
 
   buy(proto: ItemInstance): string | null {
@@ -2317,9 +2256,7 @@ export class Game implements GameApi {
         // Same marks as the inventory; a requirement you don't meet yet is amber, not red.
         const mark = v?.mark === 'no' && v.look !== 'junk' ? 'locked' : v?.mark;
         const note = v?.note ? `<div class="pk-note ${mark}">${DROP_MARK[v.mark]} ${v.note}</div>` : '';
-        // What photons could make of it: green if that beats what is worn.
-        const craft = v?.crafted ? `<div class="pk-note ${v.crafted.up ? 'up' : 'dim'}">◆ ${v.crafted.text}</div>` : '';
-        prompt = `<b>[Space]</b> Pick up ${pk.label}${note}${craft}`;
+        prompt = `<b>[Space]</b> Pick up ${pk.label}${note}`;
       } else if (it) {
         const talk = isCounter(it.kind);
         const sw = it.kind === 'switch' || it.kind === 'power';

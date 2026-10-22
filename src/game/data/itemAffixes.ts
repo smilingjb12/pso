@@ -27,7 +27,7 @@ export interface AffixRoll {
   v: number;
   /** Downside affixes: the penalty (a positive number, taken off). */
   p?: number;
-  /** Strength tier it rolled at (1-8; older rolls go without, see crafting's affixTier). Haste has none. */
+  /** Strength tier it rolled at (1-8; older rolls may go without). Haste has none. */
   t?: number;
 }
 
@@ -137,8 +137,7 @@ export const ITEM_AFFIXES: Record<ItemAffixId, ItemAffixDef> = {
   // ------------------------------------------------------- frames, barriers, units
   hp: { id: 'hp', kind: 'prefix', slots: ARMOR, word: 'Sturdy', unit: 'Heart', stat: 'hp', text: flat('HP'), tiers: [[5, 12], [12, 25], [25, 45], [45, 75], [75, 110], [110, 160]] },
   tp: { id: 'tp', kind: 'prefix', slots: ARMOR, word: 'Focused', unit: 'Spirit', stat: 'tp', text: flat('TP'), tiers: [[4, 9], [9, 18], [18, 32], [32, 50], [50, 75], [75, 110]] },
-  // The two damage-taken stats are prefixes of a pair (2026-10-14: survivability competes with damage for the same
-  // slots), so a Photon Crystal can trade one for the other.
+  // The two damage-taken stats are prefixes (2026-10-14: survivability competes with damage for the same slots).
   strike: { id: 'strike', kind: 'prefix', slots: ARMOR, word: 'Plated', unit: 'Guard', stat: 'strike', text: (v) => `Strike damage taken −${v}%`, tiers: [[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 8]] },
   regen: { id: 'regen', kind: 'suffix', slots: FRAME, word: 'of Mending', unit: 'Mend', text: (v) => `+${v} HP a second, in fights too`, tiers: [[1, 1], [1, 1], [1, 2], [2, 3], [2, 4], [3, 5]] },
   injPotency: { id: 'injPotency', kind: 'suffix', slots: FRAME, word: 'of the Medic', unit: 'Medic', text: (v) => `Injector doses restore ${v}% more`, tiers: [[3, 5], [5, 8], [8, 11], [11, 14], [14, 17], [17, 20]] },

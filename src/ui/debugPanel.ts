@@ -49,8 +49,6 @@ export interface DebugActions {
   giveWeapon(): void;
   giveRare(): void;
   giveUnit(): void;
-  /** Five of each photon (crafting). */
-  givePhotons(): void;
   heal(): void;
   killAll(): void;
   goto(area: AreaId): void;
@@ -113,7 +111,6 @@ export function createDebugPanel(actions: DebugActions): GUI {
     weapon: () => actions.giveWeapon(),
     rare: () => actions.giveRare(),
     unit: () => actions.giveUnit(),
-    photons: () => actions.givePhotons(),
     heal: () => actions.heal(),
     kill: () => actions.killAll(),
     hard: () => actions.unlockHard(),
@@ -128,7 +125,6 @@ export function createDebugPanel(actions: DebugActions): GUI {
   g.add({ xpLv: () => actions.giveXp(1e7) }, 'xpLv').name('+10M EXP (levels)');
   g.add(act, 'rare').name('give rare item (your level)');
   g.add(act, 'unit').name('give random unit');
-  g.add(act, 'photons').name('give 5 of each photon');
   g.add(act, 'kill').name('kill all enemies');
   g.add(act, 'hard').name('unlock Nightmare');
   g.add(act, 'hell').name('unlock Hell');
@@ -162,8 +158,6 @@ export function createDebugPanel(actions: DebugActions): GUI {
   rf.add(mapCfg, 'resonanceCap', 2, 12, 1).name('Resonance cap');
   rf.add(mapCfg, 'resonanceCost', 0, 6, 1).name('Resonance a boss replay takes');
   rf.add(mapCfg, 'cache', 0, 8, 1).name('cache pieces (Weapons/Armour/Units)');
-  rf.add(mapCfg, 'spheres', 0, 6, 1).name('cache Spheres (Photons)');
-  rf.add(mapCfg, 'crystal', 0, 1, 0.05).name('cache Crystal chance');
   rf.add(mapCfg, 'vaultMult', 1, 4, 0.5).name('Vault cache x');
   rf.add(mapCfg, 'killsPerPiece', 2, 30, 1).name('Gauntlet kills per cache piece');
   rf.add(RIFT_GEN.hold, 'time', 30, 180, 5).name('Gauntlet hold s (next node)');

@@ -4,14 +4,14 @@ import {
   type CharacterData, type ItemInstance,
 } from './character';
 import { enemies } from './config';
-import { upgradeCrafting } from './crafting';
+import { upgradeSavedItems } from './savedItems';
 import { areas } from './data/areas';
 import { BASE_STATS, MAX_LEVEL, START_INJECTOR, START_WEAPON, xpToNext } from './data/stats';
-import { BARE_KIND, getDef, grindCap, INVENTORY_SIZE, itemDefs, PHOTON_STACK, weaponKinds, type ArmorItemDef, type WeaponItemDef } from './data/items';
+import { BARE_KIND, getDef, grindCap, INVENTORY_SIZE, itemDefs, weaponKinds, type ArmorItemDef, type WeaponItemDef } from './data/items';
 import { affixFits, ITEM_AFFIXES, RETIRED_AFFIXES, tierIlvl } from './data/itemAffixes';
 import { restaHeal } from './data/techniques';
 import {
-  dormantCount, rareCount, rollArmor, rollDragonDrops, rollDrop, rollEliteBonus, rollEnemyDrop, rollFalzDrops, rollInjector, rollUnit, rollWardenDrops, rollWeapon,
+  rareCount, rollArmor, rollDragonDrops, rollDrop, rollEliteBonus, rollEnemyDrop, rollFalzDrops, rollInjector, rollUnit, rollWardenDrops, rollWeapon,
   shopStock, shopTier,
 } from './loot';
 import { Level, mulberry32, TILE } from './world/Level';
@@ -46,17 +46,7 @@ describe('Character', () => {
 
   it('stacks bag items up to the cap, one stack per type', () => {
     const ch = Character.create('T');
-    const start = ch.countOf('photon_drop');
-    expect(ch.addItem(makeItem('photon_drop', { qty: PHOTON_STACK - start }))).toBe(true);
-    expect(ch.countOf('photon_drop')).toBe(PHOTON_STACK);
-    expect(ch.addItem(makeItem('photon_drop'))).toBe(false);
-  });
-
-  it('carries photons outside the bag: a full bag still takes them', () => {
-    const ch = Character.create('T');
-    while (!ch.full) ch.addItem(makeItem('rod_1'));
-    expect(ch.addItem(makeItem('photon_sphere'))).toBe(true);
-    expect(ch.full).toBe(true);
+    while (!ch.full) expect(ch.addItem(makeItem('rod_1'))).toBe(true);
     expect(ch.bagCount).toBe(INVENTORY_SIZE);
   });
 
@@ -149,7 +139,8 @@ describe('Character', () => {
       { id: 'areaDr', v: 7, t: 6 },
       { id: 'brittle', v: 20, p: 5, t: 6 },
     ]);
-    expect(ch.find(frame.uid)!.dormant).toEqual([{ id: 'lck', v: 30, t: 6 }]);
+    // Dormant affixes went with crafting (2026-10-22).
+    expect(ch.find(frame.uid)!.dormant).toBeUndefined();
     expect(ch.data.units[0].affixes).toEqual([{ id: 'strike', v: 8, t: 6 }]);
     expect(ch.data.magUnits).toEqual(['strike']);
     // Only once: a save already in the new units keeps its rolls.
@@ -366,7 +357,7 @@ describe('affixes', () => {
       const it = i % 2 ? rollWeapon(tier, rng, 'rare') : rollArmor(tier, rng, 'rare');
       const def = getDef(it.id);
       const slot = def.type === 'armor' ? def.slot : 'weapon';
-      for (const r of [...(it.affixes ?? []), ...(it.dormant ?? [])]) {
+      for (const r of it.affixes ?? []) {
         expect(affixFits(ITEM_AFFIXES[r.id], slot, tier), `${r.id} on ${it.id}`).toBe(true);
         expect(RETIRED_AFFIXES).not.toContain(r.id);
       }
@@ -570,7 +561,6 @@ describe('Item names', () => {
 
   it('names injector mods and stacks as before', () => {
     expect(itemName(makeItem('fluid_4', { mod: 'steady' }))).toBe('Steady Star Fluid Injector');
-    expect(itemName(makeItem('photon_drop', { qty: 3 }))).toBe('Photon Drop x3');
   });
 });
 
@@ -599,7 +589,6 @@ describe('Equipment comparison', () => {
     expect(c.rows[0].delta).toBeGreaterThan(0);
     expect(c.rows[1].delta).toBeGreaterThan(0);
     expect(gearVerdict(ch, ch.equippedItem('frame')!)).toBe(0);
-    expect(compareEquip(ch, makeItem('photon_drop'))).toBeNull();
     expect(compareEquip(ch, makeItem('mate_2'))).toBeNull();
   });
 });
@@ -637,7 +626,6 @@ describe('Drop verdicts (ground look and pickup note)', () => {
     expect(v.mark).toBe('no');
     expect(v.note).toMatch(/^Needs Lv 18 \(you are Lv 1\) · Damage\/s \+/);
     expect(dropVerdict(Character.create('T'), makeItem('mate_5'))).toMatchObject({ look: 'plain', mark: 'no' });
-    expect(dropVerdict(Character.create('T'), makeItem('photon_drop'))).toEqual({ look: 'plain', mark: '', note: '' });
   });
 });
 
@@ -770,7 +758,7 @@ describe('Old saves (version 5, with classes)', () => {
       arts: { bars: { saber: ['risingEdge', 'cyclone', null, null], none: ['resta', null, null, null] } },
     };
     expect(LOADABLE_VERSIONS).toContain(v5.version);
-    const load = (d: unknown) => new Character(upgradeCrafting(readAffixData(JSON.parse(JSON.stringify(d)) as CharacterData)));
+    const load = (d: unknown) => new Character(upgradeSavedItems(readAffixData(JSON.parse(JSON.stringify(d)) as CharacterData)));
     const ch = load(v5);
     expect(ch.data.cls).toBeUndefined();
     expect(ch.data.version).toBe(SAVE_VERSION);
@@ -784,8 +772,8 @@ describe('Old saves (version 5, with classes)', () => {
     expect(itemName(rod)).toBe('Doom Edge');
     expect(rod.affixes).toContainEqual({ id: 'haste', v: 3 });
     expect(rod.affixes).toHaveLength(rareCount(tierIlvl(11)));
-    expect(rod.dormant).toHaveLength(dormantCount(tierIlvl(11)));
-    for (const r of [...rod.affixes!, ...rod.dormant!]) {
+    expect(rod.dormant).toBeUndefined();
+    for (const r of rod.affixes!) {
       expect(RETIRED_AFFIXES).not.toContain(r.id);
       expect(affixFits(ITEM_AFFIXES[r.id], 'weapon', 11), r.id).toBe(true);
     }
@@ -800,7 +788,6 @@ describe('Old saves (version 5, with classes)', () => {
     // Loading it again changes nothing (the top-up is seeded by the uid).
     const again = load(ch.data);
     expect(again.weaponInstance()!.affixes).toEqual(rod.affixes);
-    expect(again.weaponInstance()!.dormant).toEqual(rod.dormant);
     expect(again.data.skills.ranks).toEqual({ foie: 1 });
   });
 
@@ -813,7 +800,7 @@ describe('Old saves (version 5, with classes)', () => {
       skills: { ranks: { foie: 4, zonde: 2, tempo: 1 } },
       arts: { bars: { wand: ['zonde', 'foie', null, null], rod: ['foie', null, null, null] } },
     };
-    const ch = new Character(upgradeCrafting(readAffixData(JSON.parse(JSON.stringify(v5)) as CharacterData)));
+    const ch = new Character(upgradeSavedItems(readAffixData(JSON.parse(JSON.stringify(v5)) as CharacterData)));
     expect(ch.data.cls).toBeUndefined();
     expect(ch.data.skills.ranks).toEqual({ foie: 4, zonde: 2, tempo: 1 });
     // The bar of the wand in hand.

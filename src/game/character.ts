@@ -40,7 +40,6 @@ import {
 import type { RiftSave } from './rifts';
 import { AFFIX_CAPS, AFFIX_TIERS, affixText, ITEM_AFFIXES, RETIRED_AFFIXES, RIFT_TOP_ILVL, tierIlvl, tierRange, type AffixRoll, type ItemAffixId } from './data/itemAffixes';
 import { critChance } from './formulas';
-import { craftLoadouts, maxedRoll, rollCost } from './craftCeiling';
 import { ATTACK_TECHS, isAttackTech, techAttackPower, techniques, techTpCost, type TechId } from './data/techniques';
 import { ART_IDS, ARTS, SUPPORT_ARTS, type ArtId } from './data/arts';
 import { hastened } from './combo';
@@ -81,10 +80,7 @@ export interface ItemInstance {
   charge?: number;
   /** Item level when it isn't its tier's (Falz Rift drops: 100 + the rift tier, which opens affix tiers 7-8). */
   ilvl?: number;
-  /**
-   * Rares: dormant affixes (2026-10-13), rolled with the item and doing nothing until a Photon Crystal swaps one
-   * with an active affix of the same kind (crafting.ts).
-   */
+  /** Old saves only: a rare's dormant affixes, for Photon Crystals to swap in (2026-10-13 to 10-22; dropped on load). */
   dormant?: AffixRoll[];
   /** Old saves only: crafting Potential and Crystal / Augment offers (both went on 2026-10-13; dropped on load). */
   pot?: number;
@@ -331,7 +327,8 @@ export function readAffixData(data: CharacterData): CharacterData {
     if (!def) continue;
     const tier = 'tier' in def ? def.tier : 1;
     if (it.affixes) it.affixes = readAffixes(it.affixes, tier, legacy);
-    if (it.dormant) it.dormant = readAffixes(it.dormant, tier, legacy);
+    // Dormant affixes went with crafting (2026-10-22).
+    delete it.dormant;
   }
   // Units learned as DFP are Strike units now; units of retired affixes (Power, Fury) are gone.
   const emptyUnit = (u: ItemInstance) => itemDefs[u.id]?.type === 'unit' && !itemDefs[u.id].unique && !!u.affixes && !u.affixes.length;
@@ -381,12 +378,6 @@ export function itemName(inst: ItemInstance): string {
   }
   if (inst.qty !== undefined && inst.qty > 1) name += ` x${inst.qty}`;
   return name;
-}
-
-/** Weapons, frames and barriers: what photons craft on. */
-export function isGearItem(inst: ItemInstance): boolean {
-  const t = getDef(inst.id).type;
-  return t === 'weapon' || t === 'armor';
 }
 
 /**
@@ -1012,9 +1003,9 @@ export class Character {
     return this.data.inventory.filter((i) => i.id === id).reduce((n, i) => n + (i.qty ?? 1), 0);
   }
 
-  /** Bag rows in use: photons are a currency (a stack of each, up to PHOTON_STACK) and take none. */
+  /** Bag rows in use. */
   get bagCount(): number {
-    return this.data.inventory.filter((i) => getDef(i.id).type !== 'photon').length;
+    return this.data.inventory.length;
   }
 
   get full(): boolean {
@@ -1028,7 +1019,6 @@ export class Character {
       const stack = this.data.inventory.find((i) => i.id === inst.id);
       if (stack && (stack.qty ?? 1) + (inst.qty ?? 1) <= stackCap(def)) return true;
       if (stack) return false; // single stack per item type, like PSO
-      if (def.type === 'photon') return (inst.qty ?? 1) <= stackCap(def); // no bag space needed
     }
     return !this.full;
   }
@@ -1210,7 +1200,7 @@ export interface CompareRow {
 /** A throwaway copy of `ch` with `inst` equipped in `slot` (it may come from outside the inventory, e.g. shop stock). */
 export function simulateEquip(ch: Character, inst: ItemInstance, slot: GearSlot): Character {
   const sim = new Character(JSON.parse(JSON.stringify(ch.data)) as CharacterData);
-  // The item as given, even if the bag holds it (a crafted version of a bag item is judged as crafted).
+  // The item as given, even if the bag holds it.
   const copy = JSON.parse(JSON.stringify(inst)) as ItemInstance;
   const at = sim.data.inventory.findIndex((it) => it.uid === inst.uid);
   if (at >= 0) sim.data.inventory[at] = copy;
@@ -1319,18 +1309,15 @@ function rowsVerdict(rows: CompareRow[]): number {
 
 /** How a drop on the floor reads for this character: its look on the ground and the pickup prompt's note. */
 export interface DropVerdict {
-  /** junk: worse than what is equipped (damage, then armour's rating), even fully crafted; upgrade: better and equippable now. */
+  /** junk: no better than what is equipped (damage, then armour's rating); upgrade: better and equippable now. */
   look: 'plain' | 'junk' | 'upgrade';
   /** The inventory's mark: up ▲, down ▼, same =, no ✖ ('' for items that aren't gear). */
   mark: '' | 'up' | 'down' | 'same' | 'no';
   /** "Needs Lv 24 (you are Lv 21)" or the change ("Damage/s +14% · Crit chance +0.3%"). */
   note: string;
-  /** Gear photons can still improve: the change fully crafted ("Fully crafted: Rating +6% (1 Crystal · 3 Spheres)"), and whether it beats what is worn. */
-  crafted?: { up: boolean; text: string };
 }
 
 const signed = (n: number) => (n > 0 ? `+${n}` : `−${-n}`);
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** A damage or rating row's change as a whole percent of before. */
 export function rowPct(r: CompareRow): number {
@@ -1351,9 +1338,9 @@ function changesText(rows: CompareRow[], max = 4): string {
 }
 
 /**
- * Verdict for an item lying on the ground. Junk is gear that is worse than what is equipped (by damage per
- * second, then armour's rating) even crafted to its best (bestCrafted). Uniques never fade. Requirements don't
- * make an item junk: a locked upgrade stays plain, so it is still worth carrying until the stat catches up.
+ * Verdict for an item lying on the ground. Junk is gear that is no better than what is equipped (by damage per
+ * second, then armour's rating); it stays as it dropped. Uniques never fade. Requirements don't make an item junk:
+ * a locked upgrade stays plain, so it is still worth carrying until the level catches up.
  */
 export function dropVerdict(ch: Character, inst: ItemInstance, foe?: Foe): DropVerdict {
   const def = getDef(inst.id);
@@ -1366,116 +1353,11 @@ export function dropVerdict(ch: Character, inst: ItemInstance, foe?: Foe): DropV
   if (!c) return { look: 'plain', mark: locked ? 'no' : '', note: locked };
   const v = rowsVerdict(c.rows);
   const changes = changesText(c.rows);
-  const best = bestCrafted(ch, inst, foe);
-  const crafted = best ? craftedLine(best, v) : undefined;
-  const extra = crafted ? { crafted } : {};
   if (v <= 0 && rarityOf(inst) !== 'unique') {
-    // Not junk if photons can make it an upgrade.
-    const look = crafted?.up ? 'plain' : 'junk';
-    return { look, mark: v < 0 ? 'down' : 'same', note: changes ? `Downgrade: ${changes}` : 'Same as equipped', ...extra };
+    return { look: 'junk', mark: v < 0 ? 'down' : 'same', note: changes ? `Downgrade: ${changes}` : 'Same as equipped' };
   }
-  if (locked) return { look: 'plain', mark: 'no', note: v > 0 ? `${locked} · ${changes}` : locked, ...extra };
-  return { look: v > 0 ? 'upgrade' : 'plain', mark: v > 0 ? 'up' : v < 0 ? 'down' : 'same', note: changes, ...extra };
-}
-
-/** The prompt's second line: "Fully crafted: Damage/s +9% (1 Crystal · 3 Spheres · Drops)", or "Even fully crafted: ...". */
-function craftedLine(best: CraftedBest, now: number): { up: boolean; text: string } {
-  const up = rowsVerdict(best.rows) > 0;
-  const d = decidingRow(best.rows)!;
-  const p = rowPct(d);
-  // Rating deciding means the damage is the same.
-  const change = !p ? 'same as equipped' : d.tie ? `same damage · Rating ${signed(p)}%` : `${d.label} ${signed(p)}%`;
-  return { up, text: `${!up && now <= 0 ? 'Even fully crafted' : 'Fully crafted'}: ${change} (${craftRecipe(best)})` };
-}
-
-/** "1 Crystal · 3 Spheres · Drops": the photons a crafted best takes. */
-export function craftRecipe(best: CraftedBest): string {
-  const parts: string[] = [];
-  if (best.swaps.length) parts.push(plural(best.swaps.length, 'Crystal'));
-  if (best.spheres) parts.push(plural(best.spheres, 'Sphere'));
-  if (best.rerolls) parts.push('Drops');
-  return parts.join(' · ');
-}
-
-/** `inst` crafted to its best for this character, compared with what is worn. */
-export interface CraftedBest {
-  /** The active affixes it ends with. */
-  affixes: AffixRoll[];
-  rows: CompareRow[];
-  /** Photon Crystal swaps, as affix texts: what goes dormant and what comes in. */
-  swaps: { out: string; in: string }[];
-  /** Photon Spheres: strength tiers (or Haste steps) to climb. */
-  spheres: number;
-  /** Affixes Photon Drops must reroll to the top of their range (luck, so not counted out). */
-  rerolls: number;
-}
-
-/**
- * The best `inst` can be made with photons for this character (by damage per second against `foe`, then for
- * armour its overall rating): every set of active affixes Crystals can reach (each kind from its active and dormant
- * affixes), each affix Sphered to the top tier its item level allows and Dropped to the top of its range (a
- * downside may be better left as it is). Affixes that add nothing are left alone, so the recipe is only what
- * pays. Null if photons can't improve it (normal items, uniques, nothing left to gain).
- */
-export function bestCrafted(ch: Character, inst: ItemInstance, foe: Foe = levelFoe(ch.level)): CraftedBest | null {
-  const slot = gearSlot(inst);
-  const def = getDef(inst.id);
-  if (!slot || slot === 'injector' || def.rare || !inst.affixes?.length) return null;
-  const sim = simulateEquip(ch, inst, slot);
-  const worn = sim.find(inst.uid)!;
-  // Damage first, then (armour) the overall rating, like the verdict.
-  const score = (affixes: AffixRoll[]) => {
-    worn.affixes = affixes;
-    return slot === 'weapon' ? [damageRating(sim, foe)] : [damageRating(sim, foe), armorRating(sim)];
-  };
-  const active = inst.affixes;
-  const start = score(active);
-  // Within a rounding hair counts as no better, so ties keep the cheaper recipe.
-  const cmp = (a: number[], b: number[]) => {
-    for (let i = 0; i < a.length; i++) {
-      const tol = Math.abs(b[i]) * 1e-6 + 1e-9;
-      if (a[i] > b[i] + tol) return 1;
-      if (a[i] < b[i] - tol) return -1;
-    }
-    return 0;
-  };
-  const better = (a: number[], b: number[]) => cmp(a, b) > 0;
-  let best = { set: active, rolls: active, score: start };
-  for (const set of craftLoadouts(inst)) {
-    const options = set.map((r) => (ITEM_AFFIXES[r.id].penalty ? [maxedRoll(inst, r), r] : [maxedRoll(inst, r)]));
-    const combos = options.reduce<AffixRoll[][]>((acc, opts) => acc.flatMap((a) => opts.map((o) => [...a, o])), [[]]);
-    const swaps = set.filter((r) => !active.includes(r)).length;
-    for (const rolls of combos) {
-      const s = score(rolls);
-      const bestSwaps = best.set.filter((r) => !active.includes(r)).length;
-      if (better(s, best.score) || (!better(best.score, s) && swaps < bestSwaps)) best = { set, rolls, score: s };
-    }
-  }
-  if (!better(best.score, start)) return null;
-  // Leave affixes that add nothing as they are.
-  const rolls = [...best.rolls];
-  rolls.forEach((r, i) => {
-    const own = best.set[i];
-    if (r === own) return;
-    const trial = [...rolls];
-    trial[i] = own;
-    if (!better(best.score, score(trial))) rolls[i] = own;
-  });
-  let spheres = 0;
-  let rerolls = 0;
-  rolls.forEach((r, i) => {
-    const cost = rollCost(inst, best.set[i], r);
-    spheres += cost.spheres;
-    if (cost.reroll) rerolls++;
-  });
-  // Each swap trades an affix out for one of its kind.
-  const out = active.filter((r) => !best.set.includes(r));
-  const swaps = best.set
-    .filter((r) => !active.includes(r))
-    .map((r) => ({ out: affixText(out.splice(out.findIndex((o) => ITEM_AFFIXES[o.id].kind === ITEM_AFFIXES[r.id].kind), 1)[0]), in: affixText(r) }));
-  const dormant = [...active, ...(inst.dormant ?? [])].filter((r) => !best.set.includes(r));
-  const c = compareEquip(ch, { ...inst, affixes: rolls, dormant }, foe)!;
-  return { affixes: rolls, rows: c.rows, swaps, spheres, rerolls };
+  if (locked) return { look: 'plain', mark: 'no', note: v > 0 ? `${locked} · ${changes}` : locked };
+  return { look: v > 0 ? 'upgrade' : 'plain', mark: v > 0 ? 'up' : v < 0 ? 'down' : 'same', note: changes };
 }
 
 /** A unit not learned yet (or a better roll) is worth picking up: it is learned on the spot. Anything else is junk. */
@@ -1553,10 +1435,6 @@ const ITEM_TEXT: { [T in ItemType]: ItemText<ItemDefOf<T>> } = {
   consumable: {
     headline: () => '',
     describe: (def) => [`Carry up to ${stackCap(def)}${def.fieldOnly ? ' · field only' : ''} · use it from the Items tab or a Q / E quick slot`],
-  },
-  photon: {
-    headline: () => '',
-    describe: () => [],
   },
   unit: {
     headline: (_def, inst) => affixLines(inst).join(' · '),

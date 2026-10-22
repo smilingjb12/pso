@@ -1,4 +1,4 @@
-import { MAX_STACK, PHOTON_STACK, type ItemDef } from './data/items';
+import { MAX_STACK, type ItemDef } from './data/items';
 
 // What each item type does in the inventory: where it is worn, what wearing it requires and how it stacks.
 // Adding a type to ItemDef is a compile error here until it has a row. Menu text per type is ITEM_TEXT in
@@ -32,7 +32,6 @@ export const ITEM_TYPES: { [T in ItemType]: ItemTypeHandler<ItemDefOf<T>> } = {
   armor: { slot: (d) => d.slot, requirement: (d) => need(d.req), maxStack: () => 0 },
   injector: { slot: () => 'injector', requirement: (d) => need(d.req), maxStack: () => 0 },
   consumable: { slot: () => null, requirement: () => null, maxStack: (d) => d.maxStack ?? MAX_STACK },
-  photon: { slot: () => null, requirement: () => null, maxStack: () => PHOTON_STACK },
   // Units are learned into the Mag, not worn in a gear slot.
   unit: { slot: () => null, requirement: () => null, maxStack: () => 0 },
 };

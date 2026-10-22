@@ -1,8 +1,7 @@
 import {
-  bestCrafted, compareEquip, craftRecipe, decidingRow, describeItem, rowPct, gearSlot, grindBonus, grindLevels, itemName, ownAffixes, rarityLine, rarityOf,
+  compareEquip, decidingRow, describeItem, rowPct, gearSlot, grindBonus, grindLevels, itemName, ownAffixes, rarityLine, rarityOf,
   simulateEquip, statDef, type Character, type CompareRow, type ItemInstance,
 } from '../game/character';
-import { PHOTON_RARITY } from '../game/crafting';
 import { estimateDamage, type Foe } from '../game/dps';
 import { affixText, ITEM_AFFIXES, penaltyText, type AffixRoll, type ItemAffixId } from '../game/data/itemAffixes';
 import { getDef } from '../game/data/items';
@@ -15,8 +14,8 @@ import { isGear, itemRequirement } from '../game/itemTypes';
 // One item card for every item, and the comparison folded into it: when the item isn't the one worn, every number
 // carries its change against the equipped piece, and what only the equipped piece gives is listed as "You'd lose".
 // Layout: header (name, type line, requirement chip), the verdict line, stat tiles (flat affixes folded in, shown as
-// a blue +N), the remaining affixes (a dot per role: offence, defence, utility, downside), a rare's dormant ones
-// (greyed), a weapon's damage table, then a one-line flavour text.
+// a blue +N), the remaining affixes (a dot per role: offence, defence, utility, downside), a weapon's damage table,
+// then a one-line flavour text.
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const signed = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '±0');
@@ -111,7 +110,7 @@ function uniqueHtml(id: UniqueId, lost = false): string {
   return line('good', u.effect) + line('bad', u.cost);
 }
 
-function affixLineHtml(r: AffixRoll, delta: string, state: '' | 'lost' | 'dormant' = ''): string {
+function affixLineHtml(r: AffixRoll, delta: string, state: '' | 'lost' = ''): string {
   const def = ITEM_AFFIXES[r.id];
   const main = esc(def.text(r.v));
   const pen = def.penalty && r.p ? ` <span class="ic-pen">· ${esc(penaltyText(def.penalty.stat, r.p))}</span>` : '';
@@ -155,17 +154,7 @@ function verdictHtml(ch: Character, inst: ItemInstance, foe: Foe): string {
   if (!c?.rows.some((r) => r.key)) return '';
   const { badge, what } = verdictParts(c.rows);
   const vs = c.current ? `vs. ${esc(itemName(c.current))}` : `vs. no ${c.slot}`;
-  return `<div class="ic-verdict">${badge}<span>${what}, ${vs}</span></div>${craftedHtml(ch, inst, foe)}`;
-}
-
-/** The same verdict for the item crafted to its best with photons, and the recipe (nothing if photons can't improve it). */
-function craftedHtml(ch: Character, inst: ItemInstance, foe: Foe): string {
-  const best = bestCrafted(ch, inst, foe);
-  if (!best) return '';
-  const own = [...(inst.affixes ?? []), ...(inst.dormant ?? [])];
-  const how = [...best.swaps.map((s) => `Crystal: ${s.out} → ${s.in}`), ...best.affixes.filter((r) => !own.includes(r)).map((r) => `Max: ${affixText(r)}`)];
-  const { badge, what } = verdictParts(best.rows);
-  return `<div class="ic-verdict" title="${esc(how.join('\n'))}">${badge}<span>${what}, fully crafted (${esc(craftRecipe(best))})</span></div>`;
+  return `<div class="ic-verdict">${badge}<span>${what}, ${vs}</span></div>`;
 }
 
 /**
@@ -187,10 +176,7 @@ export function itemCardHtml(ch: Character, inst: ItemInstance, foe: Foe): strin
   const check: ReturnType<Character['canEquip']> = gear ? ch.canEquip(inst) : { ok: true };
   const req = need ? `<span class="ic-req${check.need ? ' bad' : ''}"${check.need ? ` title="You are Lv ${ch.level}"` : ''}>Req Lv ${need.level}</span>` : '';
   let html = `<div class="ic-name ${nameCls}">${esc(itemName(inst))}</div>`;
-  // Photons: how rare they are under the name, and what they do as the card's text.
-  const sub = def.type === 'photon' ? PHOTON_RARITY[def.craft] : rarityLine(inst);
-  html += `<div class="ic-sub"><span>${esc(sub)}</span>${req}</div>`;
-  if (def.type === 'photon') html += `<div class="ic-lines">${esc(def.desc ?? '')}</div>`;
+  html += `<div class="ic-sub"><span>${esc(rarityLine(inst))}</span>${req}</div>`;
   if (equipped && gear) html += '<div class="ic-verdict"><span class="ic-eq">Equipped</span></div>';
   else if (compare) html += verdictHtml(ch, inst, foe);
 
@@ -215,12 +201,6 @@ export function itemCardHtml(ch: Character, inst: ItemInstance, foe: Foe): strin
   const tileKeys = new Set(tiles.map((t) => t.key));
   const lines = linesOf(inst, tileKeys);
   if (lines.length) html += `<div class="ic-sec">Affixes</div>${lines.map((r) => affixLineHtml(r, compare ? lineDelta(r, inst, other) : '')).join('')}`;
-  // A rare's dormant affixes: nothing until a Photon Crystal swaps one in.
-  if (inst.dormant?.length) {
-    html += `<div class="ic-sec" title="Dormant affixes do nothing until a Photon Crystal swaps one with an active affix of the same kind (prefix or suffix)">Dormant</div>${inst.dormant
-      .map((r) => affixLineHtml(r, '', 'dormant'))
-      .join('')}`;
-  }
   const unique = def.unique;
   if (unique) html += `<div class="ic-sec">Unique</div>${uniqueHtml(unique)}`;
   if (other) {
@@ -239,7 +219,7 @@ export function itemCardHtml(ch: Character, inst: ItemInstance, foe: Foe): strin
 
 
 
-  // Everything else (injectors, consumables, photons, units): their own lines.
+  // Everything else (injectors, consumables, units): their own lines.
   if (!tiles.length) {
     const rest = describeItem(inst, ch).filter((l) => !l.startsWith('Req:') && l !== rarityLine(inst) && l !== def.desc);
     const affixTexts = new Set(ownAffixes(inst).map(affixText));
@@ -252,7 +232,7 @@ export function itemCardHtml(ch: Character, inst: ItemInstance, foe: Foe): strin
 
   // Anything other than a stat requirement in the way.
   if (gear && !check.ok && !check.need) html += `<div class="ic-warn">✖ ${esc(check.reason ?? "Can't equip")}</div>`;
-  if (def.desc && def.type !== 'photon') html += `<div class="ic-flavour">${esc(def.desc)}</div>`;
+  if (def.desc) html += `<div class="ic-flavour">${esc(def.desc)}</div>`;
   return `<div class="ic">${html}</div>`;
 }
 

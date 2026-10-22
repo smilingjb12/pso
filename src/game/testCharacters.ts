@@ -38,9 +38,6 @@ export function testCharacter(level = 76): CharacterData {
     ...weapons, frame, barrier, injector,
     // Every gear unique, at tier 15 (the unique units are learned below).
     ...UNIQUE_IDS.filter((id) => !isUniqueUnit(id)).map((id) => makeItem(uniqueItemId(id, 15))),
-    makeItem('photon_drop', { qty: 10 }),
-    makeItem('photon_sphere', { qty: 3 }),
-    makeItem('photon_crystal', { qty: 2 }),
   ];
   d.equipped = { weapon: weapons[0].uid, frame: frame.uid, barrier: barrier.uid, injector: injector.uid };
   d.units = [...units, ...UNIQUE_IDS.filter(isUniqueUnit).map((id) => makeItem(uniqueUnitId(id)))];

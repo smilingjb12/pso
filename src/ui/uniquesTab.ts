@@ -150,6 +150,6 @@ export function uniquesTabHtml(ch: Character, filter: UniqueFilter): string {
       <div class="uq-grid">${g.ids.map((id) => card(ch, id)).join('')}</div>`)
     .join('');
   return `<div class="uq-tab"><div class="uq-head">${btns}</div>
-    <div class="dim uq-intro">Bosses drop uniques, nothing else does. Each has one effect nothing else has and a real cost; gear uniques have no affixes and can't be crafted, unique units are learned into the Mag.</div>
+    <div class="dim uq-intro">Bosses drop uniques, nothing else does. Each has one effect nothing else has and a real cost; gear uniques have no affixes, unique units are learned into the Mag.</div>
     <div class="detail uq-list" data-scroll="uq-${filter}">${body}</div></div>`;
 }

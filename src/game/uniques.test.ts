@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Character, makeItem, rarityOf, statDef } from './character';
 import { drops, formulas, uniqueCfg } from './config';
-import { craftable } from './crafting';
 import { estimateDamage, techDps, type Foe } from './dps';
 import { getDef, itemDefs, type ArmorItemDef, type WeaponItemDef } from './data/items';
 import { isUniqueUnit, UNIQUE_IDS, UNIQUES, uniqueItemId, uniqueUnitId, type UniqueId } from './data/uniques';
@@ -82,7 +81,7 @@ describe('unique definitions', () => {
         expect(def.unique).toBe(id);
         expect(def.name).toBe(u.name);
         expect(rarityOf(makeItem(def.id))).toBe('unique');
-        expect(craftable(makeItem(def.id))).toBe(false);
+        expect(makeItem(def.id).affixes).toBeUndefined();
         if (u.base.type === 'weapon') {
           const base = getDef(`${u.base.kind}_${tier}`) as WeaponItemDef;
           const w = def as WeaponItemDef;

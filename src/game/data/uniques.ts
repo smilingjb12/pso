@@ -5,7 +5,7 @@ import type { WeaponKind } from './items';
 // bosses only. The main game (Normal, Nightmare and Hell bosses) drops three weapons. Falz Rift bosses drop
 // their own (Rift Circles, 2026-10-17, the user's design; riftCircles.ts): every boss has a gear unique and a unique
 // unit in each of the three circles (tiers 1-3, 4-6, 7-10), so every boss and every circle is worth farming. A gear
-// unique has no affixes and can't be crafted: its base stats come from its item level (Rift-forged in the rifts).
+// unique has no affixes: its base stats come from its item level (Rift-forged in the rifts).
 // Unique units are learned into the Mag like any unit, which runs four units of any kind. Effects live in
 // code (Character.hasUnique callers), their numbers in config uniqueCfg. The six made for Hunters and Rangers became
 // rods and wands on 2026-10-21 (the user's call: keep the names, give each a caster effect).

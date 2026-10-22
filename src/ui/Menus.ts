@@ -1,13 +1,12 @@
 import {
-  affixLines, dropVerdict, fitsSlot, GEAR_SLOTS, gearSlot, gearVerdict, isGearItem, itemHeadline, itemName,
+  affixLines, dropVerdict, fitsSlot, GEAR_SLOTS, gearSlot, gearVerdict, itemHeadline, itemName,
   MAG_UNIT_SLOTS, magPointValue, rarityOf, sellPrice, simulateEquip, simulateUnits, unitKind, unitTitle, type Character, type GearSlot, type ItemInstance, type UnitKind,
 } from '../game/character';
-import { craftPlan } from '../game/crafting';
 import { damageBreakdown, type Foe } from '../game/dps';
 import { isGear } from '../game/itemTypes';
 import { GROWTH, STAT_KEYS, STAT_LABEL, statValue, type MagStat, type StatKey } from '../game/data/stats';
 import { ART_IDS, ARTS, type ArtId } from '../game/data/arts';
-import { AFFIX_CAPS, affixText, ITEM_AFFIXES, UNIT_KINDS } from '../game/data/itemAffixes';
+import { AFFIX_CAPS, UNIT_KINDS } from '../game/data/itemAffixes';
 import { getDef, INVENTORY_SIZE } from '../game/data/items';
 import { UNIQUES } from '../game/data/uniques';
 import { restaHeal } from '../game/data/techniques';
@@ -45,13 +44,9 @@ export interface GameApi {
   unitSet(kinds: UnitKind[]): string | null;
   /** Sell all bag gear that is worse than what is worn. */
   sellJunk(): string | null;
-  /** Salvage the bag's junk magic and rare gear into Photon Drops. */
-  salvageJunk(): string | null;
   equipItem(uid: string): string | null;
   unequipItem(uid: string): void;
   discardItem(uid: string): void;
-  /** Use a photon on a weapon or armour piece (`key`: the photon's pick). */
-  craftItem(targetUid: string, toolUid: string, key: string): string | null;
   buy(inst: ItemInstance): string | null;
   sell(uid: string): string | null;
   /** The enemy weapon damage estimates are measured against (the current expedition's average). */
@@ -92,7 +87,7 @@ const unitText = (u: ItemInstance): string => {
   return `<span class="unit-text"><span class="unit-name${rarityCls(u)}">${esc(unitTitle(u))}</span>${does}</span>`;
 };
 
-const GAME_SOUNDED = new Set(['buy', 'sell', 'sellJunk', 'salvageJunk', 'equip', 'dmgEquip', 'unequip', 'magAdd', 'skillUp', 'skillMax', 'skillDown', 'artPick', 'artClear', 'pbPick', 'unitIn', 'unitOut', 'dmgUnitsUse', 'use', 'learn', 'craftApply']);
+const GAME_SOUNDED = new Set(['buy', 'sell', 'sellJunk', 'equip', 'dmgEquip', 'unequip', 'magAdd', 'skillUp', 'skillMax', 'skillDown', 'artPick', 'artClear', 'pbPick', 'unitIn', 'unitOut', 'dmgUnitsUse', 'use', 'learn']);
 const ACT_SOUND: Record<string, SfxId> = {
   pick: 'ui.confirm', load: 'ui.confirm', new: 'ui.confirm', doDelete: 'ui.confirm',
   close: 'ui.cancel', cancelDelete: 'ui.cancel', cancelCraft: 'ui.cancel', quit: 'ui.cancel',
@@ -278,7 +273,6 @@ function verdictMark(ch: Character, inst: ItemInstance, foe: Foe): string {
 
 const ITEM_GROUPS: [string, string[]][] = [
   ['Consumables', ['consumable']],
-  ['Photons (no bag space)', ['photon']],
   ['Units', ['unit']],
 ];
 
@@ -301,9 +295,6 @@ export class InventoryMenu implements Menu {
   tab: InvTab = 'equip';
   private slot: GearSlot = 'weapon';
   private sel: string | null = null;
-  private crafting: string | null = null; // photon uid awaiting a target (weapon or armour)
-  private craftTarget: string | null = null; // then the target, awaiting a pick (a photon's affix or offer)
-  private swapFrom: number | null = null; // Photon Crystal: the active affix picked, awaiting the dormant one
   /** Arts tab: the bar slot picked (an Art clicked next goes there), and the Art whose details and modifiers show. */
   private artSlotSel: number | null = null;
   private artSel: ArtId | null = null;
@@ -428,17 +419,10 @@ export class InventoryMenu implements Menu {
       .join('');
     const sel = this.selected(null);
     let detail = '<div class="dim">Select an item.</div>';
-    const tool = this.crafting ? ch.find(this.crafting) : undefined;
-    const target = this.craftTarget ? ch.find(this.craftTarget) : undefined;
-    if (tool && target) {
-      detail = this.renderCraftPicker(tool, target);
-    } else if (tool) {
-      detail = this.renderCraftTargets(tool);
-    } else if (sel) {
+    if (sel) {
       const def = getDef(sel.id);
       const card = itemCardHtml(ch, sel, this.api.damageFoe());
       const btns: string[] = [];
-      if (def.type === 'photon') btns.push(`<button class="btn primary" data-act="craft" data-arg="${sel.uid}">Use on…</button>`);
       btns.push(`<button class="btn danger" data-act="discard" data-arg="${sel.uid}">${this.api.inField ? 'Drop' : 'Discard'}</button>`);
       const hint = def.type === 'consumable' ? '<div class="dim">Put it on a Q / E quick slot (Palette tab) to use it in the field.</div>'
         : def.type === 'unit' ? `<div class="dim">${esc(dropVerdict(this.ch, sel).note)}. Units are learned when picked up (Mag tab → Units); this one is only worth its price.</div>`
@@ -447,91 +431,6 @@ export class InventoryMenu implements Menu {
         <div class="detail-sell dim">Sells for ${sellPrice(sel)} M</div><div class="choices inline">${btns.join('')}</div>`;
     }
     return `<div class="split"><div class="list">${rows || '<div class="dim empty-note">No items.</div>'}</div><div class="detail">${detail}</div></div>${this.foot()}`;
-  }
-
-  /**
-   * A photon picked: choose the weapon or armour piece to use it on. The equipped pieces come first (they are nearly
-   * always the ones worked on); dimmed where the photon can't work.
-   */
-  private renderCraftTargets(tool: ItemInstance): string {
-    const ch = this.ch;
-    const tdef = getDef(tool.id);
-    const order = (it: ItemInstance) => (ch.isEquipped(it.uid) ? 0 : 1) * 10 + ['weapon', 'frame', 'barrier'].indexOf(gearSlot(it) ?? '');
-    const items = ch.data.inventory.filter(isGearItem).sort((a, b) => order(a) - order(b));
-    const rows = items
-      .map((it) => {
-        const def = getDef(it.id);
-        let why = '';
-        if (tdef.type === 'photon') {
-          const plan = craftPlan(it, tdef.craft);
-          if (!plan.ok) why = plan.reason;
-        }
-        // Rares show how many dormant affixes they hold (what a Crystal can swap in).
-        const fill = def.type !== 'unit' && it.dormant?.length ? `${it.dormant.length} dormant` : '';
-        const title = why ? ` title="${esc(why)}"` : '';
-        return `<div class="row${rarityCls(it)}${why ? ' dimmed' : ''}"${title} data-act="craftTarget" data-arg="${it.uid}">${glyph(it)}${ch.isEquipped(it.uid) ? '<span class="eq">E</span>' : ''}<span class="row-name">${esc(itemName(it))}</span><span class="dim">${fill}</span></div>`;
-      })
-      .join('');
-    return `<div class="detail-title">${esc(itemName(tool))}: choose a weapon or armour piece</div>
-      <div class="dim grind-head">${esc(getDef(tool.id).desc ?? '')}</div>
-      <div class="list short">${rows || '<div class="dim empty-note">No weapons or armour in your bag.</div>'}</div>
-      <div class="choices inline"><button class="btn ghost" data-act="cancelCraft">Cancel</button></div>`;
-  }
-
-  /**
-   * A photon on `target`: one row per affix it can work on, and the item's card below. A Crystal picks in two steps:
-   * the active affix to swap out, then the dormant one to bring in.
-   */
-  private renderCraftPicker(photon: ItemInstance, target: ItemInstance): string {
-    const ch = this.ch;
-    const pdef = getDef(photon.id);
-    if (pdef.type !== 'photon') return '<div class="dim">Nothing to craft.</div>';
-    const plan = craftPlan(target, pdef.craft);
-    const tierTag = (t?: number) => (t ? `<span class="cp-tier">T${t}</span>` : '');
-    const row = (label: string, t: number | undefined, after: string, act: string, arg: string, can: boolean, reason: string, downside: boolean) =>
-      `<div class="row craft-pick${downside ? ' downside' : ''}${can ? '' : ' dimmed'}" ${can ? `data-act="${act}" data-arg="${arg}"` : ''}>
-        <span class="cp-name">${esc(label)}${tierTag(t)}</span><span class="cp-after">${esc(after)}</span>${reason ? `<span class="gp-note">${esc(reason)}</span>` : ''}</div>`;
-    let rows = '';
-    let how = '';
-    let back = '';
-    if (pdef.craft === 'crystal') {
-      const active = target.affixes ?? [];
-      const from = this.swapFrom !== null && active[this.swapFrom] ? this.swapFrom : null;
-      if (from === null) {
-        // Step 1: the active affix to swap out, with how many dormant ones of its kind could come in.
-        how = 'Pick the active affix to swap out.';
-        rows = active
-          .map((r, i) => {
-            const mine = plan.choices.filter((c) => c.key.startsWith(`${i}:`));
-            const open = mine.filter((c) => c.ok).length;
-            const kind = ITEM_AFFIXES[r.id].kind;
-            const reason = !mine.length ? `No dormant ${kind}` : !open ? mine[0].reason : '';
-            return row(affixText(r), r.t, open ? `${open} to swap in` : '', 'swapFrom', String(i), plan.ok && open > 0, reason, !!ITEM_AFFIXES[r.id].penalty);
-          })
-          .join('');
-      } else {
-        // Step 2: the dormant affix to bring in for it.
-        const out = active[from];
-        how = `Swapping out <b>${esc(affixText(out))}</b>. Pick the dormant affix to bring in: it keeps its roll, and the one going out keeps its own (a later Crystal can swap it back).`;
-        rows = plan.choices
-          .filter((c) => c.key.startsWith(`${from}:`))
-          .map((c) => {
-            const d = target.dormant![Number(c.key.split(':')[1])];
-            return row(affixText(d), d.t, '', 'craftApply', c.key, plan.ok && c.ok, c.reason, !!c.downside);
-          })
-          .join('');
-        back = '<button class="btn ghost" data-act="swapBack">Other affix</button>';
-      }
-    } else {
-      how = pdef.craft === 'drop' ? 'Pick an affix to reroll within its strength tier (T).' : 'Pick an affix to raise a strength tier (T): it never comes out lower.';
-      rows = plan.choices.map((c) => row(c.label, c.tier, c.after, 'craftApply', c.key, plan.ok && c.ok, c.reason, !!c.downside)).join('');
-    }
-    const head = plan.reason ? `<div class="gp-note warn">${esc(plan.reason)}</div>` : `<div class="dim grind-head">${how}</div>`;
-    return `<div class="detail-title">${esc(itemName(photon))} → ${esc(itemName(target))}</div>
-      ${head}
-      <div class="list craft-picks">${rows}</div>
-      <div class="choices inline">${back}<button class="btn ghost" data-act="craftBack">Other item</button><button class="btn ghost" data-act="cancelCraft">Cancel</button></div>
-      ${itemCardHtml(ch, target, this.api.damageFoe())}`;
   }
 
   private renderStatus(): string {
@@ -1111,9 +1010,6 @@ export class InventoryMenu implements Menu {
       case 'tab':
         this.tab = arg as InvTab;
         this.sel = null;
-        this.crafting = null;
-        this.craftTarget = null;
-        this.swapFrom = null;
         this.artSlotSel = null;
         this.artSel = null;
         this.skillSel = null;
@@ -1126,10 +1022,6 @@ export class InventoryMenu implements Menu {
         break;
       case 'select':
         this.sel = arg;
-        // Picking another item leaves the craft flow (it would otherwise keep going with the old grinder or photon).
-        this.crafting = null;
-        this.craftTarget = null;
-        this.swapFrom = null;
         break;
       case 'equip':
         this.fail(this.api.equipItem(arg));
@@ -1199,41 +1091,6 @@ export class InventoryMenu implements Menu {
         this.api.discardItem(arg);
         this.sel = null;
         break;
-      case 'craft':
-        this.crafting = arg;
-        break;
-      case 'craftTarget':
-        if (this.crafting) this.craftTarget = arg;
-        this.swapFrom = null;
-        break;
-      case 'swapFrom':
-        this.swapFrom = Number(arg);
-        break;
-      case 'swapBack':
-        this.swapFrom = null;
-        break;
-      case 'craftApply':
-        if (this.crafting && this.craftTarget) {
-          const err = this.api.craftItem(this.craftTarget, this.crafting, arg);
-          this.fail(err);
-          if (!err) this.swapFrom = null;
-          // Stay on the picker while the stack lasts, so several can be spent on one item in a row.
-          if (!err && !this.ch.find(this.crafting)) {
-            this.sel = null;
-            this.crafting = null;
-            this.craftTarget = null;
-          }
-        }
-        break;
-      case 'craftBack':
-        this.craftTarget = null;
-        this.swapFrom = null;
-        break;
-      case 'cancelCraft':
-        this.crafting = null;
-        this.craftTarget = null;
-        this.swapFrom = null;
-        break;
     }
   }
 }
@@ -1262,8 +1119,7 @@ export class ShopMenu implements Menu {
       <button class="tab${this.mode === 'sell' ? ' on' : ''}" data-act="mode" data-arg="sell">Sell</button>`;
     const junk =
       this.mode === 'sell'
-        ? '<button class="btn small" data-act="salvageJunk" title="Breaks the magic and rare gear in the bag that is worse than what you wear into Photon Drops: one from each rare, sometimes one from a magic item (uniques stay)">Salvage junk</button>' +
-          '<button class="btn small" data-act="sellJunk" title="Sells every piece of gear in the bag that is worse than what you wear, and units you have already learned (uniques stay)">Sell all junk</button>'
+        ? '<button class="btn small" data-act="sellJunk" title="Sells every piece of gear in the bag that is worse than what you wear, and units you have already learned (uniques stay)">Sell all junk</button>'
         : '';
     let list = '';
     let detail = '<div class="dim">Select an item.</div>';
@@ -1357,12 +1213,6 @@ export class ShopMenu implements Menu {
       }
       case 'sellJunk': {
         const err = this.api.sellJunk();
-        if (err) this.api.notify(err, 'warn');
-        this.sel = null;
-        break;
-      }
-      case 'salvageJunk': {
-        const err = this.api.salvageJunk();
         if (err) this.api.notify(err, 'warn');
         this.sel = null;
         break;

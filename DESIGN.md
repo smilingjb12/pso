@@ -11,9 +11,8 @@ Living spec agreed during the kickoff interview. Gameplay first, graphics later.
 - **Normal, Nightmare and Hell**, chosen at login, Diablo style (Nightmare opens after Dark Falz on Normal, Hell after it falls on Nightmare; see "Nightmare" and "Hell"). No Section IDs yet.
 - **Endgame:** Falz Rifts after the Hell Dark Falz: a map of generated room nodes and boss nodes on ten tier rings
   (see "Endgame: Falz Rifts" > "The Rift Map").
-- **Crafting:** photons change a weapon's or armour's affixes, each spending the item's Potential; every item is fully
-  ground (no grinders since 2026-10-11, see "Grind: built in"); formerly grinders raised base
-  stats on weapons and armour (see "Crafting: Photons").
+- **No crafting:** gear drops as it is and nothing changes its affixes (since 2026-10-22, see "Affixes: what drops is
+  what you get"); every item is fully ground (no grinders since 2026-10-11, see "Grind: built in").
 
 ## Tech
 - **TypeScript + Vite + three.js**.
@@ -193,7 +192,7 @@ damage taken** split, and the full version: formulas changed so each number is l
   they multiply the whole hit now (old rolls come down to their tier's new top). New **Crit damage** prefix (Savage,
   weapons and units, +6-55%). Crit chance (of Luck) shows as % (+0.3-4.0%). **Plated** (Strike damage taken, was DFP
   +2-45) and **Warded** (Area damage taken, was the barrier-only Bastion suffix) are both armour prefixes of 1-8%,
-  so a Photon Crystal trades one for the other. Brittle and Reckless cost "Damage taken +1-7%" (both stats).
+  so they compete for the same slots. Brittle and Reckless cost "Damage taken +1-7%" (both stats).
   Red Ring: Crit damage +100%.
 - **Old saves** convert once (`affixUnits` 2): DFP rolls become Strike damage taken (÷6), Bastion ×2/3, the downside
   penalties ÷6, Weapon damage % and Reckless capped at their new tops. Learned DFP units are Strike units.
@@ -334,7 +333,7 @@ and nothing in the game names a class. Their picks from a question round:
   still holds.
 - **Old saves** (save version 6; version 5 saves load and convert in `convertRetiredItems`, `readAffixData` and the
   `Character` constructor): blades and the Cane become a Rod, guns a Wand, Guard and Combat armour Psy, each of the
-  same tier. Affixes that went are dropped and `upgradeCrafting` tops the item back up to its counts. Specials and
+  same tier. Affixes that went are dropped and the load tops the item back up to its counts (`upgradeSavedItems`). Specials and
   the class go. A Hunter or Ranger starts the trees over: she knows Foie, like a new character, and every other
   point comes back (her Art bars go too). A Force keeps her ranks, and her old Art bars (one per weapon kind) become
   the bar of the weapon in hand. POW and DEX points come back.
@@ -565,7 +564,7 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
   |---|---|---|
   | Normal | white | none |
   | Magic | blue | 2 (one prefix, one suffix) |
-  | Rare | yellow | 4 active + 1 dormant on Normal tiers (1-7), 5 + 2 on Nightmare (8-11), 6 + 3 on Hell (12-15) and in rifts; at most 3 of each active |
+  | Rare | yellow | 4 on Normal tiers (1-7), 5 on Nightmare (8-11), 6 on Hell (12-15) and in rifts; at most 3 of each kind (1 / 2 / 3 dormant too, 2026-10-13 to 10-22) |
   | Unique | purple | none: one effect and one cost of its own (see "Uniques") |
 
   (Frames rolled 0-3 unit slots by rarity until 2026-10-21; see "Units" below.)
@@ -575,12 +574,12 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
   - **Prefixes** are offence plus flat HP and TP, so survivability competes with damage for the same 3 slots;
     **suffixes** are defence, utility and resistances. A weapon's rolled special (Heat, Ice, Shock, Draw,
     Dim, Venom) counts as a prefix. No affix twice. Counts are fixed (2026-10-13, the
-    user's redesign; they were ranges) and rares hold **dormant** affixes too (see "Crafting: Photons"). Draw
+    user's redesign; they were ranges; see "Affixes: what drops is what you get"). Draw
     weights: 1 a normal affix, 1.2 a weapon special, 0.5 a downside. (Race % drew at 0.5 too, 1.5 before
     2026-10-13, until it went with enemy races on 2026-10-17; see "No enemy races".)
   - **Item level** = the band the item's tier drops in (T1 1 ... T7 37, T11 77, T15 98); it decides the best of six
-    strength tiers an affix can roll (tier 1 from iLvl 1, 10, 22, 36, 55, 80), usually the top one, sometimes one or
-    two below. Haste (and Frail) only from tier 8, 1% up to
+    strength tiers an affix can roll (tier 1 from iLvl 1, 10, 22, 36, 55, 80): each affix lands at the top value of
+    that tier or of one or two below (since 2026-10-22, see "Affixes: what drops is what you get"). Haste (and Frail) only from tier 8, 1% up to
     `hasteCfg.capByTier`.
   - Pools (numbers only): every weapon ATP %, flat ATP, LCK (crit), Haste, TP refill % (Flow) and injector charge;
     melee stagger % and
@@ -602,7 +601,7 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
     Picking up a unit of a kind (its affix) you don't know learns it for good; a better roll of a known kind (bigger
     value, or the same value with a smaller penalty) replaces the learned one, which is gone. Learning needs no bag
     slot. A unit no better than the learned one goes to the bag as junk: worth its price, nothing else ("Sell all
-    junk" takes it). Learnable units are walk-over pickups (2026-10-12, the user's ask), like meseta and photons;
+    junk" takes it). Learnable units are walk-over pickups (2026-10-12, the user's ask), like meseta;
     junk ones stay on the ground until picked up by hand. On the ground only learnable units get the pillar and a green ▲; the rest fade grey like junk
     gear. `data.units` is the learned collection (one per kind, "N of 21 kinds" on the Mag tab), `data.magUnits` the
     kinds slotted in the Mag (the 2026-10-08 idea, after moving units between frames felt like a chore). **The Mag
@@ -633,7 +632,7 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
     Volatile blasts hurt only machines. In their home areas that was everyone anyway; in a rift it was a hidden rule.
   - **No damage given back**: race % was a bonus on top (about +20% on average across a rift's mixed waves for a
     max-race weapon, +80% on a matching boss), and the rift numbers stay.
-  - **Old saves:** race rolls are dropped on load (`readAffixes`: unknown ids) and `upgradeCrafting` tops the item
+  - **Old saves:** race rolls are dropped on load (`readAffixes`: unknown ids) and the load tops the item
     back up to its counts with fresh rolls (seeded by its uid). The Mines' clank and spark sounds key on their AIs.
 - **Item names** (`itemName`): magic items take a word from their prefix and their suffix (`Heat Brand of Luck`,
   `Heavy Buster`, `Guard Armor of Grace`); rares a rolled two-word name by what they are (`Doom Edge +2`, the base
@@ -657,7 +656,7 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
   ▲ on the rating while it lowered their technique damage); the card shows the rating's change next to the damage.
   That number is the card's verdict line and decides ▲ / ▼ and junk.
 - **Drops on the ground** (`world/Pickup.ts`): the gem's colour is the type; **magic** gets a blue halo, **rare** a
-  yellow halo and pillar, **uniques** a purple cube and pillar, photons a cyan pillar, **units** a pale cyan gem and
+  yellow halo and pillar, **uniques** a purple cube and pillar, **units** a pale cyan gem and
   pillar while they're worth learning (a new kind or a better roll; otherwise junk-grey, no pillar).
   **Junk** (worse than what is worn, by the verdict above; uniques never) fades grey; an equippable upgrade gets a
   green ▲. The pickup note reads "Damage/s +12% · LCK +3" or "Needs ATP 90 (you have 76) · Damage/s +30%".
@@ -665,15 +664,14 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
   before, `LOOT_LEAN`); injectors lean Fluid (35% Mate). Fewer gear drops than before (Diablo 3's Loot 2.0 rather than
   Diablo 2's volume): weapons 13, armour 9, units 4 out of 100 drop rolls.
 - **Sell all junk** (shop, Sell tab): sells every bag item the verdict calls junk (uniques stay; units in the bag are
-  always junk, since a learnable one is learned on pickup). **Salvage junk** next to it breaks the junk magic and
-  rare gear into Photon Drops instead (see "Crafting: Photons").
+  always junk, since a learnable one is learned on pickup). (Salvage junk, into Photon Drops, went with crafting.)
 - **Supply boxes** open with the interact key (R, when within reach; the context hex shows a crate) and
   drop an item or Meseta. Attacks and techniques pass them by, so area attacks never waste hits on them.
 - **Grind: built in** (2026-10-11, the user's call). **Grinders are gone**: every weapon, frame and barrier counts as
   fully ground (`grindLevels` in character.ts), so a drop compares on equal terms the moment it lands. Why: grinding
   had no choice left in it once race (Bane) levels went with crafting ("feed your best item"), and the rift loot
   analysis found a fresh drop starting 10-12 levels (about +33% damage) behind a ground piece. Their picks: full max
-  grind on everything (not half), and the grinders' drop share went to photons.
+  grind on everything (not half), and the grinders' drop share went to photons (Meseta's since 2026-10-22).
   - **Levels** (`grindCap`): 5 at tiers 1-2, 6 at 3-4, 7 at 5-6 ... 12 at tier 15; uniques 2 more. Frames and
     barriers the same.
   - **Weapons (Edge)**: +4% of the weapon's own average ATP (both ends) and +15% of its MST on rods and wands
@@ -681,8 +679,8 @@ Old saves were deleted (key `pso-like-save-v3`, save version 5), no migration.
   - **Frames and barriers**: +5% of their own DFP and stat bonuses per level (`formulas.refineArmorPct`, applied in
     `statDef` with Rift-forging): +25% at tiers 1-2, +60% at tier 15.
   - Item names lost the "+N"; the card's Grind tile and the grind picker went; shops and prices have no grind premium.
-  - **Supply:** the drop table's grinder share (8) went to photons (4 -> 12); bosses' grinders became photons of the
-    boss's tier (Normal tiers only make Photon Drops). Pre-ground drops are gone.
+  - **Supply:** the drop table's grinder share (8) went to photons (4 -> 12), and with crafting to Meseta; bosses'
+    grinders became photons, gone too since 2026-10-22. Pre-ground drops are gone.
   - **Old saves:** grinders leave the bag (unknown items are dropped on load); saved grind and Bane levels are dropped.
   - (History: 2026-10-07 grinding became Edge or a race per level, caps 5-9; 2026-10-11 races went and armour took
     levels too, then the same day grinders went entirely.)
@@ -1780,10 +1778,10 @@ tuning panel **Rifts**).
 - **Modifiers** (the shards' same 20, with the same quantity and rarity): a room rolls 0-2 in Circle I, 1-3 in II,
   2-4 in III (`mapCfg.mods`), at most one forced affix and one crowd-control resistance; Bleeding names a region
   other than the node's own (never the Forest). Boss nodes have none.
-- **Caches:** a room node's end drop (`rollRiftEndDrops`: Meseta, a rare weapon, armour piece and unit, four
-  photons, more rare gear with item quantity) plus its cache, rolled with the node and shown on the map:
-  **Weapons** (+3 rare weapons), **Armour** (+3 rare frames or barriers), **Units** (+3 units) or **Photons** (+2
-  Photon Spheres and a 25% chance of a Crystal; `rollRiftCache`, `mapCfg`).
+- **Caches:** a room node's end drop (`rollRiftEndDrops`: Meseta, a rare weapon, armour piece and unit, more rare
+  gear with item quantity) plus its cache, rolled with the node and shown on the map: **Weapons** (+3 rare weapons),
+  **Armour** (+3 rare frames or barriers) or **Units** (+3 units; `rollRiftCache`, `mapCfg`). A **Photons** cache
+  (Photon Spheres, then Drops, and a chance of a Crystal) went with crafting on 2026-10-22.
 - **Boss nodes** fight one of the four in its own arena with its Hell third phase and mechanic, at the rift tempo,
   at its circle's tier (3, 6 or 10: 823k, 2.3M and 8.7M HP). They drop the boss's own uniques as before (Rift
   Circles: this circle's two, the earlier circles' less often; the **first kill in each circle always drops one**).
@@ -2167,7 +2165,7 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
 - **A room node** ends when its last room (the Guardian room, the Vault, the Gauntlet) is cleared: "RIFT CLOSED", the
   end loot and the cache, and the map moves on (the node counts and rolls anew, its quarter's boss gains Resonance,
   what it links to opens). **A boss node** ends with the boss: its banner, the end loot (`rollRiftEndDrops`: Meseta,
-  rare weapons, armour and units, a modded tier 6 injector, photons), its own unique (`rollBossUnique`,
+  rare weapons, armour and units, a modded tier 6 injector), its own unique (`rollBossUnique`,
   riftCircles.ts; see "Uniques") and a teleporter in the arena. All at the node's item level. Until 2026-10-21 every
   rift was a floor ending at a random boss (`riftCfg.bossChance` 1 since 2026-10-12; a third before, otherwise the
   Guardian room), and closing the highest open tier opened the next.
@@ -2275,7 +2273,8 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
   They extend each affix's authored six: tier 7 adds half of the tier 5-to-6 step, tier 8 the whole step
   (`tierRange`; e.g. weapon ATP% 26-32 at tier 6, 29-35 at 7, 32-38 at 8). Penalties grow the same way.
   Haste and unit kinds are unchanged.
-- Rift rares, like Hell's, have **6 affixes and 3 dormant** (they rolled 5-6 from item level 110 until 2026-10-13).
+- Rift rares, like Hell's, have **6 affixes** (they rolled 5-6 from item level 110 until 2026-10-13, and held 3 dormant
+  ones from then until crafting went on 2026-10-22).
 - **Rift-forged** (2026-10-11, the user's pick after rift tier 7 gear still lost to their Hell Ruins rod): rift drops'
   base stats (weapon ATP and stat bonuses, armour DFP and bonuses) are raised **3% per item level above 100**, 6% a
   rift tier (+6% at tier 1, +48% at tier 8, **+60% at tier 10**, the top; `drops.riftForgePerTier`, `statDef` /
@@ -2393,51 +2392,39 @@ effects), `uniqueCfg` in config/progression.ts (numbers), `Character.hasUnique` 
   bosses' signature drops all went with the old set. Venom (a special) is on no item now: poison comes from Venom
   Sac, Plague Mantle and Ophelie Seize (and Venom Edge, a dagger Art, until 2026-10-21).
 
-## Crafting: Photons
-First built 2026-10-11 (a Path of Exile-like system replacing grinding's race picks, with five photons and a
-per-item **Potential** budget); **redesigned 2026-10-13** (the user's call) into fixed affix counts, dormant affixes
-and three photons, with no budget (`crafting.ts`, `rollAffixes` in loot.ts, the `photon` item type). Kept from the
-start: **the player picks every target**, as when typed grinders were rejected ("the drop would make the choice,
-not the player").
-- **What can be crafted:** weapons, frames and barriers that aren't uniques. Units are learned, not crafted.
-- **Fixed counts:** a magic item has a prefix and a suffix; a rare 4 / 5 / 6 active affixes by item level (Normal /
-  Nightmare from tier 8's / Hell and rifts from tier 12's), at most 3 of each kind (a 5 splits either way).
-- **Dormant affixes:** a rare also rolls 1 / 2 / 3 **dormant** ones (so 9 on a Hell or rift rare), of any kind, from
-  what its active ones left, at drop like the rest (value and strength tier). They do nothing until swapped in; the
-  card lists them greyed under "Dormant".
-- **Downsides:** every Hell and rift rare holds at least one, active or dormant (one of the prefixes it drew turns
-  into one if none came up; about two thirds of rift armour drew one anyway). An active downside always has a plain
-  dormant prefix to be swapped for. Barriers have only 5 prefixes, so their dormant ones lean to suffixes.
-- **Photons** are a currency (2026-10-12): **picked up by walking over them** like Meseta (and, until 2026-10-21, Rift Shards), one
-  stack of each kind **up to 100**, and they **take no bag space**. A full stack leaves the photon lying there, said
-  once per area. They work on **active** affixes only, as often as you have photons (Items tab > Photons > "Use
-  on..." > item > pick):
-
-  | Photon | Rarity | What it does |
-  |---|---|---|
-  | Photon Drop | common | Rerolls one affix's value within its strength tier (a downside's penalty too). Haste: 1% steps up to the item tier's cap. |
-  | Photon Sphere | rare | One affix a strength tier up, up to what the item level allows (tier 6 on Hell, 7 from rift tier 4, 8 from rift tier 7); never comes out lower (at least +1). Haste +1 up to the cap. |
-  | Photon Crystal | very rare | Swaps an active affix for a dormant one of the same kind (prefix for prefix, suffix for suffix); the player picks the pair. Both keep their rolls, so it can be swapped back. |
-
-- **What stays a chase:** the base (line, gear tier, item level) and the item's own 9 affixes:
-  with photons enough, a drop becomes the best 6 of its 9 at the item level's top values. The verdict judges that
-  fully crafted self too (2026-10-13, the user's ask; `bestCrafted`): every active set Crystals can reach (same
-  prefix / suffix split), each affix at the top tier and value its item level allows (a downside may stay
-  as it is), scored like the ▲ (damage / sec, then armour's rating) against what is worn. Affixes that add
-  nothing are left out of the recipe. The pickup prompt adds a second line, "◆ Fully crafted: Damage/s +9% (1 Crystal
-  · 3 Spheres · Drops)", green if that beats what is worn ("Even fully crafted: ..." grey if not), and the item card a
-  second verdict row (its tooltip lists the swaps and maxed affixes). A drop that only beats what is worn crafted keeps
-  its ▼ but isn't junk (nor sold or salvaged as junk). The worn piece is taken as it is, not crafted.
-- **Strength tiers** are stored on rolls since crafting (`AffixRoll.t`); older rolls work theirs out from the value.
-- **Supply:** drop rolls have a photon category (12 of 100). Normal tiers (1-7) drop only Photon Drops; Nightmare
-  (8-11) 72 / 25 / 3 (Drop / Sphere / Crystal), Hell (12-15) 65 / 28 / 7, rifts 60 / 30 / 10. Nightmare bosses drop
-  one photon, Hell bosses two, a rift's end two (a boss three).
-- **Salvage junk** (shop, Sell tab): junk magic and rare gear (worse than what is worn; uniques stay) breaks into
-  Photon Drops, one from each rare, one from a magic item 35% of the time. Normal junk is left to sell.
-- **Old saves** (`upgradeCrafting`, on load): Null Photons become Spheres and Augment Cores Crystals; Potential and
-  offers go; magic and rare gear is topped up to the fixed counts and rares get their dormant affixes (seeded by the
-  uid; affixes they had stay).
-- Debug panel: "give 5 of each photon"; the Lv 64 test characters carry some. Every number is a first draft.
+## Affixes: what drops is what you get
+**No crafting since 2026-10-22** (the user's call): gear keeps the affixes it dropped with, and nothing changes them.
+The chase is the drop itself: the base (gear tier), the item level (the rift tier) and which affixes it rolled at
+which strength. Code: `rollAffixValue` / `rollAffixes` in loot.ts, `drops.affixSteps` (config/progression.ts),
+`savedItems.ts` (old saves).
+- **Fixed counts:** a magic item has a prefix and a suffix; a rare 4 / 5 / 6 affixes by item level (Normal /
+  Nightmare from tier 8's / Hell and rifts from tier 12's), at most 3 of each kind (a 5 splits either way). No
+  affix twice.
+- **Each affix rolls one of three:** the top value of the best strength tier its item level allows (50%), or the
+  top of one tier below (30%) or two below (20%), never under tier 1 (`drops.affixSteps`, on the tuning panel). A
+  downside's penalty is that tier's smallest. Haste: the gear tier's cap, cap −1 or cap −2. So a tier 8 Tech damage %
+  (rift tiers 7-10) is +33, +30 or +28, and a perfect 6-affix rare (every affix at the top) is about 1 in 64.
+- **Downsides:** every Hell and rift rare holds at least one, and it is active (one of the prefixes it drew turns
+  into one if none came up; all three downsides are prefixes). The user's call when crafting went: nothing can swap it
+  out, which is the hope for a better drop. Lower rares draw them now and then (half a normal affix's weight).
+- **Verdicts** judge gear as it is: junk is no better than what is worn (▼ or =), an upgrade better and wearable.
+- **Strength tiers** are stored on rolls (`AffixRoll.t`); older rolls work theirs out from the value.
+- **Old saves** (`upgradeSavedItems`, on load): every photon in the bag is paid out at its old shop price (Drop
+  1,200 M, Sphere and Null Photon 6,000, Crystal and Augment Core 20,000); dormant affixes, Potential and offers go;
+  magic and rare gear is topped up to the fixed counts (seeded by the uid; the rolls it has stay as they are, with no
+  lift to the new values).
+- **What went with crafting:** the photon item type and its drops (12 of the 100 drop rolls went to Meseta, 54 ->
+  66, so gear drops as often as before; bosses and rift ends drop none), the Photons cache on Rift Map nodes, Salvage
+  junk (Sell all junk stays), the Items tab's Photons group and "Use on...", the card's "Dormant" list and "fully
+  crafted" verdict row, the pickup prompt's "◆ Fully crafted" line, the debug panel's "give photons".
+- **History** (Crafting: Photons, 2026-10-11 to 10-22): a Path of Exile-like system that replaced grinding's race
+  picks, with five photons and a per-item Potential budget; redesigned 2026-10-13 into fixed counts, three
+  **dormant** affixes on a Hell or rift rare and three photons with no budget: **Photon Drop** (common: reroll a
+  value within its tier), **Photon Sphere** (rare: a strength tier up, to the item level's best) and **Photon
+  Crystal** (very rare: swap an active affix for a dormant one of its kind). Earlier on 2026-10-22 the Sphere went
+  (affixes rolled at the cap tier, the value still random), then all of it the same day. The verdict judged a drop
+  by its fully crafted self (the best 6 of its 9 at top values). Photons were a walk-over currency in stacks of up to
+  100 that took no bag space; junk salvaged into Photon Drops.
 
 ## Deferred / Later Milestones
 - More uniques (six so far), the Rift Map's bosses still to come (the two Circle III pinnacles and the Heart's final boss), new base tiers, Section IDs, bank, tekker, guild quests, more enemy types (Rappy, Wolves,
