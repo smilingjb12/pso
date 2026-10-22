@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type GUI from 'lil-gui';
 import { initAudio, music, setListener, setMuffled, setSpace, sfx, type SfxId } from '../audio';
 import { Input } from '../engine/Input';
-import { Hud, type HudState, type PaletteSlotView } from '../ui/Hud';
+import { Hud, type DebuffView, type HudState, type PaletteSlotView } from '../ui/Hud';
 import { techIcon, weaponIcon } from '../ui/icons';
 import { createDebugPanel } from '../ui/debugPanel';
 import {
@@ -29,7 +29,7 @@ import type { Hittable } from './combat/types';
 import type { ComboEvent } from './combo';
 import { expeditionFoe, type Foe } from './dps';
 import { fightLog, hex } from './fightLog';
-import { affixes as affixCfg, hard as hardCfg, hell as hellCfg, camera as camCfg, comboDamage, dash as dashCfg, debug, formulas, injectorCfg, lockOn, magCfg, passiveCfg, player as playerCfg, pylonCfg, uniqueCfg } from './config';
+import { affixes as affixCfg, hard as hardCfg, hell as hellCfg, camera as camCfg, comboDamage, dash as dashCfg, debug, formulas, injectorCfg, lockOn, magCfg, passiveCfg, player as playerCfg, pylonCfg, statuses as statusCfg, uniqueCfg } from './config';
 import { AFFIXES } from './data/affixes';
 import { areas, DEFAULT_LIGHT, expeditionOf, expeditionOfBoss, expeditionOpenedBy, expeditions, isCounter, type AreaId, type ExpeditionId } from './data/areas';
 import { BOSS_IDS, BOSSES, isMainBoss, type BossDef, type BossId } from './data/bosses';
@@ -83,6 +83,9 @@ const noTelegraph = { cancel: () => {} };
 
 /** Each weapon kind's bolt sound. */
 const ATTACK_SFX: Record<WeaponKind, SfxId> = { rod: 'swing.blunt', wand: 'swing.blunt' };
+
+/** The bar colour of each boss mark over the player's head (Barba Ray's ink). */
+const MARK_COLOR: Record<string, string> = { ink: '#8f9bff' };
 
 /** Barba Ray's Deep: what the fog and light blend to (see applyDepth). */
 const DEPTH_FOG = new THREE.Color(DEEP_COLOR);
@@ -168,6 +171,8 @@ export class Game implements GameApi {
   private playAcc = 0;
   private moveDir = new THREE.Vector3();
   private tmpA = new THREE.Vector3();
+  /** Over the player's head, for the HUD's debuffs. */
+  private tmpHead = new THREE.Vector3();
   private tmpB = new THREE.Vector3();
   private tmpC = new THREE.Vector3();
   private tmpD = new THREE.Vector3();
@@ -2334,7 +2339,15 @@ export class Game implements GameApi {
     if (p.buffs.tech.t > 0) buffs.push(`▲TECH ${Math.ceil(p.buffs.tech.t)}s`);
     if (p.buffs.def.t > 0) buffs.push(`▲DEF ${Math.ceil(p.buffs.def.t)}s`);
     const statuses: { label: string; cls: string }[] = [];
-    if (p.corruption > 0) statuses.push({ label: `CORRUPT ×${p.corruption} · ${p.inLight ? 'LIGHT' : p.corruptTimer > 0 ? `${Math.ceil(p.corruptTimer)}s` : 'FADING'}`, cls: 'corrupt' });
+    // Over her head (2026-10-22): Corruption and the boss's marks, an icon and a bar of what is left each.
+    const debuffs: DebuffView[] = [];
+    if (p.corruption > 0) {
+      // Its timer, then (run out, or in the light) the next stack wearing off; the Falz Halo keeps it full.
+      const step = p.inLight ? statusCfg.corruptLightTime : statusCfg.corruptWearTime * this.combat.corruptWearMult;
+      const k = ch.hasUnique('falzHalo') ? 1 : p.inLight || p.corruptTimer <= 0 ? 1 - p.corruptDecay / step : p.corruptTimer / statusCfg.corruptDuration;
+      debuffs.push({ key: 'corrupt', k, text: `×${p.corruption}`, color: p.inLight ? '#ffe9a0' : '#b060ff' });
+    }
+    for (const m of boss?.alive ? (boss.marks ?? []) : []) debuffs.push({ key: m.key, k: m.left / m.total, text: `${Math.ceil(m.left)}s`, color: MARK_COLOR[m.key] ?? '#ffffff' });
     if (p.burnStacks > 0) statuses.push({ label: `BURN ×${p.burnStacks}${p.moving ? '' : ' · MOVE'}`, cls: 'burn' });
     if (p.poison > 0) statuses.push({ label: `POISON ${Math.ceil(p.poison)}s`, cls: 'poison' });
     if (p.paralysis > 0) statuses.push({ label: `PARALYSIS ${p.paralysis.toFixed(1)}s`, cls: 'para' });
@@ -2411,6 +2424,8 @@ export class Game implements GameApi {
       dash: { charges: p.dashCharges, max: p.maxDashCharges, refill: p.dashRefill },
       photonBlast: this.photonBlastName() ? { name: this.photonBlastName()!, charge: p.pb } : null,
       air: boss?.alive ? (boss.air ?? null) : null,
+      debuffs,
+      head: this.tmpHead.copy(p.pos).setY(2.5),
     };
   }
 }

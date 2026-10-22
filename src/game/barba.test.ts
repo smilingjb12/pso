@@ -4,8 +4,8 @@ import { barbaRay as cfg, dash, player } from './config';
 import type { BossContext } from './enemies/Boss';
 import { BarbaRay } from './enemies/BarbaRay';
 import {
-  clutchSpots, dartLane, dryWalk, nearestGap, platformAt, platformSpots, rippleBands, sinkPick, spoutLine, startVents, surgeAlong, tickVents,
-  ventAt, ventSpots, walkIn, type PlatformState, type VentState,
+  clutchSpots, dartLane, dryWalk, inInk, nearestGap, platformAt, platformSpots, rippleBands, sinkPick, spoutLine, startVents, surgeAlong,
+  tickVents, ventAt, ventSpots, walkIn, type PlatformState, type VentState,
 } from './enemies/barbaTide';
 import { riftBossScale } from './rifts';
 import { inShape, type TelegraphShape } from './world/Telegraph';
@@ -62,6 +62,22 @@ describe('Barba Ray: the Brood', () => {
     }
     // A sidestep clears a lane in its warning.
     expect(cfg.pigWidth / 2 + cfg.pigRadius + pr).toBeLessThanOrEqual(walkIn(cfg.pigWarn, TEMPO) + cfg.pigSpread);
+  });
+});
+
+describe("Barba Ray: Mother's fury and the tide channels", () => {
+  it("makes the fury's glide a dash check and its circles a walk", () => {
+    const half = cfg.glideWidth / 2 + pr;
+    expect(half).toBeGreaterThan(walkIn(cfg.furyWindup, TEMPO));
+    expect(half).toBeLessThanOrEqual(dash.distance);
+    expect(0.35 + dash.duration).toBeLessThanOrEqual(cfg.furyWindup / TEMPO);
+    expect(cfg.furyRadius + pr).toBeLessThanOrEqual(walkIn(cfg.furyWarn, TEMPO));
+  });
+
+  it('puts both channels on the court, each band a walk out of in its warning', () => {
+    for (const r of cfg.channelRings) expect(r + cfg.channelHalf).toBeLessThanOrEqual(cfg.arenaRadius);
+    expect(cfg.channelRings[0] - cfg.channelHalf).toBeGreaterThan(0);
+    expect(cfg.channelHalf + pr).toBeLessThanOrEqual(walkIn(cfg.channelWarn, TEMPO));
   });
 });
 
@@ -127,6 +143,19 @@ describe('Barba Ray: the Deep', () => {
       const far = Math.max(...vs.map((v) => Math.hypot(v.x - x, v.z - z) - cfg.ventRadius));
       expect(far / player.moveSpeed).toBeLessThan(cfg.airMax * 0.75);
     }
+  });
+
+  it('spreads an ink pool to its full size, and gives no air from a vent under one', () => {
+    const pools = [{ x: CX, z: CZ, t: 0.1 }];
+    expect(inInk(pools, CX + cfg.inkRadius - 0.1, CZ)).toBe(false);
+    pools[0].t = 2;
+    expect(inInk(pools, CX + cfg.inkRadius - 0.1, CZ)).toBe(true);
+    expect(inInk(pools, CX + cfg.inkRadius + 0.3, CZ, pr)).toBe(true);
+    const vs = vents();
+    vs[0].phase = 'flow';
+    expect(ventAt(vs, vs[0].x, vs[0].z)).toBe(0);
+    vs[0].smothered = true;
+    expect(ventAt(vs, vs[0].x, vs[0].z)).toBe(-1);
   });
 
   it('keeps two vents flowing, moving on from one to the next, each stirring first', () => {
@@ -318,6 +347,37 @@ describe('Barba Ray: the fight', () => {
     expect(f.hits.slice(before).some((s) => s.kind === 'circle' && s.radius === cfg.pigRadius)).toBe(true);
   });
 
+  it("brings its fury down for each egg broken but the last: a glide, then waves of circles on you", () => {
+    const b = ray();
+    const f = fakeFight(b);
+    expect(until(f, b, 'lay', 20)).toBe(true);
+    f.step(1.6);
+    const eggs = b.sacs.filter((s) => s.alive);
+    eggs[0].damage(eggs[0].maxHp);
+    const before = f.hits.length;
+    let attacked = false;
+    f.step(8, () => {
+      if (state(b) === 'attack') attacked = true;
+    });
+    expect(attacked).toBe(true);
+    expect(f.hits.slice(before).some((s) => s.kind === 'circle' && s.radius === cfg.furyRadius)).toBe(true);
+    // The other two: the last one stuns it, its fury swallowed.
+    for (const s of eggs.slice(1)) s.damage(s.maxHp);
+    f.step(0.1);
+    expect(state(b)).toBe('stunned');
+  });
+
+  it('erupts the tide channels in turn, the inner ring first', () => {
+    const b = ray();
+    const f = fakeFight(b);
+    const onRing = (r: number) => () => f.body.pos.set(CX + r, 0, CZ);
+    const arcAt = (r: number) => (s: TelegraphShape) => s.kind === 'arc' && Math.abs(s.inner - (r - cfg.channelHalf)) < 1e-6;
+    f.step((2.6 + cfg.channelFirst + cfg.channelWarn) / TEMPO + 1, onRing(cfg.channelRings[0]));
+    expect(f.hits.some(arcAt(cfg.channelRings[0]))).toBe(true);
+    f.step(cfg.channelEvery / TEMPO + 1, onRing(cfg.channelRings[1]));
+    expect(f.hits.some(arcAt(cfg.channelRings[1]))).toBe(true);
+  });
+
   it('can’t be skipped through: damage past the Brood’s threshold is lost, and the tide comes in', () => {
     const b = ray();
     const f = fakeFight(b);
@@ -481,6 +541,36 @@ describe('Barba Ray: the fight', () => {
     const before = sum(f.drowned);
     f.step(2, offVent);
     expect(sum(f.drowned) - before).toBeGreaterThan(cfg.airShare * (2 - cfg.waterTick) - 1e-9);
+  });
+
+  it('marks you with ink in the Deep: a pool where you stand when it runs out, hurting, smothering a vent under it', () => {
+    const b = ray();
+    const f = fakeFight(b);
+    toDeep(f, b);
+    const spot = court(1).find(([x, z]) => b.vents.list.every((v) => Math.hypot(v.x - x, v.z - z) > cfg.ventRadius + cfg.inkRadius + 1))!;
+    const keep = () => {
+      b.airLeft = cfg.airMax;
+      f.body.pos.set(spot[0], 0, spot[1]);
+    };
+    for (let i = 0; i < 200 && !b.marks.length; i++) f.step(0.1, keep);
+    expect(b.marks).toHaveLength(1);
+    expect(b.marks[0].key).toBe('ink');
+    for (let i = 0; i < 200 && b.marks.length; i++) f.step(0.1, keep);
+    expect(b.inkPools.list).toHaveLength(1);
+    expect(Math.hypot(b.inkPools.list[0].x - spot[0], b.inkPools.list[0].z - spot[1])).toBeLessThan(0.5);
+    // Standing in it.
+    f.step(0.6, keep);
+    const before = f.drowned.reduce((a, x) => a + x, 0);
+    f.step(2, keep);
+    expect(f.drowned.reduce((a, x) => a + x, 0) - before).toBeGreaterThan(cfg.inkShare * (2 - cfg.waterTick) - 1e-9);
+    // A pool over a flowing vent: no air there.
+    const v = b.vents.list.find((x) => x.phase === 'flow')!;
+    b.inkPools.add(v.x, v.z);
+    f.step(0.6);
+    b.airLeft = 2;
+    const onVent = () => f.body.pos.set(v.x, 0, v.z);
+    f.step(0.5, onVent);
+    expect(b.airLeft).toBeLessThan(2);
   });
 
   it('dives at you in the Deep and sticks in the floor, weak point open', () => {

@@ -736,6 +736,31 @@ export const barbaRay = {
   hatchDarts: 4,
   hatchEvery: 1.4,
   /**
+   * Mother's fury (2026-10-22, the user's ask): each egg you break, but the last of a clutch (that one stuns it), sends
+   * it at you as soon as it is free: a glide warned only `furyWindup` s (a dash check), then `furyWaves` waves of
+   * circles `furyEvery` s apart, `furyCircles` of `furyRadius` m each (one on you, the rest within `furySpread` m of
+   * you), warned `furyWarn` s. Eggs broken close together chain their furies back to back: stagger them.
+   */
+  furyWindup: 0.9,
+  furyWaves: 3,
+  furyEvery: 0.7,
+  furyCircles: 5,
+  furyRadius: 2,
+  furySpread: 6,
+  furyWarn: 1.1,
+  furyAtp: 0.9,
+  /**
+   * Tide channels (the Brood only): the court's two rings of glowing water, `channelRings` m out, erupt in turn, the
+   * inner one first: `channelFirst` s into the fight, then every `channelEvery` s, a band `channelHalf` m either side
+   * of the ring, warned `channelWarn` s.
+   */
+  channelRings: [4.5, 13.6] as [number, number],
+  channelHalf: 1.5,
+  channelFirst: 8,
+  channelEvery: 10,
+  channelWarn: 1.5,
+  channelAtp: 0.9,
+  /**
    * Pig Rays (out of hatched sacs): each darts from its sac through near you (give or take `pigSpread` m) to past the
    * rim, its lane shown `pigWarn` s before it sets off, at `pigSpeed` m/s; a touch is a light hit (× `pigAtp` ATP).
    */
@@ -856,4 +881,16 @@ export const barbaRay = {
   currentWidth: 6,
   currentTime: 2.5,
   currentPush: 5,
+  /**
+   * Ink mark (2026-10-22, the user's idea): `inkFirst` s into the Deep, then every `inkEvery` s, it marks you for
+   * `inkMark` s (shown over your head, the pool's size round your feet); as the mark runs out an ink pool `inkRadius` m
+   * round spreads where you stand and stays `inkLife` s. In one you lose `inkShare` of your max HP a second (in ticks,
+   * like the water), and a vent under one gives no air: carry the mark away from the vents.
+   */
+  inkFirst: 5,
+  inkEvery: 15,
+  inkMark: 6,
+  inkRadius: 3,
+  inkLife: 20,
+  inkShare: 0.08,
 };

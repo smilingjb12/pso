@@ -385,6 +385,56 @@
 .v-tp .fill {
   background: linear-gradient(#5ac8ff, #1478e0);
 }
+/* Debuffs over the player's head: an icon, a bar of what is left and a short count, a row each, stacked upward. */
+.overhead {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 3px;
+  pointer-events: none;
+}
+.ovh-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 5px 2px 3px;
+  background: rgba(4, 10, 28, 0.62);
+  border: 1px solid rgba(160, 190, 255, 0.25);
+  border-radius: 3px;
+}
+.ovh-icon {
+  width: 16px;
+  height: 16px;
+}
+.ovh-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.ovh-bar {
+  position: relative;
+  width: 72px;
+  height: 6px;
+  background: #050b1c;
+  border: 1px solid #0f1c3c;
+  overflow: hidden;
+}
+.ovh-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+}
+.ovh-text {
+  min-width: 20px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #dfe8ff;
+  text-shadow: 0 1px 2px #000;
+}
 /* Air (Barba Ray's Deep): pale aqua, amber when it runs low (steady, no blinking). */
 .v-air .fill {
   background: linear-gradient(#d8fbff, #3ac8e8);
@@ -575,10 +625,6 @@
 }
 .vchips .chip.ward {
   color: #8ad8ff;
-}
-.vchips .chip.corrupt {
-  color: #c88aff;
-  box-shadow: 0 0 6px rgba(160, 60, 255, 0.6);
 }
 @keyframes chip-blink {
   50% {

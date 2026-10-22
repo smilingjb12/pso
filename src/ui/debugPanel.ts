@@ -525,6 +525,14 @@ export function createDebugPanel(actions: DebugActions): GUI {
   br.add(barbaRay, 'hatchDarts', 0, 10, 1).name('Pig Rays an egg looses');
   br.add(barbaRay, 'hatchEvery', 0.3, 4, 0.1).name('a Pig Ray every (s)');
   br.add(barbaRay, 'pigWarn', 0.2, 3, 0.05).name('Pig Ray lane warning (s)');
+  br.add(barbaRay, 'furyWindup', 0.3, 3, 0.05).name("Mother's fury: glide warning (s)");
+  br.add(barbaRay, 'furyWaves', 0, 8, 1).name("Mother's fury: waves of circles");
+  br.add(barbaRay, 'furyEvery', 0.2, 3, 0.05).name("Mother's fury: a wave every (s)");
+  br.add(barbaRay, 'furyCircles', 1, 10, 1).name("Mother's fury: circles a wave");
+  br.add(barbaRay, 'furyWarn', 0.3, 3, 0.05).name("Mother's fury: circle warning (s)");
+  br.add(barbaRay, 'channelFirst', 0, 30, 1).name('first channel eruption (s)');
+  br.add(barbaRay, 'channelEvery', 2, 40, 0.5).name('a channel erupts every (s)');
+  br.add(barbaRay, 'channelWarn', 0.3, 4, 0.05).name('channel warning (s)');
   br.add(barbaRay, 'pigAtp', 0, 2, 0.01).name('Pig Ray hit x ATP');
   br.add(barbaRay, 'glideWindup', 0.3, 3, 0.05).name('glide / skim warning (s)');
   br.add(barbaRay, 'crashWindup', 0.3, 3, 0.05).name('belly crash warning (s)');
@@ -561,6 +569,12 @@ export function createDebugPanel(actions: DebugActions): GUI {
   br.add(barbaRay, 'sweepWindup', 0.3, 3, 0.05).name('tail sweep warning (s)');
   br.add(barbaRay, 'currentWarn', 0.3, 3, 0.05).name('current warning (s)');
   br.add(barbaRay, 'currentPush', 0, 12, 0.5).name('current push (m/s)');
+  br.add(barbaRay, 'inkFirst', 0, 30, 1).name('first ink mark (s into the Deep)');
+  br.add(barbaRay, 'inkEvery', 3, 60, 1).name('ink mark every (s)');
+  br.add(barbaRay, 'inkMark', 1, 15, 0.5).name('ink mark lasts (s)');
+  br.add(barbaRay, 'inkRadius', 1, 8, 0.25).name('ink pool radius (m)');
+  br.add(barbaRay, 'inkLife', 2, 60, 1).name('ink pool lasts (s)');
+  br.add(barbaRay, 'inkShare', 0, 0.5, 0.01).name('ink: max HP a second');
   br.close();
 
   const dr = gui.addFolder('Drops');

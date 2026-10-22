@@ -96,6 +96,8 @@ export interface Boss {
   readonly air?: number | null;
   /** How far under the sea the fight has gone (0..1, Barba Ray's Deep): the world's fog and light go deep blue. */
   readonly depth?: number;
+  /** Marks it has put on the player (Barba Ray's ink): shown over her head, `left` of `total` real seconds. */
+  readonly marks?: { key: string; left: number; total: number }[];
   /** Light it leaves on the floor (Dark Falz's Grants): cleanses Corruption like a pylon. */
   lightAt?(x: number, z: number, r: number): boolean;
   /** Standing in pylon light right now (set by the world): a Dark boss takes more damage there. */

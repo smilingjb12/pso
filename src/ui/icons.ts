@@ -147,6 +147,18 @@ export function statusIcon(kind: string): string {
       );
     case 'burn':
       return svg(`<path d="M24 3 C30 13 38 18 36 30 C35 40 28 45 24 45 C18 45 11 40 12 30 C13 22 19 20 20 12 C23 17 25 18 24 3 Z" fill="#ff7a20"/><path d="M24 22 C27 28 31 31 29 37 C27 42 21 42 19 37 C18 32 22 30 24 22 Z" fill="#ffd040"/>`);
+    case 'corrupt':
+      // A violet orb, cracked through.
+      return svg(
+        `<circle cx="24" cy="24" r="17" fill="#7a2ad0" stroke="#d8a0ff" stroke-width="3"/>` +
+          `<path d="M24 7 L20 18 L27 24 L21 33 L24 41" fill="none" stroke="#1a0630" stroke-width="3.5" stroke-linejoin="round"/>`,
+      );
+    case 'ink':
+      // A drop of ink with a pale sheen.
+      return svg(
+        `<path d="M24 4 C31 15 38 22 38 31 A14 14 0 0 1 10 31 C10 22 17 15 24 4 Z" fill="#241a4a" stroke="#9fa8ff" stroke-width="2.5"/>` +
+          `<path d="M17 30 C17 26 19 23 21 21" fill="none" stroke="#c8ceff" stroke-width="3" stroke-linecap="round" opacity=".8"/>`,
+      );
     case 'poison':
       return svg(`<path d="M24 4 C31 15 38 22 38 31 A14 14 0 0 1 10 31 C10 22 17 15 24 4 Z" fill="#6ad84a"/><circle cx="19" cy="31" r="4" fill="#d8ffc8" opacity=".7"/>`);
     default:

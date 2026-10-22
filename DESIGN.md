@@ -1145,14 +1145,17 @@ asked for the environment to be **darker and more ominous** than the first, brig
 - The Ruins' signature corrupting attacks **telegraph in violet** (a melee windup that corrupts heats up violet, not orange): So
   Dimenian cuts (always, since 2026-10-08; were 50%), Chaos Sorcerer spells, the Dark Belra slam, Chaos Bringer lasers, Dark Falz's husk pulse, the
   Angel's halves and Megid orbs (two stacks).
-- HUD: the HP bar keeps its full width and the lost share shows as a cracked violet block at its right end; a chip
-  reads `CORRUPT ×n · LIGHT` (the hint goes once you stand in light).
+- HUD: the HP bar keeps its full width and the lost share shows as a cracked violet block at its right end. Since
+  2026-10-22 (the user: debuffs over the player, each an icon and a bar of what is left, stacking upward) Corruption
+  shows **over her head** (`HudState.debuffs`, `Hud.setOverhead`): a cracked violet orb, a violet bar of its timer,
+  and `×n`; once the timer has run out (or in the light, the bar pale gold) the bar shows the next stack wearing off;
+  the Falz Halo keeps it full. It used to be a chip by the HP bar (`CORRUPT ×n · LIGHT`).
 - **Seal of Light** (Dark Falz signature barrier) and **Falz Halo** (its Nightmare twin) carry Corruption −50%; any
   Corruption resistance shrinks what each stack takes (capped at 75%).
 - **Corruption wears off by itself** (2026-10-08, with Hell; all difficulties). Every application, even at the cap,
   resets a shared **30 s** timer (`statuses.corruptDuration`); when it runs out, the stacks shed one every **2 s**
   (`corruptWearTime`), so there is no sudden +50% HP refill. Pylons, Grants pools, cleared rooms, boss kills and
-  Pioneer 2 still clean it faster. The HUD chip shows the timer (`CORRUPT ×3 · 24s`, then `FADING`, or `LIGHT`).
+  Pioneer 2 still clean it faster. The bar over her head shows the timer, then each stack wearing off.
 
 ### Light pylons (`world/Pylon.ts`)
 - 1–2 per room (`pylons` in the room data), solid obelisks with a crystal. **R lights one**: a **5 m** circle for
@@ -2000,6 +2003,16 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
     is stunned!"). A sac that hatches looses **four Pig Rays** at you, one every 1.4 s, each from the sac down a lane
     through near you (1.4 m wide, warned 0.8 s, 9 m/s, a light hit ×0.4 ATP): a sidestep clears one. Hatched sacs
     mean no stun.
+  - **Mother's fury** (2026-10-22, the user's pick after finding the Brood too easy): each egg you break, **but the
+    last of a clutch** (that one stuns it, its fury swallowed), sends it at you as soon as it is free (out of its
+    attack): a **glide warned only 0.9 s** (a dash check, the cyan rim), then **three waves of circles** 0.7 s apart,
+    five 2 m circles each (one on you, the rest within 6 m, apart), warned 1.1 s (a walk), ×0.9 ATP. Eggs broken close
+    together chain their furies back to back, so you **stagger the egg kills** against the hatch clock ("Mother's fury!
+    Stagger the eggs you break!" the first time).
+  - **Tide channels** (the user's pick): the court's two rings of glowing water (4.5 m and 13.6 m out, `channelRings`,
+    the scenery's channels too) erupt in turn, the inner one first: 8 s into the fight, then every 10 s, a band 1.5 m
+    either side of the ring warned 1.5 s (pale blue, a walk), ×0.9 ATP, geysers all along it ("The channels surge:
+    off the glowing rings!" the first time). The Brood only.
 - **Phase 2, High Tide (65-30%)**: "The tide comes in!": it dives out over the rim and the sea covers the court **for
   good** ("High tide: keep to the platforms!").
   - **The water**: off a standing platform you lose **6% of your max HP a second** (past armour and damage taken,
@@ -2047,6 +2060,12 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
     - **Current**: it swims over the flowing vent nearest you and beats its wings at you: a 6 m lane from the vent
       through you, warned 1.1 s, then for 2.5 s it **pushes you along it** at 5 m/s (no damage; walk out sideways), so
       a vent you were breathing in is suddenly behind you.
+  - **Ink mark** (2026-10-22, the user's idea): 5 s into the Deep, then every 15 s, it marks you for 6 s (~5 real
+    seconds): over your head an ink drop and an indigo bar running down, and round your feet a ring as big as the pool
+    will be. As it runs out **an ink pool 3 m round spreads where you stand** and stays 20 s: in it you lose **8% of
+    your max HP a second** (ticks, like the water), and **a vent under a pool gives no air** (its bubbles nearly stop):
+    carry the mark away from the vents ("Ink mark! Carry it away from the vents!" the first time). Glossy black with an
+    indigo rim, so they read on the pale floor.
   - **Enraged** (below 15%, the Deep only): windups ×0.8 (the dive never cut).
 - **Readability** (the user's first look, 2026-10-22: the pale pink and teal lanes were hard to see, the platforms'
   pulsing rings distracting). The court's telegraphs keep the usual style, ×1.25 as opaque (the bright floor washes
@@ -2086,11 +2105,15 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
   invincible, the debug warp): a clutch landing and its stun, the tide coming in, a surge with Ul Rays and sinking
   platforms, the change into the Deep and the Deep's look, the AIR gauge, a dive's warning, and a scripted run from
   waking to the kill through all three phases with no errors (at a steady 0.5% of its HP a second: the Brood ~86 s,
-  High Tide ~80 s, the Deep ~64 s). Not done: a balance pass (eggs' HP against real damage, the water's bite), a
-  recorded track.
+  High Tide ~80 s, the Deep ~64 s). Since then (2026-10-22): the fury's dash check and circles, the channels' bands,
+  the ink pools and smothered vents in `barba.test.ts`, and in the game the fury's circles round you (the dash hint
+  showing), a channel band, an ink pool under you, and the ink and Corruption rows stacked over your head; a second
+  scripted run to the kill with no errors. Not done: a balance pass (eggs' HP against real damage, the water's bite),
+  a recorded track.
 - **Debug** (tuning panel): Rifts > "enter Barba Ray (Pinnacle II)" goes straight in (its first kill stays owed); the
-  **Barba Ray** folder has the phase thresholds, the clutches, the water, the platforms, the surges, the beaching, the
-  Ul Rays, the air and vents and every attack's warning; Rifts has its speed and HP multiplier.
+  **Barba Ray** folder has the phase thresholds, the clutches, Mother's fury, the tide channels, the water, the
+  platforms, the surges, the beaching, the Ul Rays, the air and vents, the ink and every attack's warning; Rifts has
+  its speed and HP multiplier.
 
 ### Layout (riftGen.ts)
 - `generateRift(options)` is pure: everything comes from the seed (mixed with the region, so one seed differs per
@@ -2404,3 +2427,9 @@ not the player").
   Mothmant/Monest, Hildebear, Shark family, Nano Dragon, Canadine drones, cloaking Sinows), gamepad support,
   ElevenLabs recordings for the Mines, Warden, Ruins and Dark Falz themes, a tier 7 injector and the new injector
   mods for Nightmare.
+- **Mechanic ideas for bosses to come** (the user's, kept for later):
+  - **Match the sigil** (2026-10-22): the boss puts one of five sigil debuffs on you (each its own colour and icon,
+    shown over your head like the ink mark), then circles bearing the sigils spawn across the arena (random or set
+    spots). Walk into the circle that matches yours to clear it. If the debuff runs out, or you touch a circle with
+    another sigil, it deals massive damage. The user's draft says "1 out of 3" sigils on you (open: three in play
+    at a time out of the five, or one of three marks at once).

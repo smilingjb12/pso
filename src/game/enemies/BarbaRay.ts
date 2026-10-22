@@ -10,8 +10,8 @@ import type { BossContext } from './Boss';
 import { BossBase } from './BossBase';
 import type { TelegraphHandle } from './Enemy';
 import {
-  clutchSpots, CurrentStream, dartLane, DeepSea, EggSac, pigTouches, platformAt, Platforms, PigRays, rippleBands, sinkPick, spoutLine,
-  startVents, surgeAlong, SurgeWall, tickVents, toCircle, UlRay, ventAt, Vents, Water,
+  clutchSpots, CurrentStream, dartLane, DeepSea, EggSac, InkPools, inInk, pigTouches, platformAt, Platforms, PigRays, rippleBands, sinkPick,
+  spoutLine, startVents, surgeAlong, SurgeWall, tickVents, toCircle, UlRay, ventAt, Vents, Water,
 } from './barbaTide';
 
 // Barba Ray, the Rift Map's second Circle II pinnacle boss (DESIGN.md "Endgame: Falz Rifts" > "Barba Ray"). A giant
@@ -20,12 +20,15 @@ import {
 // threshold is lost, and it can't be hurt while the next one comes in.
 // 1. The Brood (100-65%): on the dry court it glides through you and belly-crashes (ripples out from the crash), and
 //    lays clutches of Pig Ray eggs: break them all before they hatch and it drops, stunned; hatched ones loose Pig Rays.
+//    Each egg broken but the last brings its fury down on you (a fast glide, then waves of circles), and the court's
+//    two water channels erupt in turn.
 // 2. High Tide (65-30%): "The tide comes in!", and the sea covers the court for good. Off the platforms the water
 //    hurts and slows; they sink and rise in turn. It swims under the sea round the court and surfaces at the rim to skim
 //    across or send spouts; its surges roll across the whole court (a platform keeps you out of them), and it rides each
 //    one in and beaches. Ul Rays hunt in the water.
 // 3. The Deep (30-0%): it drags the court under. Your air runs down; bubbling vents (two at a time, moving on) refill
-//    it. It dives at you and sticks in the floor, sweeps its tail, and beats a current at you from over a vent.
+//    it. It dives at you and sticks in the floor, sweeps its tail, and beats a current at you from over a vent. Its ink
+//    marks you: when the mark runs out a pool of ink spreads where you stand, hurting, and smothering any vent under it.
 
 type RayState =
   | 'dormant' | 'intro'
@@ -112,6 +115,11 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
   private hatchTele = new Map<EggSac, TelegraphHandle>();
   /** Pig Rays owed by hatched sacs: when (fight clock) and where from. */
   private dartsDue: { at: number; x: number; z: number }[] = [];
+  /** Mother's fury owed: eggs broken (not the last of a clutch) it hasn't come at you for yet. */
+  private furies = 0;
+  /** The tide channels: when the next erupts (fight clock), and which ring it is (inner first). */
+  private nextChannel = cfg.channelFirst;
+  private channels = 0;
   // ---- High Tide
   /** Its spot round the court in the sea (radians from the middle), and which way it leans toward you. */
   private swimAng = 0;
@@ -130,6 +138,12 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
   /** 0 .. 1: the court gone under (the look, and the world's fog and light). */
   private deepK = 0;
   private current: { shape: TelegraphShape; yaw: number; t: number } | null = null;
+  /** The ink mark on you (seconds left, its clock; 0: none), when the next comes (phase clock), and the pools down. */
+  private inkT = 0;
+  private nextInk = cfg.inkFirst;
+  readonly inkPools = new InkPools();
+  /** Your share of max HP the ink has taken but not shown yet. */
+  private inked = 0;
   /** Your share of max HP the water (or the lack of air) has taken but not shown yet, and where your body was last frame. */
   private drowned = 0;
   private lastBody: Pt | null = null;
@@ -149,7 +163,7 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
   // ---------------------------------------------------------------- Boss
 
   get objects(): THREE.Object3D[] {
-    return [this.group, this.platforms.group, this.water.group, this.pigs.group, this.ulGroup, this.sacGroup, this.vents.group, this.deepSea.group, this.wall.group];
+    return [this.group, this.platforms.group, this.water.group, this.pigs.group, this.ulGroup, this.sacGroup, this.vents.group, this.deepSea.group, this.wall.group, this.inkPools.group];
   }
   /** Itself (unless under the sea), the sacs on the court and the Ul Rays in the water. */
   parts(): Hittable[] {
@@ -208,6 +222,10 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
   get depth(): number {
     return this.deepK;
   }
+  /** The ink mark on you (shown over your head), in real seconds. */
+  get marks(): { key: string; left: number; total: number }[] {
+    return this.alive && this.inkT > 0 ? [{ key: 'ink', left: this.inkT / this.tempo, total: cfg.inkMark / this.tempo }] : [];
+  }
 
   // ------------------------------------------------------------ Hittable
 
@@ -263,6 +281,7 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
     this.water.update(dt, this.time, tide ? 1 : 0, alive && this.state === 'deep');
     this.vents.update(dt, this.time, alive && this.phase === 3);
     this.deepSea.update(this.time, this.deepK);
+    this.inkPools.update(dt);
     this.updateSacs(dt);
     this.updatePigs(dt, ctx);
     this.updateUls(dt, ctx);
@@ -277,6 +296,9 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
     this.surge = null;
     this.wall.place(null, this.time);
     this.current = null;
+    this.inkT = 0;
+    this.inkPools.clear();
+    this.inkPools.mark(null, 0);
     this.steps = [];
     this.fly = null;
   }
@@ -298,6 +320,8 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
       if (this.phase === 3) this.deepTick(dt, ctx);
     }
     this.updateSurge(dt, ctx);
+    // Mother's fury: as soon as it is free after an egg broke.
+    if (this.phase === 1 && this.furies > 0 && ctx.playerAlive && (this.state === 'stalk' || this.state === 'recover')) this.fury(ctx);
 
     switch (this.state) {
       case 'dormant':
@@ -572,19 +596,19 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
    * Glide: a lane from it through you on to a circle `R` m round the middle (the far rim; in High Tide the far side of
    * its swim, a skim across the court), warned; then it flies it.
    */
-  private glide(ctx: BossContext, R: number): void {
-    const windup = cfg.glideWindup * this.sm();
+  private glide(ctx: BossContext, R: number, windup = cfg.glideWindup * this.sm(), dash = this.enraged): number {
     const yaw = (this.yaw = yawTo(this.pos.x, this.pos.z, ctx.playerX, ctx.playerZ));
     const dist = Math.hypot(ctx.playerX - this.pos.x, ctx.playerZ - this.pos.z);
     const len = Math.max(dist + 4, toCircle(this.pos.x, this.pos.z, yaw, this.cx, this.cz, R));
     this.pose = 'glideWindup';
     this.sound('barba.call');
-    this.warn(ctx, { kind: 'line', x: this.pos.x, z: this.pos.z, yaw, length: len, width: cfg.glideWidth }, windup, undefined, undefined, this.enraged);
+    this.warn(ctx, { kind: 'line', x: this.pos.x, z: this.pos.z, yaw, length: len, width: cfg.glideWidth }, windup, undefined, undefined, dash);
     this.after(windup, () => {
       this.fly = { yaw, left: len, hit: false };
       this.pose = 'glide';
       this.sound('barba.glide');
     });
+    return windup + len / cfg.glideSpeed;
   }
 
   private flyGlide(dt: number, ctx: BossContext): void {
@@ -810,12 +834,20 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
     for (let i = 0; i < cfg.hatchDarts; i++) this.dartsDue.push({ at: this.fightT + i * cfg.hatchEvery, x: sac.pos.x, z: sac.pos.z });
   }
 
-  /** Sacs broken (their hatch called off), and the clutch done: all broken, it is stunned. */
+  /**
+   * Sacs broken (their hatch called off, each owing its fury), the clutch done (all broken: it is stunned, the fury of
+   * the last swallowed by it), and the tide channels erupting in turn.
+   */
   private broodTick(ctx: BossContext): void {
+    if (this.fightT >= this.nextChannel) {
+      this.nextChannel = this.fightT + cfg.channelEvery;
+      this.erupt(ctx, cfg.channelRings[this.channels++ % 2]);
+    }
     for (const [sac, h] of this.hatchTele) {
       if (sac.hp > 0) continue;
       h.cancel();
       this.hatchTele.delete(sac);
+      this.furies++;
       ctx.effect(new Ring(sac.pos.x, sac.pos.z, EGG_COLOR, 2, 0.35));
       this.sound('barba.splash', sac.pos.x, sac.pos.z);
     }
@@ -827,11 +859,67 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
 
   private stun(ctx: BossContext): void {
     this.callOff();
+    this.furies = 0;
     ctx.announce('The brood is lost! Barba Ray is stunned!');
     ctx.shake(0.5);
     this.sound('barba.call');
     this.sound('boss.weak');
     this.enter('stunned');
+  }
+
+  /** Mother's fury: a glide at you warned only `furyWindup` s (a dash check), then waves of circles on and round you. */
+  private fury(ctx: BossContext): void {
+    this.furies--;
+    this.begin();
+    this.lastAttack = null;
+    this.teach(ctx, 'fury', "Mother's fury! Stagger the eggs you break!");
+    const flight = this.glide(ctx, cfg.arenaRadius - cfg.radius, cfg.furyWindup, true);
+    for (let w = 0; w < cfg.furyWaves; w++) this.after(flight + 0.15 + w * cfg.furyEvery, () => this.furyWave(ctx));
+  }
+
+  /** A wave of the fury: `furyCircles` circles, one on you and the rest round you, apart, on the court. */
+  private furyWave(ctx: BossContext): void {
+    const spots: Pt[] = [[ctx.playerX, ctx.playerZ]];
+    for (let i = 0; i < 60 && spots.length < cfg.furyCircles; i++) {
+      const a = ctx.rng() * Math.PI * 2;
+      const r = cfg.furyRadius + ctx.rng() * (cfg.furySpread - cfg.furyRadius);
+      const x = ctx.playerX + Math.sin(a) * r;
+      const z = ctx.playerZ + Math.cos(a) * r;
+      if (Math.hypot(x - this.cx, z - this.cz) > cfg.arenaRadius - 0.5) continue;
+      if (spots.some(([sx, sz]) => Math.hypot(sx - x, sz - z) < cfg.furyRadius * 1.6)) continue;
+      spots.push([x, z]);
+    }
+    for (const [x, z] of spots) {
+      const shape: TelegraphShape = { kind: 'circle', x, z, radius: cfg.furyRadius };
+      this.warn(ctx, shape, cfg.furyWarn, undefined, () => {
+        if (!this.alive) return;
+        ctx.hitPlayer(shape, cfg.furyAtp, x, z, 4);
+        // Dim, slim geysers: bright ones blew out to white under the court's bloom when you stood among them.
+        ctx.effect(new Pillar(x, z, 0x8a3a68, 0.45, cfg.furyRadius * 0.35, 3.5));
+        ctx.effect(new Ring(x, z, 0xffd0e8, cfg.furyRadius * 1.1, 0.35));
+        this.sound('barba.spout', x, z);
+      });
+    }
+    this.hold(cfg.furyWarn);
+  }
+
+  /** A tide channel erupts: a band either side of one of the court's water rings, warned; geysers all along it. */
+  private erupt(ctx: BossContext, r: number): void {
+    const shape: TelegraphShape = { kind: 'arc', x: this.cx, z: this.cz, yaw: 0, inner: r - cfg.channelHalf, outer: r + cfg.channelHalf, arcDeg: 360 };
+    this.teach(ctx, 'channel', 'The channels surge: off the glowing rings!');
+    this.warn(ctx, shape, cfg.channelWarn, SPOUT_COLOR, () => {
+      if (!this.alive || this.phase !== 1) return;
+      ctx.hitPlayer(shape, cfg.channelAtp, this.cx, this.cz, 4);
+      // Dim, slim geysers along it (bright ones blew out under the court's bloom).
+      const n = Math.round((2 * Math.PI * r) / 3.5);
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        ctx.effect(new Pillar(this.cx + Math.sin(a) * r, this.cz + Math.cos(a) * r, 0x2f6a98, 0.45, 0.45, 3));
+      }
+      ctx.effect(new Ring(this.cx, this.cz, 0xe6f8ff, r + cfg.channelHalf, 0.45, 0.6));
+      ctx.shake(0.25);
+      this.sound('barba.spout', this.cx + r, this.cz);
+    });
   }
 
   private updateSacs(dt: number): void {
@@ -875,6 +963,7 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
   /** "The tide comes in!": it dives out over the rim while the sea comes up over the court. */
   private startTide(ctx: BossContext): void {
     this.callOff();
+    this.furies = 0;
     for (const s of this.sacs) if (s.alive) s.hp = 0;
     this.clutch = [];
     this.clutchLive = false;
@@ -1198,11 +1287,15 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
     this.teach(ctx, 'deep', 'Under the sea: breathe in the bubbles!');
   }
 
-  /** The Deep each tick: the vents move on, a current pushes you, and your air runs down (or refills in a vent). */
+  /**
+   * The Deep each tick: the vents move on, the ink mark runs (a pool where you stand when it runs out) and the pools
+   * hurt and smother vents, a current pushes you, and your air runs down (or refills in a vent).
+   */
   private deepTick(dt: number, ctx: BossContext): void {
     tickVents(this.vents.list, dt, ctx.rng);
     const body = ctx.body();
     const real = dt / this.tempo;
+    this.inkTick(dt, ctx, body.pos.x, body.pos.z);
     if (this.current) {
       const c = this.current;
       c.t -= dt;
@@ -1222,6 +1315,37 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
     if (this.airLeft > 0) return;
     this.drowned += cfg.airShare * real;
     if (this.drowned >= cfg.airShare * cfg.waterTick) this.flushDrown(ctx, 'No air');
+  }
+
+  /** The ink mark: on you a while, then a pool where you stand; in a pool you hurt; a vent under one is smothered. */
+  private inkTick(dt: number, ctx: BossContext, x: number, z: number): void {
+    if (this.inkT > 0) {
+      this.inkT -= dt;
+      if (this.inkT <= 0) {
+        this.inkT = 0;
+        this.inkPools.add(x, z);
+        ctx.effect(new Ring(x, z, 0x8f9bff, cfg.inkRadius, 0.5));
+        this.sound('barba.splash', x, z);
+      }
+    } else if (ctx.playerAlive && this.phaseT >= this.nextInk) {
+      this.inkT = cfg.inkMark;
+      this.nextInk = this.phaseT + cfg.inkEvery;
+      this.sound('barba.call');
+      this.teach(ctx, 'ink', 'Ink mark! Carry it away from the vents!');
+    }
+    this.inkPools.mark(this.inkT > 0 ? [x, z] : null, 1 - this.inkT / cfg.inkMark);
+    for (const v of this.vents.list) v.smothered = inInk(this.inkPools.list, v.x, v.z);
+    const real = dt / this.tempo;
+    if (ctx.playerAlive && inInk(this.inkPools.list, x, z, playerCfg.radius)) {
+      this.inked += cfg.inkShare * real;
+      if (this.inked >= cfg.inkShare * cfg.waterTick) {
+        ctx.drown(this.inked, 'Ink');
+        this.inked = 0;
+      }
+    } else if (this.inked > 0) {
+      ctx.drown(this.inked, 'Ink');
+      this.inked = 0;
+    }
   }
 
   // ---------------------------------------------------------- animation

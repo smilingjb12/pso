@@ -1769,7 +1769,7 @@ export class Level {
     }
     this.group.add(new THREE.Mesh(mergeGeometries(lines)!, new THREE.MeshBasicMaterial({ color: gold })));
     const channels: THREE.BufferGeometry[] = [];
-    for (const r of [4.5, 13.6]) channels.push(new THREE.RingGeometry(r - 0.25, r + 0.25, 80).rotateX(-Math.PI / 2).translate(cx, 0.011, cz));
+    for (const r of barbaCfg.channelRings) channels.push(new THREE.RingGeometry(r - 0.25, r + 0.25, 80).rotateX(-Math.PI / 2).translate(cx, 0.011, cz));
     const channelMat = new THREE.MeshBasicMaterial({ color: glow, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending });
     this.group.add(new THREE.Mesh(mergeGeometries(channels)!, channelMat));
     const star: THREE.BufferGeometry[] = [];

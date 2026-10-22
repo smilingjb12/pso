@@ -34,6 +34,14 @@ const HEX_LAYOUT = [
   { slot: 1, pos: 'bottom', color: 'red' },
 ] as const;
 
+/** A debuff over the player's head: its icon (`statusIcon(key)`), the share of it left (0..1) in `color`, and a short count. */
+export interface DebuffView {
+  key: string;
+  k: number;
+  text: string;
+  color: string;
+}
+
 export interface HudState {
   hp: number;
   maxHp: number;
@@ -99,6 +107,10 @@ export interface HudState {
   photonBlast: { name: string; charge: number } | null;
   /** Air left (0..1) under the sea (Barba Ray's Deep): an AIR gauge under TP; null hides it. */
   air: number | null;
+  /** Debuffs over the player's head (Corruption, Barba Ray's ink mark), stacked upward in this order. */
+  debuffs: DebuffView[];
+  /** Over the player's head: where the debuffs ride. */
+  head: THREE.Vector3;
 }
 
 interface FloatText {
@@ -186,6 +198,9 @@ export class Hud {
   private airRow: HTMLDivElement;
   private airFill: HTMLDivElement;
   private airText: HTMLDivElement;
+  /** The debuffs over the player's head, a row each by key. */
+  private overhead: HTMLDivElement;
+  private overheadRows = new Map<string, { row: HTMLDivElement; fill: HTMLDivElement; text: HTMLDivElement }>();
   private lvEl: HTMLDivElement;
   /** Injector gauge: a cell per dose. */
   private injEl!: { root: HTMLDivElement; cells: HTMLDivElement; key: string };
@@ -318,6 +333,7 @@ export class Hud {
     this.bossHp = enemyHpBar(this.bossBox, 'boss-hp');
 
     this.reticle = el('reticle', this.root);
+    this.overhead = el('overhead', this.root);
     this.ccEl = el('cc', this.root,
       `<svg class="cc-ring" viewBox="0 0 100 100"><circle class="cc-track" cx="50" cy="50" r="44"/><circle class="cc-fill" cx="50" cy="50" r="44" pathLength="100"/></svg>` +
         `<div class="cc-icon">${statusIcon('stun')}</div><div class="cc-time"></div><div class="cc-label"></div><div class="cc-hint"></div>`);
@@ -562,6 +578,8 @@ export class Hud {
       this.reticle.style.display = 'none';
     }
 
+    this.setOverhead(s.debuffs, s.head, camera);
+
     for (let i = this.floats.length - 1; i >= 0; i--) {
       const f = this.floats[i];
       f.t += realDt;
@@ -678,6 +696,37 @@ export class Hud {
       b.remove();
       els.delete(kind);
     }
+  }
+
+  /**
+   * Debuffs over the player's head (2026-10-22, the user: there rather than as chips by the HP bar): a row each, its icon,
+   * a bar of what is left in its colour and a short count, stacked upward in the order given.
+   */
+  private setOverhead(list: DebuffView[], head: THREE.Vector3, camera: THREE.Camera): void {
+    const keep = new Set(list.map((d) => d.key));
+    for (const [key, r] of this.overheadRows) {
+      if (keep.has(key)) continue;
+      r.row.remove();
+      this.overheadRows.delete(key);
+    }
+    if (!list.length || !this.project(head, camera)) {
+      this.overhead.style.display = 'none';
+      return;
+    }
+    this.overhead.style.display = 'flex';
+    this.overhead.style.transform = `translate(${this.tmp.x}px, ${this.tmp.y}px) translate(-50%, -100%)`;
+    list.forEach((d, i) => {
+      let r = this.overheadRows.get(d.key);
+      if (!r) {
+        const row = el(`ovh-row ovh-${d.key}`, this.overhead, `<div class="ovh-icon">${statusIcon(d.key)}</div><div class="ovh-bar"><div class="ovh-fill"></div></div><div class="ovh-text"></div>`);
+        r = { row, fill: row.querySelector('.ovh-fill') as HTMLDivElement, text: row.querySelector('.ovh-text') as HTMLDivElement };
+        this.overheadRows.set(d.key, r);
+      }
+      r.row.style.order = String(i);
+      r.fill.style.width = `${Math.max(0, Math.min(1, d.k)) * 100}%`;
+      r.fill.style.background = d.color;
+      r.text.textContent = d.text;
+    });
   }
 
   /** Project world -> screen into this.tmp; false if behind camera. */
