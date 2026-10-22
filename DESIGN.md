@@ -2001,8 +2001,10 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
     seconds), the eggs swelling as it nears.
   - **Broods** (2026-10-22, reworked twice with the user: first a "Mother's fury" glide and circles for each egg broken,
     then the circles only for eggs left to hatch; settled on both): **every egg sends its brood**, Pig Rays
-    dive-bombing round you: **four waves of circles** 0.8 s apart, five 2 m circles a wave (one on you, the rest within
-    6 m, apart), each warned 1.1 s (a walk), ×0.9 ATP, a hatchling diving onto each as it fires.
+    dive-bombing the court: **four waves of circles** 0.8 s apart, **twelve 2 m circles a wave scattered at random over
+    the whole court**, at least 3.4 m apart (2026-10-22, the user: more of them, not clumped round you; first five round
+    you), each warned 1.1 s (a walk), ×0.9 ATP, a hatchling diving onto each as it fires. One wave covers about a
+    fifth of the court.
     - **Break an egg** and its brood comes then: you choose when, so **space the eggs out** ("Its brood dives at you:
       space out the eggs you break!" the first time). **Break the last of a clutch** and it shrieks and drops onto the
       court, **stunned for 6 s** (~5 real seconds), weak point open, **+50% damage**, and **every brood still coming is

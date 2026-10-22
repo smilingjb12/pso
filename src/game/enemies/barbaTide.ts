@@ -17,6 +17,16 @@ const on = (x: number, z: number, yaw: number, d: number): Pt => [x + Math.sin(y
 
 // ------------------------------------------------------------------ the Brood
 
+/** Up to `n` spots at random within `R` m of (cx, cz), each at least `apart` m from the others (fewer if they won't fit). */
+export function scatter(cx: number, cz: number, R: number, n: number, apart: number, rng: () => number): Pt[] {
+  const out: Pt[] = [];
+  for (let i = 0; i < n * 30 && out.length < n; i++) {
+    const p = on(cx, cz, rng() * Math.PI * 2, Math.sqrt(rng()) * R);
+    if (out.every(([x, z]) => Math.hypot(x - p[0], z - p[1]) >= apart)) out.push(p);
+  }
+  return out;
+}
+
 /**
  * Where a clutch's sacs land round (cx, cz): the first about `near` m from you (toward the middle if that would be off
  * the court), the rest at least `apart` m from each other and from the first, all within `ring` m of the middle.
@@ -529,6 +539,9 @@ export class EggSac implements Hittable {
   }
 }
 
+/** The diving hatchlings' shared look (clones share its geometry and materials). */
+let diveTemplate: THREE.Group | null = null;
+
 /** A hatchling diving out of the sky onto its circle as the circle fires (real seconds: it waits `delay`, then dives). */
 export class DiveRay implements Effect {
   readonly object: THREE.Group;
@@ -537,7 +550,7 @@ export class DiveRay implements Effect {
   private to: THREE.Vector3;
 
   constructor(x: number, z: number, private delay: number, yaw: number) {
-    this.object = rayMesh(EGG, 1.4);
+    this.object = (diveTemplate ??= rayMesh(EGG, 1.4)).clone();
     this.from = new THREE.Vector3(x - Math.sin(yaw) * 2.5, 6, z - Math.cos(yaw) * 2.5);
     this.to = new THREE.Vector3(x, 0.4, z);
     this.object.position.copy(this.from);

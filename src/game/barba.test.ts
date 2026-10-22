@@ -4,7 +4,7 @@ import { barbaRay as cfg, dash, player } from './config';
 import type { BossContext } from './enemies/Boss';
 import { BarbaRay } from './enemies/BarbaRay';
 import {
-  clutchSpots, dryWalk, inInk, nearestGap, platformAt, platformSpots, rippleBands, sinkPick, spoutLine, startVents, surgeAlong,
+  clutchSpots, dryWalk, inInk, scatter, nearestGap, platformAt, platformSpots, rippleBands, sinkPick, spoutLine, startVents, surgeAlong,
   tickVents, ventAt, ventSpots, walkIn, type PlatformState, type VentState,
 } from './enemies/barbaTide';
 import { riftBossScale } from './rifts';
@@ -51,6 +51,22 @@ describe('Barba Ray: the Brood', () => {
 describe("Barba Ray: the broods and the tide channels", () => {
   it("makes a brood's circles a walk out of in their warning", () => {
     expect(cfg.barrageRadius + pr).toBeLessThanOrEqual(walkIn(cfg.barrageWarn, TEMPO));
+  });
+
+  it("scatters a brood's circles over the whole court, apart", () => {
+    const rng = mulberry32(7);
+    const R = cfg.arenaRadius - cfg.barrageRadius * 0.5;
+    let far = 0;
+    for (let i = 0; i < 100; i++) {
+      const spots = scatter(CX, CZ, R, cfg.barrageCircles, cfg.barrageApart, rng);
+      expect(spots).toHaveLength(cfg.barrageCircles);
+      spots.forEach(([x, z], a) => {
+        expect(Math.hypot(x - CX, z - CZ)).toBeLessThanOrEqual(R + 1e-6);
+        far = Math.max(far, Math.hypot(x - CX, z - CZ));
+        for (let b = a + 1; b < spots.length; b++) expect(Math.hypot(x - spots[b][0], z - spots[b][1])).toBeGreaterThanOrEqual(cfg.barrageApart - 1e-6);
+      });
+    }
+    expect(far).toBeGreaterThan(cfg.arenaRadius - 3);
   });
 
   it('puts both channels on the court, each band a walk out of in its warning', () => {
@@ -326,10 +342,11 @@ describe('Barba Ray: the fight', () => {
     const shown = () => f.shapes.filter(isBrood).length;
     eggs[0].damage(eggs[0].maxHp);
     f.step(cfg.barrageWaves * cfg.barrageEvery + 1);
-    // One brood: a wave of circles at a time, one of them on you.
-    expect(shown()).toBeGreaterThanOrEqual(cfg.barrageWaves * 3);
+    // One brood: a wave of circles at a time, spread over the court (not round you).
+    expect(shown()).toBeGreaterThanOrEqual(cfg.barrageWaves * (cfg.barrageCircles - 2));
     expect(shown()).toBeLessThanOrEqual(cfg.barrageWaves * cfg.barrageCircles);
-    expect(f.hits.some(isBrood)).toBe(true);
+    const far = Math.max(...f.shapes.filter(isBrood).map((c) => (c.kind === 'circle' ? Math.hypot(c.x - f.body.pos.x, c.z - f.body.pos.z) : 0)));
+    expect(far).toBeGreaterThan(10);
     // The second, then the last: stunned, and nothing more comes.
     eggs[1].damage(eggs[1].maxHp);
     f.step(0.5);
@@ -356,7 +373,7 @@ describe('Barba Ray: the fight', () => {
     expect(stunned).toBe(false);
     expect(b.sacs.filter((s) => s.alive)).toHaveLength(0);
     // Three broods' worth of circles in the time one takes.
-    expect(f.shapes.filter(isBrood).length).toBeGreaterThanOrEqual(cfg.clutchCount * cfg.barrageWaves * 3);
+    expect(f.shapes.filter(isBrood).length).toBeGreaterThanOrEqual(cfg.clutchCount * cfg.barrageWaves * (cfg.barrageCircles - 2));
   });
 
   it('erupts the tide channels in turn, the inner ring first', () => {

@@ -10,7 +10,7 @@ import type { BossContext } from './Boss';
 import { BossBase } from './BossBase';
 import type { TelegraphHandle } from './Enemy';
 import {
-  clutchSpots, CurrentStream, DeepSea, DiveRay, EggSac, InkPools, inInk, platformAt, Platforms, rippleBands, sinkPick, spoutLine, startVents,
+  clutchSpots, CurrentStream, DeepSea, DiveRay, scatter, EggSac, InkPools, inInk, platformAt, Platforms, rippleBands, sinkPick, spoutLine, startVents,
   surgeAlong, SurgeWall, tickVents, toCircle, UlRay, ventAt, Vents, Water,
 } from './barbaTide';
 
@@ -878,21 +878,12 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
   }
 
   /**
-   * A wave of a hatched egg's brood: `barrageCircles` circles, one on you and the rest round you, apart, on the court;
-   * as each fires a Pig Ray dives onto it.
+   * A wave of an egg's brood: `barrageCircles` circles spread at random over the whole court, apart (not round you:
+   * 2026-10-22, the user); as each fires a Pig Ray dives onto it.
    */
   private barrageWave(ctx: BossContext): void {
-    const spots: Pt[] = [[ctx.playerX, ctx.playerZ]];
-    for (let i = 0; i < 60 && spots.length < cfg.barrageCircles; i++) {
-      const a = ctx.rng() * Math.PI * 2;
-      const r = cfg.barrageRadius + ctx.rng() * (cfg.barrageSpread - cfg.barrageRadius);
-      const x = ctx.playerX + Math.sin(a) * r;
-      const z = ctx.playerZ + Math.cos(a) * r;
-      if (Math.hypot(x - this.cx, z - this.cz) > cfg.arenaRadius - 0.5) continue;
-      if (spots.some(([sx, sz]) => Math.hypot(sx - x, sz - z) < cfg.barrageRadius * 1.6)) continue;
-      spots.push([x, z]);
-    }
-    for (const [x, z] of spots) {
+    const spots = scatter(this.cx, this.cz, cfg.arenaRadius - cfg.barrageRadius * 0.5, cfg.barrageCircles, cfg.barrageApart, ctx.rng);
+    spots.forEach(([x, z], i) => {
       const shape: TelegraphShape = { kind: 'circle', x, z, radius: cfg.barrageRadius };
       ctx.effect(new DiveRay(x, z, Math.max(0, cfg.barrageWarn - 0.22) / this.tempo, ctx.rng() * Math.PI * 2));
       this.warn(ctx, shape, cfg.barrageWarn, undefined, () => {
@@ -901,9 +892,10 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
         // Dim, slim splashes: bright ones blew out to white under the court's bloom when you stood among them.
         ctx.effect(new Pillar(x, z, 0x8a3a68, 0.45, cfg.barrageRadius * 0.35, 3));
         ctx.effect(new Ring(x, z, 0xffd0e8, cfg.barrageRadius * 1.1, 0.35));
-        this.sound('barba.splash', x, z);
+        // One splash a wave is plenty.
+        if (i === 0) this.sound('barba.splash', x, z);
       });
-    }
+    });
   }
 
   /** A tide channel erupts: a band either side of one of the court's water rings, warned; geysers all along it. */

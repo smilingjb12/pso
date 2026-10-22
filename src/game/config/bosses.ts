@@ -736,17 +736,18 @@ export const barbaRay = {
   stunTime: 6,
   /**
    * An egg's brood (2026-10-22, the user's rework): every egg sends its Pig Rays dive-bombing round you, broken or
-   * hatched. `barrageWaves` waves `barrageEvery` s apart, `barrageCircles` circles of `barrageRadius` m a wave (one on
-   * you, the rest within `barrageSpread` m of you, apart), each warned `barrageWarn` s, × `barrageAtp` ATP. Break an
+   * hatched. `barrageWaves` waves `barrageEvery` s apart, `barrageCircles` circles of `barrageRadius` m a wave spread
+   * at random over the whole court, at least `barrageApart` m apart (2026-10-22, the user: more of them, not clumped
+   * round you), each warned `barrageWarn` s, × `barrageAtp` ATP. Break an
    * egg and its brood comes then, so you choose when (space them out); the last one broken stuns it instead and calls
    * every brood off. Eggs left to hatch all send theirs at once, a little out of step: one is a dodge, two are hard,
    * three are too many.
    */
   barrageWaves: 4,
   barrageEvery: 0.8,
-  barrageCircles: 5,
+  barrageCircles: 12,
   barrageRadius: 2,
-  barrageSpread: 6,
+  barrageApart: 3.4,
   barrageWarn: 1.1,
   barrageAtp: 0.9,
   /**
