@@ -393,21 +393,22 @@
   display: none;
   flex-direction: column-reverse;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
   pointer-events: none;
 }
+/* Sized up (2026-10-22, the user: bigger in general). */
 .ovh-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 5px 2px 3px;
-  background: rgba(4, 10, 28, 0.62);
-  border: 1px solid rgba(160, 190, 255, 0.25);
-  border-radius: 3px;
+  gap: 7px;
+  padding: 4px 9px 4px 5px;
+  background: rgba(4, 10, 28, 0.68);
+  border: 1px solid rgba(160, 190, 255, 0.3);
+  border-radius: 4px;
 }
 .ovh-icon {
-  width: 16px;
-  height: 16px;
+  width: 28px;
+  height: 28px;
 }
 .ovh-icon svg {
   display: block;
@@ -416,8 +417,8 @@
 }
 .ovh-bar {
   position: relative;
-  width: 72px;
-  height: 6px;
+  width: 130px;
+  height: 11px;
   background: #050b1c;
   border: 1px solid #0f1c3c;
   overflow: hidden;
@@ -429,8 +430,9 @@
   bottom: 0;
 }
 .ovh-text {
-  min-width: 20px;
-  font-size: 11px;
+  min-width: 32px;
+  font-size: 17px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: #dfe8ff;
   text-shadow: 0 1px 2px #000;
