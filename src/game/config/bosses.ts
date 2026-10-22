@@ -633,12 +633,18 @@ export const galGryphon = {
 };
 
 /**
- * Barba Ray, the Rift Map's second Circle II pinnacle boss (P2SW, between the Warden's Mines and Dark Falz's Ruins;
- * 2026-10-22, the user's picks from two question rounds, every recommendation taken). A giant manta over a temple court
- * in the open sea. Every ~34 s it dives and floods the court: stand on the raised platforms, which sink one after
- * another under a warning, so you keep hopping (the water hurts every second you're in it; a dash crosses a gap dry),
- * while Ul Rays swim in and lunge at you. When the water drains it is beached, weak point open. Pig Rays dart across
- * the court all fight long. Phase 3 floods spin a whirlpool in the middle. All numbers are first drafts.
+ * Barba Ray, the Rift Map's second Circle II pinnacle boss (P2SW, between the Warden's Mines and Dark Falz's Ruins). A
+ * giant manta over a temple court in the open sea, fought in three phases like Dark Falz's forms (redesigned
+ * 2026-10-22: the user found the first draft too like the Gryphon, a bullet hell with two alternating phases). Damage
+ * past a phase's threshold is lost, and each change of phase is a set piece it can't be hurt in.
+ * 1. The Brood (100-65%): the dry court. It lays clutches of Pig Ray eggs: break them all before they hatch and it
+ *    drops, stunned; a sac that hatches looses Pig Rays at you.
+ * 2. High Tide (65-30%): the sea covers the court for good. Stand on the platforms, which sink and rise in turn; it
+ *    attacks from the rim, its surges sweep the whole court (a platform keeps you out of them), and it rides each one in
+ *    and beaches. Ul Rays hunt in the water.
+ * 3. The Deep (30-0%): it drags the court under. An air meter runs down and bubbling vents refill it; it dives at you
+ *    and sticks in the floor, sweeps its tail, and its wingbeats push you off the vents.
+ * All numbers are first drafts.
  */
 export const barbaRay = {
   /** Only the ratio to the rift's common boss HP is used (riftBossHp). */
@@ -663,33 +669,36 @@ export const barbaRay = {
   /** It keeps about this far from you between attacks (m). */
   keepAway: 8,
   /** Between attacks. */
-  attackGap: 1,
-  enrageAt: 0.2,
+  attackGap: 1.2,
+  /** Enraged (the Deep only) below this HP share: windups ×`enrageSpeed` (the belly crash and the dive never cut). */
+  enrageAt: 0.15,
   enrageSpeed: 0.8,
-  /** Below this HP share: "The deep stirs!" (triples, three Ul Rays a flood, Pig Rays come faster). */
-  phase2At: 0.5,
-  /** Below this HP share: "The whirlpool!" (floods spin a whirlpool, Pig Rays come in pairs). */
-  phase3At: 1 / 3,
-  /** Beached it takes this much damage (×1.5: +50%). */
+  /** High Tide below this HP share, the Deep below `phase3At`; damage past a threshold is lost. */
+  phase2At: 0.65,
+  phase3At: 0.3,
+  /** The changes of phase (s): untouchable while the tide comes in, then while the court goes under. */
+  tideTime: 3.2,
+  deepTime: 3.6,
+  /** Stunned, beached or stuck in the floor it takes this much damage (×1.5: +50%). */
   weakPointMult: 1.5,
-  // ---- attacks (all walkable; warned in its clock: real seconds are these / the rift's ×1.15 tempo)
-  /** Glide: a lane from it through you to the far rim, `glideWidth` m wide; it flies it at `glideSpeed` m/s. */
+  // ---- the attacks (all walkable; warned in its clock: real seconds are these / the rift's ×1.15 tempo)
+  /** Glide (the Brood): a lane from it through you to the far rim, `glideWidth` m wide; it flies it at `glideSpeed` m/s. */
   glideWindup: 1.3,
   glideWidth: 5.5,
   glideSpeed: 22,
   glideAtp: 1.2,
   glideKnockback: 10,
-  /** Spout line: `spoutCount` geysers `spoutSpacing` m apart from it toward you and past, each `spoutStagger` s after the last. */
-  spoutWindup: 1.2,
-  spoutCount: 5,
-  spoutRadius: 2.2,
-  spoutSpacing: 3,
-  spoutStagger: 0.22,
-  spoutAtp: 0.9,
+  /** Belly crash (the Brood): it rises `crashRise` s, then a `crashRadius` m circle on you, warned `crashWindup` s (a walk; the enrage never cuts it). */
+  crashRise: 0.7,
+  crashWindup: 1.8,
+  crashRadius: 4.5,
+  crashAtp: 1.3,
+  crashKnockback: 12,
+  crashRest: 1.4,
   /**
-   * Ripples: a tail slam sends bands of water out from it, `rippleBand` m wide from `rippleInner` m, all warned at once;
-   * the first bursts after `rippleWindup` s, each next one `rippleStep` s later. Walk to the inner edge of your band in
-   * the warning, then step in once the band inside has burst.
+   * Ripples (after a belly crash): a tail slam sends bands of water out from it, `rippleBand` m wide from `rippleInner`
+   * m, all warned at once; the first bursts after `rippleWindup` s, each next one `rippleStep` s later. Walk to the inner
+   * edge of your band in the warning, then step in once the band inside has burst.
    */
   rippleWindup: 1.3,
   rippleInner: 3,
@@ -698,64 +707,99 @@ export const barbaRay = {
   rippleStep: 0.9,
   rippleAtp: 0.8,
   rippleKnockback: 6,
-  /** Belly crash: it rises `crashRise` s, then a `crashRadius` m circle on you, warned `crashWindup` s (a walk; the enrage never cuts it). */
-  crashRise: 0.7,
-  crashWindup: 1.8,
-  crashRadius: 4.5,
-  crashAtp: 1.3,
-  crashKnockback: 12,
-  crashRest: 1.4,
-  /** Pig Ray burst: `burstCount` lanes fanned `burstSpread`° apart from its mouth, the middle one at you: step into a gap. */
-  burstWindup: 1.1,
-  burstCount: 5,
-  burstSpread: 25,
-  /** A burst's Pig Rays fly faster than the ones darting about (m/s). */
-  burstSpeed: 14,
-  // ---- the flood (its signature)
+  /** Spout line (High Tide): `spoutCount` geysers `spoutSpacing` m apart from the rim toward you and past, each `spoutStagger` s after the last. */
+  spoutWindup: 1.2,
+  spoutCount: 5,
+  spoutRadius: 2.2,
+  spoutSpacing: 3,
+  spoutStagger: 0.22,
+  spoutAtp: 0.9,
+  // ---- phase 1: the Brood
   /**
-   * The flood: due `floodFirst` s into the fight, then `floodEvery` s after the last began, never sooner than
-   * `floodAfterUp` s after it is back up from the beach. It dives into the sea (can't be hit) and the court is warned
-   * for `floodWarn` s, then flooded for `floodTime` s. In the water (off a standing platform) you lose `waterShare` of
-   * your max HP a second (past armour, in ticks every `waterTick` real s) and move `waterSlow` slower; a dash skims
-   * the water dry. Then it drains over `drainTime` s, the sunk platforms rise again, and it beaches.
+   * Clutches: `clutchFirst` s into the fight, then `clutchEvery` s after the last one hatched or broke, it lays
+   * `clutchCount` egg sacs (one about `clutchNear` m from you, the rest at least `clutchApart` m from each other, all
+   * within `clutchRing` m of the middle), each with `clutchHpShare` of its HP and a ring that fills until it hatches
+   * `clutchHatch` s later. Break them all first and it shrieks and drops onto the court, stunned for `stunTime` s
+   * (weak point open). A sac that hatches looses `hatchDarts` Pig Rays at you, one every `hatchEvery` s.
    */
-  floodFirst: 14,
-  floodEvery: 34,
-  floodAfterUp: 8,
-  floodWarn: 3,
-  floodTime: 12,
-  drainTime: 1.2,
-  waterShare: 0.25,
+  clutchFirst: 6,
+  clutchEvery: 18,
+  clutchCount: 3,
+  clutchNear: 4,
+  clutchApart: 7,
+  clutchRing: 12,
+  clutchHpShare: 0.015,
+  clutchHatch: 11,
+  clutchRadius: 0.9,
+  layTime: 1.6,
+  stunTime: 6,
+  hatchDarts: 4,
+  hatchEvery: 1.4,
+  /**
+   * Pig Rays (out of hatched sacs): each darts from its sac through near you (give or take `pigSpread` m) to past the
+   * rim, its lane shown `pigWarn` s before it sets off, at `pigSpeed` m/s; a touch is a light hit (× `pigAtp` ATP).
+   */
+  pigWarn: 0.8,
+  pigSpeed: 9,
+  pigRadius: 0.6,
+  pigWidth: 1.4,
+  pigSpread: 1.5,
+  pigAtp: 0.4,
+  // ---- phase 2: High Tide
+  /**
+   * The water (from High Tide on, for good): off a standing platform you lose `waterShare` of your max HP a second
+   * (past armour, in ticks every `waterTick` real s) and move `waterSlow` slower; a dash skims it dry.
+   */
+  waterShare: 0.06,
   waterTick: 0.5,
-  waterSlow: 0.4,
+  waterSlow: 0.3,
   /**
    * The platforms: `platformCount` round the court `platformRing` m out and `innerCount` round the middle `innerRing` m
-   * out, each `platformR` m across the top (dry in a flood). Every `sinkEvery` s of the flood (the first `sinkFirst` s
-   * in) one glows and sinks after `sinkWarn` s: the one you stand on `sinkUnder` of the time, else one near you; never
-   * fewer than `keepPlatforms` standing, and none whose warning would run past the drain.
+   * out, each `platformR` m across the top. `sinkFirst` s into High Tide and every `sinkEvery` s after, one glows and
+   * sinks `sinkWarn` s later (the one you stand on `sinkUnder` of the time, else one near you; never fewer than
+   * `keepPlatforms` standing), and each comes back up `riseAfter` s after it sank. None sink while it is beached.
    */
   platformCount: 8,
   platformRing: 9,
   innerCount: 3,
   innerRing: 4,
   platformR: 1.9,
-  sinkFirst: 1.5,
-  sinkEvery: 3,
+  sinkFirst: 3,
+  sinkEvery: 4,
   sinkWarn: 2.4,
-  sinkUnder: 0.7,
-  keepPlatforms: 4,
-  /** Beached after the drain: it lands `beachLand` m from you toward the middle, weak point open for `beachedTime` s. */
-  beachedTime: 8,
-  beachLand: 6,
-  // ---- the Ul Rays (adds in the flood)
+  sinkUnder: 0.5,
+  keepPlatforms: 5,
+  riseAfter: 9,
   /**
-   * Ul Rays: `ulCount` rise in each flood (`ulCount2` from phase 2), each with `ulHpShare` of its HP, swimming round
-   * the court `ulSwim` m out. Every `ulEvery` s each lunges along a lane through you, `ulWidth` m wide, warned
-   * `ulWarn` s, at `ulSpeed` m/s (a hit that can knock you off your platform). They sink away when the water drains.
+   * In the sea it swims round the court `swimRing` m out, under the water (it can't be hit) for `swimFor` s between
+   * attacks, then surfaces at the rim (it can be hit) and skims across the court (a glide) or sends a spout line.
+   */
+  swimRing: 19,
+  swimFor: 1.6,
+  /**
+   * Surges: `surgeFirst` s into High Tide, then `surgeEvery` s after the last: it rears up past the rim, the court is
+   * warned `surgeWarn` s, then a wall of water rolls across it at `surgeSpeed` m/s. In the water as it passes you take
+   * ×`surgeAtp` ATP and a `surgeShove` m shove its way; on a standing platform it passes under you. Then it rides in
+   * behind it and beaches `beachLand` m from you toward the middle (the landing warned `landWarn` s), weak point open
+   * for `beachedTime` s, and slips back into the sea.
+   */
+  surgeFirst: 5,
+  surgeEvery: 17,
+  surgeWarn: 2.4,
+  surgeSpeed: 12,
+  surgeAtp: 1.1,
+  surgeShove: 7,
+  landWarn: 1.2,
+  beachLand: 6,
+  beachedTime: 7,
+  /**
+   * Ul Rays: `ulCount` swim round the court `ulSwim` m out through High Tide, each with `ulHpShare` of its HP; a dead
+   * one is replaced `ulRespawn` s later. Every `ulEvery` s each lunges along a lane through you, `ulWidth` m wide,
+   * warned `ulWarn` s, at `ulSpeed` m/s (a hit that can knock you off your platform).
    */
   ulCount: 2,
-  ulCount2: 3,
-  ulHpShare: 0.05,
+  ulRespawn: 12,
+  ulHpShare: 0.03,
   ulSwim: 10,
   ulEvery: [3, 4.5] as [number, number],
   ulWarn: 1.2,
@@ -764,22 +808,46 @@ export const barbaRay = {
   ulAtp: 0.8,
   ulKnockback: 9,
   ulRadius: 1.2,
-  // ---- the Pig Rays (all fight long, so you can't stand still)
+  // ---- phase 3: the Deep
   /**
-   * Pig Rays: every `pigEvery` s (`pigEvery2` in phase 2, `pigEvery3` below 1/3, two at once there) one darts from a
-   * random point past the rim across the court along a lane through near you (give or take `pigSpread` m), shown
-   * `pigWarn` s before it sets off, at `pigSpeed` m/s; a touch is a light hit (× `pigAtp` ATP).
+   * Air (real seconds): `airMax` from full; in a vent's bubbles it refills `airRefill` s' worth a second; out of air you
+   * lose `airShare` of your max HP a second (in ticks, like the water).
    */
-  pigEvery: 1.6,
-  pigEvery2: 1.3,
-  pigEvery3: 1.5,
-  pigWarn: 0.8,
-  pigSpeed: 7,
-  pigRadius: 0.6,
-  pigWidth: 1.4,
-  pigSpread: 2,
-  pigAtp: 0.33,
-  // ---- phase 3
-  /** The whirlpool (phase 3 floods): pulls you toward the middle at `whirlPull` m/s; the inner platforms sink first. */
-  whirlPull: 1.6,
+  airMax: 10,
+  airRefill: 5,
+  airShare: 0.2,
+  /**
+   * Vents: four `ventInner` m out (between the axes) and four `ventOuter` m out (on them), `ventRadius` m across;
+   * `ventsOn` flow at once, each for `ventLife` s, and the next one stirs `ventStir` s before it starts to flow (no air
+   * yet) and before the old one stops.
+   */
+  ventInner: 6,
+  ventOuter: 12,
+  ventRadius: 1.7,
+  ventsOn: 2,
+  ventLife: 8,
+  ventStir: 1.6,
+  /** In the Deep it swims `deepHover` m over the floor. */
+  deepHover: 3.5,
+  /** Dive: up for `diveRise` s, a `diveRadius` m circle on you warned `diveWindup` s (never cut), then stuck in the floor `stuckTime` s (weak point open). */
+  diveRise: 0.6,
+  diveWindup: 1.6,
+  diveRadius: 4,
+  diveAtp: 1.3,
+  diveKnockback: 10,
+  stuckTime: 4,
+  /** Tail sweep: a `sweepArc`° cone `sweepRange` m from it toward you, warned `sweepWindup` s. */
+  sweepWindup: 1.3,
+  sweepRange: 6.5,
+  sweepArc: 120,
+  sweepAtp: 1,
+  sweepKnockback: 8,
+  /**
+   * Current: it swims over the nearest flowing vent and beats its wings at you: a `currentWidth` m lane from there
+   * through you, warned `currentWarn` s, then for `currentTime` s it pushes you along it at `currentPush` m/s (no damage).
+   */
+  currentWarn: 1.1,
+  currentWidth: 6,
+  currentTime: 2.5,
+  currentPush: 5,
 };

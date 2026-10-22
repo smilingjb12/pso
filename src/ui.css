@@ -327,7 +327,8 @@
   border: 1px solid #0f1c3c;
   overflow: hidden;
 }
-.v-tp .vbar {
+.v-tp .vbar,
+.v-air .vbar {
   height: 7px;
 }
 .vbar .fill,
@@ -384,13 +385,25 @@
 .v-tp .fill {
   background: linear-gradient(#5ac8ff, #1478e0);
 }
+/* Air (Barba Ray's Deep): pale aqua, amber when it runs low (steady, no blinking). */
+.v-air .fill {
+  background: linear-gradient(#d8fbff, #3ac8e8);
+}
+.v-air.low .fill {
+  background: linear-gradient(#ffd27a, #e07a10);
+}
+.v-air.low .vlabel,
+.v-air.low .vtext {
+  color: #ffb050;
+}
 .vtext {
   min-width: 64px;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
 }
-.v-tp .vtext {
+.v-tp .vtext,
+.v-air .vtext {
   font-size: 11px;
   opacity: 0.85;
 }

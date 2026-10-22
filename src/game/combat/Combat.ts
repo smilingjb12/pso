@@ -1121,7 +1121,7 @@ export class Combat {
     return true;
   }
 
-  /** Drowning (Barba Ray's flood): a share of true max HP straight off, no knockback, no stun, no Corruption. */
+  /** Drowning (Barba Ray's High Tide water, or out of air in its Deep): a share of true max HP straight off, no knockback, no stun, no Corruption. */
   drownTick(share: number, source: string): void {
     const p = this.p;
     if (!p.alive || share <= 0) return;

@@ -97,6 +97,8 @@ export interface HudState {
   dash: { charges: number; max: number; refill: number };
   /** The Mag's photon blast and its gauge (0..1; it fires by itself when full, in a fight); null without one. */
   photonBlast: { name: string; charge: number } | null;
+  /** Air left (0..1) under the sea (Barba Ray's Deep): an AIR gauge under TP; null hides it. */
+  air: number | null;
 }
 
 interface FloatText {
@@ -181,6 +183,9 @@ export class Hud {
   private tpFill: HTMLDivElement;
   private tpTrail: HTMLDivElement;
   private tpText: HTMLDivElement;
+  private airRow: HTMLDivElement;
+  private airFill: HTMLDivElement;
+  private airText: HTMLDivElement;
   private lvEl: HTMLDivElement;
   /** Injector gauge: a cell per dose. */
   private injEl!: { root: HTMLDivElement; cells: HTMLDivElement; key: string };
@@ -252,7 +257,7 @@ export class Hud {
     this.pbEl = el('vpb', this.vitals);
     el('pb-key', this.pbEl, 'PB');
     this.pbFill = el('fill', el('pb-bar', this.pbEl));
-    const gauge = (kind: 'hp' | 'tp') => {
+    const gauge = (kind: 'hp' | 'tp' | 'air') => {
       const row = el(`vrow v-${kind}`, this.vitals);
       el('vlabel', row, kind.toUpperCase());
       const bar = el('vbar', row);
@@ -265,6 +270,7 @@ export class Hud {
     };
     const hp = gauge('hp');
     const tp = gauge('tp');
+    const air = gauge('air');
     [this.hpBar, this.hpTrail, this.hpFill, this.hpText] = [hp.bar, hp.trail, hp.fill, hp.text];
     this.hpShield = document.createElement('div');
     this.hpShield.className = 'shield';
@@ -273,6 +279,8 @@ export class Hud {
     this.hpCorrupt.className = 'corrupt';
     hp.bar.insertBefore(this.hpCorrupt, this.hpShield.nextSibling);
     [this.tpRow, this.tpTrail, this.tpFill, this.tpText] = [tp.row, tp.trail, tp.fill, tp.text];
+    [this.airRow, this.airFill, this.airText] = [air.row, air.fill, air.text];
+    this.airRow.style.display = 'none';
     // Injector: one cell per dose; the next dose fills up as you deal damage.
     const vinj = el('vinj', this.vitals);
     // The level tab sits on top of the injector cells (2026-10-10, the user's layout).
@@ -450,6 +458,12 @@ export class Hud {
     this.hpShield.style.width = `${Math.min(1, barFull > 0 ? s.shield / barFull : 0) * 100}%`;
     this.tpText.textContent = `${Math.ceil(s.tp)}/${s.maxTp}`;
     this.tpRow.style.display = s.maxTp > 0 ? '' : 'none';
+    this.airRow.style.display = s.air !== null ? '' : 'none';
+    if (s.air !== null) {
+      this.airFill.style.width = `${Math.max(0, Math.min(1, s.air)) * 100}%`;
+      this.airText.textContent = `${Math.round(s.air * 100)}%`;
+      this.airRow.classList.toggle('low', s.air < 0.3);
+    }
     const lv = String(s.level);
     if (this.lvEl.dataset.lv !== lv) {
       this.lvEl.dataset.lv = lv;

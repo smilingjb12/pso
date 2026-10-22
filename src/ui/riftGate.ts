@@ -46,7 +46,7 @@ const PINNACLE_FIGHT: Record<PinnacleBossId, { arena: string; fight: string }> =
   },
   barba: {
     arena: 'Temple Court',
-    fight: 'A giant manta over a marble court out at sea, Pig Rays darting across it all fight. When it floods the court, stand on the platforms and keep hopping as they sink, while Ul Rays lunge at you; when the water drains it is beached, weak point open.',
+    fight: 'A giant manta over a marble court out at sea, in three phases. The Brood: break its clutches of eggs before they hatch and it drops, stunned. High Tide: the sea covers the court; keep to the platforms as they sink and rise, and ride out its surges on one, then hit it while it is beached. The Deep: it drags the court under; breathe in the bubbling vents, and strike when its dives leave it stuck in the floor.',
   },
 };
 const HEART_COL = '#d27bff';

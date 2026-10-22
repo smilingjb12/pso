@@ -64,6 +64,7 @@ import {
 } from './rifts';
 import { circleName, circleOf, rollBossUnique } from './riftCircles';
 import { RIFT_GEN } from './riftGen';
+import { DEEP_COLOR } from './enemies/barbaTide';
 import {
   CACHE_NAME, clearNode, deepestNode, enterBlock, isRoomKind, MAP_NODES, mapCfg, mapDepth, nodeName, nodeRift, openWholeMap, payEntry, PINNACLE_BOSS, QUARTERS,
 } from './riftMap';
@@ -82,6 +83,12 @@ const noTelegraph = { cancel: () => {} };
 
 /** Each weapon kind's bolt sound. */
 const ATTACK_SFX: Record<WeaponKind, SfxId> = { rod: 'swing.blunt', wand: 'swing.blunt' };
+
+/** Barba Ray's Deep: what the fog and light blend to (see applyDepth). */
+const DEPTH_FOG = new THREE.Color(DEEP_COLOR);
+const DEPTH_SKY = new THREE.Color(0x7fd0ff);
+const DEPTH_GROUND = new THREE.Color(0x0a2a4a);
+const DEPTH_SUN = new THREE.Color(0x9fe0ff);
 
 /** Seconds of field play between periodic autosaves. */
 const AUTOSAVE_PERIOD = 60;
@@ -724,6 +731,7 @@ export class Game implements GameApi {
     this.hemi.intensity = light.hemi;
     this.sun.color.set(light.sunColor);
     this.sun.intensity = light.sun;
+    this.depthK = 0;
 
     let pos = this.world.startPoint();
     if (typeof spawn === 'object') pos = new THREE.Vector3(spawn.x, 0, spawn.z);
@@ -797,6 +805,31 @@ export class Game implements GameApi {
 
   // ============================================================== frame
 
+  /** How far the fight has gone under the sea (Barba Ray's Deep), as last applied to the fog and light. */
+  private depthK = 0;
+
+  /**
+   * Barba Ray's Deep: the area's fog and light blended toward deep water by `k` (0 leaves the area as it is). The fog
+   * closes in, deep blue (the colour of its dome round the court), the sun dims and the sky light turns blue.
+   */
+  private applyDepth(k: number): void {
+    if (k === this.depthK || !this.world) return;
+    this.depthK = k;
+    const theme = this.world.def.theme;
+    const light = theme.light ?? DEFAULT_LIGHT;
+    const fog = this.scene.fog;
+    if (fog instanceof THREE.Fog) {
+      fog.color.set(theme.fogColor ?? theme.sky).lerp(DEPTH_FOG, k);
+      fog.near = THREE.MathUtils.lerp(theme.fogNear, 4, k);
+      fog.far = THREE.MathUtils.lerp(theme.fogFar, 44, k);
+    }
+    this.hemi.color.set(light.hemiSky).lerp(DEPTH_SKY, k);
+    this.hemi.groundColor.set(light.hemiGround).lerp(DEPTH_GROUND, k);
+    this.hemi.intensity = THREE.MathUtils.lerp(light.hemi, light.hemi * 0.85, k);
+    this.sun.color.set(light.sunColor).lerp(DEPTH_SUN, k);
+    this.sun.intensity = THREE.MathUtils.lerp(light.sun, light.sun * 0.45, k);
+  }
+
   private frame(now: number): void {
     // Clamped at 0 too: a clock that steps backwards (scripted frames mixed with rAF) must not rewind anything.
     const realDt = Math.max(0, Math.min(0.05, (now - this.last) / 1000));
@@ -827,6 +860,7 @@ export class Game implements GameApi {
       if (!this.paused) this.camTarget = this.pickCamTarget();
       const right = this.rig.right(this.tmpB);
       setListener(this.player.pos.x, this.player.pos.z, right.x, right.z);
+      this.applyDepth(this.world?.boss?.depth ?? 0);
       this.sun.position.set(this.player.pos.x + 12, 25, this.player.pos.z + 8);
       this.sun.target.position.copy(this.player.pos);
       const tg = this.camTarget;
@@ -2376,6 +2410,7 @@ export class Game implements GameApi {
       injector,
       dash: { charges: p.dashCharges, max: p.maxDashCharges, refill: p.dashRefill },
       photonBlast: this.photonBlastName() ? { name: this.photonBlastName()!, charge: p.pb } : null,
+      air: boss?.alive ? (boss.air ?? null) : null,
     };
   }
 }

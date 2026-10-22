@@ -36,7 +36,7 @@ export interface BossContext {
    */
   mechanicHit(share: number, fromX: number, fromZ: number, knockback: number, source: string): boolean;
   /**
-   * Drowning (Barba Ray's flood): `share` of the player's max HP straight off (past armour and damage taken, like a
+   * Drowning (Barba Ray's water, or out of air in its Deep): `share` of the player's max HP straight off (past armour and damage taken, like a
    * failed mechanic), with no knockback, no hit stun and no Corruption: the water does it a little at a time.
    */
   drown(share: number, source: string): void;
@@ -92,6 +92,10 @@ export interface Boss {
   readonly hudNote?: string;
   /** Its state and the last attack it picked, for the fight log ("triple/eclipse"). */
   readonly traceState: string;
+  /** Your air (0..1) while the fight has you under the sea (Barba Ray's Deep): the HUD's AIR gauge. Null or missing: none. */
+  readonly air?: number | null;
+  /** How far under the sea the fight has gone (0..1, Barba Ray's Deep): the world's fog and light go deep blue. */
+  readonly depth?: number;
   /** Light it leaves on the floor (Dark Falz's Grants): cleanses Corruption like a pylon. */
   lightAt?(x: number, z: number, r: number): boolean;
   /** Standing in pylon light right now (set by the world): a Dark boss takes more damage there. */

@@ -1793,7 +1793,7 @@ tuning panel **Rifts**).
   2026-10-22 (see "Gal Gryphon" and "Barba Ray" below); the Circle III pinnacles and the Heart are still landmarks for
   bosses to come (nothing to enter yet). The user's picks from the mockup's candidates: **Gal Gryphon** (lightning
   rods: draw the storm into a rod, a full rod grounds it for a damage window) and **Barba Ray** (the arena floods,
-  raised platforms sink one at a time) for the first two pinnacles; Gol Dragon (soak the gold meteors) and Saint-Milion (break the sandstorm gland in time) were the other
+  raised platforms sink one at a time; rebuilt as a three-phase fight the same day) for the first two pinnacles; Gol Dragon (soak the gold meteors) and Saint-Milion (break the sandstorm gland in time) were the other
   pinnacle pitches; the Heart's boss is not picked (Olga Flow, casting your last Art back at you, or the Convergence,
   the four bosses' mechanics in turn and then two at once).
 - **Chaining:** a rift's teleporters (the start room's, the Guardian room's, the boss arena's after the kill) offer
@@ -1957,14 +1957,14 @@ hit you. Numbers in `galGryphon` (config/bosses.ts, tuning panel **Gal Gryphon**
 
 ### Barba Ray (Pinnacle II, 2026-10-22; `enemies/BarbaRay.ts`, `enemies/barbaTide.ts`, `models/barbaRay.ts`)
 The second Circle II pinnacle boss, at `P2SW` (tier 6, between the Warden's Mines and Dark Falz's Ruins quarters).
-Designed in two question rounds with the user, every recommendation taken: the flood makes you hop between **sinking
-platforms**, **Pig Ray runs** keep you moving all fight, **Ul Rays** come with each flood, it is **beached** (weak point
-open) when the water drains, the **Temple Court** arena, a **whirlpool** in phase 3, and the **Tidecaller** and **Pig
-Ray** uniques; replays and odds as the Gryphon's (2 Resonance from each of its quarters, the Warden's and Dark Falz's;
-twice a boss's unique odds), a new synth track. The pitch it grew from (the Rift Map mockup): the arena floods in
-surges, only raised platforms stay dry and they sink one at a time. Reaching one safe spot was already the Gryphon's
-storm and the Dragon's rocks, so the flood is about moving from spot to spot under a clock. Numbers in `barbaRay`
-(config/bosses.ts, tuning panel **Barba Ray**); all first drafts, untested by the user.
+First designed in two question rounds (sinking platforms in floods, Pig Ray runs all fight, Ul Rays, beached when the
+water drained, the Temple Court, a phase 3 whirlpool, the Tidecaller and Pig Ray uniques), then **redesigned the same
+day**: the user found it too like the Gryphon, a bullet hell with two alternating phases, and asked for **a three-phase
+fight like Dark Falz with mechanics of its own**. My pitch, built without a mockup at the user's word ("just build"):
+the tide comes in for good over three phases, each changing the arena, with one signature mechanic and its own damage
+window. Kept from the first draft: the court, the platforms, the Ul Rays, the beaching, the ripples, both uniques, the
+music. Gone: the constant Pig Ray lanes, the attack pairs and triples, the repeating flood, the Pig Ray burst.
+Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first drafts, untested by the user.
 - **Rift-only**, like the Gryphon (`PinnacleBossId` 'barba', `BOSSES.barba.pinnacle`): its `rift` block is the
   Gryphon's numbers (ATP 235 in all, armour 10, technique resistance 14, XP 6000), **a tier 6 boss's HP (2.3M)**, the
   rifts' ×1.15 tempo. `PINNACLE_CFG` / `PINNACLE_AREA` in rifts.ts hold each pinnacle boss's numbers and arena.
@@ -1977,65 +1977,87 @@ storm and the Dragon's rocks, so the flood is about moving from spot to spot und
 - **The look:** a giant manta, about 14 m across the wings and nose to barb: a deep violet-blue back with gold along
   the wings' leading edges, a pale lilac belly, two horns (cephalic fins) curling forward either side of the mouth,
   glowing yellow eyes, cyan spots down the back and wings that brighten as it charges (and in later phases), three
-  pairs of spiracles behind the head that glow pink while it is beached (the weak point), and a six-segment whip tail
-  with a gold barb. Its wings beat in a wave from root to tip; beached they slump onto the floor. The brood: rose **Pig
-  Rays** and teal **Ul Rays** (`rayMesh`). All three in /viewer.html.
-- **The platforms** (11): eight round the court 9 m out (the first 22.5° east of north) and three round the middle
-  4 m out, each a low marble dais 3.8 m across with a gold rim and sunburst. Every one is within a dash (3.5 m) of the
-  next (3.1 m between the outer ones, 1.2 m to an inner one), and any spot on the court is within a walk of one in the
-  flood's warning (tests pin both).
-- **The flood** (its signature): first ~14 s into the fight, then 34 s after the last began, never sooner than 8 s
-  after it is back up from the beach. It glides out over the nearest rim and dives into the sea (can't be hit), the
-  whole court is warned for 3 s (a blue telegraph; "Barba Ray floods the court: stand on the platforms!" the first
-  time; the bar reads `THE TIDE RISES`), then the water comes up for **12 s** (`FLOOD · 8 s`).
-  - **In the water** (off a standing platform) you lose **25% of your max HP a second** (past armour and damage
-    taken, like a failed mechanic, but no knockback, stun or Corruption: `BossContext.drown`, `Combat.drownTick`,
-    shown in chunks every half second) and move **40% slower**. A **dash skims the water**: no damage, no slow (so does
-    being shoved).
-  - **Sinking**: 1.5 s in and every 3 s after, a platform glows red and sinks **2.4 s** later (a red telegraph on it;
-    ~2.1 real seconds): **the one you stand on 70% of the time**, else one of the two standing nearest you. Never
-    fewer than 4 standing, never one whose warning would outlast the flood (three sinks a flood). Walk to the edge and
-    dash across. They all rise again when the water drains.
-  - **Ul Rays**: two rise with each flood (three from phase 2), with 5% of its HP each, swimming round the court 10 m
-    out. Every 3-4.5 s each lunges at you along a 2.4 m lane warned 1.2 s (a walk, even from the middle of a
-    platform), ×0.8 ATP and a shove of 9 that can knock you into the water. They can be targeted and killed (hits on
-    them don't touch its bar) and sink away when the water drains.
-- **Beached**: as the water drains (1.2 s) it leaps out of the sea and crashes down 6 m from you toward the middle (a
-  warned circle, ×0.8 ATP), **beached for 8 s of its clock (~7 real seconds)**, weak point open, taking **+50% damage**
-  ("Beached! Weak point exposed!"; the bar reads `BEACHED`). Then it rises and the fight goes on.
-- **Pig Rays** (all fight long, from the moment it wakes, through floods and beaching): every 1.6 s (1.3 s in phase 2,
-  a pair every 1.5 s below 1/3) a lane lights from a random point past the rim through near you (within 2 m), 1.4 m
-  wide, and 0.8 s later a Pig Ray darts down it at 7 m/s of its clock. A touch is **a light hit** (×0.33 ATP, a nudge)
-  and the ray is gone. A sidestep clears a lane.
+  pairs of spiracles behind the head that glow pink while its weak point is open, and a six-segment whip tail with a
+  gold barb. Its wings beat in a wave from root to tip; stunned, beached or stuck they slump onto the floor. The brood:
+  rose **Pig Rays**, teal **Ul Rays** (`rayMesh`) and **egg sacs** (four rose eggs heaped on a slimy base). All but
+  the eggs in /viewer.html.
+- **Like Dark Falz's forms:** damage past a phase's threshold is lost (no phase can be skipped), and each change of
+  phase is a set piece it can't be hurt in (3.2 s and 3.6 s of its clock), calling off whatever it was doing. The bar
+  reads the phase (`THE BROOD · 2 EGGS`, `HIGH TIDE`, `THE DEEP`) or the moment (`STUNNED`, `SURGE`, `BEACHED`,
+  `STUCK`, `THE TIDE COMES IN`, `INTO THE DEEP`). Each phase brings the battle layer of its track in.
+- **Phase 1, the Brood (100-65%)** on the dry court (the platforms stand, harmless). Its attacks, one at a time:
+  - **Glide**: a 5.5 m lane from it through you to the far rim (1.3 s, a walk; it flies it at 22 m/s, ×1.2 ATP).
+  - **Belly crash + ripples**: it rises and drops on you (a 4.5 m circle warned 1.8 s, ×1.3 ATP), then a tail slam
+    sends **ripples** out from where it landed: four 3.5 m bands from 3 m out, all warned at once, the first bursting
+    1.3 s after the slam and each next one 0.9 s later (×0.8 ATP, a shove of 6). Walk to the inner edge of your band
+    in the warning, then step into the band inside once it has burst.
+  - **Clutches** (the signature): ~6 s into the fight (once it is free), then 18 s after the last clutch hatched or
+    broke, it rears and lobs **three egg sacs** out of its mouth: one about 4 m from you, the others at least 7 m from
+    each other, all within 12 m of the middle ("A clutch! Break the eggs before they hatch!" the first time). Each has
+    **1.5% of its HP** (hits on it don't touch its bar) and a rose ring under it that fills until it **hatches 11 s**
+    after landing (~9.6 real seconds); the eggs swell as it nears. **Break all three** and it shrieks and drops onto
+    the court, **stunned for 6 s** (~5 real seconds), weak point open, **+50% damage** ("The brood is lost! Barba Ray
+    is stunned!"). A sac that hatches looses **four Pig Rays** at you, one every 1.4 s, each from the sac down a lane
+    through near you (1.4 m wide, warned 0.8 s, 9 m/s, a light hit ×0.4 ATP): a sidestep clears one. Hatched sacs
+    mean no stun.
+- **Phase 2, High Tide (65-30%)**: "The tide comes in!": it dives out over the rim and the sea covers the court **for
+  good** ("High tide: keep to the platforms!").
+  - **The water**: off a standing platform you lose **6% of your max HP a second** (past armour and damage taken,
+    like a failed mechanic but no knockback, stun or Corruption: `BossContext.drown`, `Combat.drownTick`, shown in
+    chunks every half second) and move **30% slower**; a **dash skims it** (no damage, no slow; so does being shoved).
+  - **The platforms** (11): eight round the court 9 m out (the first 22.5° east of north) and three round the middle
+    4 m out, each a low marble dais 3.8 m across with a gold rim and sunburst. Every one is within a dash (3.5 m) of
+    the next (tests pin it). 3 s in and every 4 s after, one glows red and **sinks 2.4 s later** (the one you stand on
+    half the time, else one of the two standing nearest you; never fewer than 5 standing; none while it is beached),
+    and each **comes back up 9 s** after it sank.
+  - **In the sea** it swims round the court 19 m out, under the water (it can't be hit), and every ~1.6 s surfaces at
+    the rim near you to attack (it can be hit then): a **skim** (a glide from the rim right across the court) or a
+    **spout line** (five 2.2 m geysers 3 m apart from the rim toward you, two short of you to two past, the first warned
+    1.2 s and each 0.22 s after the last, ×0.9 ATP: step off the line).
+  - **Surges** (the signature): 5 s into High Tide, then every 17 s: it rears up past the rim on its side, the whole
+    court is warned 2.4 s (the fill grows the way the wave will roll; "A surge! Get onto a platform!" the first time),
+    then a **wall of water rolls across the court** at 12 m/s. In the water as it passes you take ×1.1 ATP and a 7 m
+    shove its way; **on a standing platform it passes under you**. From anywhere a platform is in reach (a dash and a
+    wade) before it gets to you (tests pin it, every way it can roll).
+  - **Beached**: once the wall is past the middle it **rides in behind it** and lands 6 m from you toward the middle
+    (a warned circle, ×0.8 ATP), **beached for 7 s** (~6 real seconds), weak point open, +50% ("Beached! Weak point
+    exposed!"), then slips back over the nearest rim into the sea.
+  - **Ul Rays**: two swim round the court 10 m out all phase, each with 3% of its HP; a dead one is replaced 12 s
+    later. Every 3-4.5 s each lunges at you along a 2.4 m lane warned 1.2 s (amber, a walk even from the middle of a
+    platform), ×0.8 ATP and a shove of 9 that can knock you into the water. Hits on them don't touch its bar.
+- **Phase 3, the Deep (30-0%)**: "Barba Ray drags the court into the deep!": the Ul Rays sink, the platforms go under,
+  a whirlpool spins in the middle while it circles it, and the court goes **under the sea**: a dome of deep blue water
+  round the court (hiding the sky and the islets), the surface shimmering overhead, shafts of light, motes drifting up,
+  and the world's fog and light blended to deep water (`Boss.depth`, `Game.applyDepth`: fog closing in to 4-44 m, the
+  sun dimmed, the sky light blue). When it dies the court comes back up.
+  - **Air** (the signature; "Under the sea: breathe in the bubbles!"): an **AIR gauge** under TP (`Boss.air`,
+    `HudState.air`; amber below 30%, steady): **10 s** of air from full, draining a second a second; standing in a
+    **flowing vent's bubbles** refills 5 s' worth a second. Out of air you lose **20% of your max HP a second** (like the
+    water). **Vents**: eight spots (four 6 m out between the axes, four 12 m out on them), **two flowing at a time**,
+    each for 8 s; 1.6 s before one stops, the next (a random one) stirs up (a few bubbles, no air yet) and flows the
+    moment it stops.
+  - It swims 3.5 m over the floor (you walk under it) and attacks, one at a time:
+    - **Dive**: up, then a 4 m circle on you warned 1.6 s (never cut), ×1.3 ATP, and it is **stuck in the floor 4 s**,
+      weak point open, +50% ("Stuck in the floor! Weak point exposed!" the first time).
+    - **Tail sweep**: it swims in close, then a 120° cone 6.5 m from it at you, warned 1.3 s (a walk out from
+      anywhere in it, sideways or back), ×1 ATP.
+    - **Current**: it swims over the flowing vent nearest you and beats its wings at you: a 6 m lane from the vent
+      through you, warned 1.1 s, then for 2.5 s it **pushes you along it** at 5 m/s (no damage; walk out sideways), so
+      a vent you were breathing in is suddenly behind you.
+  - **Enraged** (below 15%, the Deep only): windups ×0.8 (the dive never cut).
 - **Readability** (the user's first look, 2026-10-22: the pale pink and teal lanes were hard to see, the platforms'
   pulsing rings distracting). The court's telegraphs keep the usual style, ×1.25 as opaque (the bright floor washes
-  them out), and float 0.12 m higher, over the platforms' tops and the flood's water (`AreaTheme.telegraphs`,
+  them out), and float 0.12 m higher, over the platforms' tops and the water (`AreaTheme.telegraphs`,
   `Telegraph.restyle`; the water also draws before every other see-through thing: before, the Ul Rays' lanes were under
   it). A bold look with a solid darker edge was tried first and dropped: too heavy, out of style with the other bosses.
-  Pig Ray lanes are **hot pink**, Ul Ray lanes **amber** (against the blue water). The platforms'
-  rings glow steady: a soft cyan, brighter in a flood, and a sinking one steady red, its countdown in its telegraph's fill.
-- **Phase 1** (100-50%): **every attack is a pair**, 1 s apart (pool: glide + spouts, crash + ripples, burst + glide):
-  - **Glide + spouts**: a 5.5 m lane from it through you to the far rim (1.3 s, a walk; it flies it at 22 m/s, ×1.2
-    ATP), and as it reaches the end a **spout line** from there toward you: five 2.2 m geysers 3 m apart, the first
-    warned 1.2 s, each 0.22 s after the last (×0.9 ATP): step off the line.
-  - **Crash + ripples**: it rises and drops on you (a 4.5 m circle warned 1.8 s, the enrage never cuts it, ×1.3 ATP),
-    then a tail slam sends **ripples** out from where it landed: four 3.5 m bands from 3 m out, all warned at once,
-    the first bursting 1.3 s after the slam and each next one 0.9 s later (×0.8 ATP, a shove of 6). Walk to the inner
-    edge of your band in the warning, then step into the band inside once it has burst.
-  - **Burst + glide**: a fan of five Pig Ray lanes from its mouth, 25° apart with the middle one straight at you, warned
-    1.1 s; the burst's rays fly 14 m/s (6 m out the gaps are 1.3 m: step into one; nearer, step round it); 0.6 s in
-    comes the glide.
-- **Phase 2, "The deep stirs!"** (below 50%; the battle layer comes in; `THE DEEP STIRS`): the pairs become **triples**
-  (glide + spouts + a burst, crash + ripples + a burst), three Ul Rays a flood, Pig Rays every 1.3 s.
-- **Phase 3, "The whirlpool!"** (below 1/3; `THE WHIRLPOOL`): its floods spin **a whirlpool** in the middle that drags
-  you toward it at 1.6 m/s (walk against it: you're nearly three times as fast) and **the platforms nearest the
-  middle sink first**; Pig Rays come in pairs.
-- **Enraged** (below 20%): windups ×0.8 (the crash, the flood and the sinking never cut); the glide then gets the dash
-  check's cyan rim.
+  Pig Ray lanes are **hot pink**, Ul Ray lanes **amber** (against the blue water). The platforms' rings glow steady:
+  a soft cyan, brighter in the water, and a sinking one steady red, its countdown in its telegraph's fill. The surge's
+  wall is lit, not glowing (a white glowing one blew out under the court's bloom into a beam of light).
 - **Its node** (`PINNACLE_BOSS`, riftMap.ts): `P2SW` opens once **Warden II and Dark Falz II** are dead. The first
   kill is free and always drops one of its two uniques (one you lack first; `RiftSave.firsts` "barba2"); after that a
   fight takes **2 Resonance from the Warden's quarter and 2 from Dark Falz's**, and a kill rolls twice a boss's odds.
-  Loot lands round the court's middle (off the body it could land in the sea).
+  Loot lands round the court's middle (off the body it could land in the sea). The Gate's panel describes the three
+  phases.
 - **Its uniques:**
 
   | Unique | Slot | Effect | Cost |
@@ -2044,24 +2066,28 @@ storm and the Dragon's rocks, so the flood is about moving from spot to spot und
   | Pig Ray | Unit | A little Pig Ray circles you and darts at your target every 2 s for 30% of a photon bolt | Photon bolts refill 20% less TP |
 
   Rules settled while building (my calls): every Barta hit starts the Soak over, bosses Soak too (it isn't crowd
-  control), a killing Barta hit soaks nothing; the Pig Ray darts at the target your photon bolts would hit (in 14 m)
-  and waits for one when there is none, and its hits refill no TP. Numbers in `uniqueCfg` (`tidecaller*`, `pig*`).
+  control; eggs and Ul Rays too), a killing Barta hit soaks nothing; the Pig Ray darts at the target your photon bolts
+  would hit (in 14 m) and waits for one when there is none, and its hits refill no TP. Numbers in `uniqueCfg`
+  (`tidecaller*`, `pig*`).
 - **Music:** `barba` (synth: a rolling sea theme in D minor at 140 BPM, a brass line over cascading harp and string
-  arpeggios, a flute answer, a surging bass and wave-like drums; the deep stirring adds choir, taiko and a lead
+  arpeggios, a flute answer, a surging bass and wave-like drums; the battle layer adds choir, taiko and a lead
   arpeggio). Sounds: the **Barba Ray** group in the sound lab (its call, the glide, a spout, a splash, the tide, a
-  platform sinking, the crash, a Pig Ray).
-- **Checked:** `barba.test.ts` (the platforms' layout, reach and hops, which one sinks, every attack's walk at the rift
-  tempo, the ripples' bands, the burst's gaps, the Pig Ray lanes; a scripted fight against the boss itself: it floods
-  ~14 s in, the water takes ~25% a second off the platforms and nothing on one, platforms sink and rise, it beaches
-  with its weak point open, an Ul Ray dies without touching its bar, the phase 3 whirlpool drags you in),
-  `riftMap.test.ts` (the node, its opening and costs, the doubled odds), `riftUniques.test.ts` (both uniques). In the
-  game (Lv 100 test character, invincible, the debug warp): the Gate's panel, the court, a flood with its sinking
-  platforms, Ul Rays and Pig Rays, the beaching, every attack and phase in a long run with no errors, and a kill with
-  its first-kill unique. Not done: a balance pass (the bot can't hop platforms or dodge lanes), a recorded track.
+  platform sinking, the crash, a Pig Ray), reused for the eggs, the surge, the dive and the current; no new sounds.
+- **Checked:** `barba.test.ts` (the clutch's layout and the hatched Pig Rays' lanes; the platforms' layout, hops and
+  which one sinks; a platform in reach before any surge reaches you; the vents' layout and hand-over; every attack's
+  walk at the rift tempo, the sweep's cone included; a scripted fight against the boss itself: breaking a clutch
+  stuns it, a hatched one darts at you, damage past the Brood is lost and the tide comes in, the water drowns you off
+  the platforms only, platforms sink and rise, a surge hits you in the water but not on a platform and it beaches, a
+  dead Ul Ray is replaced, the Deep's air drains and refills and drowns you when out, a dive leaves it stuck, and the
+  court comes back up when it dies), `riftMap.test.ts`, `riftUniques.test.ts`. In the game (test character,
+  invincible, the debug warp): a clutch landing and its stun, the tide coming in, a surge with Ul Rays and sinking
+  platforms, the change into the Deep and the Deep's look, the AIR gauge, a dive's warning, and a scripted run from
+  waking to the kill through all three phases with no errors (at a steady 0.5% of its HP a second: the Brood ~86 s,
+  High Tide ~80 s, the Deep ~64 s). Not done: a balance pass (eggs' HP against real damage, the water's bite), a
+  recorded track.
 - **Debug** (tuning panel): Rifts > "enter Barba Ray (Pinnacle II)" goes straight in (its first kill stays owed); the
-  **Barba Ray** folder has the phases, the flood's clock and warning, the water's bite and slow, the sinking, the
-  beaching, the Ul Rays, the whirlpool, the Pig Rays and every attack's warning; Rifts has its speed and HP
-  multiplier.
+  **Barba Ray** folder has the phase thresholds, the clutches, the water, the platforms, the surges, the beaching, the
+  Ul Rays, the air and vents and every attack's warning; Rifts has its speed and HP multiplier.
 
 ### Layout (riftGen.ts)
 - `generateRift(options)` is pure: everything comes from the seed (mixed with the region, so one seed differs per
