@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { sfx } from '../../audio';
-import { stagger, uniqueCfg as U } from '../config';
+import { passiveCfg, stagger, uniqueCfg as U } from '../config';
 import { ARTS, type ArtId } from '../data/arts';
 import { isAttackTech, techniques } from '../data/techniques';
 import type { Enemy } from '../enemies/Enemy';
@@ -23,11 +23,11 @@ const tmp = new THREE.Vector3();
 type Element = 'fire' | 'lightning' | 'ice';
 
 /**
- * The Pig Ray unit's ray: it circles her shoulder and, on a dart, flies to the target and back. Lives until `done`
+ * The Azure Ray unit's ray: it circles her shoulder and, on a dart, flies to the target and back. Lives until `done`
  * (the unit came off, or a new area: the world drops its effects then).
  */
-class PigRayPet implements Effect {
-  readonly object = rayMesh(0xf08ab4, 0.7);
+class AzureRayPet implements Effect {
+  readonly object = rayMesh(0x2a8cff, 0.7);
   done = false;
   private t = Math.random() * 6;
   private dartT = 0;
@@ -106,9 +106,9 @@ export class UniqueFx {
   private grounds = new Map<object, { g: number; t: number }>();
   /** Tidecaller: seconds of Soak left on each target a Barta hit. */
   private soaked = new Map<Hittable, number>();
-  /** Pig Ray: its ray, and seconds to its next dart. */
-  private pet: PigRayPet | null = null;
-  private pigT = 0;
+  /** Azure Ray: its ray, and seconds to its next dart. */
+  private pet: AzureRayPet | null = null;
+  private azureT = 0;
 
   /** Back to nothing (a new area, Pioneer 2). */
   reset(): void {
@@ -128,7 +128,7 @@ export class UniqueFx {
     this.grounds.clear();
     this.soaked.clear();
     this.pet = null;
-    this.pigT = 0;
+    this.azureT = 0;
   }
 
   // ------------------------------------------------------------ every frame
@@ -149,7 +149,7 @@ export class UniqueFx {
       if (s - dt <= 0 || !t.alive) this.soaked.delete(t);
       else this.soaked.set(t, s - dt);
     }
-    this.pigRay(dt);
+    this.azureRay(dt);
     // Grounding Coil: a grounded target's window runs out.
     for (const [k, g] of this.grounds) {
       if (g.t > 0) g.t = Math.max(0, g.t - dt);
@@ -206,29 +206,37 @@ export class UniqueFx {
   }
 
   /**
-   * Pig Ray: while worn, the little ray circles her and every `pigEvery` s darts at the target her photon bolts would
-   * hit (in their reach) for a share of a photon bolt, refilling no TP. With no target it waits and darts at the next.
+   * Azure Ray: while worn, the little ray circles her and every `azureEvery` s darts at the target her photon bolts
+   * would hit (in their reach) for a share of a single-target technique's hit, refilling no TP. With no target it waits
+   * and darts at the next.
    */
-  private pigRay(dt: number): void {
+  private azureRay(dt: number): void {
     const c = this.c;
     const p = this.p;
-    if (!c.hasUnique('pigRay') || !p.alive) {
+    if (!c.hasUnique('azureRay') || !p.alive) {
       if (this.pet) this.pet.done = true;
       this.pet = null;
       return;
     }
     if (!this.pet) {
-      this.pet = new PigRayPet(p.pos);
+      this.pet = new AzureRayPet(p.pos);
       this.k.fx(this.pet);
     }
-    this.pigT -= dt;
-    if (this.pigT > 0) return;
-    const t = this.k.aimTarget(U.pigRange);
+    this.azureT -= dt;
+    if (this.azureT > 0) return;
+    const t = this.k.aimTarget(U.azureRange);
     if (!t) return;
-    this.pigT = U.pigEvery;
+    this.azureT = U.azureEvery;
     this.pet.dart(t.pos.clone().setY(t.aimHeight));
-    this.k.boltHit(t, { mult: c.uval(U.pigPower), label: 'Pig Ray', streak: 0, finisher: false, refill: false });
+    this.k.boltHit(t, { base: this.azureBase(), mult: c.uval(U.azurePower), label: 'Azure Ray', streak: 0, finisher: false, refill: false });
     sfx('barba.pig', { x: t.pos.x, z: t.pos.z });
+  }
+
+  /** What the Azure Ray takes its share of: her strongest single-target technique's hit (Focus Bolt included). */
+  azureBase(): number {
+    const c = this.c;
+    const best = Math.max(...(['foie', 'zonde', 'barta'] as const).map((id) => c.techDamage(id)));
+    return best * c.pMult('focusBolt', passiveCfg.focusBoltMult);
   }
 
   // ------------------------------------------------------------ dealing damage

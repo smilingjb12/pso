@@ -295,7 +295,7 @@ describe('Pinnacle II: Barba Ray', () => {
     const ch = Character.create('T');
     const s = riftSave(ch.data);
     const u = rollBossUnique('barba', BOSS_TIER[2], 112, s, ch.data, mulberry32(7));
-    expect(['unique_tidecaller_15', 'uunit_pigRay']).toContain(u!.id);
+    expect(['unique_tidecaller_15', 'uunit_azureRay']).toContain(u!.id);
     expect(s.firsts).toContain('barba2');
     expect(riftUniqueOdds(s, 'barba')).toBeCloseTo(2 * riftUniqueOdds(s, 'warden'), 6);
   });

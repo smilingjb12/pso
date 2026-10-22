@@ -85,6 +85,8 @@ export interface BoltHit {
   finisher: boolean;
   /** Damage multiplier on top. */
   mult?: number;
+  /** Damage before the multipliers, in place of a photon bolt's (the Azure Ray's darts: a share of a technique). */
+  base?: number;
   /** Stagger multiplier. */
   stagger?: number;
   /** Refill TP like a basic step (default true). */
@@ -599,7 +601,7 @@ export class Combat {
     amount *= c.pMult('siphonStaff', T.siphonMult);
     amount *= 1 + c.gearAffix('tpRefill') / 100;
     if (c.hasUnique('v801')) amount *= Math.max(0, 1 - c.uval(U.v801Refill));
-    if (c.hasUnique('pigRay')) amount *= Math.max(0, 1 - c.uval(U.pigRefill));
+    if (c.hasUnique('azureRay')) amount *= Math.max(0, 1 - c.uval(U.azureRefill));
     const p = this.p;
     p.tp = Math.min(p.maxTp, p.tp + amount);
   }
@@ -636,7 +638,7 @@ export class Combat {
     const crit = this.ufx.canCrit(true) && this.rollCrit();
     const shooter = c.hasUnique('frozenShooter') && !frozen(t) ? U.frozenOtherMult : 1;
     const mult = (s.mult ?? 1) * this.comboMult(s.streak) * this.lowHpMult() * this.buffMult() * this.haloMult() * this.takenMult(t) * this.ufx.dealtMult(t) * shooter;
-    const dmg = Math.max(1, Math.round(c.boltDamage() * mult * cutMult(t.techResist ?? 0) * t.damageMult(p.pos.x, p.pos.z, false) * (crit ? c.critDamage() : 1)));
+    const dmg = Math.max(1, Math.round((s.base ?? c.boltDamage()) * mult * cutMult(t.techResist ?? 0) * t.damageMult(p.pos.x, p.pos.z, false) * (crit ? c.critDamage() : 1)));
     const killed = this.deal(t, dmg, p.pos.x, p.pos.z, 0.8, stagger.light * (s.finisher ? 2 : 1) * (s.stagger ?? 1));
     this.ufx.landed(t, dmg);
     if (!killed) this.ufx.afterHit(t, dmg, crit, true);

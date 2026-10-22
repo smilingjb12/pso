@@ -296,16 +296,19 @@ describe('Rift Circle uniques in a fight', () => {
     expect(none.techMult(a, 'fire')).toBe(1);
   });
 
-  it('Pig Ray: darts at your target every 2 s for 30% of a photon bolt, refilling no TP; with no target it waits', () => {
-    const { fx, k } = setup([], ['pigRay']);
+  it('Azure Ray: darts at your target every 2 s for 20% of your strongest single-target technique, refilling no TP; with no target it waits', () => {
+    const { ch, fx, k } = setup([], ['azureRay']);
     const kk = k as unknown as Record<string, unknown>;
     const t = Object.assign(enemy(1000), { aimHeight: 1 });
-    const darts: { mult?: number; refill?: boolean }[] = [];
+    const darts: { base?: number; mult?: number; refill?: boolean }[] = [];
     kk.aimTarget = () => t;
-    kk.boltHit = (_t: Hittable, s: { mult?: number; refill?: boolean }) => (darts.push(s), { dmg: 1, killed: false });
+    kk.boltHit = (_t: Hittable, s: { base?: number; mult?: number; refill?: boolean }) => (darts.push(s), { dmg: 1, killed: false });
     fx.tick(1 / 60);
     expect(darts).toHaveLength(1);
-    expect(darts[0]).toMatchObject({ mult: U.pigPower, refill: false });
+    const spell = Math.max(ch.techDamage('foie'), ch.techDamage('zonde'), ch.techDamage('barta'));
+    expect(darts[0]).toMatchObject({ mult: U.azurePower, refill: false });
+    expect(darts[0].base).toBeCloseTo(spell);
+    expect(darts[0].base! * darts[0].mult!).toBeGreaterThan(ch.boltDamage());
     for (let i = 0; i < 60; i++) fx.tick(1 / 60);
     expect(darts).toHaveLength(1);
     for (let i = 0; i < 65; i++) fx.tick(1 / 60);
@@ -313,6 +316,18 @@ describe('Rift Circle uniques in a fight', () => {
     kk.aimTarget = () => null;
     for (let i = 0; i < 300; i++) fx.tick(1 / 60);
     expect(darts).toHaveLength(2);
+  });
+
+  it('a save from before the rename loads its Pig Ray as the Azure Ray: learned, in the Mag and in the bag', () => {
+    const ch = character([], ['azureRay']);
+    ch.data.inventory.push(makeItem(uniqueUnitId('azureRay')));
+    const old = JSON.parse(JSON.stringify(ch.data).replaceAll('azureRay', 'pigRay'));
+    const loaded = new Character(old);
+    expect(loaded.hasUnique('azureRay')).toBe(true);
+    expect(loaded.data.magUnits).toContain('azureRay');
+    expect(loaded.data.units.map((u) => u.id)).toContain('uunit_azureRay');
+    expect(loaded.data.inventory.map((u) => u.id)).toContain('uunit_azureRay');
+    expect(JSON.stringify(loaded.data)).not.toContain('pigRay');
   });
 });
 

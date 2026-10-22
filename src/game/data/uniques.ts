@@ -24,7 +24,7 @@ export type UniqueId =
   // Gal Gryphon (a Circle II pinnacle)
   | 'stormCrest' | 'groundingCoil'
   // Barba Ray (the other Circle II pinnacle)
-  | 'tidecaller' | 'pigRay';
+  | 'tidecaller' | 'azureRay';
 
 /** Where a unique drops: main-game bosses, or Falz Rift bosses (each its own). */
 export type UniquePool = 'main' | 'rift';
@@ -276,12 +276,16 @@ export const UNIQUES: Record<UniqueId, UniqueDef> = {
     notes: ['Every Barta hit starts the Soak over', "Bosses Soak too: it isn't crowd control"],
     flavour: "Coral from the floor of Barba Ray's temple; the sea follows it.",
   },
-  pigRay: {
-    id: 'pigRay', name: 'Pig Ray', pool: 'rift', boss: 'barba', circle: 2, base: UNIT,
-    effect: 'A little Pig Ray circles you and darts at your target every 2 s for 30% of a photon bolt',
+  azureRay: {
+    id: 'azureRay', name: 'Azure Ray', pool: 'rift', boss: 'barba', circle: 2, base: UNIT,
+    effect: 'A little Azure Ray circles you and darts at your target every 2 s for 20% of a single-target technique',
     cost: 'Photon bolts refill 20% less TP',
-    notes: ['It darts at the target your photon bolts would hit, in their reach', 'Its own hits refill no TP'],
-    flavour: 'One of the brood took a liking to you.',
+    notes: [
+      'A dart deals 20% of your strongest Foie, Zonde or Barta hit (its rank, your weapon, affixes and Focus Bolt count)',
+      'It darts at the target your photon bolts would hit, in their reach',
+      'Its own hits refill no TP',
+    ],
+    flavour: 'One of the brood took a liking to you, and turned blue for it.',
   },
 };
 

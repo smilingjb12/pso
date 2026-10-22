@@ -2096,12 +2096,17 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
   | Unique | Slot | Effect | Cost |
   |---|---|---|---|
   | Tidecaller | Wand | Your Barta techniques Soak enemies for 6 s: Soaked enemies take 40% more from Zonde techniques | Foie techniques deal 40% less |
-  | Pig Ray | Unit | A little Pig Ray circles you and darts at your target every 2 s for 30% of a photon bolt | Photon bolts refill 20% less TP |
+  | Azure Ray | Unit | A little Azure Ray circles you and darts at your target every 2 s for 20% of a single-target technique | Photon bolts refill 20% less TP |
 
   Rules settled while building (my calls): every Barta hit starts the Soak over, bosses Soak too (it isn't crowd
-  control; eggs and Ul Rays too), a killing Barta hit soaks nothing; the Pig Ray darts at the target your photon bolts
-  would hit (in 14 m) and waits for one when there is none, and its hits refill no TP. Numbers in `uniqueCfg`
-  (`tidecaller*`, `pig*`).
+  control; eggs and Ul Rays too), a killing Barta hit soaks nothing; the Azure Ray darts at the target your photon
+  bolts would hit (in 14 m) and waits for one when there is none, and its hits refill no TP. Numbers in `uniqueCfg`
+  (`tidecaller*`, `azure*`).
+- **Azure Ray (2026-10-22, the user's ask):** the unit was the **Pig Ray** (rose, 30% of a photon bolt a dart); it is
+  now the **Azure Ray**, its little ray azure (`0x2a8cff`; the boss's brood stay rose Pig Rays), and a dart deals
+  **20% of a single-target technique's hit**: the strongest of your Foie, Zonde and Barta (rank, weapon boost, the
+  technique and element affixes, Focus Bolt), then the hit's usual multipliers, technique resistance and crits, as
+  a photon bolt's would (Combat `boltHit` with a `base`). A save's Pig Ray (bag, learned, Mag) loads as the Azure Ray.
 - **Music:** `barba` (synth: a rolling sea theme in D minor at 140 BPM, a brass line over cascading harp and string
   arpeggios, a flute answer, a surging bass and wave-like drums; the battle layer adds choir, taiko and a lead
   arpeggio). Sounds: the **Barba Ray** group in the sound lab (its call, the glide, a spout, a splash, the tide, a

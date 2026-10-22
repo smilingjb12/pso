@@ -300,7 +300,8 @@ function toPercentUnits(r: AffixRoll): AffixRoll {
 /**
  * Items of kinds that went made current: four kinds on 2026-10-14, and with the classes on 2026-10-21 every blade
  * and the Cane become a Rod, every gun a Wand, Guard and Combat armour Psy, each of the same tier (uniques keep their
- * ids: their bases changed instead). Weapon specials are gone. Safe to run more than once.
+ * ids: their bases changed instead). Weapon specials are gone. The Pig Ray unit became the Azure Ray on 2026-10-22
+ * (bag, learned and in the Mag). Safe to run more than once.
  */
 function convertRetiredItems(data: CharacterData): void {
   for (const it of data.inventory) {
@@ -311,6 +312,8 @@ function convertRetiredItems(data: CharacterData): void {
     if (a && RETIRED_LINES.includes(a[2])) it.id = `${a[1]}_psy_${a[3]}`;
     delete it.special;
   }
+  for (const it of [...data.inventory, ...(data.units ?? [])]) if (it.id === 'uunit_pigRay') it.id = 'uunit_azureRay';
+  data.magUnits = data.magUnits?.map((k) => ((k as string) === 'pigRay' ? 'azureRay' : k));
 }
 
 /**

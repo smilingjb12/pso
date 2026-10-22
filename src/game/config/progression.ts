@@ -325,9 +325,13 @@ export const uniqueCfg = {
   tidecallerSoak: 6,
   tidecallerZonde: 0.4,
   tidecallerFoie: 0.4,
-  /** Pig Ray: seconds between darts, a dart's share of a photon bolt, its reach (m), and the photon bolts' TP refill cut. */
-  pigEvery: 2,
-  pigPower: 0.3,
-  pigRange: 14,
-  pigRefill: 0.2,
+  /**
+   * Azure Ray (Pig Ray until 2026-10-22, when it went from 30% of a photon bolt to a share of a technique): seconds
+   * between darts, a dart's share of a single-target technique's hit (the strongest of Foie, Zonde and Barta), its
+   * reach (m), and the photon bolts' TP refill cut.
+   */
+  azureEvery: 2,
+  azurePower: 0.2,
+  azureRange: 14,
+  azureRefill: 0.2,
 };

@@ -49,10 +49,10 @@ describe('unique definitions', () => {
     expect(isUniqueUnit('groundingCoil')).toBe(true);
     // Barba Ray (the other Circle II pinnacle): a wand and a unit.
     const barba = bossUniques('barba', 3);
-    expect(barba.sort()).toEqual(['pigRay', 'tidecaller']);
+    expect(barba.sort()).toEqual(['azureRay', 'tidecaller']);
     expect(barba.every((id) => UNIQUES[id].circle === 2)).toBe(true);
     expect(UNIQUES.tidecaller.base).toEqual({ type: 'weapon', kind: 'wand' });
-    expect(isUniqueUnit('pigRay')).toBe(true);
+    expect(isUniqueUnit('azureRay')).toBe(true);
     expect(rift.filter((id) => UNIQUES[id].base.type === 'weapon')).toHaveLength(7);
     for (const id of UNIQUE_IDS) expect(UNIQUES[id].effect.length && UNIQUES[id].cost.length).toBeTruthy();
   });

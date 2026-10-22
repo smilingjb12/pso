@@ -121,6 +121,7 @@ const CATALOGUE: Record<string, Entry> = {
   'Gal Gryphon': { kind: 'gryphon' },
   'Barba Ray': { kind: 'barba' },
   'Pig Ray': { kind: 'ray', color: 0xf08ab4, span: 1.4 },
+  'Azure Ray (unit)': { kind: 'ray', color: 0x2a8cff, span: 0.7 },
   'Ul Ray': { kind: 'ray', color: 0x2fb8b0, span: 3.4 },
   'De Rol Le': { kind: 'derolle' },
   Gillchic: { kind: 'gunbot' },
