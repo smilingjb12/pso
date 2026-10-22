@@ -4,14 +4,15 @@ import { barbaRay as cfg, dash, player } from './config';
 import type { BossContext } from './enemies/Boss';
 import { BarbaRay } from './enemies/BarbaRay';
 import {
-  clutchSpots, dartLane, dryWalk, inInk, nearestGap, platformAt, platformSpots, rippleBands, sinkPick, spoutLine, startVents, surgeAlong,
+  clutchSpots, dryWalk, inInk, nearestGap, platformAt, platformSpots, rippleBands, sinkPick, spoutLine, startVents, surgeAlong,
   tickVents, ventAt, ventSpots, walkIn, type PlatformState, type VentState,
 } from './enemies/barbaTide';
 import { riftBossScale } from './rifts';
 import { inShape, type TelegraphShape } from './world/Telegraph';
 import { mulberry32 } from './world/Level';
 
-// Barba Ray, the Rift Map's other Circle II pinnacle (DESIGN.md "Barba Ray"), in its three phases: the Brood's clutches,
+// Barba Ray, the Rift Map's other Circle II pinnacle (DESIGN.md "Barba Ray"), in its three phases: the Brood's clutches
+// and their broods,
 // High Tide's platforms and surges, the Deep's air and vents; every attack's way out in its warning at the rift's
 // tempo; and a scripted fight against the boss itself through all three.
 
@@ -45,33 +46,11 @@ describe('Barba Ray: the Brood', () => {
       }
     }
   });
-
-  it('sends a hatched egg’s Pig Rays from the egg through near you to past the rim', () => {
-    const rng = mulberry32(3);
-    for (let i = 0; i < 200; i++) {
-      const sx = CX + (rng() - 0.5) * 20;
-      const sz = CZ + (rng() - 0.5) * 20;
-      const tx = CX + (rng() - 0.5) * 20;
-      const tz = CZ + (rng() - 0.5) * 20;
-      const l = dartLane(sx, sz, tx, tz, CX, CZ, rng);
-      const ex = l.x + Math.sin(l.yaw) * l.length;
-      const ez = l.z + Math.cos(l.yaw) * l.length;
-      expect(Math.hypot(ex - CX, ez - CZ)).toBeGreaterThan(cfg.arenaRadius);
-      const across = Math.abs((tx - l.x) * Math.cos(l.yaw) - (tz - l.z) * Math.sin(l.yaw));
-      expect(across).toBeLessThanOrEqual(cfg.pigSpread + 1e-6);
-    }
-    // A sidestep clears a lane in its warning.
-    expect(cfg.pigWidth / 2 + cfg.pigRadius + pr).toBeLessThanOrEqual(walkIn(cfg.pigWarn, TEMPO) + cfg.pigSpread);
-  });
 });
 
-describe("Barba Ray: Mother's fury and the tide channels", () => {
-  it("makes the fury's glide a dash check and its circles a walk", () => {
-    const half = cfg.glideWidth / 2 + pr;
-    expect(half).toBeGreaterThan(walkIn(cfg.furyWindup, TEMPO));
-    expect(half).toBeLessThanOrEqual(dash.distance);
-    expect(0.35 + dash.duration).toBeLessThanOrEqual(cfg.furyWindup / TEMPO);
-    expect(cfg.furyRadius + pr).toBeLessThanOrEqual(walkIn(cfg.furyWarn, TEMPO));
+describe("Barba Ray: the broods and the tide channels", () => {
+  it("makes a brood's circles a walk out of in their warning", () => {
+    expect(cfg.barrageRadius + pr).toBeLessThanOrEqual(walkIn(cfg.barrageWarn, TEMPO));
   });
 
   it('puts both channels on the court, each band a walk out of in its warning', () => {
@@ -226,6 +205,8 @@ interface Fake {
   body: { pos: THREE.Vector3; alive: boolean; radius: number };
   drowned: number[];
   hits: TelegraphShape[];
+  /** Every telegraph shown, in order. */
+  shapes: TelegraphShape[];
   step(sec: number, each?: () => void): void;
 }
 
@@ -234,12 +215,14 @@ function fakeFight(boss: BarbaRay): Fake {
   const teles: { t: number; dur: number; onFire: () => void; done: boolean; cancel(): void }[] = [];
   const drowned: number[] = [];
   const hits: TelegraphShape[] = [];
+  const shapes: TelegraphShape[] = [];
   const ctx: BossContext = {
     playerX: body.pos.x,
     playerZ: body.pos.z,
     playerAlive: true,
     rng: mulberry32(11),
-    telegraph: (_shape, dur, onFire) => {
+    telegraph: (shape, dur, onFire) => {
+      shapes.push(shape);
       const h = { t: 0, dur, onFire, done: false, cancel() { this.done = true; } };
       teles.push(h);
       return h;
@@ -284,7 +267,7 @@ function fakeFight(boss: BarbaRay): Fake {
       }
     }
   };
-  return { ctx, body, drowned, hits, step };
+  return { ctx, body, drowned, hits, shapes, step };
 }
 
 const ray = () => new BarbaRay(ROOM, riftBossScale({ bossRegion: 'mines', pinnacle: 'barba', tier: 6, mods: [] }));
@@ -333,38 +316,47 @@ describe('Barba Ray: the fight', () => {
     expect(until(f, b, 'recover', cfg.stunTime + 2)).toBe(true);
   });
 
-  it('lets an egg it isn’t broken hatch, its Pig Rays darting at you, and is not stunned', () => {
+  it('opens with a clutch; each egg broken but the last sends its brood then, and the last stuns it and calls them off', () => {
     const b = ray();
     const f = fakeFight(b);
-    expect(until(f, b, 'lay', 20)).toBe(true);
-    let stunned = false;
-    const before = f.hits.length;
-    f.step(cfg.clutchHatch / TEMPO + 8, () => {
-      if (state(b) === 'stunned') stunned = true;
-    });
-    expect(stunned).toBe(false);
-    expect(b.sacs.every((s) => !s.alive)).toBe(true);
-    expect(f.hits.slice(before).some((s) => s.kind === 'circle' && s.radius === cfg.pigRadius)).toBe(true);
-  });
-
-  it("brings its fury down for each egg broken but the last: a glide, then waves of circles on you", () => {
-    const b = ray();
-    const f = fakeFight(b);
-    expect(until(f, b, 'lay', 20)).toBe(true);
+    expect(until(f, b, 'lay', 6)).toBe(true);
     f.step(1.6);
     const eggs = b.sacs.filter((s) => s.alive);
+    const isBrood = (sh: TelegraphShape) => sh.kind === 'circle' && sh.radius === cfg.barrageRadius;
+    const shown = () => f.shapes.filter(isBrood).length;
     eggs[0].damage(eggs[0].maxHp);
-    const before = f.hits.length;
-    let attacked = false;
-    f.step(8, () => {
-      if (state(b) === 'attack') attacked = true;
-    });
-    expect(attacked).toBe(true);
-    expect(f.hits.slice(before).some((s) => s.kind === 'circle' && s.radius === cfg.furyRadius)).toBe(true);
-    // The other two: the last one stuns it, its fury swallowed.
-    for (const s of eggs.slice(1)) s.damage(s.maxHp);
+    f.step(cfg.barrageWaves * cfg.barrageEvery + 1);
+    // One brood: a wave of circles at a time, one of them on you.
+    expect(shown()).toBeGreaterThanOrEqual(cfg.barrageWaves * 3);
+    expect(shown()).toBeLessThanOrEqual(cfg.barrageWaves * cfg.barrageCircles);
+    expect(f.hits.some(isBrood)).toBe(true);
+    // The second, then the last: stunned, and nothing more comes.
+    eggs[1].damage(eggs[1].maxHp);
+    f.step(0.5);
+    eggs[2].damage(eggs[2].maxHp);
     f.step(0.1);
     expect(state(b)).toBe('stunned');
+    const after = shown();
+    f.step(cfg.barrageWaves * cfg.barrageEvery + 1);
+    expect(shown()).toBe(after);
+  });
+
+  it('stacks the broods of the eggs left to hatch, all at once, and is not stunned', () => {
+    const b = ray();
+    const f = fakeFight(b);
+    expect(until(f, b, 'lay', 6)).toBe(true);
+    const isBrood = (sh: TelegraphShape) => sh.kind === 'circle' && sh.radius === cfg.barrageRadius;
+    let stunned = false;
+    const watch = () => {
+      if (state(b) === 'stunned') stunned = true;
+    };
+    f.step(1.6 + cfg.clutchHatch / TEMPO - 0.5, watch);
+    expect(f.shapes.filter(isBrood)).toHaveLength(0);
+    f.step(cfg.barrageWaves * cfg.barrageEvery + 2, watch);
+    expect(stunned).toBe(false);
+    expect(b.sacs.filter((s) => s.alive)).toHaveLength(0);
+    // Three broods' worth of circles in the time one takes.
+    expect(f.shapes.filter(isBrood).length).toBeGreaterThanOrEqual(cfg.clutchCount * cfg.barrageWaves * 3);
   });
 
   it('erupts the tide channels in turn, the inner ring first', () => {

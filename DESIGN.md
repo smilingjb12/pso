@@ -1145,17 +1145,15 @@ asked for the environment to be **darker and more ominous** than the first, brig
 - The Ruins' signature corrupting attacks **telegraph in violet** (a melee windup that corrupts heats up violet, not orange): So
   Dimenian cuts (always, since 2026-10-08; were 50%), Chaos Sorcerer spells, the Dark Belra slam, Chaos Bringer lasers, Dark Falz's husk pulse, the
   Angel's halves and Megid orbs (two stacks).
-- HUD: the HP bar keeps its full width and the lost share shows as a cracked violet block at its right end. Since
-  2026-10-22 (the user: debuffs over the player, each an icon and a bar of what is left, stacking upward) Corruption
-  shows **over her head** (`HudState.debuffs`, `Hud.setOverhead`): a cracked violet orb, a violet bar of its timer,
-  and `×n`; once the timer has run out (or in the light, the bar pale gold) the bar shows the next stack wearing off;
-  the Falz Halo keeps it full. It used to be a chip by the HP bar (`CORRUPT ×n · LIGHT`).
+- HUD: the HP bar keeps its full width and the lost share shows as a cracked violet block at its right end; a chip
+  reads `CORRUPT ×n · LIGHT` (the hint goes once you stand in light). It stays a chip: the rows over the player's
+  head are for a boss's own marks only (2026-10-22, the user; see Barba Ray's ink mark).
 - **Seal of Light** (Dark Falz signature barrier) and **Falz Halo** (its Nightmare twin) carry Corruption −50%; any
   Corruption resistance shrinks what each stack takes (capped at 75%).
 - **Corruption wears off by itself** (2026-10-08, with Hell; all difficulties). Every application, even at the cap,
   resets a shared **30 s** timer (`statuses.corruptDuration`); when it runs out, the stacks shed one every **2 s**
   (`corruptWearTime`), so there is no sudden +50% HP refill. Pylons, Grants pools, cleared rooms, boss kills and
-  Pioneer 2 still clean it faster. The bar over her head shows the timer, then each stack wearing off.
+  Pioneer 2 still clean it faster. The HUD chip shows the timer (`CORRUPT ×3 · 24s`, then `FADING`, or `LIGHT`).
 
 ### Light pylons (`world/Pylon.ts`)
 - 1–2 per room (`pylons` in the room data), solid obelisks with a crystal. **R lights one**: a **5 m** circle for
@@ -1994,24 +1992,27 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
     sends **ripples** out from where it landed: four 3.5 m bands from 3 m out, all warned at once, the first bursting
     1.3 s after the slam and each next one 0.9 s later (×0.8 ATP, a shove of 6). Walk to the inner edge of your band
     in the warning, then step into the band inside once it has burst.
-  - **Clutches** (the signature): ~6 s into the fight (once it is free), then 18 s after the last clutch hatched or
-    broke, it rears and lobs **three egg sacs** out of its mouth: one about 4 m from you, the others at least 7 m from
-    each other, all within 12 m of the middle ("A clutch! Break the eggs before they hatch!" the first time). Each has
-    **1.5% of its HP** (hits on it don't touch its bar) and a rose ring under it that fills until it **hatches 11 s**
-    after landing (~9.6 real seconds); the eggs swell as it nears. **Break all three** and it shrieks and drops onto
-    the court, **stunned for 6 s** (~5 real seconds), weak point open, **+50% damage** ("The brood is lost! Barba Ray
-    is stunned!"). A sac that hatches looses **four Pig Rays** at you, one every 1.4 s, each from the sac down a lane
-    through near you (1.4 m wide, warned 0.8 s, 9 m/s, a light hit ×0.4 ATP): a sidestep clears one. Hatched sacs
-    mean no stun.
-  - **Mother's fury** (2026-10-22, the user's pick after finding the Brood too easy): each egg you break, **but the
-    last of a clutch** (that one stuns it, its fury swallowed), sends it at you as soon as it is free (out of its
-    attack): a **glide warned only 0.9 s** (a dash check, the cyan rim), then **three waves of circles** 0.7 s apart,
-    five 2 m circles each (one on you, the rest within 6 m, apart), warned 1.1 s (a walk), ×0.9 ATP. Eggs broken close
-    together chain their furies back to back, so you **stagger the egg kills** against the hatch clock ("Mother's fury!
-    Stagger the eggs you break!" the first time).
+  - **Clutches** (the signature): **its first move** once it wakes (2026-10-22, the user: the Brood began with nothing
+    going on), then 14 s after the last clutch hatched or broke (a clutch due goes ahead of its next attack), it rears
+    and lobs **three egg sacs** out of its mouth: one about 4 m from you, the others at least 7 m from each other, all
+    within 12 m of the middle ("A clutch! Break the eggs before they hatch!" the first time). Each has **1.5% of its
+    HP** (hits on it don't touch its bar) and counts down like De Rol Le's bombs (the user's ask): **a fuse ring round
+    its base** filling up, rose to red, and its HP in a small bar over it; it **hatches 11 s** after landing (~9.6 real
+    seconds), the eggs swelling as it nears.
+  - **Broods** (2026-10-22, reworked twice with the user: first a "Mother's fury" glide and circles for each egg broken,
+    then the circles only for eggs left to hatch; settled on both): **every egg sends its brood**, Pig Rays
+    dive-bombing round you: **four waves of circles** 0.8 s apart, five 2 m circles a wave (one on you, the rest within
+    6 m, apart), each warned 1.1 s (a walk), ×0.9 ATP, a hatchling diving onto each as it fires.
+    - **Break an egg** and its brood comes then: you choose when, so **space the eggs out** ("Its brood dives at you:
+      space out the eggs you break!" the first time). **Break the last of a clutch** and it shrieks and drops onto the
+      court, **stunned for 6 s** (~5 real seconds), weak point open, **+50% damage**, and **every brood still coming is
+      called off** ("The brood is lost! Barba Ray is stunned!").
+    - **Eggs left to hatch** send their broods **all at once**, a third of a wave out of step with each other: one is a
+      dodge, two are hard, three are too many ("The clutch hatches: every brood dives at you at once!"). No stun.
+    - The Pig Rays' lanes of the first draft are gone (the rays now dive onto the circles).
   - **Tide channels** (the user's pick): the court's two rings of glowing water (4.5 m and 13.6 m out, `channelRings`,
-    the scenery's channels too) erupt in turn, the inner one first: 8 s into the fight, then every 10 s, a band 1.5 m
-    either side of the ring warned 1.5 s (pale blue, a walk), ×0.9 ATP, geysers all along it ("The channels surge:
+    the scenery's channels too) erupt in turn, the inner one first: 5 s into the fight, then every 10 s, a band 1.5 m
+    either side of the ring warned 1.5 s (pale blue, a walk), ×0.9 ATP, slim geysers all along it ("The channels surge:
     off the glowing rings!" the first time). The Brood only.
 - **Phase 2, High Tide (65-30%)**: "The tide comes in!": it dives out over the rim and the sea covers the court **for
   good** ("High tide: keep to the platforms!").
@@ -2072,7 +2073,8 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
   them out), and float 0.12 m higher, over the platforms' tops and the water (`AreaTheme.telegraphs`,
   `Telegraph.restyle`; the water also draws before every other see-through thing: before, the Ul Rays' lanes were under
   it). A bold look with a solid darker edge was tried first and dropped: too heavy, out of style with the other bosses.
-  Pig Ray lanes are **hot pink**, Ul Ray lanes **amber** (against the blue water). The platforms' rings glow steady:
+  Ul Ray lanes are **amber** (against the blue water; the Pig Ray lanes were hot pink while they lasted). The
+  platforms' rings glow steady:
   a soft cyan, brighter in the water, and a sinking one steady red, its countdown in its telegraph's fill. The surge's
   wall is lit, not glowing (a white glowing one blew out under the court's bloom into a beam of light).
 - **Its node** (`PINNACLE_BOSS`, riftMap.ts): `P2SW` opens once **Warden II and Dark Falz II** are dead. The first
@@ -2105,13 +2107,14 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
   invincible, the debug warp): a clutch landing and its stun, the tide coming in, a surge with Ul Rays and sinking
   platforms, the change into the Deep and the Deep's look, the AIR gauge, a dive's warning, and a scripted run from
   waking to the kill through all three phases with no errors (at a steady 0.5% of its HP a second: the Brood ~86 s,
-  High Tide ~80 s, the Deep ~64 s). Since then (2026-10-22): the fury's dash check and circles, the channels' bands,
-  the ink pools and smothered vents in `barba.test.ts`, and in the game the fury's circles round you (the dash hint
+  High Tide ~80 s, the Deep ~64 s). Since then (2026-10-22): the broods (one for each egg broken but the last, the
+  last calling them off; three stacked from a hatched clutch), the channels' bands, the ink pools and smothered vents in
+  `barba.test.ts`, and in the game the first draft's fury circles round you (the dash hint
   showing), a channel band, an ink pool under you, and the ink and Corruption rows stacked over your head; a second
   scripted run to the kill with no errors. Not done: a balance pass (eggs' HP against real damage, the water's bite),
   a recorded track.
 - **Debug** (tuning panel): Rifts > "enter Barba Ray (Pinnacle II)" goes straight in (its first kill stays owed); the
-  **Barba Ray** folder has the phase thresholds, the clutches, Mother's fury, the tide channels, the water, the
+  **Barba Ray** folder has the phase thresholds, the clutches, the broods, the tide channels, the water, the
   platforms, the surges, the beaching, the Ul Rays, the air and vents, the ink and every attack's warning; Rifts has
   its speed and HP multiplier.
 

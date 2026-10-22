@@ -385,7 +385,8 @@
 .v-tp .fill {
   background: linear-gradient(#5ac8ff, #1478e0);
 }
-/* Debuffs over the player's head: an icon, a bar of what is left and a short count, a row each, stacked upward. */
+/* A boss's marks over the player's head (Barba Ray's ink): an icon, a bar of what is left and a short count, a row
+   each, stacked upward. */
 .overhead {
   position: absolute;
   left: 0;
@@ -614,6 +615,10 @@
 }
 .vchips .chip.poison {
   color: #9aff50;
+}
+.vchips .chip.corrupt {
+  color: #c88aff;
+  box-shadow: 0 0 6px rgba(160, 60, 255, 0.6);
 }
 .vchips .chip.burn {
   color: #ff9a40;

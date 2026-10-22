@@ -29,7 +29,7 @@ import type { Hittable } from './combat/types';
 import type { ComboEvent } from './combo';
 import { expeditionFoe, type Foe } from './dps';
 import { fightLog, hex } from './fightLog';
-import { affixes as affixCfg, hard as hardCfg, hell as hellCfg, camera as camCfg, comboDamage, dash as dashCfg, debug, formulas, injectorCfg, lockOn, magCfg, passiveCfg, player as playerCfg, pylonCfg, statuses as statusCfg, uniqueCfg } from './config';
+import { affixes as affixCfg, hard as hardCfg, hell as hellCfg, camera as camCfg, comboDamage, dash as dashCfg, debug, formulas, injectorCfg, lockOn, magCfg, passiveCfg, player as playerCfg, pylonCfg, uniqueCfg } from './config';
 import { AFFIXES } from './data/affixes';
 import { areas, DEFAULT_LIGHT, expeditionOf, expeditionOfBoss, expeditionOpenedBy, expeditions, isCounter, type AreaId, type ExpeditionId } from './data/areas';
 import { BOSS_IDS, BOSSES, isMainBoss, type BossDef, type BossId } from './data/bosses';
@@ -2339,14 +2339,9 @@ export class Game implements GameApi {
     if (p.buffs.tech.t > 0) buffs.push(`▲TECH ${Math.ceil(p.buffs.tech.t)}s`);
     if (p.buffs.def.t > 0) buffs.push(`▲DEF ${Math.ceil(p.buffs.def.t)}s`);
     const statuses: { label: string; cls: string }[] = [];
-    // Over her head (2026-10-22): Corruption and the boss's marks, an icon and a bar of what is left each.
+    if (p.corruption > 0) statuses.push({ label: `CORRUPT ×${p.corruption} · ${p.inLight ? 'LIGHT' : p.corruptTimer > 0 ? `${Math.ceil(p.corruptTimer)}s` : 'FADING'}`, cls: 'corrupt' });
+    // Over her head (2026-10-22): the boss's own marks only (Barba Ray's ink), an icon and a bar of what is left each.
     const debuffs: DebuffView[] = [];
-    if (p.corruption > 0) {
-      // Its timer, then (run out, or in the light) the next stack wearing off; the Falz Halo keeps it full.
-      const step = p.inLight ? statusCfg.corruptLightTime : statusCfg.corruptWearTime * this.combat.corruptWearMult;
-      const k = ch.hasUnique('falzHalo') ? 1 : p.inLight || p.corruptTimer <= 0 ? 1 - p.corruptDecay / step : p.corruptTimer / statusCfg.corruptDuration;
-      debuffs.push({ key: 'corrupt', k, text: `×${p.corruption}`, color: p.inLight ? '#ffe9a0' : '#b060ff' });
-    }
     for (const m of boss?.alive ? (boss.marks ?? []) : []) debuffs.push({ key: m.key, k: m.left / m.total, text: `${Math.ceil(m.left)}s`, color: MARK_COLOR[m.key] ?? '#ffffff' });
     if (p.burnStacks > 0) statuses.push({ label: `BURN ×${p.burnStacks}${p.moving ? '' : ' · MOVE'}`, cls: 'burn' });
     if (p.poison > 0) statuses.push({ label: `POISON ${Math.ceil(p.poison)}s`, cls: 'poison' });

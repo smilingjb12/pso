@@ -34,7 +34,7 @@ const HEX_LAYOUT = [
   { slot: 1, pos: 'bottom', color: 'red' },
 ] as const;
 
-/** A debuff over the player's head: its icon (`statusIcon(key)`), the share of it left (0..1) in `color`, and a short count. */
+/** A boss's mark over the player's head: its icon (`statusIcon(key)`), the share of it left (0..1) in `color`, and a short count. */
 export interface DebuffView {
   key: string;
   k: number;
@@ -107,7 +107,7 @@ export interface HudState {
   photonBlast: { name: string; charge: number } | null;
   /** Air left (0..1) under the sea (Barba Ray's Deep): an AIR gauge under TP; null hides it. */
   air: number | null;
-  /** Debuffs over the player's head (Corruption, Barba Ray's ink mark), stacked upward in this order. */
+  /** A boss's marks over the player's head (Barba Ray's ink), stacked upward in this order. */
   debuffs: DebuffView[];
   /** Over the player's head: where the debuffs ride. */
   head: THREE.Vector3;
@@ -699,8 +699,9 @@ export class Hud {
   }
 
   /**
-   * Debuffs over the player's head (2026-10-22, the user: there rather than as chips by the HP bar): a row each, its icon,
-   * a bar of what is left in its colour and a short count, stacked upward in the order given.
+   * A boss's marks over the player's head (2026-10-22, the user: boss mechanics only; Corruption and the other statuses
+   * stay chips by the HP bar): a row each, its icon, a bar of what is left in its colour and a short count, stacked
+   * upward in the order given.
    */
   private setOverhead(list: DebuffView[], head: THREE.Vector3, camera: THREE.Camera): void {
     const keep = new Set(list.map((d) => d.key));

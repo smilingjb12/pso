@@ -6,11 +6,11 @@ import { rayMesh } from '../models/barbaRay';
 import type { Effect } from '../world/Effects';
 import { glowDecal } from '../world/glow';
 
-// Barba Ray's three phases and its brood (see BarbaRay and DESIGN.md "Barba Ray"): where a clutch's eggs land and the
-// lanes their Pig Rays dart along, where the platforms stand and which one sinks next, the surge rolling across the
-// court, the vents of the Deep, and the pieces of the arena it owns (the platforms, the water, the egg sacs, the Pig
-// Rays, the Ul Rays, the surge's wall, the vents and the Deep itself). Pure rules first, so they can be tested without
-// the boss.
+// Barba Ray's three phases and its brood (see BarbaRay and DESIGN.md "Barba Ray"): where a clutch's eggs land, where
+// the platforms stand and which one sinks next, the surge rolling across the court, the vents of the Deep and its ink,
+// and the pieces of the arena it owns (the platforms, the water, the egg sacs and their diving hatchlings, the Ul Rays,
+// the surge's wall, the vents, the ink pools and the Deep itself). Pure rules first, so they can be tested without the
+// boss.
 
 type Pt = [number, number];
 const on = (x: number, z: number, yaw: number, d: number): Pt => [x + Math.sin(yaw) * d, z + Math.cos(yaw) * d];
@@ -42,16 +42,6 @@ export function clutchSpots(
   const a0 = Math.atan2(out[0][0] - cx, out[0][1] - cz);
   for (let i = 1; out.length < n; i++) out.push(on(cx, cz, a0 + (i * Math.PI * 2) / n, ring * 0.8));
   return out;
-}
-
-/** The lane a Pig Ray darts along: from (x, z) at (tx, tz) give or take `spread` m, on past the rim. */
-export function dartLane(
-  x: number, z: number, tx: number, tz: number, cx: number, cz: number, rng: () => number, spread = cfg.pigSpread,
-): { x: number; z: number; yaw: number; length: number } {
-  const o = rng() * Math.PI * 2;
-  const r = Math.sqrt(rng()) * spread;
-  const yaw = Math.atan2(tx + Math.sin(o) * r - x, tz + Math.cos(o) * r - z);
-  return { x, z, yaw, length: toCircle(x, z, yaw, cx, cz, cfg.arenaRadius + 1) };
 }
 
 // ------------------------------------------------------------------ the platforms
@@ -384,10 +374,20 @@ export class Water {
 // ------------------------------------------------------------------ the egg sacs
 
 const EGG = 0xf08ab4;
+/** The fuse ring round a sac's base (m), rebuilt in steps rather than every frame (as De Rol Le's bombs). */
+const FUSE_IN = 1.2;
+const FUSE_OUT = 1.55;
+const FUSE_STEPS = 48;
+const FUSE_COLD = 0xff8ac0;
+const FUSE_HOT = new THREE.Color(0xff3020);
+const BAR_W = 1.5;
+const BAR_Y = 2.1;
 
 /**
  * An egg sac of a Pig Ray clutch: a cluster of rose eggs on the court with HP of its own (hits on it don't touch the
- * boss's bar). It lands from a lob, the eggs swell as the hatch nears, and it bursts when it is broken or hatches.
+ * boss's bar). It lands from a lob, then its hatch counts down like De Rol Le's bombs (2026-10-22, the user's ask): a
+ * fuse ring round its base filling up, rose to red, and its HP in a small bar over it; the eggs swell as it nears. It
+ * bursts when it is broken or hatches (the boss sends its brood).
  */
 export class EggSac implements Hittable {
   readonly group = new THREE.Group();
@@ -398,21 +398,30 @@ export class EggSac implements Hittable {
   readonly techResist = 0;
   readonly maxHp: number;
   hp: number;
-  /** It has hatched (its Pig Rays are the boss's to send). */
+  /** It has hatched (its brood is the boss's to send). */
   hatched = false;
+  /** The boss has dealt with its end (broken or hatched). */
+  handled = false;
   private landT: number;
+  /** Seconds to its hatch once landed (its clock). */
+  private hatchLeft: number;
   private flashT = 0;
   /** Seconds since it burst (broken or hatched): the burst plays, then it's gone. */
   private burstT = -1;
+  private body = new THREE.Group();
   private eggs: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>[] = [];
+  private fuseFill: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+  private fuseStep = -1;
+  private bar: THREE.Sprite;
 
-  /** `landIn`: seconds (its clock) until its lob lands. */
-  constructor(hp: number, x: number, z: number, landIn: number) {
+  /** `landIn`: seconds (its clock) until its lob lands; it hatches `hatchIn` s after. */
+  constructor(hp: number, x: number, z: number, landIn: number, hatchIn = cfg.clutchHatch) {
     this.maxHp = this.hp = Math.max(1, Math.round(hp));
     this.landT = landIn;
+    this.hatchLeft = hatchIn;
     this.pos.set(x, 0, z);
     // A slimy base, then four eggs heaped on it.
-    part(this.group, new THREE.CylinderGeometry(0.95, 1.1, 0.12, 18), mat(0x8a4a6e, { rough: 0.3 }), [0, 0.06, 0]);
+    part(this.body, new THREE.CylinderGeometry(0.95, 1.1, 0.12, 18), mat(0x8a4a6e, { rough: 0.3 }), [0, 0.06, 0]);
     const spots: [number, number, number, number][] = [[0, 0.5, 0, 0.5], [0.42, 0.34, 0.2, 0.36], [-0.36, 0.32, 0.28, 0.34], [0.05, 0.3, -0.42, 0.33]];
     for (const [ex, ey, ez, r] of spots) {
       const m = new THREE.Mesh(
@@ -422,8 +431,30 @@ export class EggSac implements Hittable {
       m.position.set(ex, ey, ez);
       m.castShadow = true;
       this.eggs.push(m);
-      this.group.add(m);
+      this.body.add(m);
     }
+    // On the floor: the fuse ring (a dim track and the part burnt so far).
+    const flat = (geo: THREE.BufferGeometry, color: number, opacity: number, y: number) => {
+      const m = new THREE.Mesh(geo.rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide }));
+      m.position.y = y;
+      m.renderOrder = 2;
+      this.group.add(m);
+      return m;
+    };
+    flat(new THREE.RingGeometry(FUSE_IN, FUSE_OUT, 40), 0x4a1a34, 0.75, 0.2);
+    this.fuseFill = flat(new THREE.RingGeometry(FUSE_IN, FUSE_OUT, 2, 1, 0, 0.001), FUSE_COLD, 0.95, 0.21);
+    // HP bar over it (camera-facing): a dark track and the fill, left-aligned through the sprites' centre.
+    const sprite = (color: number, h: number) => {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ color, depthWrite: false, depthTest: false }));
+      sp.scale.set(BAR_W, h, 1);
+      sp.position.y = BAR_Y;
+      sp.renderOrder = 10;
+      this.group.add(sp);
+      return sp;
+    };
+    sprite(0x140c0c, 0.17);
+    this.bar = sprite(0xff8ac0, 0.11);
+    this.group.add(this.body);
     this.group.visible = false;
   }
 
@@ -432,6 +463,10 @@ export class EggSac implements Hittable {
   }
   get landed(): boolean {
     return this.landT <= 0;
+  }
+  /** Its fuse has run out (it is the boss's to hatch). */
+  get due(): boolean {
+    return this.alive && this.landed && this.hatchLeft <= 0;
   }
   get aimHeight(): number {
     return 0.6;
@@ -453,97 +488,69 @@ export class EggSac implements Hittable {
     return 100;
   }
 
-  /** It hatches (the boss sends its Pig Rays). */
+  /** It hatches (the boss sends its brood). */
   hatch(): void {
     this.hatched = true;
   }
 
-  /** The look (its clock): swelling as its hatch nears; false once it has burst and faded. */
+  /** Its clock: the lob, then the fuse burning down and the eggs swelling; false once it has burst and faded. */
   update(dt: number): boolean {
     this.landT -= dt;
-    const k = Math.max(0, -this.landT) / cfg.clutchHatch;
     this.group.visible = this.landed;
+    if (this.landed && this.alive) this.hatchLeft = Math.max(0, this.hatchLeft - dt);
     this.flashT = Math.max(0, this.flashT - dt);
-    if (!this.alive && this.burstT < 0) this.burstT = 0;
+    if (!this.alive && this.burstT < 0) {
+      this.burstT = 0;
+      for (const o of this.group.children) if (o !== this.body) o.visible = false;
+    }
     if (this.burstT >= 0) {
       this.burstT += dt;
       const b = Math.min(1, this.burstT / 0.4);
-      this.group.scale.setScalar(1 + b * 0.5);
+      this.body.scale.setScalar(1 + b * 0.5);
       for (const e of this.eggs) e.material.opacity = 0.9 * (1 - b);
       return b < 1;
     }
+    const k = 1 - this.hatchLeft / cfg.clutchHatch;
+    const step = Math.round(k * FUSE_STEPS);
+    if (step !== this.fuseStep) {
+      this.fuseStep = step;
+      this.fuseFill.geometry.dispose();
+      this.fuseFill.geometry = new THREE.RingGeometry(FUSE_IN, FUSE_OUT, Math.max(2, step), 1, Math.PI / 2, Math.max(0.001, (step / FUSE_STEPS) * Math.PI * 2)).rotateX(-Math.PI / 2);
+    }
+    // Rose to red as it burns down.
+    this.fuseFill.material.color.setHex(FUSE_COLD).lerp(FUSE_HOT, k * k);
+    const f = Math.max(0.0001, this.hp / this.maxHp);
+    this.bar.scale.x = BAR_W * f;
+    this.bar.center.set(0.5 / f, 0.5);
     // Swelling toward the hatch: bigger and brighter, no pulsing.
-    const s = 0.8 + 0.35 * Math.min(1, k);
-    this.group.scale.setScalar(s);
-    for (const e of this.eggs) e.material.emissiveIntensity = this.flashT > 0 ? 1.4 : 0.3 + 0.6 * Math.min(1, k);
+    this.body.scale.setScalar(0.8 + 0.35 * k);
+    for (const e of this.eggs) e.material.emissiveIntensity = this.flashT > 0 ? 1.4 : 0.3 + 0.6 * k;
     return true;
   }
 }
 
-// ------------------------------------------------------------------ Pig Rays
+/** A hatchling diving out of the sky onto its circle as the circle fires (real seconds: it waits `delay`, then dives). */
+export class DiveRay implements Effect {
+  readonly object: THREE.Group;
+  private t = 0;
+  private from: THREE.Vector3;
+  private to: THREE.Vector3;
 
-/** One Pig Ray darting down its lane: where it is, the way left, and whether it has hit you. */
-export interface PigRay {
-  x: number;
-  z: number;
-  yaw: number;
-  left: number;
-  hit: boolean;
-  t: number;
-  /** m/s (default `pigSpeed`). */
-  speed?: number;
-}
-
-/** Move a Pig Ray on `dt`; false once it has run its lane. */
-export function dartPig(p: PigRay, dt: number): boolean {
-  const step = Math.min(p.left, (p.speed ?? cfg.pigSpeed) * dt);
-  p.x += Math.sin(p.yaw) * step;
-  p.z += Math.cos(p.yaw) * step;
-  p.left -= step;
-  p.t += dt;
-  return p.left > 0;
-}
-
-/** Does a Pig Ray touch a body of radius `r` at (x, z)? */
-export const pigTouches = (p: PigRay, x: number, z: number, r: number): boolean => Math.hypot(p.x - x, p.z - z) <= cfg.pigRadius + r;
-
-/** The Pig Rays in flight, each a little rose ray skimming at waist height. The boss launches them and does the hits. */
-export class PigRays {
-  readonly group = new THREE.Group();
-  readonly list: PigRay[] = [];
-  private meshes: THREE.Group[] = [];
-
-  add(p: PigRay): void {
-    this.list.push(p);
+  constructor(x: number, z: number, private delay: number, yaw: number) {
+    this.object = rayMesh(EGG, 1.4);
+    this.from = new THREE.Vector3(x - Math.sin(yaw) * 2.5, 6, z - Math.cos(yaw) * 2.5);
+    this.to = new THREE.Vector3(x, 0.4, z);
+    this.object.position.copy(this.from);
+    this.object.rotation.set(0.9, yaw, 0, 'YXZ');
+    this.object.visible = false;
   }
 
-  clear(): void {
-    this.list.length = 0;
-    this.sync(0);
-  }
-
-  /** Move them on and drop the ones done (`keep`: false drops one, e.g. it hit you). */
-  update(dt: number, time: number, keep: (p: PigRay) => boolean): void {
-    for (let i = this.list.length - 1; i >= 0; i--) {
-      const p = this.list[i];
-      if (!dartPig(p, dt) || !keep(p)) this.list.splice(i, 1);
-    }
-    this.sync(time);
-  }
-
-  private sync(time: number): void {
-    while (this.meshes.length < this.list.length) {
-      const m = rayMesh(0xf08ab4, 1.4);
-      this.meshes.push(m);
-      this.group.add(m);
-    }
-    this.meshes.forEach((m, i) => {
-      const p = this.list[i];
-      m.visible = !!p;
-      if (!p) return;
-      m.position.set(p.x, 0.9 + Math.sin(time * 7 + i) * 0.1, p.z);
-      m.rotation.set(0, p.yaw, Math.sin(time * 9 + i) * 0.25);
-    });
+  update(dt: number): boolean {
+    this.t += dt;
+    const k = (this.t - this.delay) / 0.22;
+    this.object.visible = k >= 0 && k < 1;
+    if (k >= 0) this.object.position.lerpVectors(this.from, this.to, Math.min(1, k));
+    return k < 1;
   }
 }
 

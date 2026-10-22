@@ -10,8 +10,8 @@ import type { BossContext } from './Boss';
 import { BossBase } from './BossBase';
 import type { TelegraphHandle } from './Enemy';
 import {
-  clutchSpots, CurrentStream, dartLane, DeepSea, EggSac, InkPools, inInk, pigTouches, platformAt, Platforms, PigRays, rippleBands, sinkPick,
-  spoutLine, startVents, surgeAlong, SurgeWall, tickVents, toCircle, UlRay, ventAt, Vents, Water,
+  clutchSpots, CurrentStream, DeepSea, DiveRay, EggSac, InkPools, inInk, platformAt, Platforms, rippleBands, sinkPick, spoutLine, startVents,
+  surgeAlong, SurgeWall, tickVents, toCircle, UlRay, ventAt, Vents, Water,
 } from './barbaTide';
 
 // Barba Ray, the Rift Map's second Circle II pinnacle boss (DESIGN.md "Endgame: Falz Rifts" > "Barba Ray"). A giant
@@ -19,9 +19,10 @@ import {
 // 2026-10-22: the first draft was a bullet hell with an alternating flood, too like the Gryphon). Damage past a phase's
 // threshold is lost, and it can't be hurt while the next one comes in.
 // 1. The Brood (100-65%): on the dry court it glides through you and belly-crashes (ripples out from the crash), and
-//    lays clutches of Pig Ray eggs: break them all before they hatch and it drops, stunned; hatched ones loose Pig Rays.
-//    Each egg broken but the last brings its fury down on you (a fast glide, then waves of circles), and the court's
-//    two water channels erupt in turn.
+//    opens with a clutch of Pig Ray eggs, each with a fuse ring, and lays another every so often. Every egg sends its
+//    brood dive-bombing round you in waves of circles: break one and its brood comes then (space them out); eggs left
+//    to hatch send theirs all at once (two are hard, three too many). Break them all and it drops, stunned, every
+//    brood called off. The court's two water channels erupt in turn.
 // 2. High Tide (65-30%): "The tide comes in!", and the sea covers the court for good. Off the platforms the water
 //    hurts and slows; they sink and rise in turn. It swims under the sea round the court and surfaces at the rim to skim
 //    across or send spouts; its surges roll across the whole court (a platform keeps you out of them), and it rides each
@@ -56,9 +57,7 @@ const LOB = 0.9;
 const WATER_COLOR = 0x3aa8f0;
 const SPOUT_COLOR = 0x8ad8ff;
 const RIPPLE_COLOR = 0x6ac8ff;
-// The lanes in strong colours: hot pink reads on the white marble and the water alike, amber against the blue water
-// (the rays themselves are a paler rose and teal).
-const PIG_COLOR = 0xff2a8c;
+// The Ul Rays' lanes in amber against the blue water (the rays themselves are teal).
 const UL_COLOR = 0xffb21a;
 const SINK_COLOR = 0xff6a4a;
 const EGG_COLOR = 0xf08ab4;
@@ -79,7 +78,6 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
   readonly vents: Vents;
   private readonly deepSea: DeepSea;
   private readonly wall = new SurgeWall();
-  private readonly pigs = new PigRays();
   private readonly ulGroup = new THREE.Group();
   private readonly sacGroup = new THREE.Group();
   readonly uls: UlRay[] = [];
@@ -113,10 +111,8 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
   private laid = false;
   private nextClutch = cfg.clutchFirst;
   private hatchTele = new Map<EggSac, TelegraphHandle>();
-  /** Pig Rays owed by hatched sacs: when (fight clock) and where from. */
-  private dartsDue: { at: number; x: number; z: number }[] = [];
-  /** Mother's fury owed: eggs broken (not the last of a clutch) it hasn't come at you for yet. */
-  private furies = 0;
+  /** Waves of a hatched egg's brood still to come: when (fight clock). */
+  private barrageDue: number[] = [];
   /** The tide channels: when the next erupts (fight clock), and which ring it is (inner first). */
   private nextChannel = cfg.channelFirst;
   private channels = 0;
@@ -163,7 +159,7 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
   // ---------------------------------------------------------------- Boss
 
   get objects(): THREE.Object3D[] {
-    return [this.group, this.platforms.group, this.water.group, this.pigs.group, this.ulGroup, this.sacGroup, this.vents.group, this.deepSea.group, this.wall.group, this.inkPools.group];
+    return [this.group, this.platforms.group, this.water.group, this.ulGroup, this.sacGroup, this.vents.group, this.deepSea.group, this.wall.group, this.inkPools.group];
   }
   /** Itself (unless under the sea), the sacs on the court and the Ul Rays in the water. */
   parts(): Hittable[] {
@@ -283,13 +279,12 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
     this.deepSea.update(this.time, this.deepK);
     this.inkPools.update(dt);
     this.updateSacs(dt);
-    this.updatePigs(dt, ctx);
+    this.updateBarrage(ctx);
     this.updateUls(dt, ctx);
   }
 
   protected onDeath(): void {
-    this.pigs.clear();
-    this.dartsDue = [];
+    this.barrageDue = [];
     for (const u of this.uls) u.sink();
     for (const s of this.sacs) if (s.alive) s.hp = 0;
     for (const p of this.platforms.list) p.rise();
@@ -320,8 +315,6 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
       if (this.phase === 3) this.deepTick(dt, ctx);
     }
     this.updateSurge(dt, ctx);
-    // Mother's fury: as soon as it is free after an egg broke.
-    if (this.phase === 1 && this.furies > 0 && ctx.playerAlive && (this.state === 'stalk' || this.state === 'recover')) this.fury(ctx);
 
     switch (this.state) {
       case 'dormant':
@@ -345,12 +338,13 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
         this.pos.x += (Math.sin(this.yaw) * want + Math.sin(side) * 0.45) * cfg.glideAbout * dt;
         this.pos.z += (Math.cos(this.yaw) * want + Math.cos(side) * 0.45) * cfg.glideAbout * dt;
         this.alt += (this.baseAlt - this.alt) * Math.min(1, dt * 3);
-        this.cooldown -= dt;
-        if (this.cooldown > 0) break;
+        // A clutch due goes first, between attacks.
         if (this.phase === 1 && !this.clutchLive && this.fightT >= this.nextClutch) {
           this.startLay(ctx);
           break;
         }
+        this.cooldown -= dt;
+        if (this.cooldown > 0) break;
         this.chooseAttack(ctx);
         break;
       }
@@ -816,40 +810,46 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
       this.clutch.push(sac);
       this.sacGroup.add(sac.group);
       ctx.effect(new Lob(mouth, x, z, LOB / this.tempo, EGG_COLOR, 0.4));
-      const h = ctx.telegraph({ kind: 'circle', x, z, radius: cfg.clutchRadius + 0.7 }, LOB + cfg.clutchHatch, () => this.hatch(ctx, sac), PIG_COLOR);
-      this.tele.add(h);
-      this.hatchTele.set(sac, h);
     }
     this.sound('barba.spout');
     this.teach(ctx, 'brood', 'A clutch! Break the eggs before they hatch!');
   }
 
-  /** A sac's ring ran out: it hatches, and its Pig Rays dart at you one after another. */
-  private hatch(ctx: BossContext, sac: EggSac): void {
-    this.hatchTele.delete(sac);
-    if (!this.alive || !sac.alive || this.phase !== 1) return;
-    sac.hatch();
-    ctx.effect(new Ring(sac.pos.x, sac.pos.z, EGG_COLOR, 2.4, 0.4));
-    this.sound('barba.splash', sac.pos.x, sac.pos.z);
-    for (let i = 0; i < cfg.hatchDarts; i++) this.dartsDue.push({ at: this.fightT + i * cfg.hatchEvery, x: sac.pos.x, z: sac.pos.z });
+  /** An egg's brood: `barrageWaves` waves of circles from `lag` s on (broods that come together are out of step). */
+  private brood(lag: number): void {
+    for (let w = 0; w < cfg.barrageWaves; w++) this.barrageDue.push(this.fightT + 0.3 + lag + w * cfg.barrageEvery);
   }
 
   /**
-   * Sacs broken (their hatch called off, each owing its fury), the clutch done (all broken: it is stunned, the fury of
-   * the last swallowed by it), and the tide channels erupting in turn.
+   * Sacs broken or hatching, and the clutch done; the tide channels erupting in turn. A broken egg's brood comes then
+   * (the last of a clutch broken stuns it instead); eggs hatching together send theirs at once, out of step.
    */
   private broodTick(ctx: BossContext): void {
     if (this.fightT >= this.nextChannel) {
       this.nextChannel = this.fightT + cfg.channelEvery;
       this.erupt(ctx, cfg.channelRings[this.channels++ % 2]);
     }
-    for (const [sac, h] of this.hatchTele) {
-      if (sac.hp > 0) continue;
-      h.cancel();
-      this.hatchTele.delete(sac);
-      this.furies++;
-      ctx.effect(new Ring(sac.pos.x, sac.pos.z, EGG_COLOR, 2, 0.35));
-      this.sound('barba.splash', sac.pos.x, sac.pos.z);
+    let hatching = 0;
+    for (const sac of this.clutch) {
+      if (sac.handled) continue;
+      if (sac.hp <= 0) {
+        sac.handled = true;
+        ctx.effect(new Ring(sac.pos.x, sac.pos.z, EGG_COLOR, 2, 0.35));
+        this.sound('barba.splash', sac.pos.x, sac.pos.z);
+        // Not the stunning last one: its brood dives at you now.
+        if (this.clutch.some((s) => s.alive || s.hatched)) {
+          this.brood(0);
+          this.teach(ctx, 'broke', 'Its brood dives at you: space out the eggs you break!');
+        }
+      } else if (sac.due) {
+        sac.handled = true;
+        sac.hatch();
+        ctx.effect(new Ring(sac.pos.x, sac.pos.z, EGG_COLOR, 2.4, 0.4));
+        this.sound('barba.splash', sac.pos.x, sac.pos.z);
+        this.sound('barba.pig', sac.pos.x, sac.pos.z);
+        this.brood(((hatching++ % 3) * cfg.barrageEvery) / 3);
+        this.teach(ctx, 'hatch', 'The clutch hatches: every brood dives at you at once!');
+      }
     }
     if (!this.clutchLive || this.clutch.some((s) => s.alive)) return;
     this.clutchLive = false;
@@ -859,7 +859,7 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
 
   private stun(ctx: BossContext): void {
     this.callOff();
-    this.furies = 0;
+    this.barrageDue = [];
     ctx.announce('The brood is lost! Barba Ray is stunned!');
     ctx.shake(0.5);
     this.sound('barba.call');
@@ -867,40 +867,43 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
     this.enter('stunned');
   }
 
-  /** Mother's fury: a glide at you warned only `furyWindup` s (a dash check), then waves of circles on and round you. */
-  private fury(ctx: BossContext): void {
-    this.furies--;
-    this.begin();
-    this.lastAttack = null;
-    this.teach(ctx, 'fury', "Mother's fury! Stagger the eggs you break!");
-    const flight = this.glide(ctx, cfg.arenaRadius - cfg.radius, cfg.furyWindup, true);
-    for (let w = 0; w < cfg.furyWaves; w++) this.after(flight + 0.15 + w * cfg.furyEvery, () => this.furyWave(ctx));
+  /** The brood's waves as they come due (they go on through its attacks; not before it wakes, nor once it is dead). */
+  private updateBarrage(ctx: BossContext): void {
+    const fighting = this.alive && this.engaged && this.state !== 'intro';
+    for (let i = this.barrageDue.length - 1; i >= 0; i--) {
+      if (this.fightT < this.barrageDue[i]) continue;
+      this.barrageDue.splice(i, 1);
+      if (fighting && ctx.playerAlive) this.barrageWave(ctx);
+    }
   }
 
-  /** A wave of the fury: `furyCircles` circles, one on you and the rest round you, apart, on the court. */
-  private furyWave(ctx: BossContext): void {
+  /**
+   * A wave of a hatched egg's brood: `barrageCircles` circles, one on you and the rest round you, apart, on the court;
+   * as each fires a Pig Ray dives onto it.
+   */
+  private barrageWave(ctx: BossContext): void {
     const spots: Pt[] = [[ctx.playerX, ctx.playerZ]];
-    for (let i = 0; i < 60 && spots.length < cfg.furyCircles; i++) {
+    for (let i = 0; i < 60 && spots.length < cfg.barrageCircles; i++) {
       const a = ctx.rng() * Math.PI * 2;
-      const r = cfg.furyRadius + ctx.rng() * (cfg.furySpread - cfg.furyRadius);
+      const r = cfg.barrageRadius + ctx.rng() * (cfg.barrageSpread - cfg.barrageRadius);
       const x = ctx.playerX + Math.sin(a) * r;
       const z = ctx.playerZ + Math.cos(a) * r;
       if (Math.hypot(x - this.cx, z - this.cz) > cfg.arenaRadius - 0.5) continue;
-      if (spots.some(([sx, sz]) => Math.hypot(sx - x, sz - z) < cfg.furyRadius * 1.6)) continue;
+      if (spots.some(([sx, sz]) => Math.hypot(sx - x, sz - z) < cfg.barrageRadius * 1.6)) continue;
       spots.push([x, z]);
     }
     for (const [x, z] of spots) {
-      const shape: TelegraphShape = { kind: 'circle', x, z, radius: cfg.furyRadius };
-      this.warn(ctx, shape, cfg.furyWarn, undefined, () => {
+      const shape: TelegraphShape = { kind: 'circle', x, z, radius: cfg.barrageRadius };
+      ctx.effect(new DiveRay(x, z, Math.max(0, cfg.barrageWarn - 0.22) / this.tempo, ctx.rng() * Math.PI * 2));
+      this.warn(ctx, shape, cfg.barrageWarn, undefined, () => {
         if (!this.alive) return;
-        ctx.hitPlayer(shape, cfg.furyAtp, x, z, 4);
-        // Dim, slim geysers: bright ones blew out to white under the court's bloom when you stood among them.
-        ctx.effect(new Pillar(x, z, 0x8a3a68, 0.45, cfg.furyRadius * 0.35, 3.5));
-        ctx.effect(new Ring(x, z, 0xffd0e8, cfg.furyRadius * 1.1, 0.35));
-        this.sound('barba.spout', x, z);
+        ctx.hitPlayer(shape, cfg.barrageAtp, x, z, 4);
+        // Dim, slim splashes: bright ones blew out to white under the court's bloom when you stood among them.
+        ctx.effect(new Pillar(x, z, 0x8a3a68, 0.45, cfg.barrageRadius * 0.35, 3));
+        ctx.effect(new Ring(x, z, 0xffd0e8, cfg.barrageRadius * 1.1, 0.35));
+        this.sound('barba.splash', x, z);
       });
     }
-    this.hold(cfg.furyWarn);
   }
 
   /** A tide channel erupts: a band either side of one of the court's water rings, warned; geysers all along it. */
@@ -930,45 +933,15 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
     }
   }
 
-  // ---------------------------------------------------------- the Pig Rays
-
-  /** The Pig Rays out of hatched sacs: each down its own lane, shown `pigWarn` s before it sets off. A touch is a light hit. */
-  private updatePigs(dt: number, ctx: BossContext): void {
-    const fighting = this.alive && this.engaged && this.state !== 'intro';
-    for (let i = this.dartsDue.length - 1; i >= 0; i--) {
-      const d = this.dartsDue[i];
-      if (this.fightT < d.at) continue;
-      this.dartsDue.splice(i, 1);
-      if (fighting && ctx.playerAlive) this.dart(ctx, d.x, d.z);
-    }
-    const pr = playerCfg.radius;
-    this.pigs.update(dt, this.time, (p) => {
-      if (!fighting || !ctx.playerAlive || p.hit || !pigTouches(p, ctx.playerX, ctx.playerZ, pr)) return true;
-      p.hit = true;
-      return !ctx.hitPlayer({ kind: 'circle', x: p.x, z: p.z, radius: cfg.pigRadius }, cfg.pigAtp, p.x, p.z, 2);
-    });
-  }
-
-  private dart(ctx: BossContext, x: number, z: number): void {
-    const lane = dartLane(x, z, ctx.playerX, ctx.playerZ, this.cx, this.cz, ctx.rng);
-    this.warn(ctx, { kind: 'line', x: lane.x, z: lane.z, yaw: lane.yaw, length: lane.length, width: cfg.pigWidth }, cfg.pigWarn, PIG_COLOR, () => {
-      if (!this.alive) return;
-      this.pigs.add({ x: lane.x, z: lane.z, yaw: lane.yaw, left: lane.length, hit: false, t: 0 });
-      this.sound('barba.pig', lane.x, lane.z);
-    });
-  }
-
   // ---------------------------------------------------------- High Tide
 
   /** "The tide comes in!": it dives out over the rim while the sea comes up over the court. */
   private startTide(ctx: BossContext): void {
     this.callOff();
-    this.furies = 0;
     for (const s of this.sacs) if (s.alive) s.hp = 0;
     this.clutch = [];
     this.clutchLive = false;
-    this.dartsDue = [];
-    this.pigs.clear();
+    this.barrageDue = [];
     const out = Math.atan2(this.pos.x - this.cx, this.pos.z - this.cz);
     this.diveAt = [this.cx + Math.sin(out) * (cfg.arenaRadius + 4), this.cz + Math.cos(out) * (cfg.arenaRadius + 4)];
     this.enter('tide');

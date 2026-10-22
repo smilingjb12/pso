@@ -716,14 +716,15 @@ export const barbaRay = {
   spoutAtp: 0.9,
   // ---- phase 1: the Brood
   /**
-   * Clutches: `clutchFirst` s into the fight, then `clutchEvery` s after the last one hatched or broke, it lays
+   * Clutches: `clutchFirst` s into the fight (its first move, 2026-10-22: the Brood began with nothing going on), then
+   * `clutchEvery` s after the last one hatched or broke, it lays
    * `clutchCount` egg sacs (one about `clutchNear` m from you, the rest at least `clutchApart` m from each other, all
-   * within `clutchRing` m of the middle), each with `clutchHpShare` of its HP and a ring that fills until it hatches
-   * `clutchHatch` s later. Break them all first and it shrieks and drops onto the court, stunned for `stunTime` s
-   * (weak point open). A sac that hatches looses `hatchDarts` Pig Rays at you, one every `hatchEvery` s.
+   * within `clutchRing` m of the middle), each with `clutchHpShare` of its HP and a fuse ring round it that fills until
+   * it hatches `clutchHatch` s after landing. Break them all first and it shrieks and drops onto the court, stunned for
+   * `stunTime` s (weak point open).
    */
-  clutchFirst: 6,
-  clutchEvery: 18,
+  clutchFirst: 0,
+  clutchEvery: 14,
   clutchCount: 3,
   clutchNear: 4,
   clutchApart: 7,
@@ -733,22 +734,21 @@ export const barbaRay = {
   clutchRadius: 0.9,
   layTime: 1.6,
   stunTime: 6,
-  hatchDarts: 4,
-  hatchEvery: 1.4,
   /**
-   * Mother's fury (2026-10-22, the user's ask): each egg you break, but the last of a clutch (that one stuns it), sends
-   * it at you as soon as it is free: a glide warned only `furyWindup` s (a dash check), then `furyWaves` waves of
-   * circles `furyEvery` s apart, `furyCircles` of `furyRadius` m each (one on you, the rest within `furySpread` m of
-   * you), warned `furyWarn` s. Eggs broken close together chain their furies back to back: stagger them.
+   * An egg's brood (2026-10-22, the user's rework): every egg sends its Pig Rays dive-bombing round you, broken or
+   * hatched. `barrageWaves` waves `barrageEvery` s apart, `barrageCircles` circles of `barrageRadius` m a wave (one on
+   * you, the rest within `barrageSpread` m of you, apart), each warned `barrageWarn` s, × `barrageAtp` ATP. Break an
+   * egg and its brood comes then, so you choose when (space them out); the last one broken stuns it instead and calls
+   * every brood off. Eggs left to hatch all send theirs at once, a little out of step: one is a dodge, two are hard,
+   * three are too many.
    */
-  furyWindup: 0.9,
-  furyWaves: 3,
-  furyEvery: 0.7,
-  furyCircles: 5,
-  furyRadius: 2,
-  furySpread: 6,
-  furyWarn: 1.1,
-  furyAtp: 0.9,
+  barrageWaves: 4,
+  barrageEvery: 0.8,
+  barrageCircles: 5,
+  barrageRadius: 2,
+  barrageSpread: 6,
+  barrageWarn: 1.1,
+  barrageAtp: 0.9,
   /**
    * Tide channels (the Brood only): the court's two rings of glowing water, `channelRings` m out, erupt in turn, the
    * inner one first: `channelFirst` s into the fight, then every `channelEvery` s, a band `channelHalf` m either side
@@ -756,7 +756,7 @@ export const barbaRay = {
    */
   channelRings: [4.5, 13.6] as [number, number],
   channelHalf: 1.5,
-  channelFirst: 8,
+  channelFirst: 5,
   channelEvery: 10,
   channelWarn: 1.5,
   channelAtp: 0.9,
