@@ -634,22 +634,6 @@ table.stats.techs td:last-child {
 .overlay .dim {
   font-size: 14.5px;
 }
-table.controls {
-  margin: 10px auto 4px;
-  border-collapse: collapse;
-  font-size: 15.5px;
-  text-align: left;
-}
-table.controls td {
-  padding: 4px 10px;
-  border-bottom: 1px solid rgba(140, 198, 255, 0.12);
-}
-table.controls td:nth-child(odd) {
-  color: var(--accent-hi);
-  font: 700 14.5px var(--font-head);
-  text-align: right;
-}
-
 .prompt {
   position: absolute;
   left: 50%;

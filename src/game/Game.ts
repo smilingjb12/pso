@@ -122,6 +122,9 @@ export class Game implements GameApi {
   private savePending = false;
   private saveClock = 0;
   private saveFailed = false;
+  /** When Esc (losing the mouse) last opened the inventory, and the "Click to resume" prompt's grace timer. */
+  private invOpenedAt = -Infinity;
+  private resumeTimer = 0;
   private player: Player;
   private world: World | null = null;
   /** The run of the expedition you're in (or were last in). */
@@ -229,7 +232,15 @@ export class Game implements GameApi {
     this.hud.visible = false;
     this.menus = new MenuLayer(container);
 
-    this.input.onLockChange = () => this.updateOverlay();
+    // Esc (the browser takes the mouse back) opens the inventory in place of a pause screen (2026-10-22, the user); Esc
+    // again closes it and puts you back in the game. So does losing the mouse any other way (another window).
+    this.input.onLockChange = (locked) => {
+      if (!locked && this.playing && !this.menus.isOpen && this.player.alive) {
+        this.invOpenedAt = performance.now();
+        this.openMenu(new InventoryMenu(this));
+      }
+      this.updateOverlay();
+    };
     container.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
       if (t.closest('.lil-gui') || t.closest('.menu-layer')) return;
@@ -441,7 +452,8 @@ export class Game implements GameApi {
         guiVisible = !guiVisible;
         this.gui.show(guiVisible);
       } else if (e.code === 'Escape' && this.menus.isOpen && this.menus.menu?.closable) {
-        this.closeMenu();
+        // The Esc that just opened the inventory (if the browser passes it on too) doesn't close it again.
+        if (performance.now() - this.invOpenedAt > 250) this.closeMenu();
       } else if (e.code === 'KeyI' && this.playing) {
         if (this.menus.menu instanceof InventoryMenu) this.closeMenu();
         else if (!this.menus.isOpen && this.player.alive) this.openMenu(new InventoryMenu(this));
@@ -528,25 +540,18 @@ export class Game implements GameApi {
     this.updateOverlay();
   }
 
+  /**
+   * Out of the game with no menu up: the browser refused to take the mouse back as a menu closed (it can, right after
+   * an Esc), or the player is down. Just a prompt to click back in (the old pause panel's controls and tips are gone,
+   * 2026-10-22, the user), after a moment's grace, since closing a menu takes the mouse back by itself.
+   */
   private updateOverlay(): void {
-    if (!this.playing || this.menus.isOpen || this.input.locked) this.hud.showOverlay(null);
-    else this.hud.showOverlay(`<div class="panel win"><div class="win-title">Paused</div><p class="resume">Click to resume</p>
-      <table class="controls">
-        <tr><td>WASD</td><td>Move</td><td>Mouse</td><td>Camera</td></tr>
-        <tr><td>LMB</td><td>Basic chain (refills TP)</td><td>RMB / Q / E / R</td><td>Arts</td></tr>
-        <tr><td>Space + WASD</td><td>Dash</td><td>Space</td><td>Talk / pick up / use</td></tr>
-        <tr><td>Tab</td><td>Lock-on / next target</td><td>1</td><td>Injector</td></tr>
-        <tr><td>C</td><td>Camera behind</td><td></td><td></td></tr>
-        <tr><td>I</td><td>Menu</td><td>Esc</td><td>Pause</td></tr>
-      </table>
-      <p class="dim">${this.saveAgo()} · \` toggles the tuning panel</p></div>`);
-  }
-
-  private saveAgo(): string {
-    if (this.saveFailed) return '<span class="bad">Saving unavailable</span>';
-    if (!isFinite(this.lastSaveAt)) return 'Not saved yet';
-    const s = Math.round((performance.now() - this.lastSaveAt) / 1000);
-    return `Autosaved ${s < 60 ? `${s} s` : `${Math.round(s / 60)} min`} ago`;
+    clearTimeout(this.resumeTimer);
+    this.hud.showOverlay(null);
+    if (!this.playing || this.menus.isOpen || this.input.locked) return;
+    this.resumeTimer = window.setTimeout(() => {
+      if (this.playing && !this.menus.isOpen && !this.input.locked) this.hud.showOverlay('<div class="panel win"><p class="resume">Click to resume</p></div>');
+    }, 300);
   }
 
   quitToTitle(): void {

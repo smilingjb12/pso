@@ -352,7 +352,7 @@ export class InventoryMenu implements Menu {
     else if (this.tab === 'uniques') body = `${uniquesTabHtml(this.ch, this.uqFilter)}${this.foot()}`;
     else body = this.renderDamage();
     return `<div class="win-title">${esc(this.ch.data.name)} · Lv.${this.ch.level}</div>
-      <div class="menu-head"><div class="tabs">${tabs}</div><span class="head-gap"></span><button class="btn small ghost" data-act="quit">Save &amp; quit</button><button class="btn small" data-act="close">Close <kbd>I</kbd></button></div>
+      <div class="menu-head"><div class="tabs">${tabs}</div><span class="head-gap"></span><button class="btn small ghost" data-act="quit">Save &amp; quit</button><button class="btn small" data-act="close">Close <kbd>Esc</kbd></button></div>
       ${body}`;
   }
 

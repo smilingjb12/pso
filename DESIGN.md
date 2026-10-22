@@ -878,7 +878,11 @@ Agreed 2026-10-05: everything **synthesized in code with the Web Audio API**, wi
 - **SFX: about 90 sounds in four groups** (combat, enemies & bosses, world & loot, UI), plus jingles (level up,
   room clear, victory, death, Mag evolution). World sounds are panned and attenuated relative to the player and
   camera. Footsteps follow the run cycle and the area surface (metal deck, grass, stone, wooden raft). Caves
-  have a bigger reverb. The pause screen muffles the music; menus don't (PSO kept playing under them).
+  have a bigger reverb. The "Click to resume" prompt muffles the music; menus don't (PSO kept playing under them).
+- **Esc opens the inventory** (2026-10-22, the user): losing the mouse (Esc, or another window) while playing opens
+  the inventory in place of the old pause panel (its controls table and tips are gone); Esc again closes it and takes
+  the mouse back. If the browser refuses (it can, right after an Esc), a small "Click to resume" shows after a moment.
+  The inventory's Close button reads `Esc` (I still toggles it too).
 - **No volume or mute UI** (by request). The lil-gui tuning panel has master / music / sfx sliders for development.
 - **Sound Lab:** `/soundlab.html` lists every sound with 2-3 labelled variants to audition, and every track with
   a calm / battle toggle. Picks are saved in the browser and the game uses them live; "Copy SOUND_PICKS" gives
