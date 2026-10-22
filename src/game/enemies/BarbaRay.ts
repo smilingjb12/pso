@@ -32,8 +32,10 @@ const CRASH_ALT = 9;
 const WATER_COLOR = 0x3aa8f0;
 const SPOUT_COLOR = 0x8ad8ff;
 const RIPPLE_COLOR = 0x6ac8ff;
-const PIG_COLOR = 0xf08ab4;
-const UL_COLOR = 0x3ad8c8;
+// The lanes in strong colours: hot pink reads on the white marble and the water alike, amber against the blue water
+// (the rays themselves are a paler rose and teal).
+const PIG_COLOR = 0xff2a8c;
+const UL_COLOR = 0xffb21a;
 const SINK_COLOR = 0xff6a4a;
 
 export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {

@@ -141,6 +141,8 @@ export class Platform implements PlatformState {
   sinking = false;
   /** 0 standing .. 1 sunk (the animation). */
   private sunk = 0;
+  /** 0 dry .. 1 flooded (the dry ring eases up to its flood glow). */
+  private lit = 0;
   private ring: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   private crack: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
 
@@ -179,15 +181,18 @@ export class Platform implements PlatformState {
     this.sinking = false;
   }
 
-  /** `flood`: the water is up (the dry ring shows). */
-  update(dt: number, time: number, flood: boolean): void {
+  /**
+   * `flood`: the water is up (the dry ring shows). Steady glows, no pulsing (the user found it distracting, 2026-10-22):
+   * a sinking platform's countdown is its telegraph's fill.
+   */
+  update(dt: number, _time: number, flood: boolean): void {
     this.sunk += ((this.up ? 0 : 1) - this.sunk) * Math.min(1, dt * 4);
     this.group.position.y = -0.9 * this.sunk;
-    const pulse = 0.5 + 0.5 * Math.sin(time * 6 + this.x);
+    this.lit += ((flood ? 1 : 0) - this.lit) * Math.min(1, dt * 3);
     const sinking = this.sinking;
     this.ring.material.color.setHex(sinking ? SINKING : DRY);
-    this.ring.material.opacity = !this.up ? 0 : sinking ? 0.6 + 0.4 * Math.sin(time * 14) : flood ? 0.45 + 0.25 * pulse : 0.12;
-    this.crack.material.opacity = sinking ? 0.25 + 0.2 * Math.sin(time * 14) : 0;
+    this.ring.material.opacity = !this.up ? 0 : sinking ? 0.75 : 0.12 + 0.23 * this.lit;
+    this.crack.material.opacity = sinking ? 0.3 : 0;
   }
 }
 
@@ -224,6 +229,8 @@ export class Water {
       new THREE.CircleGeometry(cfg.arenaRadius + 0.6, 72).rotateX(-Math.PI / 2),
       new THREE.MeshStandardMaterial({ color: WATER, emissive: 0x0a4a80, emissiveIntensity: 0.6, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.82, depthWrite: false }),
     );
+    // Drawn before every other see-through thing, so telegraphs show over the water wherever the camera is.
+    this.sheet.renderOrder = -2;
     this.group.add(this.sheet);
     // Ripple rings drifting outward over the sheet.
     for (let i = 0; i < 6; i++) {
@@ -231,6 +238,7 @@ export class Water {
         new THREE.RingGeometry(0.92, 1, 64).rotateX(-Math.PI / 2),
         new THREE.MeshBasicMaterial({ color: 0xbfeaff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }),
       );
+      r.renderOrder = -1;
       this.shine.push(r);
       this.group.add(r);
     }
@@ -240,6 +248,7 @@ export class Water {
         new THREE.RingGeometry(0.8, 1, 48, 1, 0, Math.PI * 1.4).rotateX(-Math.PI / 2),
         new THREE.MeshBasicMaterial({ color: 0xe6f8ff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
       );
+      r.renderOrder = -1;
       this.whirl.push(r);
       this.group.add(r);
     }

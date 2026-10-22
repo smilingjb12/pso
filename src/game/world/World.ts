@@ -319,6 +319,8 @@ export class World {
 
   addTelegraph(shape: TelegraphShape, duration: number, onFire: () => void, color?: number, dash = false): Telegraph {
     const t = new Telegraph(shape, duration, onFire, color, dash && dashCfg.cueTelegraphs);
+    const bold = this.level.def.theme.boldTelegraphs;
+    if (bold) t.bolden(bold.lift);
     this.telegraphs.push(t);
     this.group.add(t.group);
     return t;

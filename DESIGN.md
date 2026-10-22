@@ -2007,6 +2007,12 @@ storm and the Dragon's rocks, so the flood is about moving from spot to spot und
   a pair every 1.5 s below 1/3) a lane lights from a random point past the rim through near you (within 2 m), 1.4 m
   wide, and 0.8 s later a Pig Ray darts down it at 7 m/s of its clock. A touch is **a light hit** (×0.33 ATP, a nudge)
   and the ray is gone. A sidestep clears a lane.
+- **Readability** (the user's first look, 2026-10-22: the pale pink and teal lanes were hard to see, the platforms'
+  pulsing rings distracting). The court's telegraphs are drawn **bold** (`AreaTheme.boldTelegraphs`, `Telegraph.bolden`:
+  a stronger outline and fill and a solid edge a shade darker than the colour) and float 0.12 m higher, over the
+  platforms' tops and the flood's water (which also draws before every other see-through thing; before, the Ul Rays'
+  lanes were under it). Pig Ray lanes are **hot pink**, Ul Ray lanes **amber** (against the blue water). The platforms'
+  rings glow steady: a soft cyan, brighter in a flood, and a sinking one steady red, its countdown in its telegraph's fill.
 - **Phase 1** (100-50%): **every attack is a pair**, 1 s apart (pool: glide + spouts, crash + ripples, burst + glide):
   - **Glide + spouts**: a 5.5 m lane from it through you to the far rim (1.3 s, a walk; it flies it at 22 m/s, ×1.2
     ATP), and as it reaches the end a **spout line** from there toward you: five 2.2 m geysers 3 m apart, the first
