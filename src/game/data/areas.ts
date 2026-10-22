@@ -129,10 +129,10 @@ export interface AreaTheme {
   /** Floating motes (sparks, spores, dust). */
   motes?: number;
   /**
-   * Telegraphs drawn bold (stronger, with a solid darker edge) for a bright floor, floated `lift` m higher over raised
-   * platforms and a flood's water (the Temple Court).
+   * Telegraphs floated `lift` m higher (over raised platforms and a flood's water) and `strength` times as opaque (a
+   * bright floor washes them out): the Temple Court.
    */
-  boldTelegraphs?: { lift: number };
+  telegraphs?: { lift: number; strength: number };
 }
 
 export interface SkyDef {
@@ -764,7 +764,7 @@ export const areas: Record<AreaId, AreaDef> = {
       bloom: { strength: 0.3, radius: 0.35, threshold: 0.82 },
       accent: 0x6ae8ff, accent2: 0xd9b24a, accent3: 0xf0fbff, motes: 0xd8f0ff,
       // White marble, bright sky, a flood over it and platforms standing out of it.
-      boldTelegraphs: { lift: 0.12 },
+      telegraphs: { lift: 0.12, strength: 1.25 },
     },
     rooms: [
       { id: 'arena', x: 0, z: 0, w: 17, h: 17, features: [{ kind: 'start', tx: 8.5, tz: 15.5 }] },

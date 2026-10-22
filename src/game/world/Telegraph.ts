@@ -7,9 +7,6 @@ import * as THREE from 'three';
 /** The dash colour (HUD chevrons, the dash streak). */
 const DASH_RIM = 0x7fe8ff;
 const RIM = 0.3;
-/** A bold telegraph's solid edge (m), and how dark it is against its colour (0 black .. 1 the colour). */
-const EDGE = 0.16;
-const EDGE_SHADE = 0.6;
 
 export type TelegraphShape =
   | { kind: 'circle'; x: number; z: number; radius: number }
@@ -27,8 +24,6 @@ export class Telegraph {
   /** Speed of its clock (a chilled boss's telegraphs run as slow as it does). */
   rate: () => number = () => 1;
   private fill: THREE.Mesh;
-  private outlineMat: THREE.MeshBasicMaterial;
-  private fillMat: THREE.MeshBasicMaterial;
   private rim: THREE.MeshBasicMaterial | null = null;
 
   constructor(
@@ -40,8 +35,6 @@ export class Telegraph {
   ) {
     const outlineMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.25, depthWrite: false, side: THREE.DoubleSide });
     const fillMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide });
-    this.outlineMat = outlineMat;
-    this.fillMat = fillMat;
     let geo: THREE.BufferGeometry;
     switch (shape.kind) {
       case 'circle':
@@ -79,29 +72,46 @@ export class Telegraph {
 
   /** The dash-check rim along the area's outer edge(s). */
   private addRim(): void {
+    const s = this.shape;
+    const geos: THREE.BufferGeometry[] = [];
+    switch (s.kind) {
+      case 'circle':
+        geos.push(new THREE.RingGeometry(Math.max(0.01, s.radius - RIM), s.radius, 64));
+        break;
+      case 'cone': {
+        const half = THREE.MathUtils.degToRad(s.arcDeg) / 2;
+        geos.push(new THREE.RingGeometry(Math.max(0.01, s.range - RIM), s.range, 32, 1, Math.PI / 2 - half, half * 2));
+        break;
+      }
+      case 'line':
+        for (const sgn of [-1, 1]) geos.push(new THREE.PlaneGeometry(RIM, s.length).translate(sgn * (s.width / 2 - RIM / 2), s.length / 2, 0));
+        break;
+      case 'arc': {
+        const half = THREE.MathUtils.degToRad(s.arcDeg) / 2;
+        geos.push(new THREE.RingGeometry(s.inner, s.inner + RIM, 48, 1, Math.PI / 2 - half, half * 2));
+        geos.push(new THREE.RingGeometry(s.outer - RIM, s.outer, 48, 1, Math.PI / 2 - half, half * 2));
+        break;
+      }
+    }
     this.rim = new THREE.MeshBasicMaterial({ color: DASH_RIM, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
-    this.addEdges(RIM, this.rim, 0.01);
-  }
-
-  private addEdges(w: number, mat: THREE.Material, y: number): void {
-    for (const g of edgeGeometries(this.shape, w)) {
-      const m = new THREE.Mesh(g, mat);
+    for (const g of geos) {
+      const m = new THREE.Mesh(g, this.rim);
       m.rotation.x = -Math.PI / 2;
-      m.position.y = y;
+      m.position.y = 0.01;
       this.group.add(m);
     }
   }
 
   /**
-   * Drawn for a bright floor (the Temple Court): a stronger outline and fill and a solid edge a shade darker than its
-   * colour, floated `lift` m higher (over raised platforms and a flood's water).
+   * For an arena's floor (`AreaTheme.telegraphs`): floated `lift` m higher (over raised platforms and a flood's water),
+   * its outline and fill `strength` times as opaque (a bright floor washes them out).
    */
-  bolden(lift: number): void {
+  restyle(lift: number, strength: number): void {
     this.group.position.y += lift;
-    this.outlineMat.opacity = 0.4;
-    this.fillMat.opacity = 0.6;
-    const edge = this.outlineMat.color.clone().multiplyScalar(EDGE_SHADE);
-    this.addEdges(EDGE, new THREE.MeshBasicMaterial({ color: edge, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }), 0.005);
+    for (const c of this.group.children) {
+      const m = (c as THREE.Mesh).material as THREE.MeshBasicMaterial;
+      if (m !== this.rim) m.opacity = Math.min(1, m.opacity * strength);
+    }
   }
 
   /** Call it off: removed without firing (e.g. the caster was interrupted). */
@@ -119,27 +129,6 @@ export class Telegraph {
     if (this.t >= this.duration) {
       this.done = true;
       this.onFire();
-    }
-  }
-}
-
-/** Strips `w` wide along a shape's outer edge(s), in the decal's plane (a line's long sides, an arc's both rims). */
-function edgeGeometries(s: TelegraphShape, w: number): THREE.BufferGeometry[] {
-  switch (s.kind) {
-    case 'circle':
-      return [new THREE.RingGeometry(Math.max(0.01, s.radius - w), s.radius, 64)];
-    case 'cone': {
-      const half = THREE.MathUtils.degToRad(s.arcDeg) / 2;
-      return [new THREE.RingGeometry(Math.max(0.01, s.range - w), s.range, 32, 1, Math.PI / 2 - half, half * 2)];
-    }
-    case 'line':
-      return [-1, 1].map((sgn) => new THREE.PlaneGeometry(w, s.length).translate(sgn * (s.width / 2 - w / 2), s.length / 2, 0));
-    case 'arc': {
-      const half = THREE.MathUtils.degToRad(s.arcDeg) / 2;
-      return [
-        new THREE.RingGeometry(s.inner, s.inner + w, 48, 1, Math.PI / 2 - half, half * 2),
-        new THREE.RingGeometry(s.outer - w, s.outer, 48, 1, Math.PI / 2 - half, half * 2),
-      ];
     }
   }
 }
