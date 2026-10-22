@@ -548,8 +548,10 @@ export class PigRays {
 // ------------------------------------------------------------------ Ul Rays
 
 /**
- * An Ul Ray: a teal ray that rises with High Tide, swims round the court and lunges at you along a warned lane.
- * Hittable with HP of its own (the boss's bar doesn't drop when it is hit); it sinks away into the Deep.
+ * An Ul Ray: a teal ray that rises out of the water with High Tide and flies round the court. Every few seconds it warns
+ * a lane through you, dives, and as the warning runs out the lane hits while it skims down it; then it climbs back up.
+ * Touching it does nothing: only the lane hurts. Hittable with HP of its own (the boss's bar doesn't drop when it is
+ * hit); it falls into the water when it dies, and sinks away into the Deep.
  */
 export class UlRay implements Hittable {
   readonly group = new THREE.Group();
@@ -560,15 +562,19 @@ export class UlRay implements Hittable {
   readonly techResist = 0;
   readonly maxHp: number;
   hp: number;
-  /** Its spot on its swim circle (radians), and which way round it swims. */
+  /** Its spot on its flight circle (radians), and which way round it flies. */
   ang: number;
   dir: 1 | -1;
-  /** Seconds to its next lunge (its clock). */
+  /** Seconds to its next lane (its clock, while it flies). */
   lungeT: number;
-  /** A lunge under way: its heading and the way left. */
-  lunge: { yaw: number; left: number; hit: boolean } | null = null;
-  /** Lunging is warned: no other lunge starts until it is done. */
-  winding = false;
+  /** Flying round; warning its lane (diving at the end); skimming down it; climbing back up. */
+  mode: 'fly' | 'wind' | 'plunge' | 'climb' = 'fly';
+  /** Seconds in its mode (its clock). */
+  modeT = 0;
+  /** Its lane while it warns and skims it: from (x, z) along `yaw`, and the way left. */
+  lane: { x: number; z: number; yaw: number; length: number; left: number } | null = null;
+  /** Its height while up (the boss flies it: `ulFly`, down to `ulSkim` in a plunge). */
+  alt = cfg.ulFly;
   private flashT = 0;
   private body: THREE.Group;
   /** 0 under the water .. 1 up. */
@@ -588,7 +594,7 @@ export class UlRay implements Hittable {
     return this.hp > 0 && !this.gone;
   }
   get aimHeight(): number {
-    return 0.9;
+    return this.group.position.y + 0.2;
   }
   get invulnerable(): boolean {
     return !this.alive || this.rise < 0.6;
@@ -612,13 +618,17 @@ export class UlRay implements Hittable {
     this.gone = true;
   }
 
-  /** The look: rising out of the water, beating its wings, flashing when hit; false once it has sunk out of sight. */
+  /**
+   * The look: rising out of the water to its height, beating its wings, banking as it turns, nose down in a dive,
+   * flashing when hit; false once it has fallen back into the water out of sight.
+   */
   update(dt: number, time: number, yaw: number): boolean {
     this.flashT = Math.max(0, this.flashT - dt);
     const up = this.alive ? 1 : 0;
-    this.rise += (up - this.rise) * Math.min(1, dt * (up ? 2.5 : 4));
-    this.group.position.y = -1.2 + 2 * this.rise;
-    this.group.rotation.set(0, yaw, Math.sin(time * 3 + this.ang) * 0.15);
+    this.rise += (up - this.rise) * Math.min(1, dt * (up ? 2 : 3));
+    this.group.position.y = -1.2 + (this.alt + 1.2) * this.rise;
+    const pitch = this.mode === 'wind' && this.alt < cfg.ulFly - 0.5 ? 0.35 : this.mode === 'climb' ? -0.35 : 0;
+    this.group.rotation.set(pitch, yaw, this.mode === 'fly' ? this.dir * 0.25 : Math.sin(time * 3 + this.ang) * 0.12, 'YXZ');
     this.body.scale.setScalar(1 + (this.flashT > 0 ? 0.08 : 0));
     this.body.children.forEach((c) => {
       const m = (c as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;

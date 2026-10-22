@@ -1066,8 +1066,9 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
   }
 
   /**
-   * In High Tide the Ul Rays swim round the court and, every few seconds each, lunge at you along a warned lane (a hit
-   * that can knock you off your platform). Dead ones, and all of them going into the Deep, sink out of sight.
+   * In High Tide the Ul Rays fly round the court and, every few seconds each, warn a lane from under them through you,
+   * dive, and skim down it as the lane hits (touching one does nothing); then they climb back up. Dead ones fall into the
+   * water, and going into the Deep they all sink out of sight.
    */
   private updateUls(dt: number, ctx: BossContext): void {
     const hunting = this.alive && this.phase === 2 && this.state !== 'deep';
@@ -1075,33 +1076,68 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
       const u = this.uls[i];
       let face = u.group.rotation.y;
       if (u.alive && hunting) {
-        if (u.lunge) {
-          const l = u.lunge;
-          const step = Math.min(l.left, cfg.ulSpeed * dt);
-          u.pos.x += Math.sin(l.yaw) * step;
-          u.pos.z += Math.cos(l.yaw) * step;
-          l.left -= step;
-          face = l.yaw;
-          if (!l.hit && ctx.playerAlive) {
-            if (ctx.hitPlayer({ kind: 'circle', x: u.pos.x, z: u.pos.z, radius: u.radius + 0.3 }, cfg.ulAtp, u.pos.x, u.pos.z, cfg.ulKnockback)) l.hit = true;
+        u.modeT += dt;
+        switch (u.mode) {
+          case 'fly': {
+            // Round the court, easing back out to its circle and up to its height.
+            u.ang += (u.dir * 4 * dt) / cfg.ulSwim;
+            const r0 = Math.hypot(u.pos.x - this.cx, u.pos.z - this.cz);
+            const r = r0 + (cfg.ulSwim - r0) * Math.min(1, dt * 1.5);
+            const tx = this.cx + Math.sin(u.ang) * r;
+            const tz = this.cz + Math.cos(u.ang) * r;
+            face = Math.atan2(tx - u.pos.x, tz - u.pos.z);
+            u.pos.x = tx;
+            u.pos.z = tz;
+            u.alt += (cfg.ulFly - u.alt) * Math.min(1, dt * 3);
+            u.lungeT -= dt;
+            if (u.lungeT <= 0 && ctx.playerAlive) this.ulAim(u, ctx);
+            break;
           }
-          if (l.left <= 0) {
-            u.lunge = null;
-            u.ang = Math.atan2(u.pos.x - this.cx, u.pos.z - this.cz);
+          case 'wind': {
+            // Over the head of its lane, diving at the end of the warning.
+            const l = u.lane!;
+            u.pos.x += (l.x - u.pos.x) * Math.min(1, dt * 6);
+            u.pos.z += (l.z - u.pos.z) * Math.min(1, dt * 6);
+            const dive = Math.max(0, Math.min(1, (u.modeT - (cfg.ulWarn - cfg.ulDive)) / cfg.ulDive));
+            u.alt = cfg.ulFly + (cfg.ulSkim - cfg.ulFly) * dive;
+            face = l.yaw;
+            break;
           }
-        } else {
-          // Swim round the court, easing back out to the swim circle.
-          u.ang += (u.dir * 3 * dt) / cfg.ulSwim;
-          const r = Math.min(cfg.ulSwim, Math.hypot(u.pos.x - this.cx, u.pos.z - this.cz) + 4 * dt);
-          const tx = this.cx + Math.sin(u.ang) * r;
-          const tz = this.cz + Math.cos(u.ang) * r;
-          face = Math.atan2(tx - u.pos.x, tz - u.pos.z);
-          u.pos.x = tx;
-          u.pos.z = tz;
-          if (!u.winding) u.lungeT -= dt;
-          if (!u.winding && u.lungeT <= 0 && ctx.playerAlive) this.ulLunge(u, ctx);
+          case 'plunge': {
+            const l = u.lane!;
+            const step = Math.min(l.left, cfg.ulSpeed * dt);
+            u.pos.x += Math.sin(l.yaw) * step;
+            u.pos.z += Math.cos(l.yaw) * step;
+            l.left -= step;
+            u.alt = cfg.ulSkim;
+            face = l.yaw;
+            if (l.left <= 0) {
+              u.mode = 'climb';
+              u.modeT = 0;
+            }
+            break;
+          }
+          case 'climb': {
+            // Up again, gliding on a little.
+            const l = u.lane!;
+            u.pos.x += Math.sin(l.yaw) * 6 * dt;
+            u.pos.z += Math.cos(l.yaw) * 6 * dt;
+            const k = Math.min(1, u.modeT / cfg.ulClimb);
+            u.alt = cfg.ulSkim + (cfg.ulFly - cfg.ulSkim) * k;
+            face = l.yaw;
+            if (k >= 1) {
+              const [lo, hi] = cfg.ulEvery;
+              u.mode = 'fly';
+              u.modeT = 0;
+              u.lane = null;
+              u.ang = Math.atan2(u.pos.x - this.cx, u.pos.z - this.cz);
+              u.lungeT = lo + ctx.rng() * (hi - lo);
+            }
+            break;
+          }
         }
       }
+      if (!u.alive) u.alt = Math.max(0, u.alt - dt * 6);
       if (!u.update(dt, this.time, face)) {
         this.ulGroup.remove(u.group);
         this.uls.splice(i, 1);
@@ -1109,18 +1145,26 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
     }
   }
 
-  private ulLunge(u: UlRay, ctx: BossContext): void {
+  /** An Ul Ray's lane: from under it through you, warned; as the warning runs out the lane hits and it skims down it. */
+  private ulAim(u: UlRay, ctx: BossContext): void {
     const yaw = yawTo(u.pos.x, u.pos.z, ctx.playerX, ctx.playerZ);
     const dist = Math.hypot(ctx.playerX - u.pos.x, ctx.playerZ - u.pos.z);
-    const length = Math.min(dist + 4, toCircle(u.pos.x, u.pos.z, yaw, this.cx, this.cz, cfg.arenaRadius));
-    u.winding = true;
-    this.warn(ctx, { kind: 'line', x: u.pos.x, z: u.pos.z, yaw, length, width: cfg.ulWidth }, cfg.ulWarn, UL_COLOR, () => {
-      u.winding = false;
-      const [lo, hi] = cfg.ulEvery;
-      u.lungeT = lo + ctx.rng() * (hi - lo);
-      if (!u.alive || this.phase !== 2 || this.state === 'deep') return;
-      u.lunge = { yaw, left: length, hit: false };
-      this.sound('barba.glide', u.pos.x, u.pos.z);
+    const length = Math.max(dist + 4, Math.min(dist + 8, toCircle(u.pos.x, u.pos.z, yaw, this.cx, this.cz, cfg.arenaRadius)));
+    const x = u.pos.x;
+    const z = u.pos.z;
+    u.mode = 'wind';
+    u.modeT = 0;
+    u.lane = { x, z, yaw, length, left: length };
+    const shape: TelegraphShape = { kind: 'line', x, z, yaw, length, width: cfg.ulWidth };
+    this.warn(ctx, shape, cfg.ulWarn, UL_COLOR, () => {
+      if (!u.alive || this.phase !== 2 || this.state === 'deep' || u.mode !== 'wind') return;
+      ctx.hitPlayer(shape, cfg.ulAtp, x, z, cfg.ulKnockback);
+      u.mode = 'plunge';
+      u.modeT = 0;
+      u.pos.x = x;
+      u.pos.z = z;
+      ctx.effect(new Ring(x, z, 0xe6f8ff, 2, 0.35));
+      this.sound('barba.glide', x, z);
     });
   }
 

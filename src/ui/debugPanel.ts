@@ -547,7 +547,9 @@ export function createDebugPanel(actions: DebugActions): GUI {
   br.add(barbaRay, 'ulCount', 0, 6, 1).name('Ul Rays');
   br.add(barbaRay, 'ulRespawn', 1, 60, 1).name('a dead Ul Ray back after (s)');
   br.add(barbaRay, 'ulHpShare', 0.005, 0.2, 0.005).name('Ul Ray HP (share of its)');
-  br.add(barbaRay, 'ulWarn', 0.3, 3, 0.05).name('Ul Ray lunge warning (s)');
+  br.add(barbaRay, 'ulWarn', 0.3, 3, 0.05).name('Ul Ray lane warning (s)');
+  br.add(barbaRay, 'ulFly', 1, 12, 0.5).name('Ul Rays fly this high (m)');
+  br.add(barbaRay, 'ulDive', 0.1, 1.5, 0.05).name('Ul Ray dive (last s of the warning)');
   // The Deep
   br.add(barbaRay, 'airMax', 2, 30, 0.5).name('air (s)');
   br.add(barbaRay, 'airRefill', 0.5, 20, 0.5).name('air refill (s of air a second)');

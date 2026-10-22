@@ -793,18 +793,24 @@ export const barbaRay = {
   beachLand: 6,
   beachedTime: 7,
   /**
-   * Ul Rays: `ulCount` swim round the court `ulSwim` m out through High Tide, each with `ulHpShare` of its HP; a dead
-   * one is replaced `ulRespawn` s later. Every `ulEvery` s each lunges along a lane through you, `ulWidth` m wide,
-   * warned `ulWarn` s, at `ulSpeed` m/s (a hit that can knock you off your platform).
+   * Ul Rays: `ulCount` fly round the court `ulSwim` m out and `ulFly` m up through High Tide, each with `ulHpShare` of
+   * its HP; a dead one is replaced `ulRespawn` s later. Touching one does nothing (2026-10-22, the user). Every `ulEvery`
+   * s each warns a lane from under it through you, `ulWidth` m wide, for `ulWarn` s, diving down to `ulSkim` m in its
+   * last `ulDive` s; as the warning runs out the lane hits (a hit that can knock you off your platform) and it skims
+   * down it at `ulSpeed` m/s, then climbs back up over `ulClimb` s.
    */
   ulCount: 2,
   ulRespawn: 12,
   ulHpShare: 0.03,
   ulSwim: 10,
+  ulFly: 5,
+  ulSkim: 0.8,
+  ulDive: 0.35,
+  ulClimb: 0.9,
   ulEvery: [3, 4.5] as [number, number],
   ulWarn: 1.2,
   ulWidth: 2.4,
-  ulSpeed: 18,
+  ulSpeed: 34,
   ulAtp: 0.8,
   ulKnockback: 9,
   ulRadius: 1.2,

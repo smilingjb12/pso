@@ -2022,9 +2022,12 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
   - **Beached**: once the wall is past the middle it **rides in behind it** and lands 6 m from you toward the middle
     (a warned circle, ×0.8 ATP), **beached for 7 s** (~6 real seconds), weak point open, +50% ("Beached! Weak point
     exposed!"), then slips back over the nearest rim into the sea.
-  - **Ul Rays**: two swim round the court 10 m out all phase, each with 3% of its HP; a dead one is replaced 12 s
-    later. Every 3-4.5 s each lunges at you along a 2.4 m lane warned 1.2 s (amber, a walk even from the middle of a
-    platform), ×0.8 ATP and a shove of 9 that can knock you into the water. Hits on them don't touch its bar.
+  - **Ul Rays**: two fly round the court 10 m out and 5 m up all phase, each with 3% of its HP; a dead one falls
+    into the water and is replaced 12 s later. **Touching one does nothing** (2026-10-22, the user: only its line
+    should hurt). Every 3-4.5 s each warns a lane from under it through you (2.4 m wide, amber, 1.2 s: a walk even from
+    the middle of a platform), diving to skim height in the warning's last 0.35 s; as the warning runs out **the lane
+    hits** (×0.8 ATP, a shove of 9 that can knock you into the water) while it skims down it at 34 m/s, then it climbs
+    back up over 0.9 s and flies on. Hits on them don't touch its bar.
 - **Phase 3, the Deep (30-0%)**: "Barba Ray drags the court into the deep!": the Ul Rays sink, the platforms go under,
   a whirlpool spins in the middle while it circles it, and the court goes **under the sea**: a dome of deep blue water
   round the court (hiding the sky and the islets), the surface shimmering overhead, shafts of light, motes drifting up,

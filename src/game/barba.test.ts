@@ -419,6 +419,40 @@ describe('Barba Ray: the fight', () => {
     expect(b.uls.filter((x) => x.alive)).toHaveLength(cfg.ulCount);
   });
 
+  it('flies its Ul Rays overhead: touching one does nothing, its warned lane hits as it plunges, then it climbs back up', () => {
+    const b = ray();
+    const f = fakeFight(b);
+    toTide(f, b);
+    // Stand still on a platform; watch one ray through a whole plunge.
+    const p = b.platforms.list.find((x) => x.inner)!;
+    const keep = () => {
+      p.rise();
+      f.body.pos.set(p.x, 0, p.z);
+    };
+    let u: (typeof b.uls)[number] | undefined;
+    for (let i = 0; i < 100 && !u; i++) {
+      f.step(0.1, keep);
+      u = b.uls.find((x) => x.alive && x.mode === 'wind');
+    }
+    expect(u).toBeDefined();
+    expect(u!.alt).toBeGreaterThan(cfg.ulFly - 0.5);
+    const before = f.hits.length;
+    let low = Infinity;
+    let plunged = false;
+    for (let i = 0; i < 180 && !(plunged && u!.mode === 'fly'); i++) {
+      f.step(1 / 60, keep);
+      low = Math.min(low, u!.alt);
+      if (u!.mode === 'plunge') plunged = true;
+    }
+    expect(plunged).toBe(true);
+    expect(low).toBeLessThan(cfg.ulSkim + 0.05);
+    expect(u!.mode).toBe('fly');
+    // The lane hit (it ran through you); nothing else of the ray's did.
+    const mine = f.hits.slice(before).filter((s) => s.kind === 'line' && s.width === cfg.ulWidth);
+    expect(mine.length).toBeGreaterThanOrEqual(1);
+    expect(f.hits.some((s) => s.kind === 'circle' && s.radius === cfg.ulRadius + 0.3)).toBe(false);
+  });
+
   it('drags the court into the Deep: your air runs down, a vent refills it, and out of air you drown', () => {
     const b = ray();
     const f = fakeFight(b);
