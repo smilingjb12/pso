@@ -236,8 +236,10 @@ export class Game implements GameApi {
       if (!locked) this.pauseToInventory();
     };
     container.addEventListener('click', (e) => {
-      const t = e.target as HTMLElement;
-      if (t.closest('.lil-gui') || t.closest('.menu-layer')) return;
+      // Clicks in a menu or the tuning panel aren't for the game. The path is the one the click took: a menu button
+      // that closed its menu is already out of the page by now, so it can't be asked where it was.
+      const through = (cls: string) => e.composedPath().some((n) => n instanceof Element && n.classList.contains(cls));
+      if (through('lil-gui') || through('menu-layer')) return;
       if (this.playing && !this.menus.isOpen && !this.input.locked) this.input.requestLock();
     });
 
