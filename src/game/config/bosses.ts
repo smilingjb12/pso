@@ -885,5 +885,6 @@ export const barbaRay = {
   inkRadius: 9.2,
   inkSettle: 2,
   inkMax: 3,
-  inkShare: 0.08,
+  // A lot more than the first draft's 8% (2026-10-22, the user): four seconds in one is the end of you.
+  inkShare: 0.25,
 };

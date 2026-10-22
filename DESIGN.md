@@ -2073,7 +2073,7 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
     will be. As it runs out **an ink pool 9.2 m round, about a third of the court** (the user's ask; it was 3 m), spreads
     where you stand and settles over 2 s (paler, harmless till then: a dash and a walk get you out of it). **Pools stay
     down, up to three: the fourth takes the first away** (the user's ask; they used to dry up in 20 s). In one you lose
-    **8% of your max HP a second** (ticks, like the water), and **a vent under a pool gives no air** (its bubbles nearly
+    **25% of your max HP a second** (ticks, like the water; 8% at first, the user wanted it to hurt a lot more), and **a vent under a pool gives no air** (its bubbles nearly
     stop): carry the mark to a part of the court you can spare ("Ink mark! Carry it away from the vents!" the first
     time). Glossy black with an indigo rim, so they read on the pale floor.
   - **Enraged** (below 15%, the Deep only): windups ×0.8 (the dive never cut).
