@@ -751,17 +751,6 @@ export const barbaRay = {
   barrageWarn: 1.1,
   barrageAtp: 0.9,
   /**
-   * Tide channels (the Brood only): the court's two rings of glowing water, `channelRings` m out, erupt in turn, the
-   * inner one first: `channelFirst` s into the fight, then every `channelEvery` s, a band `channelHalf` m either side
-   * of the ring, warned `channelWarn` s.
-   */
-  channelRings: [4.5, 13.6] as [number, number],
-  channelHalf: 1.5,
-  channelFirst: 5,
-  channelEvery: 10,
-  channelWarn: 1.5,
-  channelAtp: 0.9,
-  /**
    * Pig Rays (out of hatched sacs): each darts from its sac through near you (give or take `pigSpread` m) to past the
    * rim, its lane shown `pigWarn` s before it sets off, at `pigSpeed` m/s; a touch is a light hit (× `pigAtp` ATP).
    */

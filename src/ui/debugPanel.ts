@@ -527,9 +527,6 @@ export function createDebugPanel(actions: DebugActions): GUI {
   br.add(barbaRay, 'barrageCircles', 1, 30, 1).name('a brood: circles a wave');
   br.add(barbaRay, 'barrageWarn', 0.3, 3, 0.05).name('a brood: circle warning (s)');
   br.add(barbaRay, 'barrageAtp', 0, 3, 0.05).name('a brood: circle hit x ATP');
-  br.add(barbaRay, 'channelFirst', 0, 30, 1).name('first channel eruption (s)');
-  br.add(barbaRay, 'channelEvery', 2, 40, 0.5).name('a channel erupts every (s)');
-  br.add(barbaRay, 'channelWarn', 0.3, 4, 0.05).name('channel warning (s)');
   br.add(barbaRay, 'glideWindup', 0.3, 3, 0.05).name('glide / skim warning (s)');
   br.add(barbaRay, 'crashWindup', 0.3, 3, 0.05).name('belly crash warning (s)');
   br.add(barbaRay, 'rippleWindup', 0.3, 3, 0.05).name('ripples warning (s)');

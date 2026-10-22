@@ -22,7 +22,7 @@ import {
 //    opens with a clutch of Pig Ray eggs, each with a fuse ring, and lays another every so often. Every egg sends its
 //    brood dive-bombing round you in waves of circles: break one and its brood comes then (space them out); eggs left
 //    to hatch send theirs all at once (two are hard, three too many). Break them all and it drops, stunned, every
-//    brood called off. The court's two water channels erupt in turn.
+//    brood called off.
 // 2. High Tide (65-30%): "The tide comes in!", and the sea covers the court for good. Off the platforms the water
 //    hurts and slows; they sink and rise in turn. It swims under the sea round the court and surfaces at the rim to skim
 //    across or send spouts; its surges roll across the whole court (a platform keeps you out of them), and it rides each
@@ -113,9 +113,6 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
   private hatchTele = new Map<EggSac, TelegraphHandle>();
   /** Waves of a hatched egg's brood still to come: when (fight clock). */
   private barrageDue: number[] = [];
-  /** The tide channels: when the next erupts (fight clock), and which ring it is (inner first). */
-  private nextChannel = cfg.channelFirst;
-  private channels = 0;
   // ---- High Tide
   /** Its spot round the court in the sea (radians from the middle), and which way it leans toward you. */
   private swimAng = 0;
@@ -821,14 +818,10 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
   }
 
   /**
-   * Sacs broken or hatching, and the clutch done; the tide channels erupting in turn. A broken egg's brood comes then
+   * Sacs broken or hatching, and the clutch done. A broken egg's brood comes then
    * (the last of a clutch broken stuns it instead); eggs hatching together send theirs at once, out of step.
    */
   private broodTick(ctx: BossContext): void {
-    if (this.fightT >= this.nextChannel) {
-      this.nextChannel = this.fightT + cfg.channelEvery;
-      this.erupt(ctx, cfg.channelRings[this.channels++ % 2]);
-    }
     let hatching = 0;
     for (const sac of this.clutch) {
       if (sac.handled) continue;
@@ -895,25 +888,6 @@ export class BarbaRay extends BossBase<RayState, Attack> implements Hittable {
         // One splash a wave is plenty.
         if (i === 0) this.sound('barba.splash', x, z);
       });
-    });
-  }
-
-  /** A tide channel erupts: a band either side of one of the court's water rings, warned; geysers all along it. */
-  private erupt(ctx: BossContext, r: number): void {
-    const shape: TelegraphShape = { kind: 'arc', x: this.cx, z: this.cz, yaw: 0, inner: r - cfg.channelHalf, outer: r + cfg.channelHalf, arcDeg: 360 };
-    this.teach(ctx, 'channel', 'The channels surge: off the glowing rings!');
-    this.warn(ctx, shape, cfg.channelWarn, SPOUT_COLOR, () => {
-      if (!this.alive || this.phase !== 1) return;
-      ctx.hitPlayer(shape, cfg.channelAtp, this.cx, this.cz, 4);
-      // Dim, slim geysers along it (bright ones blew out under the court's bloom).
-      const n = Math.round((2 * Math.PI * r) / 3.5);
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2;
-        ctx.effect(new Pillar(this.cx + Math.sin(a) * r, this.cz + Math.cos(a) * r, 0x2f6a98, 0.45, 0.45, 3));
-      }
-      ctx.effect(new Ring(this.cx, this.cz, 0xe6f8ff, r + cfg.channelHalf, 0.45, 0.6));
-      ctx.shake(0.25);
-      this.sound('barba.spout', this.cx + r, this.cz);
     });
   }
 

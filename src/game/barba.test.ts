@@ -48,7 +48,7 @@ describe('Barba Ray: the Brood', () => {
   });
 });
 
-describe("Barba Ray: the broods and the tide channels", () => {
+describe('Barba Ray: the broods', () => {
   it("makes a brood's circles a walk out of in their warning", () => {
     expect(cfg.barrageRadius + pr).toBeLessThanOrEqual(walkIn(cfg.barrageWarn, TEMPO));
   });
@@ -69,11 +69,6 @@ describe("Barba Ray: the broods and the tide channels", () => {
     expect(far).toBeGreaterThan(cfg.arenaRadius - 3);
   });
 
-  it('puts both channels on the court, each band a walk out of in its warning', () => {
-    for (const r of cfg.channelRings) expect(r + cfg.channelHalf).toBeLessThanOrEqual(cfg.arenaRadius);
-    expect(cfg.channelRings[0] - cfg.channelHalf).toBeGreaterThan(0);
-    expect(cfg.channelHalf + pr).toBeLessThanOrEqual(walkIn(cfg.channelWarn, TEMPO));
-  });
 });
 
 describe('Barba Ray: High Tide', () => {
@@ -374,17 +369,6 @@ describe('Barba Ray: the fight', () => {
     expect(b.sacs.filter((s) => s.alive)).toHaveLength(0);
     // Three broods' worth of circles in the time one takes.
     expect(f.shapes.filter(isBrood).length).toBeGreaterThanOrEqual(cfg.clutchCount * cfg.barrageWaves * (cfg.barrageCircles - 2));
-  });
-
-  it('erupts the tide channels in turn, the inner ring first', () => {
-    const b = ray();
-    const f = fakeFight(b);
-    const onRing = (r: number) => () => f.body.pos.set(CX + r, 0, CZ);
-    const arcAt = (r: number) => (s: TelegraphShape) => s.kind === 'arc' && Math.abs(s.inner - (r - cfg.channelHalf)) < 1e-6;
-    f.step((2.6 + cfg.channelFirst + cfg.channelWarn) / TEMPO + 1, onRing(cfg.channelRings[0]));
-    expect(f.hits.some(arcAt(cfg.channelRings[0]))).toBe(true);
-    f.step(cfg.channelEvery / TEMPO + 1, onRing(cfg.channelRings[1]));
-    expect(f.hits.some(arcAt(cfg.channelRings[1]))).toBe(true);
   });
 
   it('can’t be skipped through: damage past the Brood’s threshold is lost, and the tide comes in', () => {

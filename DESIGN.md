@@ -1999,6 +1999,8 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
     HP** (hits on it don't touch its bar) and counts down like De Rol Le's bombs (the user's ask): **a fuse ring round
     its base** filling up, rose to red, and its HP in a small bar over it; it **hatches 11 s** after landing (~9.6 real
     seconds), the eggs swelling as it nears.
+  - **Tide channels**: built 2026-10-22 at the user's pick (the court's two glowing water rings erupting in turn, a
+    band either side of each) and **removed** the same day at the user's word.
   - **Broods** (2026-10-22, reworked twice with the user: first a "Mother's fury" glide and circles for each egg broken,
     then the circles only for eggs left to hatch; settled on both): **every egg sends its brood**, Pig Rays
     dive-bombing the court: **four waves of circles** 0.8 s apart, **twelve 2 m circles a wave scattered at random over
@@ -2012,10 +2014,6 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
     - **Eggs left to hatch** send their broods **all at once**, a third of a wave out of step with each other: one is a
       dodge, two are hard, three are too many ("The clutch hatches: every brood dives at you at once!"). No stun.
     - The Pig Rays' lanes of the first draft are gone (the rays now dive onto the circles).
-  - **Tide channels** (the user's pick): the court's two rings of glowing water (4.5 m and 13.6 m out, `channelRings`,
-    the scenery's channels too) erupt in turn, the inner one first: 5 s into the fight, then every 10 s, a band 1.5 m
-    either side of the ring warned 1.5 s (pale blue, a walk), ×0.9 ATP, slim geysers all along it ("The channels surge:
-    off the glowing rings!" the first time). The Brood only.
 - **Phase 2, High Tide (65-30%)**: "The tide comes in!": it dives out over the rim and the sea covers the court **for
   good** ("High tide: keep to the platforms!").
   - **The water**: off a standing platform you lose **6% of your max HP a second** (past armour and damage taken,
@@ -2110,13 +2108,13 @@ Numbers in `barbaRay` (config/bosses.ts, tuning panel **Barba Ray**); all first 
   platforms, the change into the Deep and the Deep's look, the AIR gauge, a dive's warning, and a scripted run from
   waking to the kill through all three phases with no errors (at a steady 0.5% of its HP a second: the Brood ~86 s,
   High Tide ~80 s, the Deep ~64 s). Since then (2026-10-22): the broods (one for each egg broken but the last, the
-  last calling them off; three stacked from a hatched clutch), the channels' bands, the ink pools and smothered vents in
+  last calling them off; three stacked from a hatched clutch), the ink pools and smothered vents in
   `barba.test.ts`, and in the game the first draft's fury circles round you (the dash hint
-  showing), a channel band, an ink pool under you, and the ink and Corruption rows stacked over your head; a second
+  showing), an ink pool under you, and the ink and Corruption rows stacked over your head; a second
   scripted run to the kill with no errors. Not done: a balance pass (eggs' HP against real damage, the water's bite),
   a recorded track.
 - **Debug** (tuning panel): Rifts > "enter Barba Ray (Pinnacle II)" goes straight in (its first kill stays owed); the
-  **Barba Ray** folder has the phase thresholds, the clutches, the broods, the tide channels, the water, the
+  **Barba Ray** folder has the phase thresholds, the clutches, the broods, the water, the
   platforms, the surges, the beaching, the Ul Rays, the air and vents, the ink and every attack's warning; Rifts has
   its speed and HP multiplier.
 
