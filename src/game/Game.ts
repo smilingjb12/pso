@@ -45,6 +45,7 @@ import {
   shopCopy, shopStock, type Drop, type ShopKind, type ShopUnlocks,
 } from './loot';
 import { addCharge, chargeOf, doseAmount, fillInjector, injectorDef, injectorStats, spendDose } from './injectors';
+import { keepShaders } from './keepShaders';
 import { magForm, PHOTON_BLASTS, type PhotonBlastId } from './mag';
 import { skillPoints } from './skills';
 import { playerLook } from './models/heroine';
@@ -873,6 +874,7 @@ export class Game implements GameApi {
       this.hud.menuOpen = this.menus.isOpen;
       this.atmosphere.update(hudDt);
       this.atmosphere.render();
+      keepShaders(this.renderer);
     } else {
       this.renderer.setClearColor(0x0b1020);
       this.renderer.clear();
